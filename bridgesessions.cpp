@@ -960,7 +960,11 @@ int server_cert_verify_cb(X509_STORE_CTX* ctx, void* arg) {
     if (!pk) return 0;
     auto raw = extract_raw_pubkey(pk);
     if (raw.empty()) return 0;
-    return auth->contains(raw) ? 1 : 0;
+    if (auth->contains(raw)) {
+        X509_STORE_CTX_set_error(ctx, X509_V_OK);
+        return 1;
+    }
+    return 0;
 }
 
 // Client: TOFU via SHA-256 fingerprint callback
@@ -977,7 +981,11 @@ int client_cert_verify_cb(X509_STORE_CTX* ctx, void* arg) {
         snprintf(h, sizeof(h), "%02x", md[i]);
         fp += h;
     }
-    return (*cb)(fp) ? 1 : 0;
+    if ((*cb)(fp)) {
+        X509_STORE_CTX_set_error(ctx, X509_V_OK);
+        return 1;
+    }
+    return 0;
 }
 
 } // anonymous namespace
