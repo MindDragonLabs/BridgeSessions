@@ -2,6 +2,7 @@
 // Single-file architecture: all protocol, TLS, session, and mesh logic in one file.
 // Namespace: bs::mesh
 
+#define NOMINMAX
 #include <cstdint>
 #include <cstddef>
 #include <string>
@@ -11,6 +12,7 @@
 #include <cstring>
 #include <algorithm>
 #include <span>
+#include <optional>
 #include <cstdio>
 #include <fstream>
 #include <sstream>
@@ -24,12 +26,199 @@
 #include <openssl/bio.h>
 #include <openssl/ssl.h>
 #include <openssl/err.h>
+#include <array>
+#include <atomic>
+#include <memory>
+#include <mutex>
+#include <shared_mutex>
 
 // ────────────────────────────────────────────────────────────────────
 // 1. MESSAGE TYPES (ported from bs-protocol, namespace bs::mesh)
 // ────────────────────────────────────────────────────────────────────
 
 namespace bs::mesh {
+
+// ────────────────────────────────────────────────────────────────────
+// 0. RING BUFFER (thread-safe circular buffer for PTY scrollback)
+// ────────────────────────────────────────────────────────────────────
+
+template <size_t Capacity>
+class RingBuffer {
+    // Power-of-2 capacity enables mask-based indexing
+    static_assert(Capacity > 0 && (Capacity & (Capacity - 1)) == 0,
+                  "Capacity must be power of 2");
+
+    static constexpr size_t kMask = Capacity - 1;
+
+    std::unique_ptr<std::array<char, Capacity>> buf_{
+        std::make_unique<std::array<char, Capacity>>()};
+    std::atomic<size_t> write_pos_{0};
+    mutable std::shared_mutex mutex_;
+
+public:
+    RingBuffer() = default;
+
+    // Move-only (atomics are non-copyable)
+    RingBuffer(RingBuffer&& other) noexcept
+        : write_pos_(other.write_pos_.load(std::memory_order_relaxed))
+    {
+        std::unique_lock lock(other.mutex_);
+        std::memcpy(buf_->data(), other.buf_->data(), Capacity);
+    }
+
+    RingBuffer& operator=(RingBuffer&& other) noexcept {
+        if (this != &other) {
+            write_pos_.store(other.write_pos_.load(std::memory_order_relaxed),
+                             std::memory_order_relaxed);
+            std::scoped_lock lock(mutex_, other.mutex_);
+            std::memcpy(buf_->data(), other.buf_->data(), Capacity);
+        }
+        return *this;
+    }
+
+    RingBuffer(const RingBuffer&) = delete;
+    RingBuffer& operator=(const RingBuffer&) = delete;
+
+    // ── Write ──────────────────────────────────────────────────
+    // Append data to the buffer. Thread-safe: exclusive lock.
+    void write(std::span<const char> data) {
+        if (data.empty()) return;
+        std::unique_lock lock(mutex_);
+
+        size_t pos = write_pos_.load(std::memory_order_relaxed);
+        size_t len = data.size();
+
+        if (len >= Capacity) {
+            // Data larger than buffer — keep only the tail
+            auto tail = data.subspan(data.size() - Capacity);
+            std::memcpy(buf_->data(), tail.data(), Capacity);
+            write_pos_.store(Capacity, std::memory_order_release);
+            return;
+        }
+
+        size_t idx = pos & kMask;
+        size_t space_to_end = Capacity - idx;
+
+        if (len <= space_to_end) {
+            std::memcpy(buf_->data() + idx, data.data(), len);
+        } else {
+            std::memcpy(buf_->data() + idx, data.data(), space_to_end);
+            std::memcpy(buf_->data(), data.data() + space_to_end, len - space_to_end);
+        }
+
+        write_pos_.store(pos + len, std::memory_order_release);
+    }
+
+    void write(std::string_view data) {
+        write(std::span<const char>(data.data(), data.size()));
+    }
+
+    // ── Read helpers ───────────────────────────────────────────
+
+    // Total bytes written since creation (for uptime/statistics)
+    size_t total_written() const noexcept {
+        return write_pos_.load(std::memory_order_acquire);
+    }
+
+    // Current content size (up to Capacity)
+    size_t size() const noexcept {
+        size_t wp = write_pos_.load(std::memory_order_acquire);
+        return std::min(wp, Capacity);
+    }
+
+    // ── Snapshot read — full buffer copy (shared lock) ─────────
+    std::vector<char> snapshot() const {
+        std::shared_lock lock(mutex_);
+        size_t wp = write_pos_.load(std::memory_order_acquire);
+        size_t n = std::min(wp, Capacity);
+
+        std::vector<char> result(n);
+        if (n == 0) return result;
+
+        if (wp <= Capacity) {
+            // Buffer hasn't wrapped yet
+            std::memcpy(result.data(), buf_->data(), n);
+        } else {
+            // Wrapped — read in order from oldest to newest
+            size_t idx = wp & kMask;
+            size_t tail = Capacity - idx;
+            std::memcpy(result.data(), buf_->data() + idx, tail);
+            std::memcpy(result.data() + tail, buf_->data(), idx);
+        }
+        return result;
+    }
+
+    // ── read_last_lines — backward scan for N most recent lines ─
+    std::string read_last_lines(size_t num_lines) const {
+        if (num_lines == 0) return {};
+
+        std::shared_lock lock(mutex_);
+        size_t wp = write_pos_.load(std::memory_order_acquire);
+        size_t n = std::min(wp, Capacity);
+        if (n == 0) return {};
+
+        // Build linear view of buffer
+        std::vector<char> linear(n);
+        if (wp <= Capacity) {
+            std::memcpy(linear.data(), buf_->data(), n);
+        } else {
+            size_t idx = wp & kMask;
+            size_t tail = Capacity - idx;
+            std::memcpy(linear.data(), buf_->data() + idx, tail);
+            std::memcpy(linear.data() + tail, buf_->data(), idx);
+        }
+
+        // Scan backward for newlines
+        // If the last char is '\n', we need num_lines+1 transitions to skip the empty trailing line.
+        // Otherwise we need exactly num_lines transitions.
+        size_t target_newlines = (linear.back() == '\n') ? num_lines + 1 : num_lines;
+        size_t lines_found = 0;
+        ptrdiff_t cut = static_cast<ptrdiff_t>(n);
+        for (ptrdiff_t i = static_cast<ptrdiff_t>(n) - 1; i >= 0; --i) {
+            if (linear[i] == '\n') {
+                ++lines_found;
+                if (lines_found >= target_newlines) {
+                    cut = i + 1;
+                    break;
+                }
+            }
+        }
+        if (lines_found < target_newlines) cut = 0;
+
+        return std::string(linear.data() + cut, n - static_cast<size_t>(cut));
+    }
+
+    // ── read_range — offset + length for chunked replay ─────────
+    std::string read_range(size_t offset, size_t length) const {
+        std::shared_lock lock(mutex_);
+        size_t wp = write_pos_.load(std::memory_order_acquire);
+        size_t n = std::min(wp, Capacity);
+        if (offset >= n) return {};
+
+        size_t actual_len = std::min(length, n - offset);
+
+        std::vector<char> linear(n);
+        if (wp <= Capacity) {
+            std::memcpy(linear.data(), buf_->data(), n);
+        } else {
+            size_t idx = wp & kMask;
+            size_t tail = Capacity - idx;
+            std::memcpy(linear.data(), buf_->data() + idx, tail);
+            std::memcpy(linear.data() + tail, buf_->data(), idx);
+        }
+
+        return std::string(linear.data() + offset, actual_len);
+    }
+
+    // ── Clear ─────────────────────────────────────────────────
+    void clear() {
+        std::unique_lock lock(mutex_);
+        write_pos_.store(0, std::memory_order_release);
+    }
+
+    // ── Capacity (compile-time constant, but accessible) ─────
+    static constexpr size_t capacity() noexcept { return Capacity; }
+};
 
 // ── Message Type Enum ─────────────────────────────────────────────
 // 20 original types + 2 new mesh types = 22 total
@@ -878,6 +1067,181 @@ SslCtxPtr create_node_tls(const NodeTlsConfig& cfg, TlsMode mode) {
     }
 
     return ctx;
+}
+
+// ────────────────────────────────────────────────────────────────────
+// 4. FRAME I/O (ssl_check, read_frame, write_frame)
+// ────────────────────────────────────────────────────────────────────
+
+namespace {
+
+void ssl_check(int ret, SSL* ssl, const char* op) {
+    if (ret <= 0) {
+        int err = SSL_get_error(ssl, ret);
+        char buf[256];
+        ERR_error_string_n(ERR_get_error(), buf, sizeof(buf));
+        throw std::runtime_error(std::string(op) + " failed: SSL error " + std::to_string(err) + " " + buf);
+    }
+}
+
+} // anonymous namespace
+
+Message read_frame(SSL* ssl) {
+    // Read header
+    uint8_t header[FRAME_HEADER_SIZE];
+    size_t total = 0;
+    while (total < FRAME_HEADER_SIZE) {
+        size_t n = 0;
+        int ret = SSL_read_ex(ssl, header + total, FRAME_HEADER_SIZE - total, &n);
+        ssl_check(ret, ssl, "SSL_read header");
+        total += n;
+    }
+
+    uint16_t length = read_u16(header + 4);
+
+    if (length > MAX_FRAME_SIZE)
+        throw std::runtime_error("frame payload exceeds MAX_FRAME_SIZE");
+
+    // Read payload
+    std::vector<uint8_t> raw(FRAME_HEADER_SIZE + length);
+    std::memcpy(raw.data(), header, FRAME_HEADER_SIZE);
+
+    if (length > 0) {
+        total = 0;
+        while (total < length) {
+            size_t n = 0;
+            int ret = SSL_read_ex(ssl, raw.data() + FRAME_HEADER_SIZE + total, length - total, &n);
+            ssl_check(ret, ssl, "SSL_read payload");
+            total += n;
+        }
+    }
+
+    return decode(raw);
+}
+
+void write_frame(SSL* ssl, const Message& msg, uint16_t stream_id) {
+    auto frame = encode(msg, stream_id);
+
+    size_t total = 0;
+    while (total < frame.size()) {
+        size_t n = 0;
+        int ret = SSL_write_ex(ssl, frame.data() + total, frame.size() - total, &n);
+        ssl_check(ret, ssl, "SSL_write");
+        total += n;
+    }
+}
+
+// ────────────────────────────────────────────────────────────────────
+// 5. OSC 52 CLIPBOARD SCANNER
+// ────────────────────────────────────────────────────────────────────
+// Scans PTY output for OSC 52 sequences, extracts base64 content,
+// strips them from the terminal stream so they're never rendered.
+//
+// OSC 52 format:  ESC ] 52 ; Pc ; <base64> ST
+//  - ESC = \x1b, ST = \x1b\\ or \x07 (BEL)
+//  - Pc = clipboard target (c, p, q; usually 'c' for system clipboard)
+
+#ifdef _WIN32
+using ssize_t = long long;
+#endif
+
+struct Osc52Result {
+    std::string cleaned_text;              // text with OSC 52 sequences stripped
+    std::optional<std::string> clipboard_text;  // decoded clipboard content, if any
+};
+
+// Scan a buffer for OSC 52 sequences. Returns cleaned text + optional clipboard.
+// Thread-safe: pure function, no shared state.
+[[nodiscard]] Osc52Result scan_osc52(std::string_view input);
+
+// ── Internal helpers ────────────────────────────────────────────
+
+namespace detail {
+
+// Find the end of an OSC sequence starting at pos (after ESC ] 52 ;)
+inline std::ptrdiff_t find_osc_end(std::string_view s, size_t start) {
+    for (size_t i = start; i < s.size(); ++i) {
+        if (s[i] == '\x07') return (std::ptrdiff_t)i;           // BEL terminator
+        if (s[i] == '\x1b' && i+1 < s.size() && s[i+1] == '\\')
+            return (std::ptrdiff_t)i;                            // ST terminator (ESC \)
+    }
+    return -1; // incomplete sequence — leave in stream
+}
+
+// Extract and decode base64 content from OSC 52 body.
+// Body is "Pc;<base64>" — the "52;" prefix is already stripped.
+inline std::optional<std::string> decode_osc52_body(std::string_view body) {
+    auto semicolon = body.find(';');
+    if (semicolon == std::string_view::npos) return std::nullopt;
+
+    std::string_view b64 = body.substr(semicolon + 1);
+    if (b64.empty()) return std::nullopt;  // empty clipboard = clear
+
+    // Base64 decode (hand-rolled to avoid OpenSSL dependency for this)
+    static const char kTable[] =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+    std::string result;
+    result.reserve(b64.size() * 3 / 4);
+
+    int acc = 0, bits = 0;
+    for (char c : b64) {
+        if (c == '=') break;
+        const char* p = std::strchr(kTable, c);
+        if (!p) continue;  // skip whitespace / invalid chars
+        acc = (acc << 6) | (int)(p - kTable);
+        bits += 6;
+        if (bits >= 8) {
+            bits -= 8;
+            result.push_back((char)(acc >> bits));
+            acc &= (1 << bits) - 1;
+        }
+    }
+    return result;
+}
+
+} // namespace detail
+
+inline Osc52Result scan_osc52(std::string_view input) {
+    Osc52Result result;
+    result.cleaned_text.reserve(input.size());
+
+    size_t pos = 0;
+    while (pos < input.size()) {
+        // Look for ESC ] (OSC introducer)
+        if (input[pos] == '\x1b' && pos + 1 < input.size() && input[pos + 1] == ']') {
+            // Check for "52;" after ESC ]
+            size_t after_esc = pos + 2;
+            if (after_esc + 2 < input.size() &&
+                input[after_esc] == '5' && input[after_esc+1] == '2' && input[after_esc+2] == ';')
+            {
+                // OSC 52 sequence found — find the end
+                auto end = detail::find_osc_end(input, after_esc + 3);
+                if (end >= 0) {
+                    // Extract the body (between "52;" and ST/BEL)
+                    std::string_view body = input.substr(
+                        after_esc + 3, (size_t)end - (after_esc + 3));
+                    auto decoded = detail::decode_osc52_body(body);
+                    if (decoded && !decoded->empty()) {
+                        result.clipboard_text = std::move(*decoded);
+                    }
+                    // Skip past the terminator
+                    pos = (size_t)end;
+                    if (input[pos] == '\x1b' && pos + 1 < input.size() && input[pos+1] == '\\')
+                        pos += 2;
+                    else if (input[pos] == '\x07')
+                        pos += 1;
+                    continue;
+                }
+                // Incomplete — leave in stream
+            }
+        }
+        // Regular character — pass through
+        result.cleaned_text.push_back(input[pos]);
+        ++pos;
+    }
+
+    return result;
 }
 
 } // namespace bs::mesh
