@@ -31,6 +31,11 @@
 #include <memory>
 #include <mutex>
 #include <shared_mutex>
+#include <filesystem>
+#ifdef _WIN32
+#include <io.h>
+#include <sys/stat.h>
+#endif
 
 // ────────────────────────────────────────────────────────────────────
 // 1. MESSAGE TYPES (ported from bs-protocol, namespace bs::mesh)
@@ -1021,6 +1026,86 @@ std::string peer_public_key_hex(SSL* ssl) {
     std::string hex = pkey ? pubkey_hex(pkey) : "";
     X509_free(cert);
     return hex;
+}
+
+// ── Public: bootstrap_identity ───────────────────────────────────
+// Auto-generate ed25519 keypair on first run into ~/.bridgesessions/
+
+void bootstrap_identity(const std::string& home_dir) {
+    namespace fs = std::filesystem;
+    fs::path dir(home_dir);
+
+    // If the standard identity already exists, nothing to do
+    fs::path id_key   = dir / "id_ed25519.pem";
+    fs::path id_cert  = dir / "id_ed25519-cert.pem";
+    fs::path id_pub   = dir / "id_ed25519.pub";
+
+    if (fs::exists(id_key)) return;
+
+    // Migration: if legacy _bs_autocert.pem + _bs_autokey.pem exist, copy them
+    fs::path legacy_cert = dir / "_bs_autocert.pem";
+    fs::path legacy_key  = dir / "_bs_autokey.pem";
+
+    if (fs::exists(legacy_cert) && fs::exists(legacy_key)) {
+        fs::copy_file(legacy_cert, id_cert, fs::copy_options::overwrite_existing);
+        fs::copy_file(legacy_key, id_key, fs::copy_options::overwrite_existing);
+
+        // Also generate the .pub file from the migrated key
+        std::ifstream kf(id_key);
+        if (kf.is_open()) {
+            std::stringstream buf;
+            buf << kf.rdbuf();
+            kf.close();
+            std::string hex = pubkey_hex_from_pem(buf.str());
+            if (!hex.empty()) {
+                std::ofstream pf(id_pub);
+                pf << hex;
+                pf.close();
+            }
+        }
+        return;
+    }
+
+    // Fresh bootstrap: generate keypair
+    fs::create_directories(dir);
+
+    auto [cert_pem, key_pem] = generate_cert_key_pair("bridgesessions");
+    std::string pubkey_hex = pubkey_hex_from_pem(key_pem);
+
+    // Write key
+    {
+        std::ofstream f(id_key);
+        if (!f) throw std::runtime_error("cannot write " + id_key.string());
+        f << key_pem;
+        f.close();
+    }
+
+    // Write cert
+    {
+        std::ofstream f(id_cert);
+        if (!f) throw std::runtime_error("cannot write " + id_cert.string());
+        f << cert_pem;
+        f.close();
+    }
+
+    // Write pubkey
+    {
+        std::ofstream f(id_pub);
+        if (!f) throw std::runtime_error("cannot write " + id_pub.string());
+        f << pubkey_hex;
+        f.close();
+    }
+
+    // Set file permissions: owner read+write only (0600 equivalent)
+#ifdef _WIN32
+    ::_chmod(id_key.string().c_str(), _S_IREAD | _S_IWRITE);
+    ::_chmod(id_cert.string().c_str(), _S_IREAD | _S_IWRITE);
+    ::_chmod(id_pub.string().c_str(), _S_IREAD | _S_IWRITE);
+#else
+    ::chmod(id_key.string().c_str(), S_IRUSR | S_IWUSR);
+    ::chmod(id_cert.string().c_str(), S_IRUSR | S_IWUSR);
+    ::chmod(id_pub.string().c_str(), S_IRUSR | S_IWUSR);
+#endif
 }
 
 // ── Public: unified create_node_tls ──────────────────────────────
