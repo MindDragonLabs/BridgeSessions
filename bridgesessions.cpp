@@ -2372,6 +2372,796 @@ public:
     }
 };
 
+// ────────────────────────────────────────────────────────────────────
+// 11. MESH CONTROLLER — connection manager, event loop, gossip
+// ────────────────────────────────────────────────────────────────────
+
+// Platform socket headers
+#ifndef _WIN32
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <netdb.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <poll.h>
+#define SOCKET int
+#define INVALID_SOCKET (-1)
+#define SOCKET_ERROR (-1)
+#define CLOSESOCK close
+#else
+// windows.h already included → winsock.h available
+#define CLOSESOCK closesocket
+#endif
+
+class MeshController {
+    MeshConfig config_;
+    SessionRegistry sessions_;
+    SslCtxPtr tls_listen_;
+    SslCtxPtr tls_connect_;
+    std::string our_pubkey_;
+    std::string home_dir_;
+
+    struct Conn {
+        std::string peer_name;
+        std::string peer_pubkey;
+        std::string peer_addr;
+        SslPtr ssl;
+        SOCKET sock_fd = INVALID_SOCKET;
+        bool is_outbound = false;
+        std::chrono::steady_clock::time_point last_pong;
+        Session* attached_session = nullptr;
+        std::string remote_session;
+    };
+
+    std::vector<Conn> conns_;
+    static constexpr size_t kMaxConnections = 64;
+
+    // Backoff state per seed
+    struct Backoff {
+        int delay_ms = 100;
+        int max_ms = 30000;
+        int attempt = 0;
+    };
+    std::unordered_map<std::string, Backoff> backoffs_;
+
+    // Shutdown flag for event loop
+    std::atomic<bool> running_{false};
+
+    // Last gossip/ping broadcast times
+    std::chrono::steady_clock::time_point last_ping_time_;
+    std::chrono::steady_clock::time_point last_gossip_time_;
+
+    // Listen socket
+    SOCKET listen_fd_ = INVALID_SOCKET;
+
+    // ── Internal helpers ───────────────────────────────────────
+
+    // Resolve "host:port" → sockaddr_in
+    static sockaddr_in resolve_addr(const std::string& addr) {
+        auto colon = addr.rfind(':');
+        if (colon == std::string::npos) {
+            throw std::runtime_error("invalid addr (no port): " + addr);
+        }
+        std::string host = addr.substr(0, colon);
+        std::string port_str = addr.substr(colon + 1);
+        int port = std::stoi(port_str);
+
+        sockaddr_in sa{};
+        sa.sin_family = AF_INET;
+        sa.sin_port = htons(static_cast<u_short>(port));
+
+        if (host == "localhost") host = "127.0.0.1";
+        if (host.empty()) host = "127.0.0.1";
+
+#ifdef _WIN32
+        sa.sin_addr.s_addr = inet_addr(host.c_str());
+        if (sa.sin_addr.s_addr == INADDR_NONE) {
+            struct hostent* he = gethostbyname(host.c_str());
+            if (!he) throw std::runtime_error("gethostbyname failed: " + host);
+            sa.sin_addr.s_addr = *reinterpret_cast<unsigned long*>(he->h_addr_list[0]);
+        }
+#else
+        if (inet_pton(AF_INET, host.c_str(), &sa.sin_addr) <= 0) {
+            struct hostent* he = gethostbyname(host.c_str());
+            if (!he) throw std::runtime_error("gethostbyname failed: " + host);
+            sa.sin_addr.s_addr = *reinterpret_cast<unsigned long*>(he->h_addr_list[0]);
+        }
+#endif
+        return sa;
+    }
+
+    // Check if we already have a conn to a peer (by pubkey)
+    bool has_conn_for_pubkey(const std::string& pubkey_hex) const {
+        for (auto& c : conns_) {
+            if (c.peer_pubkey == pubkey_hex && c.sock_fd != INVALID_SOCKET)
+                return true;
+        }
+        return false;
+    }
+
+    // Check if we already have a conn to a peer (by addr)
+    bool has_conn_for_addr(const std::string& addr) const {
+        for (auto& c : conns_) {
+            if (c.peer_addr == addr && c.sock_fd != INVALID_SOCKET)
+                return true;
+        }
+        return false;
+    }
+
+    // Find conn index by sock_fd
+    int find_conn_index(SOCKET fd) const {
+        for (size_t i = 0; i < conns_.size(); ++i) {
+            if (conns_[i].sock_fd == fd) return static_cast<int>(i);
+        }
+        return -1;
+    }
+
+    // Remove a connection and clean up
+    void remove_conn(size_t index) {
+        if (index >= conns_.size()) return;
+        auto& c = conns_[index];
+        if (c.sock_fd != INVALID_SOCKET) {
+            CLOSESOCK(c.sock_fd);
+        }
+        // Remove backoff for this peer so it can be reconnected
+        if (!c.peer_addr.empty()) {
+            backoffs_.erase(c.peer_addr);
+        }
+        conns_.erase(conns_.begin() + static_cast<ptrdiff_t>(index));
+    }
+
+    // ── Hello exchange ─────────────────────────────────────────
+
+    // Build a HelloMsg with our info + all known peers
+    HelloMsg build_hello() const {
+        HelloMsg h;
+        h.node_name = config_.node_name;
+        h.version = "1.0.0";
+        h.pubkey_hex = our_pubkey_;
+
+        // Add seeds as known peers
+        for (auto& s : config_.seeds) {
+            PeerInfo pi;
+            pi.name = s.name;
+            pi.addr = s.addr;
+            pi.pubkey_hex = s.pubkey_hex;
+            pi.last_seen = static_cast<uint64_t>(
+                std::chrono::system_clock::to_time_t(std::chrono::system_clock::now()));
+            h.known_peers.push_back(std::move(pi));
+        }
+
+        // Add discovered peers
+        for (auto& d : config_.discovered) {
+            PeerInfo pi;
+            pi.name = d.name;
+            pi.addr = d.addr;
+            pi.pubkey_hex = d.pubkey_hex;
+            pi.last_seen = d.last_seen;
+            h.known_peers.push_back(std::move(pi));
+        }
+
+        // Add already connected peers
+        for (auto& c : conns_) {
+            if (c.sock_fd == INVALID_SOCKET) continue;
+            PeerInfo pi;
+            pi.name = c.peer_name;
+            pi.addr = c.peer_addr;
+            pi.pubkey_hex = c.peer_pubkey;
+            pi.last_seen = static_cast<uint64_t>(
+                std::chrono::system_clock::to_time_t(std::chrono::system_clock::now()));
+            h.known_peers.push_back(std::move(pi));
+        }
+
+        return h;
+    }
+
+    // Merge peers from Hello or Gossip into discovered
+    void merge_peers(const std::vector<PeerInfo>& peers) {
+        bool changed = false;
+        for (auto& p : peers) {
+            // Skip self
+            if (p.pubkey_hex == our_pubkey_) continue;
+            // Skip already known seeds
+            bool is_seed = false;
+            for (auto& s : config_.seeds) {
+                if (s.name == p.name || (!p.pubkey_hex.empty() && s.pubkey_hex == p.pubkey_hex)) {
+                    is_seed = true;
+                    // Update pubkey if missing
+                    if (s.pubkey_hex.empty() && !p.pubkey_hex.empty()) {
+                        s.pubkey_hex = p.pubkey_hex;
+                        changed = true;
+                    }
+                    break;
+                }
+            }
+            if (is_seed) continue;
+
+            // Check if already in discovered
+            bool found = false;
+            for (auto& d : config_.discovered) {
+                if (d.name == p.name || (!p.pubkey_hex.empty() && d.pubkey_hex == p.pubkey_hex)) {
+                    found = true;
+                    if (!p.addr.empty() && d.addr.empty()) {
+                        d.addr = p.addr;
+                        changed = true;
+                    }
+                    if (!p.pubkey_hex.empty() && d.pubkey_hex.empty()) {
+                        d.pubkey_hex = p.pubkey_hex;
+                        changed = true;
+                    }
+                    d.last_seen = static_cast<uint64_t>(
+                        std::chrono::system_clock::to_time_t(std::chrono::system_clock::now()));
+                    break;
+                }
+            }
+            if (!found) {
+                PeerEntry pe;
+                pe.name = p.name;
+                pe.addr = p.addr;
+                pe.pubkey_hex = p.pubkey_hex;
+                pe.last_seen = static_cast<uint64_t>(
+                    std::chrono::system_clock::to_time_t(std::chrono::system_clock::now()));
+                config_.discovered.push_back(std::move(pe));
+                changed = true;
+            }
+        }
+        if (changed) {
+            save_config(home_dir_ + "/.bridgesessions/config", config_);
+        }
+    }
+
+    // Duplicate resolution: if two conns have same pubkey, keep the one
+    // where OUR pubkey < PEER pubkey lexicographically
+    void resolve_duplicates() {
+        for (size_t i = 0; i < conns_.size(); ++i) {
+            if (conns_[i].sock_fd == INVALID_SOCKET) continue;
+            for (size_t j = i + 1; j < conns_.size(); ++j) {
+                if (conns_[j].sock_fd == INVALID_SOCKET) continue;
+                if (conns_[i].peer_pubkey == conns_[j].peer_pubkey &&
+                    !conns_[i].peer_pubkey.empty()) {
+                    // Keep the connection where our_pubkey < peer_pubkey
+                    bool keep_i = our_pubkey_ < conns_[i].peer_pubkey;
+                    if (keep_i) {
+                        remove_conn(j);
+                    } else {
+                        remove_conn(i);
+                    }
+                    // Restart the check after removal
+                    resolve_duplicates();
+                    return;
+                }
+            }
+        }
+    }
+
+    // ── Accept new inbound connection ──────────────────────────
+
+    void accept_inbound() {
+        sockaddr_in peer_addr{};
+        socklen_t addr_len = sizeof(peer_addr);
+        SOCKET cfd = accept(listen_fd_, reinterpret_cast<sockaddr*>(&peer_addr), &addr_len);
+        if (cfd == INVALID_SOCKET) return;
+
+        if (conns_.size() >= kMaxConnections) {
+            CLOSESOCK(cfd);
+            return;
+        }
+
+        // TLS handshake (server side)
+        auto ssl = SslPtr(SSL_new(tls_listen_.get()));
+        if (!ssl) { CLOSESOCK(cfd); return; }
+        SSL_set_fd(ssl.get(), static_cast<int>(cfd));
+
+        int ret = SSL_accept(ssl.get());
+        if (ret <= 0) { CLOSESOCK(cfd); return; }
+
+        // Get peer's pubkey
+        std::string peer_pk = peer_public_key_hex(ssl.get());
+        if (peer_pk.empty()) { CLOSESOCK(cfd); return; }
+
+        // Read Hello from peer
+        try {
+            Message msg = read_frame(ssl.get());
+            if (!std::holds_alternative<HelloMsg>(msg)) {
+                CLOSESOCK(cfd);
+                return;
+            }
+            auto& hello = std::get<HelloMsg>(msg);
+
+            Conn c;
+            c.peer_name = hello.node_name;
+            c.peer_pubkey = peer_pk;
+            c.peer_addr = std::string(inet_ntoa(peer_addr.sin_addr)) + ":" +
+                          std::to_string(ntohs(peer_addr.sin_port));
+            c.ssl = std::move(ssl);
+            c.sock_fd = cfd;
+            c.is_outbound = false;
+            c.last_pong = std::chrono::steady_clock::now();
+
+            // Merge known peers from Hello
+            merge_peers(hello.known_peers);
+
+            // Send our Hello back
+            write_frame(c.ssl.get(), build_hello(), CONTROL_STREAM_ID);
+
+            // Check duplicate resolution
+            conns_.push_back(std::move(c));
+            resolve_duplicates();
+
+            log_event("mesh_peer_connected", hello.node_name + " pubkey=" + peer_pk.substr(0, 16) + "...");
+        } catch (...) {
+            CLOSESOCK(cfd);
+        }
+    }
+
+    // ── Public API ──────────────────────────────────────────
+
+    bool connect_to_peer_impl(const std::string& addr) {
+        try {
+            // Check if already connected to this addr
+            if (has_conn_for_addr(addr)) return true;
+
+            // Resolve and connect
+            auto sa = resolve_addr(addr);
+            SOCKET sfd = socket(AF_INET, SOCK_STREAM, 0);
+            if (sfd == INVALID_SOCKET) return false;
+
+            if (connect(sfd, reinterpret_cast<sockaddr*>(&sa), sizeof(sa)) == SOCKET_ERROR) {
+                CLOSESOCK(sfd);
+                return false;
+            }
+
+            // TLS handshake (client side)
+            auto ssl = SslPtr(SSL_new(tls_connect_.get()));
+            if (!ssl) { CLOSESOCK(sfd); return false; }
+            SSL_set_fd(ssl.get(), static_cast<int>(sfd));
+
+            int ret = SSL_connect(ssl.get());
+            if (ret <= 0) { CLOSESOCK(sfd); return false; }
+
+            // Get peer's pubkey
+            std::string peer_pk = peer_public_key_hex(ssl.get());
+            if (peer_pk.empty()) { CLOSESOCK(sfd); return false; }
+
+            // Send our Hello
+            write_frame(ssl.get(), build_hello(), CONTROL_STREAM_ID);
+
+            // Read Hello from peer
+            Message msg = read_frame(ssl.get());
+            if (!std::holds_alternative<HelloMsg>(msg)) {
+                CLOSESOCK(sfd);
+                return false;
+            }
+            auto& hello = std::get<HelloMsg>(msg);
+
+            Conn c;
+            c.peer_name = hello.node_name;
+            c.peer_pubkey = peer_pk;
+            c.peer_addr = addr;
+            c.ssl = std::move(ssl);
+            c.sock_fd = sfd;
+            c.is_outbound = true;
+            c.last_pong = std::chrono::steady_clock::now();
+
+            // Merge known peers from Hello
+            merge_peers(hello.known_peers);
+
+            conns_.push_back(std::move(c));
+            resolve_duplicates();
+
+            // Reset backoff on success
+            backoffs_.erase(addr);
+
+            log_event("mesh_peer_connected_outbound", hello.node_name + " addr=" + addr);
+            return true;
+        } catch (...) {
+            return false;
+        }
+    }
+
+    // ── Build Gossip message ───────────────────────────────────
+
+    GossipMsg build_gossip() const {
+        GossipMsg g;
+        for (auto& s : config_.seeds) {
+            PeerInfo pi;
+            pi.name = s.name;
+            pi.addr = s.addr;
+            pi.pubkey_hex = s.pubkey_hex;
+            pi.last_seen = s.last_seen;
+            g.peers.push_back(std::move(pi));
+        }
+        for (auto& d : config_.discovered) {
+            PeerInfo pi;
+            pi.name = d.name;
+            pi.addr = d.addr;
+            pi.pubkey_hex = d.pubkey_hex;
+            pi.last_seen = d.last_seen;
+            g.peers.push_back(std::move(pi));
+        }
+        return g;
+    }
+
+    // ── Dispatch a received message ────────────────────────────
+
+    void dispatch_message(int conn_idx, Message& msg) {
+        auto& c = conns_[static_cast<size_t>(conn_idx)];
+
+        if (std::holds_alternative<PingMsg>(msg)) {
+            try {
+                write_frame(c.ssl.get(), PongMsg{}, CONTROL_STREAM_ID);
+            } catch (...) {}
+        }
+        else if (std::holds_alternative<PongMsg>(msg)) {
+            c.last_pong = std::chrono::steady_clock::now();
+        }
+        else if (std::holds_alternative<HelloMsg>(msg)) {
+            // Duplicate Hello — update peer info
+            auto& h = std::get<HelloMsg>(msg);
+            c.peer_name = h.node_name;
+            merge_peers(h.known_peers);
+        }
+        else if (std::holds_alternative<GossipMsg>(msg)) {
+            auto& g = std::get<GossipMsg>(msg);
+            merge_peers(g.peers);
+        }
+        else if (std::holds_alternative<AttachMsg>(msg)) {
+            // Phase 6 will handle this fully — for now just store it
+            auto& a = std::get<AttachMsg>(msg);
+            c.remote_session = a.session_name;
+            // Forward to Phase 6 relay when implemented
+        }
+        // Other messages deferred to Phase 6
+    }
+
+    // ── Check for data on a connection ─────────────────────────
+
+    void check_conn_read(int conn_idx) {
+        auto& c = conns_[static_cast<size_t>(conn_idx)];
+        try {
+            Message msg = read_frame(c.ssl.get());
+            dispatch_message(conn_idx, msg);
+        } catch (...) {
+            // Read failure — mark for removal
+            c.sock_fd = INVALID_SOCKET;
+        }
+    }
+
+    // ── Try to connect to seeds/discovered ─────────────────────
+
+    void try_connect_to_seeds() {
+        auto now = std::chrono::steady_clock::now();
+
+        // Try seeds first
+        for (auto& s : config_.seeds) {
+            if (has_conn_for_addr(s.addr)) continue;
+            if (conns_.size() >= config_.max_peers) break;
+
+            auto& bo = backoffs_[s.addr];
+            if (bo.attempt > 0) {
+                auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    now - last_ping_time_);
+                // Check if we've waited enough
+                // Simple: try once per loop iteration with backoff
+            }
+
+            // Attempt connect
+            bool ok = connect_to_peer_impl(s.addr);
+            if (ok) {
+                bo.attempt = 0;
+                bo.delay_ms = 100;
+            } else {
+                bo.attempt++;
+                bo.delay_ms = std::min(bo.delay_ms * 2, bo.max_ms);
+            }
+        }
+
+        // Try discovered peers too (if we have room)
+        if (conns_.size() < config_.max_peers) {
+            for (auto& d : config_.discovered) {
+                if (d.addr.empty()) continue;
+                if (has_conn_for_addr(d.addr)) continue;
+                if (conns_.size() >= config_.max_peers) break;
+
+                auto& bo = backoffs_[d.addr];
+                bool ok = connect_to_peer_impl(d.addr);
+                if (ok) {
+                    bo.attempt = 0;
+                    bo.delay_ms = 100;
+                } else {
+                    bo.attempt++;
+                    bo.delay_ms = std::min(bo.delay_ms * 2, bo.max_ms);
+                }
+            }
+        }
+    }
+
+    // ── Send Gossip to all connections ─────────────────────────
+
+    void broadcast_gossip() {
+        auto g = build_gossip();
+        if (g.peers.empty()) return;
+
+        for (auto& c : conns_) {
+            if (c.sock_fd == INVALID_SOCKET) continue;
+            try {
+                write_frame(c.ssl.get(), g, CONTROL_STREAM_ID);
+            } catch (...) {}
+        }
+    }
+
+    // ── Send Ping to all connections ───────────────────────────
+
+    void broadcast_ping() {
+        for (auto& c : conns_) {
+            if (c.sock_fd == INVALID_SOCKET) continue;
+            try {
+                write_frame(c.ssl.get(), PingMsg{}, CONTROL_STREAM_ID);
+            } catch (...) {
+                c.sock_fd = INVALID_SOCKET;
+            }
+        }
+    }
+
+    // ── Check pong timeout ─────────────────────────────────────
+
+    void check_pong_timeouts() {
+        auto now = std::chrono::steady_clock::now();
+        auto timeout = std::chrono::seconds(config_.pong_timeout_secs);
+
+        for (auto& c : conns_) {
+            if (c.sock_fd == INVALID_SOCKET) continue;
+            if (now - c.last_pong > timeout) {
+                log_event("mesh_pong_timeout", c.peer_name + " " + c.peer_addr);
+                CLOSESOCK(c.sock_fd);
+                c.sock_fd = INVALID_SOCKET;
+            }
+        }
+    }
+
+    // ── Clean up dead connections ──────────────────────────────
+
+    void clean_dead_conns() {
+        conns_.erase(
+            std::remove_if(conns_.begin(), conns_.end(),
+                [](const Conn& c) { return c.sock_fd == INVALID_SOCKET; }),
+            conns_.end());
+    }
+
+    // ── Backoff sleep for seeds trying to reconnect ────────────
+
+    void sleep_backoffs() {
+        // Sleep for the minimum backoff among pending seeds
+        int min_sleep = 1000; // default 1 second
+        auto now = std::chrono::steady_clock::now();
+
+        for (auto& [addr, bo] : backoffs_) {
+            if (bo.attempt > 0 && bo.delay_ms < min_sleep) {
+                min_sleep = bo.delay_ms;
+            }
+        }
+
+        // Actually sleep via select timeout in run() loop
+        // This method just returns the suggested sleep
+    }
+
+public:
+    // ── Constructor ───────────────────────────────────────────
+
+    MeshController(const MeshConfig& cfg)
+        : config_(cfg)
+    {
+        // Determine home directory
+#ifdef _WIN32
+        const char* home = std::getenv("USERPROFILE");
+#else
+        const char* home = std::getenv("HOME");
+#endif
+        if (home) home_dir_ = home;
+
+        // Bootstrap identity if needed
+        std::string bs_dir = home_dir_ + "/.bridgesessions";
+        bootstrap_identity(home_dir_);
+
+        // Read our pubkey
+        std::string pub_path = bs_dir + "/id_ed25519.pub";
+        std::ifstream pf(pub_path);
+        if (pf.is_open()) {
+            std::getline(pf, our_pubkey_);
+            pf.close();
+        }
+
+        // Read key and cert for TLS
+        std::string key_path = bs_dir + "/id_ed25519.pem";
+        std::string cert_path = bs_dir + "/id_ed25519-cert.pem";
+
+        // Create listen TLS context
+        NodeTlsConfig listen_cfg;
+        listen_cfg.cert_file = cert_path;
+        listen_cfg.key_file = key_path;
+        listen_cfg.authorized_keys_file = expand_home(config_.authorized_keys_path);
+        tls_listen_ = create_node_tls(listen_cfg, TlsMode::Listen);
+
+        // Create connect TLS context with TOFU callback
+        NodeTlsConfig connect_cfg;
+        connect_cfg.cert_file = cert_path;
+        connect_cfg.key_file = key_path;
+        connect_cfg.tofu_cb = [](const std::string&) { return true; }; // Accept all for now
+        tls_connect_ = create_node_tls(connect_cfg, TlsMode::Connect);
+
+        // Set persistence path for sessions
+        sessions_.set_persistence_path(expand_home(config_.persistence_path));
+    }
+
+    // ── Destructor ────────────────────────────────────────────
+
+    ~MeshController() {
+        running_ = false;
+        for (auto& c : conns_) {
+            if (c.sock_fd != INVALID_SOCKET) {
+                CLOSESOCK(c.sock_fd);
+            }
+        }
+        conns_.clear();
+        if (listen_fd_ != INVALID_SOCKET) {
+            CLOSESOCK(listen_fd_);
+            listen_fd_ = INVALID_SOCKET;
+        }
+    }
+
+    // ── Main event loop ───────────────────────────────────────
+
+    void run() {
+        running_ = true;
+
+        // Create listen socket
+        listen_fd_ = socket(AF_INET, SOCK_STREAM, 0);
+        if (listen_fd_ == INVALID_SOCKET) {
+            log_event("mesh_listen_socket_failed");
+            return;
+        }
+
+        int opt = 1;
+        setsockopt(listen_fd_, SOL_SOCKET, SO_REUSEADDR,
+                   reinterpret_cast<const char*>(&opt), sizeof(opt));
+
+        sockaddr_in sa{};
+        sa.sin_family = AF_INET;
+        sa.sin_addr.s_addr = inet_addr(config_.listen_addr.c_str());
+        if (sa.sin_addr.s_addr == INADDR_NONE) {
+            sa.sin_addr.s_addr = htonl(INADDR_ANY);
+        }
+        sa.sin_port = htons(config_.listen_port);
+
+        if (bind(listen_fd_, reinterpret_cast<sockaddr*>(&sa), sizeof(sa)) == SOCKET_ERROR) {
+            log_event("mesh_listen_bind_failed");
+            CLOSESOCK(listen_fd_);
+            listen_fd_ = INVALID_SOCKET;
+            return;
+        }
+
+        if (listen(listen_fd_, SOMAXCONN) == SOCKET_ERROR) {
+            log_event("mesh_listen_failed");
+            CLOSESOCK(listen_fd_);
+            listen_fd_ = INVALID_SOCKET;
+            return;
+        }
+
+        log_event("mesh_listening", config_.listen_addr + ":" + std::to_string(config_.listen_port));
+
+        last_ping_time_ = std::chrono::steady_clock::now();
+        last_gossip_time_ = std::chrono::steady_clock::now();
+
+        while (running_) {
+            // 1. Build fd_set for select()
+            fd_set read_fds;
+            FD_ZERO(&read_fds);
+            FD_SET(listen_fd_, &read_fds);
+
+            SOCKET max_fd = listen_fd_;
+            for (auto& c : conns_) {
+                if (c.sock_fd != INVALID_SOCKET) {
+                    FD_SET(c.sock_fd, &read_fds);
+                    if (c.sock_fd > max_fd) max_fd = c.sock_fd;
+                }
+            }
+
+            // 2. select() with 1 second timeout
+            timeval tv{1, 0}; // 1 second
+            int nfds = select(static_cast<int>(max_fd) + 1, &read_fds, nullptr, nullptr, &tv);
+
+            if (nfds < 0) {
+#ifdef _WIN32
+                if (WSAGetLastError() == WSAEINTR) continue;
+#else
+                if (errno == EINTR) continue;
+#endif
+                break;
+            }
+
+            auto now = std::chrono::steady_clock::now();
+
+            // 3. Accept new connections
+            if (nfds > 0 && FD_ISSET(listen_fd_, &read_fds)) {
+                accept_inbound();
+                --nfds;
+            }
+
+            // 4. Read from established connections
+            for (int i = 0; i < static_cast<int>(conns_.size()) && nfds > 0; ++i) {
+                if (conns_[static_cast<size_t>(i)].sock_fd != INVALID_SOCKET &&
+                    FD_ISSET(conns_[static_cast<size_t>(i)].sock_fd, &read_fds)) {
+                    check_conn_read(i);
+                    --nfds;
+                }
+            }
+
+            // 5. Connect to seeds / discovered peers
+            try_connect_to_seeds();
+
+            // 6. Ping broadcast
+            auto ping_interval = std::chrono::seconds(config_.ping_interval_secs);
+            if (now - last_ping_time_ >= ping_interval) {
+                broadcast_ping();
+                last_ping_time_ = now;
+            }
+
+            // 7. Pong timeout check
+            check_pong_timeouts();
+
+            // 8. Gossip broadcast
+            auto gossip_interval = std::chrono::seconds(config_.gossip_interval_secs);
+            if (now - last_gossip_time_ >= gossip_interval) {
+                broadcast_gossip();
+                last_gossip_time_ = now;
+            }
+
+            // 9. Clean dead connections
+            clean_dead_conns();
+
+            // 10. Reap dead sessions
+            sessions_.reap_dead();
+        }
+    }
+
+    // ── Shutdown ───────────────────────────────────────────────
+
+    void shutdown() {
+        running_ = false;
+    }
+
+    // ── Stubs for Phase 6 ──────────────────────────────────────
+
+    void shell_peer(const std::string& peer_name, const std::string& session_name,
+                    const std::string& cmd, uint16_t cols, uint16_t rows, const std::string& term) {
+        (void)peer_name; (void)session_name; (void)cmd; (void)cols; (void)rows; (void)term;
+        // Phase 6: send AttachMsg to peer
+    }
+
+    void list_sessions(const std::string& peer_name, bool all) {
+        (void)peer_name; (void)all;
+        // Phase 6: query sessions from peer or list local
+    }
+
+    bool health_check(const std::string& peer_name) {
+        (void)peer_name;
+        // Phase 6: ping specific peer
+        return false;
+    }
+
+    // ── Accessors (for tests) ──────────────────────────────────
+
+    SessionRegistry& sessions() { return sessions_; }
+    const std::vector<Conn>& conns() const { return conns_; }
+    size_t conn_count() const { return conns_.size(); }
+
+    // ── Public connect (for tests/CLI) ──────────────────────────
+    bool connect_to_peer(const std::string& addr) {
+        return connect_to_peer_impl(addr);
+    }
+};
+
 } // namespace bs::mesh
 
 // ────────────────────────────────────────────────────────────────────
