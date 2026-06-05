@@ -13,11 +13,16 @@
 #include <algorithm>
 #include <span>
 #include <optional>
+#include <expected>
+#include <chrono>
 #include <cstdio>
 #include <fstream>
 #include <sstream>
 #include <stdexcept>
 #include <functional>
+#ifdef _WIN32
+#include <windows.h>
+#endif
 #include <zstd.h>
 #include <openssl/evp.h>
 #include <openssl/pem.h>
@@ -1336,6 +1341,317 @@ inline Osc52Result scan_osc52(std::string_view input) {
 
     return result;
 }
+
+// ────────────────────────────────────────────────────────────────────
+// 6. SESSION & PTY (ported from bs-server, namespace bs::mesh)
+// ────────────────────────────────────────────────────────────────────
+
+// ── PtyError ──────────────────────────────────────────────────────
+
+struct PtyError {
+    std::string message;
+};
+
+// ── SessionState ──────────────────────────────────────────────────
+
+enum class SessionState : uint8_t {
+    Created,
+    Running,
+    Detached,
+    Attached,
+    Died,
+    Exited,
+    Killed,
+    Recoverable,
+};
+
+inline const char* session_state_str(SessionState s) {
+    switch (s) {
+        case SessionState::Created:     return "created";
+        case SessionState::Running:     return "running";
+        case SessionState::Detached:    return "detached";
+        case SessionState::Attached:    return "attached";
+        case SessionState::Died:        return "died";
+        case SessionState::Exited:      return "exited";
+        case SessionState::Killed:      return "killed";
+        case SessionState::Recoverable: return "recoverable";
+    }
+    return "unknown";
+}
+
+// ── Session struct ────────────────────────────────────────────────
+
+// Default ring buffer: 1 MB (2^20)
+constexpr size_t kDefaultRingBufferSize = 1'048'576;
+
+struct Session {
+    std::string name;
+    std::string peer_id;  // pubkey hex of remote peer attached (empty if detached)
+    std::string command;
+#ifdef _WIN32
+    HANDLE master_fd = nullptr;     // ConPTY output read handle (child stdout -> server)
+    HANDLE child_pid = nullptr;     // process handle
+    HANDLE write_handle = nullptr;  // ConPTY input write handle (server -> child stdin)
+    HPCON hpcon = nullptr;          // for ResizePseudoConsole
+#else
+    int master_fd = -1;
+    int child_pid = -1;
+#endif
+    SessionState state = SessionState::Created;
+
+    RingBuffer<kDefaultRingBufferSize> scrollback;
+
+    std::chrono::steady_clock::time_point created_at;
+    std::chrono::steady_clock::time_point last_output_at;
+    std::chrono::steady_clock::time_point last_attach_at;
+
+    bool auto_restart = false;
+    int restart_failures = 0;
+    std::chrono::steady_clock::time_point restart_window_start;
+
+    Session();
+    ~Session();
+
+    Session(Session&& other) noexcept;
+    Session& operator=(Session&& other) noexcept;
+    Session(const Session&) = delete;
+    Session& operator=(const Session&) = delete;
+
+    void touch_output();
+    void reset_restart_failures();
+#ifdef _WIN32
+    bool is_valid() const { return master_fd != nullptr; }
+#else
+    bool is_valid() const { return master_fd >= 0; }
+#endif
+};
+
+// ── Session implementation ────────────────────────────────────────
+
+Session::Session()
+    : created_at(std::chrono::steady_clock::now())
+    , last_output_at(created_at)
+    , last_attach_at(created_at)
+{}
+
+Session::~Session() {
+#ifdef _WIN32
+    if (master_fd) {
+        CloseHandle(master_fd);
+        master_fd = nullptr;
+    }
+    if (write_handle) {
+        CloseHandle(write_handle);
+        write_handle = nullptr;
+    }
+    if (child_pid) {
+        TerminateProcess(child_pid, 1);
+        WaitForSingleObject(child_pid, 5000);
+        CloseHandle(child_pid);
+        child_pid = nullptr;
+    }
+    if (hpcon) {
+        ClosePseudoConsole(hpcon);
+        hpcon = nullptr;
+    }
+#else
+    if (master_fd >= 0) {
+        close(master_fd);
+        master_fd = -1;
+    }
+    if (child_pid > 0) {
+        kill(child_pid, SIGTERM);
+        int status = 0;
+        for (int i = 0; i < 50; ++i) {
+            if (waitpid(child_pid, &status, WNOHANG) == child_pid) break;
+            usleep(100000);
+        }
+        if (waitpid(child_pid, &status, WNOHANG) != child_pid) {
+            kill(child_pid, SIGKILL);
+            waitpid(child_pid, &status, 0);
+        }
+        child_pid = -1;
+    }
+#endif
+}
+
+Session::Session(Session&& other) noexcept
+    : name(std::move(other.name))
+    , peer_id(std::move(other.peer_id))
+    , command(std::move(other.command))
+    , master_fd(other.master_fd)
+    , child_pid(other.child_pid)
+    , state(other.state)
+    , scrollback(std::move(other.scrollback))
+    , created_at(other.created_at)
+    , last_output_at(other.last_output_at)
+    , last_attach_at(other.last_attach_at)
+    , auto_restart(other.auto_restart)
+    , restart_failures(other.restart_failures)
+    , restart_window_start(other.restart_window_start)
+{
+#ifdef _WIN32
+    write_handle = other.write_handle;
+    hpcon = other.hpcon;
+    other.write_handle = nullptr;
+    other.hpcon = nullptr;
+    other.master_fd = nullptr;
+    other.child_pid = nullptr;
+#else
+    other.master_fd = -1;
+    other.child_pid = -1;
+#endif
+}
+
+Session& Session::operator=(Session&& other) noexcept {
+    if (this != &other) {
+        this->~Session();
+        name = std::move(other.name);
+        peer_id = std::move(other.peer_id);
+        command = std::move(other.command);
+        master_fd = other.master_fd;
+        child_pid = other.child_pid;
+        state = other.state;
+        scrollback = std::move(other.scrollback);
+        created_at = other.created_at;
+        last_output_at = other.last_output_at;
+        last_attach_at = other.last_attach_at;
+        auto_restart = other.auto_restart;
+        restart_failures = other.restart_failures;
+        restart_window_start = other.restart_window_start;
+#ifdef _WIN32
+        write_handle = other.write_handle;
+        hpcon = other.hpcon;
+        other.write_handle = nullptr;
+        other.hpcon = nullptr;
+        other.master_fd = nullptr;
+        other.child_pid = nullptr;
+#else
+        other.master_fd = -1;
+        other.child_pid = -1;
+#endif
+    }
+    return *this;
+}
+
+void Session::touch_output() {
+    last_output_at = std::chrono::steady_clock::now();
+}
+
+void Session::reset_restart_failures() {
+    restart_failures = 0;
+    restart_window_start = std::chrono::steady_clock::now();
+}
+
+// ── PTY functions ─────────────────────────────────────────────────
+
+#ifdef _WIN32
+
+[[nodiscard]] std::expected<Session, PtyError> create_session(
+    const std::string& name, const std::string& command,
+    uint16_t cols, uint16_t rows, const std::string& term)
+{
+    HANDLE hPipeInRead = nullptr, hPipeInWrite = nullptr;
+    HANDLE hPipeOutRead = nullptr, hPipeOutWrite = nullptr;
+
+    // Create pipes for ConPTY
+    SECURITY_ATTRIBUTES sa{sizeof(sa), nullptr, TRUE}; // inheritable
+    if (!CreatePipe(&hPipeInRead, &hPipeInWrite, &sa, 0))
+        return std::unexpected(PtyError{"CreatePipe(in) failed"});
+    if (!CreatePipe(&hPipeOutRead, &hPipeOutWrite, &sa, 0)) {
+        CloseHandle(hPipeInRead); CloseHandle(hPipeInWrite);
+        return std::unexpected(PtyError{"CreatePipe(out) failed"});
+    }
+
+    // Create pseudo console
+    COORD size = {static_cast<SHORT>(cols), static_cast<SHORT>(rows)};
+    HPCON hPC = nullptr;
+    HRESULT hr = CreatePseudoConsole(size, hPipeInRead, hPipeOutWrite, 0, &hPC);
+    if (FAILED(hr)) {
+        CloseHandle(hPipeInRead); CloseHandle(hPipeInWrite);
+        CloseHandle(hPipeOutRead); CloseHandle(hPipeOutWrite);
+        return std::unexpected(PtyError{"CreatePseudoConsole failed: " + std::to_string(hr)});
+    }
+
+    // Per MSDN: CreatePseudoConsole takes ownership of the handles passed
+    // to it. After a successful call, the caller MUST close the inbound read
+    // and outbound write ends.
+    CloseHandle(hPipeInRead);
+    CloseHandle(hPipeOutWrite);
+    hPipeInRead = nullptr;
+    hPipeOutWrite = nullptr;
+
+    // Set up STARTUPINFOEX for the child process
+    STARTUPINFOEXA siEx{};
+    siEx.StartupInfo.cb = sizeof(siEx);
+    siEx.StartupInfo.dwFlags |= STARTF_USESTDHANDLES;
+    siEx.StartupInfo.hStdInput = nullptr;
+    siEx.StartupInfo.hStdOutput = nullptr;
+    siEx.StartupInfo.hStdError = nullptr;
+
+    // Add the ConPTY to the process attribute list
+    SIZE_T attrSize = 0;
+    InitializeProcThreadAttributeList(nullptr, 1, 0, &attrSize);
+    siEx.lpAttributeList = reinterpret_cast<LPPROC_THREAD_ATTRIBUTE_LIST>(
+        HeapAlloc(GetProcessHeap(), 0, attrSize));
+    if (!siEx.lpAttributeList || !InitializeProcThreadAttributeList(siEx.lpAttributeList, 1, 0, &attrSize)) {
+        ClosePseudoConsole(hPC);
+        CloseHandle(hPipeInWrite);
+        CloseHandle(hPipeOutRead);
+        return std::unexpected(PtyError{"InitializeProcThreadAttributeList failed"});
+    }
+    UpdateProcThreadAttribute(siEx.lpAttributeList, 0,
+        PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE, hPC, sizeof(HPCON), nullptr, nullptr);
+
+    // Build command line: cmd.exe /c <command>
+    std::string cmdline = "cmd.exe /c \"" + command + "\"";
+
+    // Set TERM environment
+    SetEnvironmentVariableA("TERM", term.c_str());
+
+    PROCESS_INFORMATION pi{};
+    BOOL created = CreateProcessA(
+        nullptr,                    // app name
+        const_cast<LPSTR>(cmdline.c_str()),
+        nullptr, nullptr,           // process/thread security
+        TRUE,                       // inherit handles
+        EXTENDED_STARTUPINFO_PRESENT,
+        nullptr,                    // environment (use parent's)
+        nullptr,                    // current directory
+        &siEx.StartupInfo,
+        &pi);
+
+    HeapFree(GetProcessHeap(), 0, siEx.lpAttributeList);
+
+    if (!created) {
+        ClosePseudoConsole(hPC);
+        CloseHandle(hPipeInWrite);
+        CloseHandle(hPipeOutRead);
+        return std::unexpected(PtyError{"CreateProcess failed: " + std::to_string(GetLastError())});
+    }
+
+    CloseHandle(pi.hThread);
+
+    Session s;
+    s.name = name;
+    s.command = command;
+    s.master_fd = hPipeOutRead;     // read: child stdout -> server
+    s.write_handle = hPipeInWrite;  // write: server -> child stdin
+    s.child_pid = pi.hProcess;      // process handle
+    s.hpcon = hPC;                  // for ResizePseudoConsole
+    s.state = SessionState::Running;
+    return s;
+}
+
+[[nodiscard]] std::expected<void, PtyError> resize_pty(intptr_t handle, uint16_t cols, uint16_t rows) {
+    HPCON hPC = reinterpret_cast<HPCON>(handle);
+    COORD size = {static_cast<SHORT>(cols), static_cast<SHORT>(rows)};
+    if (SUCCEEDED(ResizePseudoConsole(hPC, size)))
+        return {};
+    return std::unexpected(PtyError{"ResizePseudoConsole failed"});
+}
+
+#endif // _WIN32
 
 } // namespace bs::mesh
 
