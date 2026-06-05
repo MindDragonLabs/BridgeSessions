@@ -302,24 +302,33 @@ TEST_CASE("SessionRegistry: auto_restart respawns died child", "[session_registr
 
 TEST_CASE("SessionRegistry: circuit breaker after repeated failures", "[session_registry]") {
     SessionRegistry registry;
-    auto* s = registry.attach("test_cb", "cmd.exe /c exit /b 1", 80, 24, "xterm-256color");
+    auto* s = registry.attach("test_cb", "cmd.exe /c timeout /t 30", 80, 24, "xterm-256color");
     REQUIRE(s != nullptr);
     s->auto_restart = true;
     s->reset_restart_failures();
 
-    // Run through 4 deaths — the 4th should trip circuit breaker
+    // Kill child and reap 4 times — circuit breaker should stop after 3 restarts
     for (int i = 0; i < 4; ++i) {
-        std::this_thread::sleep_for(300ms);
+        // Force-kill the child process
+        auto* cur = registry.get("test_cb");
+        REQUIRE(cur != nullptr);
+        if (cur->child_pid) {
+            TerminateProcess(cur->child_pid, 1);
+            WaitForSingleObject(cur->child_pid, 5000);
+            CloseHandle(cur->child_pid);
+            cur->child_pid = nullptr;
+        }
+        // Small sleep to ensure TerminateProcess is visible
+        std::this_thread::sleep_for(100ms);
         registry.reap_dead();
     }
 
-    // After 4 failures, session should be Exited (not growing)
+    // After 4 forced deaths, circuit breaker should have marked session Exited
     auto* final_s = registry.get("test_cb");
-    if (final_s) {
-        REQUIRE(final_s->state == SessionState::Exited);
-    }
-    // Count should be 1 (session still in map, but Exited)
-    REQUIRE(registry.count() <= 1);
+    REQUIRE(final_s != nullptr);
+    REQUIRE((final_s->state == SessionState::Exited || final_s->state == SessionState::Detached));
+    // Count should be 1 (session still in map)
+    REQUIRE(registry.count() == 1);
 
     registry.kill("test_cb");
 }

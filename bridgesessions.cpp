@@ -1992,6 +1992,386 @@ void write_peer_line(std::ostream& os, const std::string& prefix, const PeerEntr
     return true;
 }
 
+// ────────────────────────────────────────────────────────────────────
+// 8. PERSISTENCE — JSON session persistence (nlohmann/json)
+// ────────────────────────────────────────────────────────────────────
+
+struct SessionMeta {
+    std::string name;
+    std::string owner_id;   // unused in mesh (empty), kept for compat
+    std::string command;
+    std::string state;
+    std::string created_at; // ISO 8601
+};
+
+// Save session list to JSON file (atomic write: temp + rename)
+inline bool save_sessions(const std::string& path,
+                          const std::vector<SessionMeta>& sessions) {
+    nlohmann::json j = nlohmann::json::array();
+    for (auto& s : sessions) {
+        nlohmann::json entry;
+        entry["name"] = s.name;
+        entry["owner_id"] = s.owner_id;
+        entry["command"] = s.command;
+        entry["state"] = s.state;
+        entry["created_at"] = s.created_at;
+        j.push_back(entry);
+    }
+
+    std::string tmp = path + ".tmp";
+    {
+        std::ofstream f(tmp);
+        if (!f) return false;
+        f << j.dump(2) << '\n';
+        f.flush();
+        if (!f) {
+            std::filesystem::remove(tmp);
+            return false;
+        }
+    }
+    std::error_code ec;
+    std::filesystem::rename(tmp, path, ec);
+    if (ec) {
+        std::filesystem::remove(tmp);
+        return false;
+    }
+    return true;
+}
+
+// Load session list from JSON
+inline std::vector<SessionMeta> load_sessions(const std::string& path) {
+    std::ifstream f(path);
+    if (!f) return {};
+    try {
+        auto j = nlohmann::json::parse(f);
+        std::vector<SessionMeta> result;
+        for (auto& entry : j) {
+            SessionMeta m;
+            m.name = entry.value("name", "");
+            m.owner_id = entry.value("owner_id", "");
+            m.command = entry.value("command", "");
+            m.state = entry.value("state", "detached");
+            m.created_at = entry.value("created_at", "");
+            result.push_back(m);
+        }
+        return result;
+    } catch (...) { return {}; }
+}
+
+// ────────────────────────────────────────────────────────────────────
+// 9. LOGGING — structured JSON logging via spdlog
+// ────────────────────────────────────────────────────────────────────
+
+// Thread-safe JSON logger
+inline std::shared_ptr<spdlog::logger> get_logger() {
+    static auto logger = []() {
+        const char* home = getenv("HOME");
+#ifdef _WIN32
+        if (!home) home = getenv("USERPROFILE");
+#endif
+        std::string path = home ? std::string(home) + "/.bridgesessions/bs-mesh.log"
+                                : "/tmp/bs-mesh.log";
+        // Create parent directory if needed
+        namespace fs = std::filesystem;
+        auto parent = fs::path(path).parent_path();
+        std::error_code ec;
+        fs::create_directories(parent, ec);
+
+        auto file_sink = std::make_shared<spdlog::sinks::rotating_file_sink_mt>(
+            path, 1'048'576, 3);  // 1 MB, 3 rotated files
+        file_sink->set_pattern("%v");  // raw JSON lines
+
+        auto l = std::make_shared<spdlog::logger>("bs-mesh", file_sink);
+        l->set_level(spdlog::level::info);
+        l->flush_on(spdlog::level::info);
+        spdlog::register_logger(l);
+        return l;
+    }();
+    return logger;
+}
+
+// Log a structured event as a single JSON line
+inline void log_event(const std::string& event, const std::string& detail = "") {
+    auto* l = get_logger().get();
+    // Build JSON line manually to avoid fmt compile-time format string issues
+    std::string line = "{\"ts\":\"" + 
+        std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) +
+        "\",\"event\":\"" + event + "\"";
+    if (!detail.empty()) {
+        line += ",\"detail\":\"" + detail + "\"";
+    }
+    line += "}";
+    l->info(line);
+}
+
+// ────────────────────────────────────────────────────────────────────
+// 10. SESSION REGISTRY — thread-safe session lifecycle manager
+// ────────────────────────────────────────────────────────────────────
+
+class SessionRegistry {
+    mutable std::shared_mutex mutex_;
+    std::unordered_map<std::string, std::unique_ptr<Session>> sessions_;
+    std::string persistence_path_;
+
+    static std::string resolve_command(const std::string& from_client) {
+        if (!from_client.empty()) return from_client;
+#ifdef _WIN32
+        return "cmd.exe";
+#else
+        return "/bin/bash -l";
+#endif
+    }
+
+public:
+    SessionRegistry() = default;
+
+    void set_persistence_path(const std::string& path) {
+        persistence_path_ = path;
+    }
+
+    // ── Attach / Create ─────────────────────────────────────────
+    // Returns session pointer. Returns nullptr on error.
+    Session* attach(const std::string& name, const std::string& cmd,
+                    uint16_t cols, uint16_t rows, const std::string& term) {
+        std::unique_lock lock(mutex_);
+
+        auto it = sessions_.find(name);
+        if (it != sessions_.end()) {
+            auto* s = it->second.get();
+
+            if (s->state == SessionState::Running || s->state == SessionState::Detached) {
+                // Reattach — resize PTY to match new client
+                s->state = SessionState::Attached;
+                s->last_attach_at = std::chrono::steady_clock::now();
+#ifdef _WIN32
+                if (s->hpcon)
+                    (void)resize_pty(reinterpret_cast<intptr_t>(s->hpcon), cols, rows);
+#endif
+                return s;
+            }
+
+            if (s->state == SessionState::Attached) {
+                // Replace existing attachment
+                s->state = SessionState::Attached;
+                s->last_attach_at = std::chrono::steady_clock::now();
+#ifdef _WIN32
+                if (s->hpcon)
+                    (void)resize_pty(reinterpret_cast<intptr_t>(s->hpcon), cols, rows);
+#endif
+                return s;
+            }
+
+            // Session is Died/Exited/Killed/Recoverable — cannot attach
+            return nullptr;
+        }
+
+        // Create new session
+        auto resolved_cmd = resolve_command(cmd);
+        auto session_result = create_session(name, resolved_cmd, cols, rows, term);
+        if (!session_result) return nullptr;
+
+        auto s = std::make_unique<Session>(std::move(*session_result));
+        s->command = resolved_cmd;
+        s->state = SessionState::Attached;
+
+        auto* ptr = s.get();
+        sessions_[name] = std::move(s);
+        log_event("session_attach", name);
+        return ptr;
+    }
+
+    // ── Detach ──────────────────────────────────────────────────
+    void detach(const std::string& name) {
+        std::unique_lock lock(mutex_);
+        auto it = sessions_.find(name);
+        if (it != sessions_.end() && it->second->state == SessionState::Attached) {
+            it->second->state = SessionState::Detached;
+            log_event("session_detach", name);
+        }
+    }
+
+    // ── List ────────────────────────────────────────────────────
+    std::vector<SessionInfo> list() const {
+        std::shared_lock lock(mutex_);
+        std::vector<SessionInfo> result;
+        for (auto& [key, s] : sessions_) {
+            auto now = std::chrono::steady_clock::now();
+            auto uptime = std::chrono::duration_cast<std::chrono::seconds>(
+                now - s->created_at).count();
+            result.push_back({
+                s->name,
+                session_state_str(s->state),
+                static_cast<uint64_t>(uptime)
+            });
+        }
+        return result;
+    }
+
+    // ── Get ─────────────────────────────────────────────────────
+    Session* get(const std::string& name) {
+        std::shared_lock lock(mutex_);
+        auto it = sessions_.find(name);
+        return (it != sessions_.end()) ? it->second.get() : nullptr;
+    }
+
+    const Session* get(const std::string& name) const {
+        std::shared_lock lock(mutex_);
+        auto it = sessions_.find(name);
+        return (it != sessions_.end()) ? it->second.get() : nullptr;
+    }
+
+    // ── Kill ────────────────────────────────────────────────────
+    void kill(const std::string& name) {
+        std::unique_lock lock(mutex_);
+        auto it = sessions_.find(name);
+        if (it != sessions_.end()) {
+            it->second->state = SessionState::Killed;
+            sessions_.erase(it);
+            log_event("session_kill", name);
+        }
+    }
+
+    // ── Reap dead children ──────────────────────────────────────
+    void reap_dead() {
+        std::unique_lock lock(mutex_);
+        for (auto it = sessions_.begin(); it != sessions_.end(); ) {
+            auto* s = it->second.get();
+            if (s->state == SessionState::Running || s->state == SessionState::Attached ||
+                s->state == SessionState::Detached) {
+#ifdef _WIN32
+                if (s->child_pid && WaitForSingleObject(s->child_pid, 0) == WAIT_OBJECT_0) {
+                    auto prev_state = s->state;
+                    s->state = SessionState::Died;
+                    CloseHandle(s->child_pid);
+                    s->child_pid = nullptr;
+#else
+                // POSIX would use waitpid here
+#endif
+
+                    // Auto-restart logic
+                    if (s->auto_restart) {
+                        auto now = std::chrono::steady_clock::now();
+                        auto window = std::chrono::seconds(60);
+                        if (now - s->restart_window_start > window) {
+                            s->reset_restart_failures();
+                        }
+                        if (s->restart_failures < 3) {
+                            ++s->restart_failures;
+                            // Respawn
+                            auto new_session = create_session(
+                                s->name, s->command, 80, 24, "xterm-256color");
+                            if (new_session) {
+                                auto fresh = std::make_unique<Session>(std::move(*new_session));
+                                fresh->command = s->command;
+                                fresh->auto_restart = true;
+                                fresh->state = SessionState::Detached;
+                                fresh->restart_failures = s->restart_failures;
+                                fresh->restart_window_start = s->restart_window_start;
+                                it->second = std::move(fresh);
+                                log_event("session_auto_restart", s->name + " attempt=" + std::to_string(s->restart_failures));
+                                ++it;
+                                continue;
+                            }
+                        }
+                        // Too many failures — mark as Exited
+                        s->state = SessionState::Exited;
+                        log_event("session_circuit_breaker", s->name + " failures=" + std::to_string(s->restart_failures));
+                    }
+                }
+            }
+            ++it;
+        }
+    }
+
+    // ── Idle timeout cleanup ────────────────────────────────────
+    void prune_idle(std::chrono::seconds max_idle) {
+        std::unique_lock lock(mutex_);
+        auto now = std::chrono::steady_clock::now();
+        for (auto it = sessions_.begin(); it != sessions_.end(); ) {
+            auto* s = it->second.get();
+            if (s->state == SessionState::Detached) {
+                auto idle = now - s->last_output_at;
+                if (idle > max_idle) {
+                    log_event("session_prune_idle", s->name);
+                    it = sessions_.erase(it);
+                    continue;
+                }
+            }
+            ++it;
+        }
+    }
+
+    // ── Size ────────────────────────────────────────────────────
+    size_t count() const {
+        std::shared_lock lock(mutex_);
+        return sessions_.size();
+    }
+
+    // ── Persistence ────────────────────────────────────────────
+    void load_persisted_sessions() {
+        if (persistence_path_.empty()) return;
+        auto metas = load_sessions(persistence_path_);
+        if (metas.empty()) return;
+
+        std::unique_lock lock(mutex_);
+        for (auto& m : metas) {
+            if (sessions_.find(m.name) != sessions_.end()) continue;
+            auto s = std::make_unique<Session>();
+            s->name = m.name;
+            s->command = m.command;
+            s->state = SessionState::Recoverable;
+            s->created_at = std::chrono::steady_clock::now();
+            s->last_output_at = s->created_at;
+            s->last_attach_at = s->created_at;
+            sessions_[m.name] = std::move(s);
+            log_event("session_loaded", m.name);
+        }
+    }
+
+    bool save_persisted_sessions() const {
+        if (persistence_path_.empty()) return true;
+        std::vector<SessionMeta> metas;
+        {
+            std::shared_lock lock(mutex_);
+            for (auto& [key, s] : sessions_) {
+                SessionMeta m;
+                m.name = s->name;
+                m.owner_id = "";
+                m.command = s->command;
+                m.state = session_state_str(s->state);
+                m.created_at = std::to_string(
+                    std::chrono::duration_cast<std::chrono::seconds>(
+                        s->created_at.time_since_epoch()).count());
+                metas.push_back(m);
+            }
+        }
+        bool ok = save_sessions(persistence_path_, metas);
+        if (ok) log_event("session_persist_saved");
+        return ok;
+    }
+
+    // ── Resurrect a RECOVERABLE session ────────────────────────
+    Session* resurrect(const std::string& name,
+                       uint16_t cols, uint16_t rows, const std::string& term) {
+        std::unique_lock lock(mutex_);
+        auto it = sessions_.find(name);
+        if (it == sessions_.end()) return nullptr;
+        auto* s = it->second.get();
+        if (s->state != SessionState::Recoverable) return nullptr;
+
+        auto session_result = create_session(name, s->command, cols, rows, term);
+        if (!session_result) return nullptr;
+
+        auto fresh = std::make_unique<Session>(std::move(*session_result));
+        fresh->command = s->command;
+        fresh->state = SessionState::Attached;
+        auto* ptr = fresh.get();
+        sessions_[name] = std::move(fresh);
+        log_event("session_resurrect", name);
+        return ptr;
+    }
+};
+
 } // namespace bs::mesh
 
 // ────────────────────────────────────────────────────────────────────

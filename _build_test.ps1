@@ -7,7 +7,7 @@ $Env:INCLUDE = "$msvc\include;$sdk\Include\10.0.28000.0\ucrt;$sdk\Include\10.0.2
 $Env:LIB = "$msvc\lib\x64;$sdk\Lib\10.0.28000.0\ucrt\x64;$sdk\Lib\10.0.28000.0\um\x64;$vcpkg\lib"
 $Env:PATH = "$msvc\bin\Hostx64\x64;$Env:PATH"
 Set-Location C:\Users\Shadow\bridgesessions
-& cl /std:c++latest /EHsc /MD /DBS_TESTING /I $vcpkg\include $TestName /Fe:$ExeName.exe /link /LIBPATH:$vcpkg\lib Catch2.lib libssl.lib libcrypto.lib zstd.lib ws2_32.lib 2>&1
+& cl /std:c++latest /EHsc /MD /utf-8 /DBS_TESTING /I $vcpkg\include $TestName /Fe:$ExeName.exe /link /LIBPATH:$vcpkg\lib Catch2.lib libssl.lib libcrypto.lib zstd.lib ws2_32.lib fmt.lib 2>&1
 if ($LASTEXITCODE -ne 0) {
     Write-Host "$ExeName.exe BUILD FAILED"
     exit 1
