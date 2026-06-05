@@ -1,0 +1,533 @@
+{
+  "topic": "QUIC protocol for terminal session relay design choices quic-go congestion control keystroke streams connection migration ed25519 mutual auth multipath UDP availability enterprise firewalls binary framing vs capnproto protobuf terminal protocol",
+  "topic_id": "757f3772-b84",
+  "status": "complete",
+  "depth": 3,
+  "confidence": 0.77,
+  "rounds": [
+    {
+      "round": 1,
+      "angles_searched": 10,
+      "new_findings": 53,
+      "corpus_findings": 0,
+      "web_findings": 53,
+      "elapsed_seconds": 4.4,
+      "budget_remaining": 295
+    },
+    {
+      "round": 2,
+      "angles_searched": 7,
+      "new_findings": 12,
+      "corpus_findings": 0,
+      "web_findings": 12,
+      "elapsed_seconds": 9.2,
+      "budget_remaining": 290
+    },
+    {
+      "round": 3,
+      "angles_searched": 6,
+      "new_findings": 2,
+      "corpus_findings": 0,
+      "web_findings": 2,
+      "elapsed_seconds": 11.4,
+      "budget_remaining": 288
+    }
+  ],
+  "gaps": [
+    "overview and fundamentals",
+    "performance characteristics and benchmarks",
+    "comparative analysis and alternatives",
+    "applications and real-world use cases",
+    "challenges, limitations, and known issues",
+    "future directions and open research questions",
+    "standards, governance, and community"
+  ],
+  "cross_verification": [
+    {
+      "angle": "existing projects, open source implementations, and alternatives",
+      "total_sources": 12,
+      "unique_domains": [
+        "luminary.blog",
+        "multipath-quic.org",
+        "datatracker.ietf.org",
+        "www.net.in.tum.de",
+        "quicwg.org",
+        "www.cse.wustl.edu",
+        "quic-go.net",
+        "www.researchgate.net",
+        "github.com"
+      ],
+      "domain_diversity": 9,
+      "tools_used": [
+        "github",
+        "github_readme",
+        "exa"
+      ],
+      "tool_diversity": 3,
+      "status": "corroborated"
+    },
+    {
+      "angle": "history and evolution",
+      "total_sources": 8,
+      "unique_domains": [
+        "techcommunity.microsoft.com",
+        "www.cdnetworks.com",
+        "conferences2.sigcomm.org",
+        "www.activecountermeasures.com",
+        "medium.com",
+        "web.cs.ucla.edu",
+        "shop.trustico.com",
+        "www.cse.wustl.edu"
+      ],
+      "domain_diversity": 8,
+      "tools_used": [
+        "exa",
+        "tinyfish"
+      ],
+      "tool_diversity": 2,
+      "status": "corroborated"
+    },
+    {
+      "angle": "comparative analysis and alternatives",
+      "total_sources": 7,
+      "unique_domains": [
+        "lightyear.ai",
+        "www.net.in.tum.de",
+        "shop.trustico.com",
+        "blogit.michelin.io",
+        "quic-go.net",
+        "www.researchgate.net",
+        "www.semanticscholar.org"
+      ],
+      "domain_diversity": 7,
+      "tools_used": [
+        "exa",
+        "tinyfish"
+      ],
+      "tool_diversity": 2,
+      "status": "corroborated"
+    },
+    {
+      "angle": "architecture and design principles",
+      "total_sources": 8,
+      "unique_domains": [
+        "www.cloudns.net",
+        "medium.com",
+        "www.auvik.com",
+        "research.google.com",
+        "www.checkpoint.com",
+        "oneuptime.com",
+        "www.zscaler.com",
+        "github.com"
+      ],
+      "domain_diversity": 8,
+      "tools_used": [
+        "exa"
+      ],
+      "tool_diversity": 1,
+      "status": "corroborated"
+    },
+    {
+      "angle": "applications and real-world use cases",
+      "total_sources": 10,
+      "unique_domains": [
+        "www.youtube.com",
+        "www.iroh.computer",
+        "datatracker.ietf.org",
+        "medium.com",
+        "shop.trustico.com",
+        "www.geeksforgeeks.org",
+        "github.com"
+      ],
+      "domain_diversity": 7,
+      "tools_used": [
+        "github",
+        "exa",
+        "tinyfish"
+      ],
+      "tool_diversity": 3,
+      "status": "corroborated"
+    },
+    {
+      "angle": "overview and fundamentals",
+      "total_sources": 2,
+      "unique_domains": [
+        "shop.trustico.com",
+        "rootshell.yanivhaliwa.com"
+      ],
+      "domain_diversity": 2,
+      "tools_used": [
+        "tinyfish"
+      ],
+      "tool_diversity": 1,
+      "status": "corroborated"
+    },
+    {
+      "angle": "future directions and open research questions",
+      "total_sources": 5,
+      "unique_domains": [
+        "datatracker.ietf.org",
+        "blog.cloudflare.com",
+        "www.ninjaone.com",
+        "www.f5.com",
+        "en.wikipedia.org"
+      ],
+      "domain_diversity": 5,
+      "tools_used": [
+        "exa",
+        "tinyfish"
+      ],
+      "tool_diversity": 2,
+      "status": "corroborated"
+    },
+    {
+      "angle": "challenges, limitations, and known issues",
+      "total_sources": 6,
+      "unique_domains": [
+        "arxiv.org",
+        "conferences.sigcomm.org",
+        "quicwg.org",
+        "www.gocodeo.com",
+        "www.rfc-editor.org",
+        "www.haproxy.com"
+      ],
+      "domain_diversity": 6,
+      "tools_used": [
+        "exa",
+        "tinyfish"
+      ],
+      "tool_diversity": 2,
+      "status": "corroborated"
+    },
+    {
+      "angle": "standards, governance, and community",
+      "total_sources": 2,
+      "unique_domains": [
+        "shop.trustico.com",
+        "arxiv.org"
+      ],
+      "domain_diversity": 2,
+      "tools_used": [
+        "tinyfish"
+      ],
+      "tool_diversity": 1,
+      "status": "corroborated"
+    },
+    {
+      "angle": "performance characteristics and benchmarks",
+      "total_sources": 8,
+      "unique_domains": [
+        "www.youtube.com",
+        "www.catchpoint.com",
+        "lightyear.ai",
+        "datatracker.ietf.org",
+        "www.reddit.com",
+        "shop.trustico.com",
+        "www.researchgate.net"
+      ],
+      "domain_diversity": 7,
+      "tools_used": [
+        "exa",
+        "tinyfish"
+      ],
+      "tool_diversity": 2,
+      "status": "corroborated"
+    }
+  ],
+  "packet_summary": {
+    "sections": 10,
+    "sources": 68,
+    "method": {
+      "max_depth": 3,
+      "rounds_completed": 3,
+      "total_unique_sources": 68,
+      "unique_domains": 40,
+      "tools_used": "exa, github, github_readme, tinyfish",
+      "budget_used_seconds": 11.5,
+      "time_budget_seconds": 300
+    }
+  },
+  "web_results": [
+    {
+      "title": "Connection Migration – quic-go docs",
+      "url": "https://quic-go.net/docs/quic/connection-migration/",
+      "snippet": "",
+      "tool": "exa",
+      "angle": "existing projects, open source implementations, and alternatives"
+    },
+    {
+      "title": "A QUIC implementation in pure Go - GitHub",
+      "url": "https://github.com/quic-go/quic-go",
+      "snippet": "",
+      "tool": "exa",
+      "angle": "existing projects, open source implementations, and alternatives"
+    },
+    {
+      "title": "RFC 9000 - QUIC: A UDP-Based Multiplexed and Secure Transport",
+      "url": "https://datatracker.ietf.org/doc/rfc9000/",
+      "snippet": "",
+      "tool": "exa",
+      "angle": "existing projects, open source implementations, and alternatives"
+    },
+    {
+      "title": "IETF QUIC v1 Design",
+      "url": "https://www.cse.wustl.edu/~jain/cse570-21/ftp/quic/index.html",
+      "snippet": "",
+      "tool": "exa",
+      "angle": "existing projects, open source implementations, and alternatives"
+    },
+    {
+      "title": "Applicability of the QUIC Transport Protocol",
+      "url": "https://quicwg.org/ops-drafts/draft-ietf-quic-applicability.html",
+      "snippet": "",
+      "tool": "exa",
+      "angle": "existing projects, open source implementations, and alternatives"
+    },
+    {
+      "title": "[PDF] Design and Evaluation - Multipath QUIC",
+      "url": "https://multipath-quic.org/conext17-deconinck.pdf",
+      "snippet": "",
+      "tool": "exa",
+      "angle": "existing projects, open source implementations, and alternatives"
+    },
+    {
+      "title": "QUIC Protocol - Internals - luminary.blog",
+      "url": "https://luminary.blog/techs/quic-internals/",
+      "snippet": "",
+      "tool": "exa",
+      "angle": "existing projects, open source implementations, and alternatives"
+    },
+    {
+      "title": "[PDF] Recent Progress on the QUIC Protocol",
+      "url": "https://www.net.in.tum.de/fileadmin/TUM/NET/NET-2019-06-1/NET-2019-06-1_16.pdf",
+      "snippet": "",
+      "tool": "exa",
+      "angle": "existing projects, open source implementations, and alternatives"
+    },
+    {
+      "title": "Relay protocol selection (WS vs QUIC) + per-pair throughput ceiling ...",
+      "url": "https://github.com/netbirdio/netbird/issues/6021",
+      "snippet": "",
+      "tool": "exa",
+      "angle": "existing projects, open source implementations, and alternatives"
+    },
+    {
+      "title": "Using the QUIC Transport Protocol for Multi-hop Overlay Networks",
+      "url": "https://www.researchgate.net/publication/263172861_Using_the_QUIC_Transport_Protocol_for_Multi-hop_Overlay_Networks",
+      "snippet": "",
+      "tool": "exa",
+      "angle": "existing projects, open source implementations, and alternatives"
+    },
+    {
+      "title": "[PDF] A Quick Look at QUIC*",
+      "url": "https://web.cs.ucla.edu/~lixia/papers/UnderstandQUIC.pdf",
+      "snippet": "",
+      "tool": "exa",
+      "angle": "history and evolution"
+    },
+    {
+      "title": "[PDF] IETF QUIC v1 Design",
+      "url": "https://www.cse.wustl.edu/~jain/cse570-21/ftp/quic.pdf",
+      "snippet": "",
+      "tool": "exa",
+      "angle": "history and evolution"
+    },
+    {
+      "title": "[PDF] Multipath QUIC: Design and Evaluation",
+      "url": "https://conferences2.sigcomm.org/co-next/2017/presentation/S4_2.pdf",
+      "snippet": "",
+      "tool": "exa",
+      "angle": "history and evolution"
+    },
+    {
+      "title": "Understanding Common Protocols - Medium",
+      "url": "https://medium.com/@akashsdas_dev/understanding-common-protocols-ef56ba9121f1",
+      "snippet": "",
+      "tool": "exa",
+      "angle": "history and evolution"
+    },
+    {
+      "title": "TCP vs QUIC - The Modern Secure Alternative - Trustico",
+      "url": "https://shop.trustico.com/blogs/stories/tcp-vs-quic-the-modern-secure-alternative",
+      "snippet": "",
+      "tool": "exa",
+      "angle": "history and evolution"
+    },
+    {
+      "title": "A Network Threat Hunter's Guide to C2 over QUIC",
+      "url": "https://www.activecountermeasures.com/a-network-threat-hunters-guide-to-c2-over-quic/",
+      "snippet": "",
+      "tool": "exa",
+      "angle": "history and evolution"
+    },
+    {
+      "title": "Transport – quic-go docs",
+      "url": "https://quic-go.net/docs/quic/transport/",
+      "snippet": "",
+      "tool": "exa",
+      "angle": "comparative analysis and alternatives"
+    },
+    {
+      "title": "QUIC Analysis - A UDP-Based Multiplexed and Secure Transport",
+      "url": "https://blogit.michelin.io/quic-analysis-a-udp-based-multiplexed-and-secure-transport/",
+      "snippet": "",
+      "tool": "exa",
+      "angle": "comparative analysis and alternatives"
+    },
+    {
+      "title": "(PDF) QUIC: Uses and Adoption - ResearchGate",
+      "url": "https://www.researchgate.net/publication/396523543_QUIC_Uses_and_Adoption",
+      "snippet": "",
+      "tool": "exa",
+      "angle": "comparative analysis and alternatives"
+    },
+    {
+      "title": "[PDF] Comparison of Different QUIC Implementations",
+      "url": "https://www.net.in.tum.de/fileadmin/TUM/NET/NET-2022-07-1/NET-2022-07-1_10.pdf",
+      "snippet": "",
+      "tool": "exa",
+      "angle": "comparative analysis and alternatives"
+    },
+    {
+      "title": "QUIC: The Secure Communication Protocol Shaping the Internet's ...",
+      "url": "https://www.zscaler.com/blogs/product-insights/quic-secure-communication-protocol-shaping-future-of-internet",
+      "snippet": "",
+      "tool": "exa",
+      "angle": "architecture and design principles"
+    },
+    {
+      "title": "What is QUIC? Understand The Protocol - Check Point Software",
+      "url": "https://www.checkpoint.com/cyber-hub/network-security/what-is-quic/",
+      "snippet": "",
+      "tool": "exa",
+      "angle": "architecture and design principles"
+    },
+    {
+      "title": "How to Implement QUIC Protocol Configuration - OneUptime",
+      "url": "https://oneuptime.com/blog/post/2026-01-30-quic-protocol-configuration/view",
+      "snippet": "",
+      "tool": "exa",
+      "angle": "architecture and design principles"
+    },
+    {
+      "title": "quic-protocol-the-features-use-cases-and-impact-for-iot-iov.md",
+      "url": "https://github.com/emqx/blog/blob/main/en/202304/quic-protocol-the-features-use-cases-and-impact-for-iot-iov.md",
+      "snippet": "",
+      "tool": "exa",
+      "angle": "architecture and design principles"
+    },
+    {
+      "title": "Detailed Explanation of the QUIC Protocol: The Next-Generation ...",
+      "url": "https://medium.com/@threehappyer/detailed-explanation-of-the-quic-protocol-the-next-generation-internet-transport-layer-protocol-b680c0cf294a",
+      "snippet": "",
+      "tool": "exa",
+      "angle": "architecture and design principles"
+    },
+    {
+      "title": "QUIC Protocol Explained: What It Is and How It Works? - ClouDNS",
+      "url": "https://www.cloudns.net/blog/quic-protocol-explained-what-it-is-and-how-it-works/",
+      "snippet": "",
+      "tool": "exa",
+      "angle": "architecture and design principles"
+    },
+    {
+      "title": "What is QUIC? Everything You Need to Know | Auvik",
+      "url": "https://www.auvik.com/franklyit/blog/what-is-quic-protocol/",
+      "snippet": "",
+      "tool": "exa",
+      "angle": "architecture and design principles"
+    },
+    {
+      "title": "[PDF] The QUIC Transport Protocol:Design and Internet-Scale Deployment",
+      "url": "https://research.google.com/pubs/archive/46403.pdf",
+      "snippet": "",
+      "tool": "exa",
+      "angle": "architecture and design principles"
+    },
+    {
+      "title": "QUIC: A UDP-Based Multiplexed and Secure Transport",
+      "url": "https://datatracker.ietf.org/doc/draft-ietf-quic-transport/24/",
+      "snippet": "QUIC: A UDP-Based Multiplexed and Secure Transport draft-ietf-quic-transport-24 · 1. Sending ACK Frames Every packet SHOULD be acknowledged at least once, and ...",
+      "tool": "tinyfish",
+      "angle": "applications and real-world use cases"
+    },
+    {
+      "title": "TCP vs QUIC - The Modern Secure Alternative - Trustico",
+      "url": "https://shop.trustico.com/blogs/stories/tcp-vs-quic-the-modern-secure-alternative?srsltid=AfmBOoqnupZknmCxYrQVJPq0T69Ow8nqp3nsNGGwZWfmyBVx6WneBPNO",
+      "snippet": "Firewall rules must permit UDP traffic on port 443. Standard HTTPS uses TCP on port 443, but QUIC uses UDP on the same port. Both protocols can ...",
+      "tool": "tinyfish",
+      "angle": "applications and real-world use cases"
+    },
+    {
+      "title": "[PDF] Multipath QUIC: Design and Evaluation - Semantic Scholar",
+      "url": "https://www.semanticscholar.org/paper/Multipath-QUIC%3A-Design-and-Evaluation-Coninck-Bonaventure/de55066c05dfbe6f66ee55c4d4cfccb07f778182",
+      "snippet": "The design of Multipath QUIC (MPQUIC), a QUIC extension that enables a quic-go connection to use different paths such as WiFi and LTE on smartphones, ...",
+      "tool": "tinyfish",
+      "angle": "comparative analysis and alternatives"
+    },
+    {
+      "title": "Intro to QUIC Protocol: Fundamentals, Handshake & Practical Setup",
+      "url": "https://rootshell.yanivhaliwa.com/study/intro-quic-protocol-fundamentals",
+      "snippet": "QUIC merges transport and cryptographic responsibilities into a single UDP-based protocol, delivering low-latency connections while complicating ...",
+      "tool": "tinyfish",
+      "angle": "overview and fundamentals"
+    },
+    {
+      "title": "TCP vs QUIC - The Modern Secure Alternative - Trustico",
+      "url": "https://shop.trustico.com/blogs/stories/tcp-vs-quic-the-modern-secure-alternative?srsltid=AfmBOooSTOp-L1Flr16oJKVED57uY7JNUieJhij-pv1BruQrrriXYSsL",
+      "snippet": "Firewall rules must permit UDP traffic on port 443. Standard HTTPS uses TCP on port 443, but QUIC uses UDP on the same port. Both protocols can ...",
+      "tool": "tinyfish",
+      "angle": "overview and fundamentals"
+    },
+    {
+      "title": "QUIC Protocol: A Deep Dive - by Nan Wu - Medium",
+      "url": "https://medium.com/@wunan93cc/quic-protocol-a-deep-dive-3746c0ab3bd6",
+      "snippet": "",
+      "tool": "exa",
+      "angle": "applications and real-world use cases"
+    },
+    {
+      "title": "HOW QUIC WORKS - Intro to the QUIC Transport Protocol - YouTube",
+      "url": "https://www.youtube.com/watch?v=HnDsMehSSY4",
+      "snippet": "",
+      "tool": "exa",
+      "angle": "applications and real-world use cases"
+    },
+    {
+      "title": "QUIC Protocol - GeeksforGeeks",
+      "url": "https://www.geeksforgeeks.org/javascript/quic-protocol/",
+      "snippet": "",
+      "tool": "exa",
+      "angle": "applications and real-world use cases"
+    },
+    {
+      "title": "What Are QUIC and HTTP/3? - f5 Networks",
+      "url": "https://www.f5.com/glossary/quic-http3",
+      "snippet": "Originally developed by Google, QUIC uses User Datagram Protocol (UDP) as the low‑level transport mechanism for moving packets between client and server.",
+      "tool": "tinyfish",
+      "angle": "future directions and open research questions"
+    },
+    {
+      "title": "What Is QUIC? Complete Guide to the Protocol - CDNetworks",
+      "url": "https://www.cdnetworks.com/blog/media-delivery/what-is-quic/",
+      "snippet": "QUIC (Quick UDP Internet Connections) is a modern transport protocol that improves internet connection speed, reliability, and security.",
+      "tool": "tinyfish",
+      "angle": "history and evolution"
+    },
+    {
+      "title": "What's QUIC? | Microsoft Community Hub",
+      "url": "https://techcommunity.microsoft.com/blog/networkingblog/whats-quic/2683367",
+      "snippet": "QUIC is a transport layer protocol, not an application protocol, even though QUIC is transmitted inside the UDP segment.",
+      "tool": "tinyfish",
+      "angle": "history and evolution"
+    },
+    {
+      "title": "ACM SIGCOMM 2020 Tutorial on the QUIC Protocol",
+      "url": "https://conferences.sigcomm.org/sigcomm/2020/tutorial-quic.html",
+      "snippet": "QUIC is a new transport protocol that has been under development at the IETF and in various companies, and it is about to see extensive deployment across the ...",
+      "tool": "tinyfish",
+      "angle": "challenges, limitations, and known issues"
+    }
+  ],
+  "_detected_language": "go"
+}

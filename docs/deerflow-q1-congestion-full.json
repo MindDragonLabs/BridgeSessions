@@ -1,0 +1,4184 @@
+{
+  "topic_id": "66c40d49-9dc",
+  "topic": "quic go stream keystroke performance congestion",
+  "active_angles": [
+    "overview and fundamentals",
+    "architecture and design principles",
+    "existing projects, open source implementations, and alternatives",
+    "applications and real-world use cases",
+    "future directions and open research questions",
+    "comparative analysis and alternatives",
+    "performance characteristics and benchmarks"
+  ],
+  "completed_angles": [
+    "applications and real-world use cases",
+    "challenges, limitations, and known issues",
+    "history and evolution",
+    "standards, governance, and community",
+    "performance characteristics and benchmarks",
+    "comparative analysis and alternatives",
+    "future directions and open research questions"
+  ],
+  "depth": 1,
+  "max_depth": 1,
+  "time_budget_seconds": 60,
+  "start_time": 1780147240.605294,
+  "corpus_results": [],
+  "web_results": [
+    {
+      "id": "https://github.com/quic-go/quic-go",
+      "title": "A QUIC implementation in pure Go - GitHub",
+      "url": "https://github.com/quic-go/quic-go",
+      "_tool": "exa",
+      "_angle": "standards, governance, and community",
+      "_query": "quic go stream keystroke performance congestion standards, governance, and community",
+      "snippet": ""
+    },
+    {
+      "id": "https://quic-go.net/docs/quic/streams/",
+      "title": "QUIC Streams \u2013 quic-go docs",
+      "url": "https://quic-go.net/docs/quic/streams/",
+      "_tool": "exa",
+      "_angle": "standards, governance, and community",
+      "_query": "quic go stream keystroke performance congestion standards, governance, and community",
+      "snippet": ""
+    },
+    {
+      "id": "https://blog.nginx.org/blog/congestion-control-enhancements-for-quic-in-nginx",
+      "title": "Congestion Control Enhancements for QUIC in NGINX",
+      "url": "https://blog.nginx.org/blog/congestion-control-enhancements-for-quic-in-nginx",
+      "publishedDate": "2025-04-16T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "standards, governance, and community",
+      "_query": "quic go stream keystroke performance congestion standards, governance, and community",
+      "snippet": ""
+    },
+    {
+      "id": "https://pkg.go.dev/github.com/quic-go/quic-go",
+      "title": "quic - Go Packages",
+      "url": "https://pkg.go.dev/github.com/quic-go/quic-go",
+      "_tool": "exa",
+      "_angle": "standards, governance, and community",
+      "_query": "quic go stream keystroke performance congestion standards, governance, and community",
+      "snippet": ""
+    },
+    {
+      "id": "https://seemann.io/posts/2025-06-25---quic-go-api-revamp/",
+      "title": "Revamping the quic-go API: Transitioning from Interfaces to Structs",
+      "url": "https://seemann.io/posts/2025-06-25---quic-go-api-revamp/",
+      "publishedDate": "2025-06-25T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "standards, governance, and community",
+      "_query": "quic go stream keystroke performance congestion standards, governance, and community",
+      "snippet": ""
+    },
+    {
+      "id": "https://www.ietf.org/archive/id/draft-yuan-quic-congestion-data-01.html",
+      "title": "Exchanging Congestion Control Data in QUIC - IETF",
+      "url": "https://www.ietf.org/archive/id/draft-yuan-quic-congestion-data-01.html",
+      "publishedDate": "2026-04-10T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "standards, governance, and community",
+      "_query": "quic go stream keystroke performance congestion standards, governance, and community",
+      "snippet": ""
+    },
+    {
+      "id": "https://arxiv.org/abs/2505.21769",
+      "title": "[2505.21769] Video Streaming Over QUIC: A Comprehensive Study",
+      "url": "https://arxiv.org/abs/2505.21769",
+      "publishedDate": "2025-05-27T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "standards, governance, and community",
+      "_query": "quic go stream keystroke performance congestion standards, governance, and community",
+      "snippet": ""
+    },
+    {
+      "id": "https://groups.google.com/a/chromium.org/g/proto-quic/c/9_GHun_1gc0/m/J_jHDcgpBgAJ",
+      "title": "Are congestion windows for QUIC per stream of per connection?",
+      "url": "https://groups.google.com/a/chromium.org/g/proto-quic/c/9_GHun_1gc0/m/J_jHDcgpBgAJ",
+      "_tool": "exa",
+      "_angle": "standards, governance, and community",
+      "_query": "quic go stream keystroke performance congestion standards, governance, and community",
+      "snippet": ""
+    },
+    {
+      "id": "https://github.com/quic-go/quic-go/issues/5580",
+      "title": "Congestion control performance degradation on reordered paths",
+      "url": "https://github.com/quic-go/quic-go/issues/5580",
+      "publishedDate": "2026-03-05T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "standards, governance, and community",
+      "_query": "quic go stream keystroke performance congestion standards, governance, and community",
+      "snippet": ""
+    },
+    {
+      "id": "https://ui.adsabs.harvard.edu/abs/2022AIPC.2424b0003N/abstract",
+      "title": "Performance analysis of pluggable congestion control in QUIC ...",
+      "url": "https://ui.adsabs.harvard.edu/abs/2022AIPC.2424b0003N/abstract",
+      "_tool": "exa",
+      "_angle": "standards, governance, and community",
+      "_query": "quic go stream keystroke performance congestion standards, governance, and community",
+      "snippet": ""
+    },
+    {
+      "id": "https://medium.com/@wunan93cc/quic-protocol-a-deep-dive-3746c0ab3bd6",
+      "title": "QUIC Protocol: A Deep Dive - by Nan Wu - Medium",
+      "url": "https://medium.com/@wunan93cc/quic-protocol-a-deep-dive-3746c0ab3bd6",
+      "publishedDate": "2026-02-19T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "history and evolution",
+      "_query": "quic go stream keystroke performance congestion history and evolution",
+      "snippet": ""
+    },
+    {
+      "id": "https://dl.acm.org/doi/10.1145/3793674",
+      "title": "Video Streaming Over QUIC: A Comprehensive Study",
+      "url": "https://dl.acm.org/doi/10.1145/3793674",
+      "_tool": "exa",
+      "_angle": "history and evolution",
+      "_query": "quic go stream keystroke performance congestion history and evolution",
+      "snippet": ""
+    },
+    {
+      "id": "https://datatracker.ietf.org/doc/rfc9002/",
+      "title": "RFC 9002 - QUIC Loss Detection and Congestion Control",
+      "url": "https://datatracker.ietf.org/doc/rfc9002/",
+      "_tool": "exa",
+      "_angle": "history and evolution",
+      "_query": "quic go stream keystroke performance congestion history and evolution",
+      "snippet": ""
+    },
+    {
+      "id": "https://www.catchpoint.com/http2-vs-http3/quic-vs-tcp",
+      "title": "QUIC vs. TCP\u2014Development and Monitoring Guide - Catchpoint",
+      "url": "https://www.catchpoint.com/http2-vs-http3/quic-vs-tcp",
+      "_tool": "exa",
+      "_angle": "history and evolution",
+      "_query": "quic go stream keystroke performance congestion history and evolution",
+      "snippet": ""
+    },
+    {
+      "id": "https://webthesis.biblio.polito.it/28622/1/tesi.pdf",
+      "title": "[PDF] A study of congestion control schemes on QUIC - WebThesis",
+      "url": "https://webthesis.biblio.polito.it/28622/1/tesi.pdf",
+      "_tool": "exa",
+      "_angle": "history and evolution",
+      "_query": "quic go stream keystroke performance congestion history and evolution",
+      "snippet": ""
+    },
+    {
+      "id": "https://www.researchgate.net/publication/353089470_The_Performance_and_Future_of_QUIC_Protocol_in_the_Modern_Internet",
+      "title": "The Performance and Future of QUIC Protocol in the Modern Internet",
+      "url": "https://www.researchgate.net/publication/353089470_The_Performance_and_Future_of_QUIC_Protocol_in_the_Modern_Internet",
+      "publishedDate": "2021-07-05T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "history and evolution",
+      "_query": "quic go stream keystroke performance congestion history and evolution",
+      "snippet": ""
+    },
+    {
+      "id": "http://web.cs.wpi.edu/~claypool/mqp/satellite-21/final-report.pdf",
+      "title": "[PDF] Performance Analysis of QUIC versus TCP on Satellite Networks",
+      "url": "http://web.cs.wpi.edu/~claypool/mqp/satellite-21/final-report.pdf",
+      "publishedDate": "2022-03-04T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "history and evolution",
+      "_query": "quic go stream keystroke performance congestion history and evolution",
+      "snippet": ""
+    },
+    {
+      "id": "https://www.sciencedirect.com/science/article/pii/S0140366424002512",
+      "title": "QUIC Congestion Control Algorithm characteristics in mixed satellite ...",
+      "url": "https://www.sciencedirect.com/science/article/pii/S0140366424002512",
+      "publishedDate": "2024-09-01T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "history and evolution",
+      "_query": "quic go stream keystroke performance congestion history and evolution",
+      "snippet": ""
+    },
+    {
+      "id": "https://quic-go.net/docs/quic/congestion-control/",
+      "title": "Congestion Control \u2013 quic-go docs",
+      "url": "https://quic-go.net/docs/quic/congestion-control/",
+      "_tool": "exa",
+      "_angle": "history and evolution",
+      "_query": "quic go stream keystroke performance congestion history and evolution",
+      "snippet": ""
+    },
+    {
+      "id": "https://github.com/Shenggan/quic_vs_tcp",
+      "title": "Shenggan/quic_vs_tcp: A Survey and Benchmark of QUIC - GitHub",
+      "url": "https://github.com/Shenggan/quic_vs_tcp",
+      "_tool": "exa",
+      "_angle": "history and evolution",
+      "_query": "quic go stream keystroke performance congestion history and evolution",
+      "snippet": ""
+    },
+    {
+      "id": "https://blog.cloudflare.com/quic-death-spiral-fix/",
+      "title": "how a Linux kernel optimization became a QUIC bug",
+      "url": "https://blog.cloudflare.com/quic-death-spiral-fix/",
+      "publishedDate": "2026-05-12T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "challenges, limitations, and known issues",
+      "_query": "quic go stream keystroke performance congestion challenges, limitations, and known issues",
+      "snippet": ""
+    },
+    {
+      "id": "https://lwn.net/Articles/1020616/",
+      "title": "As an aside, I think QUIC is not a great protocol - LWN.net",
+      "url": "https://lwn.net/Articles/1020616/",
+      "publishedDate": "2025-05-09T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "challenges, limitations, and known issues",
+      "_query": "quic go stream keystroke performance congestion challenges, limitations, and known issues",
+      "snippet": ""
+    },
+    {
+      "id": "https://arxiv.org/html/2310.09423v2",
+      "title": "QUIC is not Quick Enough over Fast Internet - arXiv",
+      "url": "https://arxiv.org/html/2310.09423v2",
+      "_tool": "exa",
+      "_angle": "challenges, limitations, and known issues",
+      "_query": "quic go stream keystroke performance congestion challenges, limitations, and known issues",
+      "snippet": ""
+    },
+    {
+      "id": "https://edransit.medium.com/diving-into-http-3-security-congestion-control-and-tcp-comparisons-on-quic-protocol-5af5081a4043",
+      "title": "Diving into HTTP/3: Security, congestion control, and TCP ...",
+      "url": "https://edransit.medium.com/diving-into-http-3-security-congestion-control-and-tcp-comparisons-on-quic-protocol-5af5081a4043",
+      "publishedDate": "2022-03-30T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "challenges, limitations, and known issues",
+      "_query": "quic go stream keystroke performance congestion challenges, limitations, and known issues",
+      "snippet": ""
+    },
+    {
+      "id": "https://www.sciencedirect.com/science/article/pii/S014036642400166X",
+      "title": "QUIC on the Fast Lane: Extending Performance Evaluations on High ...",
+      "url": "https://www.sciencedirect.com/science/article/pii/S014036642400166X",
+      "publishedDate": "2024-07-01T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "challenges, limitations, and known issues",
+      "_query": "quic go stream keystroke performance congestion challenges, limitations, and known issues",
+      "snippet": ""
+    },
+    {
+      "id": "https://quic-go.net/docs/quic/flowcontrol/",
+      "title": "Flow Control \u2013 quic-go docs",
+      "url": "https://quic-go.net/docs/quic/flowcontrol/",
+      "_tool": "exa",
+      "_angle": "challenges, limitations, and known issues",
+      "_query": "quic go stream keystroke performance congestion challenges, limitations, and known issues",
+      "snippet": ""
+    },
+    {
+      "id": "https://pubs.aip.org/aip/acp/article-pdf/doi/10.1063/5.0076775/16199619/020003_1_online.pdf",
+      "title": "Performance Analysis of Pluggable Congestion Control in QUIC ...",
+      "url": "https://pubs.aip.org/aip/acp/article-pdf/doi/10.1063/5.0076775/16199619/020003_1_online.pdf",
+      "_tool": "exa",
+      "_angle": "challenges, limitations, and known issues",
+      "_query": "quic go stream keystroke performance congestion challenges, limitations, and known issues",
+      "snippet": ""
+    },
+    {
+      "id": "https://web.cs.ucla.edu/~lixia/papers/UnderstandQUIC.pdf",
+      "title": "[PDF] A Quick Look at QUIC*",
+      "url": "https://web.cs.ucla.edu/~lixia/papers/UnderstandQUIC.pdf",
+      "publishedDate": "2021-10-04T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "architecture and design principles",
+      "_query": "quic go stream keystroke performance congestion architecture and design principles",
+      "snippet": ""
+    },
+    {
+      "id": "https://research.google.com/pubs/archive/46403.pdf",
+      "title": "[PDF] The QUIC Transport Protocol:Design and Internet-Scale Deployment",
+      "url": "https://research.google.com/pubs/archive/46403.pdf",
+      "_tool": "exa",
+      "_angle": "architecture and design principles",
+      "_query": "quic go stream keystroke performance congestion architecture and design principles",
+      "snippet": ""
+    },
+    {
+      "id": "https://scispace.com/pdf/innovating-transport-with-quic-design-approaches-and-2xbj9n2ss5.pdf",
+      "title": "[PDF] Innovating Transport with QUIC: Design Approaches and Research ...",
+      "url": "https://scispace.com/pdf/innovating-transport-with-quic-design-approaches-and-2xbj9n2ss5.pdf",
+      "_tool": "exa",
+      "_angle": "architecture and design principles",
+      "_query": "quic go stream keystroke performance congestion architecture and design principles",
+      "snippet": ""
+    },
+    {
+      "id": "https://dl.acm.org/doi/10.1145/3098822.3098842",
+      "title": "The QUIC Transport Protocol: Design and Internet-Scale Deployment",
+      "url": "https://dl.acm.org/doi/10.1145/3098822.3098842",
+      "_tool": "exa",
+      "_angle": "architecture and design principles",
+      "_query": "quic go stream keystroke performance congestion architecture and design principles",
+      "snippet": ""
+    },
+    {
+      "id": "https://qlog.edm.uhasselt.be/sigcomm/files/QUICTutorial_SIGCOMM2020.pdf",
+      "title": "[PDF] A QUIC Tutorial",
+      "url": "https://qlog.edm.uhasselt.be/sigcomm/files/QUICTutorial_SIGCOMM2020.pdf",
+      "_tool": "exa",
+      "_angle": "overview and fundamentals",
+      "_query": "quic go stream keystroke performance congestion overview and fundamentals",
+      "snippet": ""
+    },
+    {
+      "id": "https://arxiv.org/html/2507.00896v1",
+      "title": "QUIC Delay Control: an implementation of congestion and ... - arXiv",
+      "url": "https://arxiv.org/html/2507.00896v1",
+      "publishedDate": "2025-07-01T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "overview and fundamentals",
+      "_query": "quic go stream keystroke performance congestion overview and fundamentals",
+      "snippet": ""
+    },
+    {
+      "id": "https://rootshell.yanivhaliwa.com/study/intro-quic-protocol-fundamentals",
+      "title": "Intro to QUIC Protocol: Fundamentals, Handshake & Practical Setup",
+      "url": "https://rootshell.yanivhaliwa.com/study/intro-quic-protocol-fundamentals",
+      "publishedDate": "2026-04-04T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "overview and fundamentals",
+      "_query": "quic go stream keystroke performance congestion overview and fundamentals",
+      "snippet": ""
+    },
+    {
+      "id": "https://www.meetecho.com/blog/quic-journey/",
+      "title": "28 Days Later (my QUIC journey) | Meetecho Blog",
+      "url": "https://www.meetecho.com/blog/quic-journey/",
+      "publishedDate": "2024-07-01T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "overview and fundamentals",
+      "_query": "quic go stream keystroke performance congestion overview and fundamentals",
+      "snippet": ""
+    },
+    {
+      "position": 2,
+      "site_name": "www.sciencedirect.com",
+      "snippet": "The main technical innovation leverages a burst-based transmission against the traditional Congestion Window (cwnd) paradigm, demonstrating good performance in ...",
+      "title": "QUIC Wave: Bringing bursts at application level to efficiently face ...",
+      "url": "https://www.sciencedirect.com/science/article/pii/S1389128626001970",
+      "_tool": "tinyfish",
+      "_angle": "future directions and open research questions",
+      "_query": "quic go stream keystroke performance congestion future directions and open research questions"
+    },
+    {
+      "position": 6,
+      "site_name": "www.sivak.dev",
+      "snippet": "We find that DASH performs better over QUIC than TCP in terms of video quality since QUIC is able to render a better or same quality video as of TCP at any ...",
+      "title": "[PDF] <Analysis of QUIC over DASH> - Siva Kesava Reddy Kakarla",
+      "url": "https://www.sivak.dev/assets/pdf/UG_thesis.pdf",
+      "_tool": "tinyfish",
+      "_angle": "future directions and open research questions",
+      "_query": "quic go stream keystroke performance congestion future directions and open research questions"
+    },
+    {
+      "position": 8,
+      "site_name": "www.cuiyong.net",
+      "snippet": "QUIC UDP Internet Connections (QUIC) is a new transport protocol that provides low-latency communication, security, and rapid deployment. QUIC has begun its ...",
+      "title": "[PDF] Innovating Transport with QUIC: Design Approaches and Research ...",
+      "url": "https://www.cuiyong.net/lunwen/2017/Innovating_Transport_with_QUIC_Design_Approaches_and_Research_Challenges.pdf",
+      "_tool": "tinyfish",
+      "_angle": "future directions and open research questions",
+      "_query": "quic go stream keystroke performance congestion future directions and open research questions"
+    },
+    {
+      "position": 9,
+      "site_name": "www.mdpi.com",
+      "snippet": "QUIC is a connection-oriented protocol that uses a handshake to establish a connection and provides reliable data transfer, while UDP does not.",
+      "title": "Use of QUIC for Mobile-Oriented Future Internet (Q-MOFI) - MDPI",
+      "url": "https://www.mdpi.com/2079-9292/13/2/431",
+      "_tool": "tinyfish",
+      "_angle": "future directions and open research questions",
+      "_query": "quic go stream keystroke performance congestion future directions and open research questions"
+    },
+    {
+      "position": 10,
+      "site_name": "aaltodoc.aalto.fi",
+      "snippet": "While QUIC is deployed on top of UDP, it is connection-oriented, provides reliable packet delivery, and congestion control. QUIC also integrates ...",
+      "title": "[PDF] Performance analysis of modern QUIC implementations - Aaltodoc",
+      "url": "https://aaltodoc.aalto.fi/bitstreams/e3d93634-a772-41c7-970d-963bab63b1f5/download",
+      "_tool": "tinyfish",
+      "_angle": "future directions and open research questions",
+      "_query": "quic go stream keystroke performance congestion future directions and open research questions"
+    },
+    {
+      "position": 8,
+      "site_name": "arxiv.org",
+      "snippet": "The performance differences between QUIC and TCP/TLS become more evi- dent when the implementations are pushed to their limits on high-speed ...",
+      "title": "[PDF] QUIC on the Highway: Evaluating Performance on High-rate Links",
+      "url": "https://arxiv.org/pdf/2309.16395",
+      "_tool": "tinyfish",
+      "_angle": "challenges, limitations, and known issues",
+      "_query": "quic go stream keystroke performance congestion challenges, limitations, and known issues"
+    },
+    {
+      "position": 2,
+      "site_name": "medium.com",
+      "snippet": "QUIC supports multiple independent streams within a single connection, effectively mitigating Head-of-Line (HOL) blocking, a common limitation ...",
+      "title": "QUIC vs TCP: \u201cThe Ultimate Benchmark for Modern Network ...",
+      "url": "https://medium.com/@abhi.patel.7172/quic-vs-tcp-the-ultimate-benchmark-for-modern-network-performance-22be6e5af66d",
+      "_tool": "tinyfish",
+      "_angle": "performance characteristics and benchmarks",
+      "_query": "quic go stream keystroke performance congestion performance characteristics and benchmarks"
+    },
+    {
+      "position": 5,
+      "site_name": "www.researchgate.net",
+      "snippet": "... Early investigations by Carlucci et al.[27] demonstrated QUIC's superior performance over TCP and SPDY[75], particularly in terms of connection setup times ...",
+      "title": "Performance Benchmarking of the QUIC Transport Protocol",
+      "url": "https://www.researchgate.net/publication/369345763_Performance_Benchmarking_of_the_QUIC_Transport_Protocol",
+      "_tool": "tinyfish",
+      "_angle": "performance characteristics and benchmarks",
+      "_query": "quic go stream keystroke performance congestion performance characteristics and benchmarks"
+    },
+    {
+      "position": 6,
+      "site_name": "www.fastly.com",
+      "snippet": "Essentially, QUIC offers advantages in terms of reduced latency, improved multiplexing and concurrent streams, efficient congestion control, ...",
+      "title": "QUIC vs TCP: Which is Better? - Fastly",
+      "url": "https://www.fastly.com/blog/measuring-quic-vs-tcp-computational-efficiency",
+      "_tool": "tinyfish",
+      "_angle": "performance characteristics and benchmarks",
+      "_query": "quic go stream keystroke performance congestion performance characteristics and benchmarks"
+    },
+    {
+      "position": 8,
+      "site_name": "conferences.sigcomm.org",
+      "snippet": "Key Objectives: Improved quality of experience, high CPU efficiency, MORE QUIC! ... New: Move data ownership to streams. Enabled bulk application ...",
+      "title": "[PDF] QUIC CPU Performance",
+      "url": "https://conferences.sigcomm.org/sigcomm/2020/files/slides/epiq/0%20QUIC%20and%20HTTP_3%20CPU%20Performance.pdf",
+      "_tool": "tinyfish",
+      "_angle": "performance characteristics and benchmarks",
+      "_query": "quic go stream keystroke performance congestion performance characteristics and benchmarks"
+    },
+    {
+      "position": 9,
+      "site_name": "lucris.lub.lu.se",
+      "snippet": "The results of our evaluation suggest that the performance of different protocols varies based on the characteristics of different control systems. However, ...",
+      "title": "[PDF] Performance Evaluation of QUIC vs TCP for Cloud Control Systems",
+      "url": "https://lucris.lub.lu.se/ws/portalfiles/portal/162076810/1570917060.pdf",
+      "_tool": "tinyfish",
+      "_angle": "performance characteristics and benchmarks",
+      "_query": "quic go stream keystroke performance congestion performance characteristics and benchmarks"
+    },
+    {
+      "id": "https://datatracker.ietf.org/doc/html/draft-banks-quic-performance-00",
+      "title": "draft-banks-quic-performance-00 - IETF Datatracker",
+      "url": "https://datatracker.ietf.org/doc/html/draft-banks-quic-performance-00",
+      "publishedDate": "2020-12-23T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "performance characteristics and benchmarks",
+      "_query": "quic go stream keystroke performance congestion performance characteristics and benchmarks",
+      "snippet": ""
+    },
+    {
+      "id": "https://vaibhavbajpai.com/documents/papers/proceedings/quic-tnsm-2022.pdf",
+      "title": "[PDF] Evaluating QUIC Performance over Web, Cloud Storage and Video ...",
+      "url": "https://vaibhavbajpai.com/documents/papers/proceedings/quic-tnsm-2022.pdf",
+      "publishedDate": "2021-12-11T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "performance characteristics and benchmarks",
+      "_query": "quic go stream keystroke performance congestion performance characteristics and benchmarks",
+      "snippet": ""
+    },
+    {
+      "id": "https://dl.acm.org/doi/full/10.1145/3793674",
+      "title": "Video Streaming Over QUIC: A Comprehensive Study",
+      "url": "https://dl.acm.org/doi/full/10.1145/3793674",
+      "publishedDate": "2026-03-07T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "comparative analysis and alternatives",
+      "_query": "quic go stream keystroke performance congestion comparative analysis and alternatives",
+      "snippet": ""
+    },
+    {
+      "id": "https://arxiv.org/html/2504.10054v1",
+      "title": "Implementation and Performance Evaluation of TCP over QUIC ...",
+      "url": "https://arxiv.org/html/2504.10054v1",
+      "publishedDate": "2025-04-14T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "comparative analysis and alternatives",
+      "_query": "quic go stream keystroke performance congestion comparative analysis and alternatives",
+      "snippet": ""
+    },
+    {
+      "id": "https://journal.uob.edu.bh/bitstreams/e3b9061d-f896-4e7d-9550-f58ec7ab3d6e/download",
+      "title": "[PDF] A Comparative Analysis of QUIC and FTP Protocols in Go",
+      "url": "https://journal.uob.edu.bh/bitstreams/e3b9061d-f896-4e7d-9550-f58ec7ab3d6e/download",
+      "_tool": "exa",
+      "_angle": "comparative analysis and alternatives",
+      "_query": "quic go stream keystroke performance congestion comparative analysis and alternatives",
+      "snippet": ""
+    },
+    {
+      "id": "https://www.net.in.tum.de/fileadmin/TUM/NET/NET-2022-07-1/NET-2022-07-1_10.pdf",
+      "title": "[PDF] Comparison of Different QUIC Implementations",
+      "url": "https://www.net.in.tum.de/fileadmin/TUM/NET/NET-2022-07-1/NET-2022-07-1_10.pdf",
+      "_tool": "exa",
+      "_angle": "comparative analysis and alternatives",
+      "_query": "quic go stream keystroke performance congestion comparative analysis and alternatives",
+      "snippet": ""
+    },
+    {
+      "id": "https://documentserver.uhasselt.be/bitstream/1942/46864/2/4349c449-e468-45c5-81d8-23c8f4468331.pdf",
+      "title": "[PDF] Comparative Analysis of QUIC and Other Network Protocols for Real ...",
+      "url": "https://documentserver.uhasselt.be/bitstream/1942/46864/2/4349c449-e468-45c5-81d8-23c8f4468331.pdf",
+      "_tool": "exa",
+      "_angle": "comparative analysis and alternatives",
+      "_query": "quic go stream keystroke performance congestion comparative analysis and alternatives",
+      "snippet": ""
+    },
+    {
+      "position": 10,
+      "site_name": "www.researchgate.net",
+      "snippet": "In this paper, two congestion control algorithms for QUIC are proposed with different architectures - an event-based model that handles wireless traffic better ...",
+      "title": "Performance analysis of pluggable congestion control in QUIC ...",
+      "url": "https://www.researchgate.net/publication/359385389_Performance_analysis_of_pluggable_congestion_control_in_QUIC_protocol",
+      "_tool": "tinyfish",
+      "_angle": "architecture and design principles",
+      "_query": "quic go stream keystroke performance congestion architecture and design principles"
+    },
+    {
+      "position": 5,
+      "site_name": "github.com",
+      "snippet": "QUIC uses a combination of encryption and multiplexing to provide improved security and faster data transfer. It allows multiple streams of data to be sent over ...",
+      "title": "quic-protocol-the-features-use-cases-and-impact-for-iot-iov.md",
+      "url": "https://github.com/emqx/blog/blob/main/en/202304/quic-protocol-the-features-use-cases-and-impact-for-iot-iov.md",
+      "_tool": "tinyfish",
+      "_angle": "applications and real-world use cases",
+      "_query": "quic go stream keystroke performance congestion applications and real-world use cases"
+    },
+    {
+      "position": 7,
+      "site_name": "pmc.ncbi.nlm.nih.gov",
+      "snippet": "We propose an efficient congestion control mechanism on the basis of deep reinforcement learning (DRL), ie, proximal bandwidth-delay quick optimization (PBQ) ...",
+      "title": "PBQ-Enhanced QUIC: QUIC with Deep Reinforcement Learning ...",
+      "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC9955954/",
+      "_tool": "tinyfish",
+      "_angle": "applications and real-world use cases",
+      "_query": "quic go stream keystroke performance congestion applications and real-world use cases"
+    },
+    {
+      "position": 8,
+      "site_name": "www.researchgate.net",
+      "snippet": "This paper explains QUIC's design and operation, contrasts it with \"TLS 1.3 over TCP,\" reviews adoption data and case studies, and outlines ...",
+      "title": "(PDF) QUIC: Uses and Adoption - ResearchGate",
+      "url": "https://www.researchgate.net/publication/396523543_QUIC_Uses_and_Adoption",
+      "_tool": "tinyfish",
+      "_angle": "applications and real-world use cases",
+      "_query": "quic go stream keystroke performance congestion applications and real-world use cases"
+    },
+    {
+      "id": "https://github.com/mmmarcos/awesome-quic",
+      "title": "A curated list of awesome QUIC and HTTP/3 resources - GitHub",
+      "url": "https://github.com/mmmarcos/awesome-quic",
+      "_tool": "exa",
+      "_angle": "existing projects, open source implementations, and alternatives",
+      "_query": "quic go stream keystroke performance congestion existing projects, open source implementations, and alternatives",
+      "snippet": ""
+    },
+    {
+      "id": "https://www.net.in.tum.de/fileadmin/TUM/NET/NET-2022-07-1/NET-2022-07-1_02.pdf",
+      "title": "[PDF] Comparison of Different QUIC Implementations",
+      "url": "https://www.net.in.tum.de/fileadmin/TUM/NET/NET-2022-07-1/NET-2022-07-1_02.pdf",
+      "_tool": "exa",
+      "_angle": "existing projects, open source implementations, and alternatives",
+      "_query": "quic go stream keystroke performance congestion existing projects, open source implementations, and alternatives",
+      "snippet": ""
+    },
+    {
+      "id": "https://www.meetecho.com/blog/moq-webrtc/",
+      "title": "Getting Media Over QUIC (MoQ) and WebRTC to like each other",
+      "url": "https://www.meetecho.com/blog/moq-webrtc/",
+      "publishedDate": "2024-09-02T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "existing projects, open source implementations, and alternatives",
+      "_query": "quic go stream keystroke performance congestion existing projects, open source implementations, and alternatives",
+      "snippet": ""
+    },
+    {
+      "id": "https://www.reddit.com/r/golang/comments/np5bed/quiwi_another_quic_implementation_in_pure_go/",
+      "title": "Quiwi - Another QUIC implementation in pure Go : r/golang - Reddit",
+      "url": "https://www.reddit.com/r/golang/comments/np5bed/quiwi_another_quic_implementation_in_pure_go/",
+      "publishedDate": "2021-05-31T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "existing projects, open source implementations, and alternatives",
+      "_query": "quic go stream keystroke performance congestion existing projects, open source implementations, and alternatives",
+      "snippet": ""
+    },
+    {
+      "id": "https://thenewstack.io/how-we-added-quic-support-to-openssl-without-patches-or-rebuilds/",
+      "title": "How We Added QUIC Support to OpenSSL without Patches or ...",
+      "url": "https://thenewstack.io/how-we-added-quic-support-to-openssl-without-patches-or-rebuilds/",
+      "publishedDate": "2024-03-28T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "existing projects, open source implementations, and alternatives",
+      "_query": "quic go stream keystroke performance congestion existing projects, open source implementations, and alternatives",
+      "snippet": ""
+    },
+    {
+      "id": "https://doc.tm.kit.edu/2025-Examining-the-Heterogeneous-Throughput-Performance-Landscape-of-QUIC-Implementations-Koenig-et-al.pdf",
+      "title": "[PDF] Examining the Heterogeneous Throughput Performance Landscape ...",
+      "url": "https://doc.tm.kit.edu/2025-Examining-the-Heterogeneous-Throughput-Performance-Landscape-of-QUIC-Implementations-Koenig-et-al.pdf",
+      "_tool": "exa",
+      "_angle": "future directions and open research questions",
+      "_query": "quic go stream keystroke performance congestion future directions and open research questions",
+      "snippet": ""
+    },
+    {
+      "position": 3,
+      "site_name": "arxiv.org",
+      "snippet": "Results indicate that TCP over QUIC maintains significantly higher throughput than native TCP in lossy or unstable environments, with up to a high improvement ...",
+      "title": "Implementation and Performance Evaluation of TCP over ...",
+      "url": "https://arxiv.org/html/2504.10054v2",
+      "_tool": "tinyfish",
+      "_angle": "comparative analysis and alternatives",
+      "_query": "quic go stream keystroke performance congestion comparative analysis and alternatives"
+    },
+    {
+      "position": 10,
+      "site_name": "www.researchgate.net",
+      "snippet": "The results of the simulations showed that QUIC performed better than TCP in terms of throughput and minimized latency in moderate or good ...",
+      "title": "QUIC vs TCP: A Performance Evaluation over LTE with NS-3",
+      "url": "https://www.researchgate.net/publication/357497663_QUIC_vs_TCP_A_Performance_Evaluation_over_LTE_with_NS-3",
+      "_tool": "tinyfish",
+      "_angle": "comparative analysis and alternatives",
+      "_query": "quic go stream keystroke performance congestion comparative analysis and alternatives"
+    },
+    {
+      "id": "https://arxiv.org/pdf/2505.21769",
+      "title": "[PDF] Video Streaming Over QUIC: A Comprehensive Study - arXiv",
+      "url": "https://arxiv.org/pdf/2505.21769",
+      "publishedDate": "2025-05-28T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "applications and real-world use cases",
+      "_query": "quic go stream keystroke performance congestion applications and real-world use cases",
+      "snippet": ""
+    },
+    {
+      "id": "https://dl.acm.org/doi/10.1145/3772290.3772298",
+      "title": "Impact of Congestion Control Algorithms on the QoE Performance of ...",
+      "url": "https://dl.acm.org/doi/10.1145/3772290.3772298",
+      "publishedDate": "2026-01-05T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "applications and real-world use cases",
+      "_query": "quic go stream keystroke performance congestion applications and real-world use cases",
+      "snippet": ""
+    },
+    {
+      "id": "https://hal.science/hal-04231048v1/file/Quic.pdf",
+      "title": "[PDF] Assessing the Interplay Between WebRTC and QUIC Congestion ...",
+      "url": "https://hal.science/hal-04231048v1/file/Quic.pdf",
+      "publishedDate": "2023-11-02T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "applications and real-world use cases",
+      "_query": "quic go stream keystroke performance congestion applications and real-world use cases",
+      "snippet": ""
+    }
+  ],
+  "findings": [
+    {
+      "id": "https://github.com/quic-go/quic-go",
+      "title": "A QUIC implementation in pure Go - GitHub",
+      "url": "https://github.com/quic-go/quic-go",
+      "_tool": "exa",
+      "_angle": "standards, governance, and community",
+      "_query": "quic go stream keystroke performance congestion standards, governance, and community",
+      "snippet": ""
+    },
+    {
+      "id": "https://quic-go.net/docs/quic/streams/",
+      "title": "QUIC Streams \u2013 quic-go docs",
+      "url": "https://quic-go.net/docs/quic/streams/",
+      "_tool": "exa",
+      "_angle": "standards, governance, and community",
+      "_query": "quic go stream keystroke performance congestion standards, governance, and community",
+      "snippet": ""
+    },
+    {
+      "id": "https://blog.nginx.org/blog/congestion-control-enhancements-for-quic-in-nginx",
+      "title": "Congestion Control Enhancements for QUIC in NGINX",
+      "url": "https://blog.nginx.org/blog/congestion-control-enhancements-for-quic-in-nginx",
+      "publishedDate": "2025-04-16T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "standards, governance, and community",
+      "_query": "quic go stream keystroke performance congestion standards, governance, and community",
+      "snippet": ""
+    },
+    {
+      "id": "https://pkg.go.dev/github.com/quic-go/quic-go",
+      "title": "quic - Go Packages",
+      "url": "https://pkg.go.dev/github.com/quic-go/quic-go",
+      "_tool": "exa",
+      "_angle": "standards, governance, and community",
+      "_query": "quic go stream keystroke performance congestion standards, governance, and community",
+      "snippet": ""
+    },
+    {
+      "id": "https://seemann.io/posts/2025-06-25---quic-go-api-revamp/",
+      "title": "Revamping the quic-go API: Transitioning from Interfaces to Structs",
+      "url": "https://seemann.io/posts/2025-06-25---quic-go-api-revamp/",
+      "publishedDate": "2025-06-25T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "standards, governance, and community",
+      "_query": "quic go stream keystroke performance congestion standards, governance, and community",
+      "snippet": ""
+    },
+    {
+      "id": "https://www.ietf.org/archive/id/draft-yuan-quic-congestion-data-01.html",
+      "title": "Exchanging Congestion Control Data in QUIC - IETF",
+      "url": "https://www.ietf.org/archive/id/draft-yuan-quic-congestion-data-01.html",
+      "publishedDate": "2026-04-10T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "standards, governance, and community",
+      "_query": "quic go stream keystroke performance congestion standards, governance, and community",
+      "snippet": ""
+    },
+    {
+      "id": "https://arxiv.org/abs/2505.21769",
+      "title": "[2505.21769] Video Streaming Over QUIC: A Comprehensive Study",
+      "url": "https://arxiv.org/abs/2505.21769",
+      "publishedDate": "2025-05-27T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "standards, governance, and community",
+      "_query": "quic go stream keystroke performance congestion standards, governance, and community",
+      "snippet": ""
+    },
+    {
+      "id": "https://groups.google.com/a/chromium.org/g/proto-quic/c/9_GHun_1gc0/m/J_jHDcgpBgAJ",
+      "title": "Are congestion windows for QUIC per stream of per connection?",
+      "url": "https://groups.google.com/a/chromium.org/g/proto-quic/c/9_GHun_1gc0/m/J_jHDcgpBgAJ",
+      "_tool": "exa",
+      "_angle": "standards, governance, and community",
+      "_query": "quic go stream keystroke performance congestion standards, governance, and community",
+      "snippet": ""
+    },
+    {
+      "id": "https://github.com/quic-go/quic-go/issues/5580",
+      "title": "Congestion control performance degradation on reordered paths",
+      "url": "https://github.com/quic-go/quic-go/issues/5580",
+      "publishedDate": "2026-03-05T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "standards, governance, and community",
+      "_query": "quic go stream keystroke performance congestion standards, governance, and community",
+      "snippet": ""
+    },
+    {
+      "id": "https://ui.adsabs.harvard.edu/abs/2022AIPC.2424b0003N/abstract",
+      "title": "Performance analysis of pluggable congestion control in QUIC ...",
+      "url": "https://ui.adsabs.harvard.edu/abs/2022AIPC.2424b0003N/abstract",
+      "_tool": "exa",
+      "_angle": "standards, governance, and community",
+      "_query": "quic go stream keystroke performance congestion standards, governance, and community",
+      "snippet": ""
+    },
+    {
+      "id": "https://medium.com/@wunan93cc/quic-protocol-a-deep-dive-3746c0ab3bd6",
+      "title": "QUIC Protocol: A Deep Dive - by Nan Wu - Medium",
+      "url": "https://medium.com/@wunan93cc/quic-protocol-a-deep-dive-3746c0ab3bd6",
+      "publishedDate": "2026-02-19T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "history and evolution",
+      "_query": "quic go stream keystroke performance congestion history and evolution",
+      "snippet": ""
+    },
+    {
+      "id": "https://dl.acm.org/doi/10.1145/3793674",
+      "title": "Video Streaming Over QUIC: A Comprehensive Study",
+      "url": "https://dl.acm.org/doi/10.1145/3793674",
+      "_tool": "exa",
+      "_angle": "history and evolution",
+      "_query": "quic go stream keystroke performance congestion history and evolution",
+      "snippet": ""
+    },
+    {
+      "id": "https://datatracker.ietf.org/doc/rfc9002/",
+      "title": "RFC 9002 - QUIC Loss Detection and Congestion Control",
+      "url": "https://datatracker.ietf.org/doc/rfc9002/",
+      "_tool": "exa",
+      "_angle": "history and evolution",
+      "_query": "quic go stream keystroke performance congestion history and evolution",
+      "snippet": ""
+    },
+    {
+      "id": "https://www.catchpoint.com/http2-vs-http3/quic-vs-tcp",
+      "title": "QUIC vs. TCP\u2014Development and Monitoring Guide - Catchpoint",
+      "url": "https://www.catchpoint.com/http2-vs-http3/quic-vs-tcp",
+      "_tool": "exa",
+      "_angle": "history and evolution",
+      "_query": "quic go stream keystroke performance congestion history and evolution",
+      "snippet": ""
+    },
+    {
+      "id": "https://webthesis.biblio.polito.it/28622/1/tesi.pdf",
+      "title": "[PDF] A study of congestion control schemes on QUIC - WebThesis",
+      "url": "https://webthesis.biblio.polito.it/28622/1/tesi.pdf",
+      "_tool": "exa",
+      "_angle": "history and evolution",
+      "_query": "quic go stream keystroke performance congestion history and evolution",
+      "snippet": ""
+    },
+    {
+      "id": "https://www.researchgate.net/publication/353089470_The_Performance_and_Future_of_QUIC_Protocol_in_the_Modern_Internet",
+      "title": "The Performance and Future of QUIC Protocol in the Modern Internet",
+      "url": "https://www.researchgate.net/publication/353089470_The_Performance_and_Future_of_QUIC_Protocol_in_the_Modern_Internet",
+      "publishedDate": "2021-07-05T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "history and evolution",
+      "_query": "quic go stream keystroke performance congestion history and evolution",
+      "snippet": ""
+    },
+    {
+      "id": "http://web.cs.wpi.edu/~claypool/mqp/satellite-21/final-report.pdf",
+      "title": "[PDF] Performance Analysis of QUIC versus TCP on Satellite Networks",
+      "url": "http://web.cs.wpi.edu/~claypool/mqp/satellite-21/final-report.pdf",
+      "publishedDate": "2022-03-04T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "history and evolution",
+      "_query": "quic go stream keystroke performance congestion history and evolution",
+      "snippet": ""
+    },
+    {
+      "id": "https://www.sciencedirect.com/science/article/pii/S0140366424002512",
+      "title": "QUIC Congestion Control Algorithm characteristics in mixed satellite ...",
+      "url": "https://www.sciencedirect.com/science/article/pii/S0140366424002512",
+      "publishedDate": "2024-09-01T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "history and evolution",
+      "_query": "quic go stream keystroke performance congestion history and evolution",
+      "snippet": ""
+    },
+    {
+      "id": "https://quic-go.net/docs/quic/congestion-control/",
+      "title": "Congestion Control \u2013 quic-go docs",
+      "url": "https://quic-go.net/docs/quic/congestion-control/",
+      "_tool": "exa",
+      "_angle": "history and evolution",
+      "_query": "quic go stream keystroke performance congestion history and evolution",
+      "snippet": ""
+    },
+    {
+      "id": "https://github.com/Shenggan/quic_vs_tcp",
+      "title": "Shenggan/quic_vs_tcp: A Survey and Benchmark of QUIC - GitHub",
+      "url": "https://github.com/Shenggan/quic_vs_tcp",
+      "_tool": "exa",
+      "_angle": "history and evolution",
+      "_query": "quic go stream keystroke performance congestion history and evolution",
+      "snippet": ""
+    },
+    {
+      "id": "https://blog.cloudflare.com/quic-death-spiral-fix/",
+      "title": "how a Linux kernel optimization became a QUIC bug",
+      "url": "https://blog.cloudflare.com/quic-death-spiral-fix/",
+      "publishedDate": "2026-05-12T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "challenges, limitations, and known issues",
+      "_query": "quic go stream keystroke performance congestion challenges, limitations, and known issues",
+      "snippet": ""
+    },
+    {
+      "id": "https://lwn.net/Articles/1020616/",
+      "title": "As an aside, I think QUIC is not a great protocol - LWN.net",
+      "url": "https://lwn.net/Articles/1020616/",
+      "publishedDate": "2025-05-09T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "challenges, limitations, and known issues",
+      "_query": "quic go stream keystroke performance congestion challenges, limitations, and known issues",
+      "snippet": ""
+    },
+    {
+      "id": "https://arxiv.org/html/2310.09423v2",
+      "title": "QUIC is not Quick Enough over Fast Internet - arXiv",
+      "url": "https://arxiv.org/html/2310.09423v2",
+      "_tool": "exa",
+      "_angle": "challenges, limitations, and known issues",
+      "_query": "quic go stream keystroke performance congestion challenges, limitations, and known issues",
+      "snippet": ""
+    },
+    {
+      "id": "https://edransit.medium.com/diving-into-http-3-security-congestion-control-and-tcp-comparisons-on-quic-protocol-5af5081a4043",
+      "title": "Diving into HTTP/3: Security, congestion control, and TCP ...",
+      "url": "https://edransit.medium.com/diving-into-http-3-security-congestion-control-and-tcp-comparisons-on-quic-protocol-5af5081a4043",
+      "publishedDate": "2022-03-30T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "challenges, limitations, and known issues",
+      "_query": "quic go stream keystroke performance congestion challenges, limitations, and known issues",
+      "snippet": ""
+    },
+    {
+      "id": "https://www.sciencedirect.com/science/article/pii/S014036642400166X",
+      "title": "QUIC on the Fast Lane: Extending Performance Evaluations on High ...",
+      "url": "https://www.sciencedirect.com/science/article/pii/S014036642400166X",
+      "publishedDate": "2024-07-01T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "challenges, limitations, and known issues",
+      "_query": "quic go stream keystroke performance congestion challenges, limitations, and known issues",
+      "snippet": ""
+    },
+    {
+      "id": "https://quic-go.net/docs/quic/flowcontrol/",
+      "title": "Flow Control \u2013 quic-go docs",
+      "url": "https://quic-go.net/docs/quic/flowcontrol/",
+      "_tool": "exa",
+      "_angle": "challenges, limitations, and known issues",
+      "_query": "quic go stream keystroke performance congestion challenges, limitations, and known issues",
+      "snippet": ""
+    },
+    {
+      "id": "https://pubs.aip.org/aip/acp/article-pdf/doi/10.1063/5.0076775/16199619/020003_1_online.pdf",
+      "title": "Performance Analysis of Pluggable Congestion Control in QUIC ...",
+      "url": "https://pubs.aip.org/aip/acp/article-pdf/doi/10.1063/5.0076775/16199619/020003_1_online.pdf",
+      "_tool": "exa",
+      "_angle": "challenges, limitations, and known issues",
+      "_query": "quic go stream keystroke performance congestion challenges, limitations, and known issues",
+      "snippet": ""
+    },
+    {
+      "id": "https://web.cs.ucla.edu/~lixia/papers/UnderstandQUIC.pdf",
+      "title": "[PDF] A Quick Look at QUIC*",
+      "url": "https://web.cs.ucla.edu/~lixia/papers/UnderstandQUIC.pdf",
+      "publishedDate": "2021-10-04T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "architecture and design principles",
+      "_query": "quic go stream keystroke performance congestion architecture and design principles",
+      "snippet": ""
+    },
+    {
+      "id": "https://research.google.com/pubs/archive/46403.pdf",
+      "title": "[PDF] The QUIC Transport Protocol:Design and Internet-Scale Deployment",
+      "url": "https://research.google.com/pubs/archive/46403.pdf",
+      "_tool": "exa",
+      "_angle": "architecture and design principles",
+      "_query": "quic go stream keystroke performance congestion architecture and design principles",
+      "snippet": ""
+    },
+    {
+      "id": "https://scispace.com/pdf/innovating-transport-with-quic-design-approaches-and-2xbj9n2ss5.pdf",
+      "title": "[PDF] Innovating Transport with QUIC: Design Approaches and Research ...",
+      "url": "https://scispace.com/pdf/innovating-transport-with-quic-design-approaches-and-2xbj9n2ss5.pdf",
+      "_tool": "exa",
+      "_angle": "architecture and design principles",
+      "_query": "quic go stream keystroke performance congestion architecture and design principles",
+      "snippet": ""
+    },
+    {
+      "id": "https://dl.acm.org/doi/10.1145/3098822.3098842",
+      "title": "The QUIC Transport Protocol: Design and Internet-Scale Deployment",
+      "url": "https://dl.acm.org/doi/10.1145/3098822.3098842",
+      "_tool": "exa",
+      "_angle": "architecture and design principles",
+      "_query": "quic go stream keystroke performance congestion architecture and design principles",
+      "snippet": ""
+    },
+    {
+      "id": "https://qlog.edm.uhasselt.be/sigcomm/files/QUICTutorial_SIGCOMM2020.pdf",
+      "title": "[PDF] A QUIC Tutorial",
+      "url": "https://qlog.edm.uhasselt.be/sigcomm/files/QUICTutorial_SIGCOMM2020.pdf",
+      "_tool": "exa",
+      "_angle": "overview and fundamentals",
+      "_query": "quic go stream keystroke performance congestion overview and fundamentals",
+      "snippet": ""
+    },
+    {
+      "id": "https://arxiv.org/html/2507.00896v1",
+      "title": "QUIC Delay Control: an implementation of congestion and ... - arXiv",
+      "url": "https://arxiv.org/html/2507.00896v1",
+      "publishedDate": "2025-07-01T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "overview and fundamentals",
+      "_query": "quic go stream keystroke performance congestion overview and fundamentals",
+      "snippet": ""
+    },
+    {
+      "id": "https://rootshell.yanivhaliwa.com/study/intro-quic-protocol-fundamentals",
+      "title": "Intro to QUIC Protocol: Fundamentals, Handshake & Practical Setup",
+      "url": "https://rootshell.yanivhaliwa.com/study/intro-quic-protocol-fundamentals",
+      "publishedDate": "2026-04-04T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "overview and fundamentals",
+      "_query": "quic go stream keystroke performance congestion overview and fundamentals",
+      "snippet": ""
+    },
+    {
+      "id": "https://www.meetecho.com/blog/quic-journey/",
+      "title": "28 Days Later (my QUIC journey) | Meetecho Blog",
+      "url": "https://www.meetecho.com/blog/quic-journey/",
+      "publishedDate": "2024-07-01T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "overview and fundamentals",
+      "_query": "quic go stream keystroke performance congestion overview and fundamentals",
+      "snippet": ""
+    },
+    {
+      "position": 2,
+      "site_name": "www.sciencedirect.com",
+      "snippet": "The main technical innovation leverages a burst-based transmission against the traditional Congestion Window (cwnd) paradigm, demonstrating good performance in ...",
+      "title": "QUIC Wave: Bringing bursts at application level to efficiently face ...",
+      "url": "https://www.sciencedirect.com/science/article/pii/S1389128626001970",
+      "_tool": "tinyfish",
+      "_angle": "future directions and open research questions",
+      "_query": "quic go stream keystroke performance congestion future directions and open research questions"
+    },
+    {
+      "position": 6,
+      "site_name": "www.sivak.dev",
+      "snippet": "We find that DASH performs better over QUIC than TCP in terms of video quality since QUIC is able to render a better or same quality video as of TCP at any ...",
+      "title": "[PDF] <Analysis of QUIC over DASH> - Siva Kesava Reddy Kakarla",
+      "url": "https://www.sivak.dev/assets/pdf/UG_thesis.pdf",
+      "_tool": "tinyfish",
+      "_angle": "future directions and open research questions",
+      "_query": "quic go stream keystroke performance congestion future directions and open research questions"
+    },
+    {
+      "position": 8,
+      "site_name": "www.cuiyong.net",
+      "snippet": "QUIC UDP Internet Connections (QUIC) is a new transport protocol that provides low-latency communication, security, and rapid deployment. QUIC has begun its ...",
+      "title": "[PDF] Innovating Transport with QUIC: Design Approaches and Research ...",
+      "url": "https://www.cuiyong.net/lunwen/2017/Innovating_Transport_with_QUIC_Design_Approaches_and_Research_Challenges.pdf",
+      "_tool": "tinyfish",
+      "_angle": "future directions and open research questions",
+      "_query": "quic go stream keystroke performance congestion future directions and open research questions"
+    },
+    {
+      "position": 9,
+      "site_name": "www.mdpi.com",
+      "snippet": "QUIC is a connection-oriented protocol that uses a handshake to establish a connection and provides reliable data transfer, while UDP does not.",
+      "title": "Use of QUIC for Mobile-Oriented Future Internet (Q-MOFI) - MDPI",
+      "url": "https://www.mdpi.com/2079-9292/13/2/431",
+      "_tool": "tinyfish",
+      "_angle": "future directions and open research questions",
+      "_query": "quic go stream keystroke performance congestion future directions and open research questions"
+    },
+    {
+      "position": 10,
+      "site_name": "aaltodoc.aalto.fi",
+      "snippet": "While QUIC is deployed on top of UDP, it is connection-oriented, provides reliable packet delivery, and congestion control. QUIC also integrates ...",
+      "title": "[PDF] Performance analysis of modern QUIC implementations - Aaltodoc",
+      "url": "https://aaltodoc.aalto.fi/bitstreams/e3d93634-a772-41c7-970d-963bab63b1f5/download",
+      "_tool": "tinyfish",
+      "_angle": "future directions and open research questions",
+      "_query": "quic go stream keystroke performance congestion future directions and open research questions"
+    },
+    {
+      "position": 8,
+      "site_name": "arxiv.org",
+      "snippet": "The performance differences between QUIC and TCP/TLS become more evi- dent when the implementations are pushed to their limits on high-speed ...",
+      "title": "[PDF] QUIC on the Highway: Evaluating Performance on High-rate Links",
+      "url": "https://arxiv.org/pdf/2309.16395",
+      "_tool": "tinyfish",
+      "_angle": "challenges, limitations, and known issues",
+      "_query": "quic go stream keystroke performance congestion challenges, limitations, and known issues"
+    },
+    {
+      "position": 2,
+      "site_name": "medium.com",
+      "snippet": "QUIC supports multiple independent streams within a single connection, effectively mitigating Head-of-Line (HOL) blocking, a common limitation ...",
+      "title": "QUIC vs TCP: \u201cThe Ultimate Benchmark for Modern Network ...",
+      "url": "https://medium.com/@abhi.patel.7172/quic-vs-tcp-the-ultimate-benchmark-for-modern-network-performance-22be6e5af66d",
+      "_tool": "tinyfish",
+      "_angle": "performance characteristics and benchmarks",
+      "_query": "quic go stream keystroke performance congestion performance characteristics and benchmarks"
+    },
+    {
+      "position": 5,
+      "site_name": "www.researchgate.net",
+      "snippet": "... Early investigations by Carlucci et al.[27] demonstrated QUIC's superior performance over TCP and SPDY[75], particularly in terms of connection setup times ...",
+      "title": "Performance Benchmarking of the QUIC Transport Protocol",
+      "url": "https://www.researchgate.net/publication/369345763_Performance_Benchmarking_of_the_QUIC_Transport_Protocol",
+      "_tool": "tinyfish",
+      "_angle": "performance characteristics and benchmarks",
+      "_query": "quic go stream keystroke performance congestion performance characteristics and benchmarks"
+    },
+    {
+      "position": 6,
+      "site_name": "www.fastly.com",
+      "snippet": "Essentially, QUIC offers advantages in terms of reduced latency, improved multiplexing and concurrent streams, efficient congestion control, ...",
+      "title": "QUIC vs TCP: Which is Better? - Fastly",
+      "url": "https://www.fastly.com/blog/measuring-quic-vs-tcp-computational-efficiency",
+      "_tool": "tinyfish",
+      "_angle": "performance characteristics and benchmarks",
+      "_query": "quic go stream keystroke performance congestion performance characteristics and benchmarks"
+    },
+    {
+      "position": 8,
+      "site_name": "conferences.sigcomm.org",
+      "snippet": "Key Objectives: Improved quality of experience, high CPU efficiency, MORE QUIC! ... New: Move data ownership to streams. Enabled bulk application ...",
+      "title": "[PDF] QUIC CPU Performance",
+      "url": "https://conferences.sigcomm.org/sigcomm/2020/files/slides/epiq/0%20QUIC%20and%20HTTP_3%20CPU%20Performance.pdf",
+      "_tool": "tinyfish",
+      "_angle": "performance characteristics and benchmarks",
+      "_query": "quic go stream keystroke performance congestion performance characteristics and benchmarks"
+    },
+    {
+      "position": 9,
+      "site_name": "lucris.lub.lu.se",
+      "snippet": "The results of our evaluation suggest that the performance of different protocols varies based on the characteristics of different control systems. However, ...",
+      "title": "[PDF] Performance Evaluation of QUIC vs TCP for Cloud Control Systems",
+      "url": "https://lucris.lub.lu.se/ws/portalfiles/portal/162076810/1570917060.pdf",
+      "_tool": "tinyfish",
+      "_angle": "performance characteristics and benchmarks",
+      "_query": "quic go stream keystroke performance congestion performance characteristics and benchmarks"
+    },
+    {
+      "id": "https://datatracker.ietf.org/doc/html/draft-banks-quic-performance-00",
+      "title": "draft-banks-quic-performance-00 - IETF Datatracker",
+      "url": "https://datatracker.ietf.org/doc/html/draft-banks-quic-performance-00",
+      "publishedDate": "2020-12-23T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "performance characteristics and benchmarks",
+      "_query": "quic go stream keystroke performance congestion performance characteristics and benchmarks",
+      "snippet": ""
+    },
+    {
+      "id": "https://vaibhavbajpai.com/documents/papers/proceedings/quic-tnsm-2022.pdf",
+      "title": "[PDF] Evaluating QUIC Performance over Web, Cloud Storage and Video ...",
+      "url": "https://vaibhavbajpai.com/documents/papers/proceedings/quic-tnsm-2022.pdf",
+      "publishedDate": "2021-12-11T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "performance characteristics and benchmarks",
+      "_query": "quic go stream keystroke performance congestion performance characteristics and benchmarks",
+      "snippet": ""
+    },
+    {
+      "id": "https://dl.acm.org/doi/full/10.1145/3793674",
+      "title": "Video Streaming Over QUIC: A Comprehensive Study",
+      "url": "https://dl.acm.org/doi/full/10.1145/3793674",
+      "publishedDate": "2026-03-07T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "comparative analysis and alternatives",
+      "_query": "quic go stream keystroke performance congestion comparative analysis and alternatives",
+      "snippet": ""
+    },
+    {
+      "id": "https://arxiv.org/html/2504.10054v1",
+      "title": "Implementation and Performance Evaluation of TCP over QUIC ...",
+      "url": "https://arxiv.org/html/2504.10054v1",
+      "publishedDate": "2025-04-14T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "comparative analysis and alternatives",
+      "_query": "quic go stream keystroke performance congestion comparative analysis and alternatives",
+      "snippet": ""
+    },
+    {
+      "id": "https://journal.uob.edu.bh/bitstreams/e3b9061d-f896-4e7d-9550-f58ec7ab3d6e/download",
+      "title": "[PDF] A Comparative Analysis of QUIC and FTP Protocols in Go",
+      "url": "https://journal.uob.edu.bh/bitstreams/e3b9061d-f896-4e7d-9550-f58ec7ab3d6e/download",
+      "_tool": "exa",
+      "_angle": "comparative analysis and alternatives",
+      "_query": "quic go stream keystroke performance congestion comparative analysis and alternatives",
+      "snippet": ""
+    },
+    {
+      "id": "https://www.net.in.tum.de/fileadmin/TUM/NET/NET-2022-07-1/NET-2022-07-1_10.pdf",
+      "title": "[PDF] Comparison of Different QUIC Implementations",
+      "url": "https://www.net.in.tum.de/fileadmin/TUM/NET/NET-2022-07-1/NET-2022-07-1_10.pdf",
+      "_tool": "exa",
+      "_angle": "comparative analysis and alternatives",
+      "_query": "quic go stream keystroke performance congestion comparative analysis and alternatives",
+      "snippet": ""
+    },
+    {
+      "id": "https://documentserver.uhasselt.be/bitstream/1942/46864/2/4349c449-e468-45c5-81d8-23c8f4468331.pdf",
+      "title": "[PDF] Comparative Analysis of QUIC and Other Network Protocols for Real ...",
+      "url": "https://documentserver.uhasselt.be/bitstream/1942/46864/2/4349c449-e468-45c5-81d8-23c8f4468331.pdf",
+      "_tool": "exa",
+      "_angle": "comparative analysis and alternatives",
+      "_query": "quic go stream keystroke performance congestion comparative analysis and alternatives",
+      "snippet": ""
+    },
+    {
+      "position": 10,
+      "site_name": "www.researchgate.net",
+      "snippet": "In this paper, two congestion control algorithms for QUIC are proposed with different architectures - an event-based model that handles wireless traffic better ...",
+      "title": "Performance analysis of pluggable congestion control in QUIC ...",
+      "url": "https://www.researchgate.net/publication/359385389_Performance_analysis_of_pluggable_congestion_control_in_QUIC_protocol",
+      "_tool": "tinyfish",
+      "_angle": "architecture and design principles",
+      "_query": "quic go stream keystroke performance congestion architecture and design principles"
+    },
+    {
+      "position": 5,
+      "site_name": "github.com",
+      "snippet": "QUIC uses a combination of encryption and multiplexing to provide improved security and faster data transfer. It allows multiple streams of data to be sent over ...",
+      "title": "quic-protocol-the-features-use-cases-and-impact-for-iot-iov.md",
+      "url": "https://github.com/emqx/blog/blob/main/en/202304/quic-protocol-the-features-use-cases-and-impact-for-iot-iov.md",
+      "_tool": "tinyfish",
+      "_angle": "applications and real-world use cases",
+      "_query": "quic go stream keystroke performance congestion applications and real-world use cases"
+    },
+    {
+      "position": 7,
+      "site_name": "pmc.ncbi.nlm.nih.gov",
+      "snippet": "We propose an efficient congestion control mechanism on the basis of deep reinforcement learning (DRL), ie, proximal bandwidth-delay quick optimization (PBQ) ...",
+      "title": "PBQ-Enhanced QUIC: QUIC with Deep Reinforcement Learning ...",
+      "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC9955954/",
+      "_tool": "tinyfish",
+      "_angle": "applications and real-world use cases",
+      "_query": "quic go stream keystroke performance congestion applications and real-world use cases"
+    },
+    {
+      "position": 8,
+      "site_name": "www.researchgate.net",
+      "snippet": "This paper explains QUIC's design and operation, contrasts it with \"TLS 1.3 over TCP,\" reviews adoption data and case studies, and outlines ...",
+      "title": "(PDF) QUIC: Uses and Adoption - ResearchGate",
+      "url": "https://www.researchgate.net/publication/396523543_QUIC_Uses_and_Adoption",
+      "_tool": "tinyfish",
+      "_angle": "applications and real-world use cases",
+      "_query": "quic go stream keystroke performance congestion applications and real-world use cases"
+    },
+    {
+      "id": "https://github.com/mmmarcos/awesome-quic",
+      "title": "A curated list of awesome QUIC and HTTP/3 resources - GitHub",
+      "url": "https://github.com/mmmarcos/awesome-quic",
+      "_tool": "exa",
+      "_angle": "existing projects, open source implementations, and alternatives",
+      "_query": "quic go stream keystroke performance congestion existing projects, open source implementations, and alternatives",
+      "snippet": ""
+    },
+    {
+      "id": "https://www.net.in.tum.de/fileadmin/TUM/NET/NET-2022-07-1/NET-2022-07-1_02.pdf",
+      "title": "[PDF] Comparison of Different QUIC Implementations",
+      "url": "https://www.net.in.tum.de/fileadmin/TUM/NET/NET-2022-07-1/NET-2022-07-1_02.pdf",
+      "_tool": "exa",
+      "_angle": "existing projects, open source implementations, and alternatives",
+      "_query": "quic go stream keystroke performance congestion existing projects, open source implementations, and alternatives",
+      "snippet": ""
+    },
+    {
+      "id": "https://www.meetecho.com/blog/moq-webrtc/",
+      "title": "Getting Media Over QUIC (MoQ) and WebRTC to like each other",
+      "url": "https://www.meetecho.com/blog/moq-webrtc/",
+      "publishedDate": "2024-09-02T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "existing projects, open source implementations, and alternatives",
+      "_query": "quic go stream keystroke performance congestion existing projects, open source implementations, and alternatives",
+      "snippet": ""
+    },
+    {
+      "id": "https://www.reddit.com/r/golang/comments/np5bed/quiwi_another_quic_implementation_in_pure_go/",
+      "title": "Quiwi - Another QUIC implementation in pure Go : r/golang - Reddit",
+      "url": "https://www.reddit.com/r/golang/comments/np5bed/quiwi_another_quic_implementation_in_pure_go/",
+      "publishedDate": "2021-05-31T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "existing projects, open source implementations, and alternatives",
+      "_query": "quic go stream keystroke performance congestion existing projects, open source implementations, and alternatives",
+      "snippet": ""
+    },
+    {
+      "id": "https://thenewstack.io/how-we-added-quic-support-to-openssl-without-patches-or-rebuilds/",
+      "title": "How We Added QUIC Support to OpenSSL without Patches or ...",
+      "url": "https://thenewstack.io/how-we-added-quic-support-to-openssl-without-patches-or-rebuilds/",
+      "publishedDate": "2024-03-28T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "existing projects, open source implementations, and alternatives",
+      "_query": "quic go stream keystroke performance congestion existing projects, open source implementations, and alternatives",
+      "snippet": ""
+    },
+    {
+      "id": "https://doc.tm.kit.edu/2025-Examining-the-Heterogeneous-Throughput-Performance-Landscape-of-QUIC-Implementations-Koenig-et-al.pdf",
+      "title": "[PDF] Examining the Heterogeneous Throughput Performance Landscape ...",
+      "url": "https://doc.tm.kit.edu/2025-Examining-the-Heterogeneous-Throughput-Performance-Landscape-of-QUIC-Implementations-Koenig-et-al.pdf",
+      "_tool": "exa",
+      "_angle": "future directions and open research questions",
+      "_query": "quic go stream keystroke performance congestion future directions and open research questions",
+      "snippet": ""
+    },
+    {
+      "position": 3,
+      "site_name": "arxiv.org",
+      "snippet": "Results indicate that TCP over QUIC maintains significantly higher throughput than native TCP in lossy or unstable environments, with up to a high improvement ...",
+      "title": "Implementation and Performance Evaluation of TCP over ...",
+      "url": "https://arxiv.org/html/2504.10054v2",
+      "_tool": "tinyfish",
+      "_angle": "comparative analysis and alternatives",
+      "_query": "quic go stream keystroke performance congestion comparative analysis and alternatives"
+    },
+    {
+      "position": 10,
+      "site_name": "www.researchgate.net",
+      "snippet": "The results of the simulations showed that QUIC performed better than TCP in terms of throughput and minimized latency in moderate or good ...",
+      "title": "QUIC vs TCP: A Performance Evaluation over LTE with NS-3",
+      "url": "https://www.researchgate.net/publication/357497663_QUIC_vs_TCP_A_Performance_Evaluation_over_LTE_with_NS-3",
+      "_tool": "tinyfish",
+      "_angle": "comparative analysis and alternatives",
+      "_query": "quic go stream keystroke performance congestion comparative analysis and alternatives"
+    },
+    {
+      "id": "https://arxiv.org/pdf/2505.21769",
+      "title": "[PDF] Video Streaming Over QUIC: A Comprehensive Study - arXiv",
+      "url": "https://arxiv.org/pdf/2505.21769",
+      "publishedDate": "2025-05-28T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "applications and real-world use cases",
+      "_query": "quic go stream keystroke performance congestion applications and real-world use cases",
+      "snippet": ""
+    },
+    {
+      "id": "https://dl.acm.org/doi/10.1145/3772290.3772298",
+      "title": "Impact of Congestion Control Algorithms on the QoE Performance of ...",
+      "url": "https://dl.acm.org/doi/10.1145/3772290.3772298",
+      "publishedDate": "2026-01-05T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "applications and real-world use cases",
+      "_query": "quic go stream keystroke performance congestion applications and real-world use cases",
+      "snippet": ""
+    },
+    {
+      "id": "https://hal.science/hal-04231048v1/file/Quic.pdf",
+      "title": "[PDF] Assessing the Interplay Between WebRTC and QUIC Congestion ...",
+      "url": "https://hal.science/hal-04231048v1/file/Quic.pdf",
+      "publishedDate": "2023-11-02T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "applications and real-world use cases",
+      "_query": "quic go stream keystroke performance congestion applications and real-world use cases",
+      "snippet": ""
+    }
+  ],
+  "seen_urls": [
+    "https://github.com/quic-go/quic-go",
+    "https://quic-go.net/docs/quic/streams/",
+    "https://blog.nginx.org/blog/congestion-control-enhancements-for-quic-in-nginx",
+    "https://pkg.go.dev/github.com/quic-go/quic-go",
+    "https://seemann.io/posts/2025-06-25---quic-go-api-revamp/",
+    "https://www.ietf.org/archive/id/draft-yuan-quic-congestion-data-01.html",
+    "https://arxiv.org/abs/2505.21769",
+    "https://groups.google.com/a/chromium.org/g/proto-quic/c/9_GHun_1gc0/m/J_jHDcgpBgAJ",
+    "https://github.com/quic-go/quic-go/issues/5580",
+    "https://ui.adsabs.harvard.edu/abs/2022AIPC.2424b0003N/abstract",
+    "https://medium.com/@wunan93cc/quic-protocol-a-deep-dive-3746c0ab3bd6",
+    "https://dl.acm.org/doi/10.1145/3793674",
+    "https://datatracker.ietf.org/doc/rfc9002/",
+    "https://www.catchpoint.com/http2-vs-http3/quic-vs-tcp",
+    "https://webthesis.biblio.polito.it/28622/1/tesi.pdf",
+    "https://www.researchgate.net/publication/353089470_The_Performance_and_Future_of_QUIC_Protocol_in_the_Modern_Internet",
+    "http://web.cs.wpi.edu/~claypool/mqp/satellite-21/final-report.pdf",
+    "https://www.sciencedirect.com/science/article/pii/S0140366424002512",
+    "https://quic-go.net/docs/quic/congestion-control/",
+    "https://github.com/Shenggan/quic_vs_tcp",
+    "https://blog.cloudflare.com/quic-death-spiral-fix/",
+    "https://lwn.net/Articles/1020616/",
+    "https://arxiv.org/html/2310.09423v2",
+    "https://edransit.medium.com/diving-into-http-3-security-congestion-control-and-tcp-comparisons-on-quic-protocol-5af5081a4043",
+    "https://www.sciencedirect.com/science/article/pii/S014036642400166X",
+    "https://quic-go.net/docs/quic/flowcontrol/",
+    "https://pubs.aip.org/aip/acp/article-pdf/doi/10.1063/5.0076775/16199619/020003_1_online.pdf",
+    "https://web.cs.ucla.edu/~lixia/papers/UnderstandQUIC.pdf",
+    "https://research.google.com/pubs/archive/46403.pdf",
+    "https://scispace.com/pdf/innovating-transport-with-quic-design-approaches-and-2xbj9n2ss5.pdf",
+    "https://dl.acm.org/doi/10.1145/3098822.3098842",
+    "https://qlog.edm.uhasselt.be/sigcomm/files/QUICTutorial_SIGCOMM2020.pdf",
+    "https://arxiv.org/html/2507.00896v1",
+    "https://rootshell.yanivhaliwa.com/study/intro-quic-protocol-fundamentals",
+    "https://www.meetecho.com/blog/quic-journey/",
+    "https://www.sciencedirect.com/science/article/pii/S1389128626001970",
+    "https://www.sivak.dev/assets/pdf/UG_thesis.pdf",
+    "https://www.cuiyong.net/lunwen/2017/Innovating_Transport_with_QUIC_Design_Approaches_and_Research_Challenges.pdf",
+    "https://www.mdpi.com/2079-9292/13/2/431",
+    "https://aaltodoc.aalto.fi/bitstreams/e3d93634-a772-41c7-970d-963bab63b1f5/download",
+    "https://arxiv.org/pdf/2309.16395",
+    "https://medium.com/@abhi.patel.7172/quic-vs-tcp-the-ultimate-benchmark-for-modern-network-performance-22be6e5af66d",
+    "https://www.researchgate.net/publication/369345763_Performance_Benchmarking_of_the_QUIC_Transport_Protocol",
+    "https://www.fastly.com/blog/measuring-quic-vs-tcp-computational-efficiency",
+    "https://conferences.sigcomm.org/sigcomm/2020/files/slides/epiq/0%20QUIC%20and%20HTTP_3%20CPU%20Performance.pdf",
+    "https://lucris.lub.lu.se/ws/portalfiles/portal/162076810/1570917060.pdf",
+    "https://datatracker.ietf.org/doc/html/draft-banks-quic-performance-00",
+    "https://vaibhavbajpai.com/documents/papers/proceedings/quic-tnsm-2022.pdf",
+    "https://dl.acm.org/doi/full/10.1145/3793674",
+    "https://arxiv.org/html/2504.10054v1",
+    "https://journal.uob.edu.bh/bitstreams/e3b9061d-f896-4e7d-9550-f58ec7ab3d6e/download",
+    "https://www.net.in.tum.de/fileadmin/TUM/NET/NET-2022-07-1/NET-2022-07-1_10.pdf",
+    "https://documentserver.uhasselt.be/bitstream/1942/46864/2/4349c449-e468-45c5-81d8-23c8f4468331.pdf",
+    "https://www.researchgate.net/publication/359385389_Performance_analysis_of_pluggable_congestion_control_in_QUIC_protocol",
+    "https://github.com/emqx/blog/blob/main/en/202304/quic-protocol-the-features-use-cases-and-impact-for-iot-iov.md",
+    "https://pmc.ncbi.nlm.nih.gov/articles/PMC9955954/",
+    "https://www.researchgate.net/publication/396523543_QUIC_Uses_and_Adoption",
+    "https://github.com/mmmarcos/awesome-quic",
+    "https://www.net.in.tum.de/fileadmin/TUM/NET/NET-2022-07-1/NET-2022-07-1_02.pdf",
+    "https://www.meetecho.com/blog/moq-webrtc/",
+    "https://www.reddit.com/r/golang/comments/np5bed/quiwi_another_quic_implementation_in_pure_go/",
+    "https://thenewstack.io/how-we-added-quic-support-to-openssl-without-patches-or-rebuilds/",
+    "https://doc.tm.kit.edu/2025-Examining-the-Heterogeneous-Throughput-Performance-Landscape-of-QUIC-Implementations-Koenig-et-al.pdf",
+    "https://arxiv.org/html/2504.10054v2",
+    "https://www.researchgate.net/publication/357497663_QUIC_vs_TCP_A_Performance_Evaluation_over_LTE_with_NS-3",
+    "https://arxiv.org/pdf/2505.21769",
+    "https://dl.acm.org/doi/10.1145/3772290.3772298",
+    "https://hal.science/hal-04231048v1/file/Quic.pdf"
+  ],
+  "gaps": [
+    "overview and fundamentals",
+    "history and evolution",
+    "architecture and design principles",
+    "existing projects, open source implementations, and alternatives",
+    "performance characteristics and benchmarks",
+    "comparative analysis and alternatives",
+    "applications and real-world use cases",
+    "challenges, limitations, and known issues",
+    "future directions and open research questions",
+    "standards, governance, and community"
+  ],
+  "round_metadata": [
+    {
+      "round": 1,
+      "angles_searched": 10,
+      "new_findings": 68,
+      "corpus_findings": 0,
+      "web_findings": 68,
+      "elapsed_seconds": 2.0,
+      "budget_remaining": 57
+    }
+  ],
+  "confidence": 0.69,
+  "cross_verification": [
+    {
+      "angle": "standards, governance, and community",
+      "total_sources": 10,
+      "unique_domains": [
+        "blog.nginx.org",
+        "quic-go.net",
+        "seemann.io",
+        "pkg.go.dev",
+        "www.ietf.org",
+        "arxiv.org",
+        "groups.google.com",
+        "github.com",
+        "ui.adsabs.harvard.edu"
+      ],
+      "domain_diversity": 9,
+      "tools_used": [
+        "exa"
+      ],
+      "tool_diversity": 1,
+      "status": "corroborated"
+    },
+    {
+      "angle": "history and evolution",
+      "total_sources": 10,
+      "unique_domains": [
+        "webthesis.biblio.polito.it",
+        "datatracker.ietf.org",
+        "medium.com",
+        "web.cs.wpi.edu",
+        "quic-go.net",
+        "www.researchgate.net",
+        "dl.acm.org",
+        "www.sciencedirect.com",
+        "github.com",
+        "www.catchpoint.com"
+      ],
+      "domain_diversity": 10,
+      "tools_used": [
+        "exa"
+      ],
+      "tool_diversity": 1,
+      "status": "corroborated"
+    },
+    {
+      "angle": "challenges, limitations, and known issues",
+      "total_sources": 8,
+      "unique_domains": [
+        "quic-go.net",
+        "edransit.medium.com",
+        "www.sciencedirect.com",
+        "arxiv.org",
+        "lwn.net",
+        "pubs.aip.org",
+        "blog.cloudflare.com"
+      ],
+      "domain_diversity": 7,
+      "tools_used": [
+        "tinyfish",
+        "exa"
+      ],
+      "tool_diversity": 2,
+      "status": "corroborated"
+    },
+    {
+      "angle": "architecture and design principles",
+      "total_sources": 5,
+      "unique_domains": [
+        "research.google.com",
+        "web.cs.ucla.edu",
+        "www.researchgate.net",
+        "dl.acm.org",
+        "scispace.com"
+      ],
+      "domain_diversity": 5,
+      "tools_used": [
+        "tinyfish",
+        "exa"
+      ],
+      "tool_diversity": 2,
+      "status": "corroborated"
+    },
+    {
+      "angle": "overview and fundamentals",
+      "total_sources": 4,
+      "unique_domains": [
+        "www.meetecho.com",
+        "rootshell.yanivhaliwa.com",
+        "arxiv.org",
+        "qlog.edm.uhasselt.be"
+      ],
+      "domain_diversity": 4,
+      "tools_used": [
+        "exa"
+      ],
+      "tool_diversity": 1,
+      "status": "corroborated"
+    },
+    {
+      "angle": "future directions and open research questions",
+      "total_sources": 6,
+      "unique_domains": [
+        "www.cuiyong.net",
+        "www.mdpi.com",
+        "doc.tm.kit.edu",
+        "aaltodoc.aalto.fi",
+        "www.sciencedirect.com",
+        "www.sivak.dev"
+      ],
+      "domain_diversity": 6,
+      "tools_used": [
+        "tinyfish",
+        "exa"
+      ],
+      "tool_diversity": 2,
+      "status": "corroborated"
+    },
+    {
+      "angle": "performance characteristics and benchmarks",
+      "total_sources": 7,
+      "unique_domains": [
+        "conferences.sigcomm.org",
+        "datatracker.ietf.org",
+        "www.fastly.com",
+        "medium.com",
+        "vaibhavbajpai.com",
+        "www.researchgate.net",
+        "lucris.lub.lu.se"
+      ],
+      "domain_diversity": 7,
+      "tools_used": [
+        "tinyfish",
+        "exa"
+      ],
+      "tool_diversity": 2,
+      "status": "corroborated"
+    },
+    {
+      "angle": "comparative analysis and alternatives",
+      "total_sources": 7,
+      "unique_domains": [
+        "documentserver.uhasselt.be",
+        "journal.uob.edu.bh",
+        "www.researchgate.net",
+        "dl.acm.org",
+        "arxiv.org",
+        "www.net.in.tum.de"
+      ],
+      "domain_diversity": 6,
+      "tools_used": [
+        "tinyfish",
+        "exa"
+      ],
+      "tool_diversity": 2,
+      "status": "corroborated"
+    },
+    {
+      "angle": "applications and real-world use cases",
+      "total_sources": 6,
+      "unique_domains": [
+        "www.researchgate.net",
+        "dl.acm.org",
+        "arxiv.org",
+        "hal.science",
+        "pmc.ncbi.nlm.nih.gov",
+        "github.com"
+      ],
+      "domain_diversity": 6,
+      "tools_used": [
+        "tinyfish",
+        "exa"
+      ],
+      "tool_diversity": 2,
+      "status": "corroborated"
+    },
+    {
+      "angle": "existing projects, open source implementations, and alternatives",
+      "total_sources": 5,
+      "unique_domains": [
+        "www.meetecho.com",
+        "thenewstack.io",
+        "www.reddit.com",
+        "www.net.in.tum.de",
+        "github.com"
+      ],
+      "domain_diversity": 5,
+      "tools_used": [
+        "exa"
+      ],
+      "tool_diversity": 1,
+      "status": "corroborated"
+    }
+  ],
+  "status": "complete",
+  "error": null,
+  "research_packet": {
+    "packet_id": "66c40d49-9dc",
+    "producer": "HermesOptimizer",
+    "backend": "deerflow-iterative-v2",
+    "topic": "quic go stream keystroke performance congestion",
+    "kind": "deep-research-paper",
+    "consumers": [
+      "liminal-dashboard"
+    ],
+    "status": "ready",
+    "confidence": 0.69,
+    "research_method": {
+      "max_depth": 1,
+      "rounds_completed": 1,
+      "total_unique_sources": 68,
+      "unique_domains": 43,
+      "tools_used": "exa, tinyfish",
+      "budget_used_seconds": 2.0,
+      "time_budget_seconds": 60
+    },
+    "abstract": "Deep research on 'quic go stream keystroke performance congestion' across 10 research dimensions using 1 iterative rounds with exa, tinyfish. Drew from 68 unique sources across 43 domains. Confidence: 0.69.",
+    "sections": [
+      {
+        "section": "standards, governance, and community",
+        "finding_count": 10,
+        "source_count": 10,
+        "sources": [
+          {
+            "title": "A QUIC implementation in pure Go - GitHub",
+            "url": "https://github.com/quic-go/quic-go",
+            "hash": "sha256:e4a88b3c699edcb1886096cb4d7a667a844a3eb7e9af395d5c53aaeeb5296783",
+            "source_type": "exa",
+            "domain": ""
+          },
+          {
+            "title": "QUIC Streams \u2013 quic-go docs",
+            "url": "https://quic-go.net/docs/quic/streams/",
+            "hash": "sha256:5bbd2f1af981d1d25efbdaca02c3598408039405573b258f40d7b004f824e3cc",
+            "source_type": "exa",
+            "domain": ""
+          },
+          {
+            "title": "Congestion Control Enhancements for QUIC in NGINX",
+            "url": "https://blog.nginx.org/blog/congestion-control-enhancements-for-quic-in-nginx",
+            "hash": "sha256:8877e637343c4cc43a58f72d4aa8b43a8241c3750d672d060f049243a1ead39d",
+            "source_type": "exa",
+            "domain": ""
+          },
+          {
+            "title": "quic - Go Packages",
+            "url": "https://pkg.go.dev/github.com/quic-go/quic-go",
+            "hash": "sha256:c9cdb2ee01d04897cf1e267d31ab98e6fe6fbd666e20a7d7cad5e8f84f780b9a",
+            "source_type": "exa",
+            "domain": ""
+          },
+          {
+            "title": "Revamping the quic-go API: Transitioning from Interfaces to Structs",
+            "url": "https://seemann.io/posts/2025-06-25---quic-go-api-revamp/",
+            "hash": "sha256:5550d5ace9a31b63b78702be8f16569a8b95204499b4b994033cb9dcdf01fb13",
+            "source_type": "exa",
+            "domain": ""
+          },
+          {
+            "title": "Exchanging Congestion Control Data in QUIC - IETF",
+            "url": "https://www.ietf.org/archive/id/draft-yuan-quic-congestion-data-01.html",
+            "hash": "sha256:c83602148c49c5360f9190620062899f15c7ab3493a8ea2a5c3599b2dfa432b3",
+            "source_type": "exa",
+            "domain": ""
+          },
+          {
+            "title": "[2505.21769] Video Streaming Over QUIC: A Comprehensive Study",
+            "url": "https://arxiv.org/abs/2505.21769",
+            "hash": "sha256:81807623448d2da572ff39f67f08522c35e997910f8d349a52a7a4e4c5934583",
+            "source_type": "exa",
+            "domain": ""
+          },
+          {
+            "title": "Are congestion windows for QUIC per stream of per connection?",
+            "url": "https://groups.google.com/a/chromium.org/g/proto-quic/c/9_GHun_1gc0/m/J_jHDcgpBgAJ",
+            "hash": "sha256:43a9d94ddb64a72e620363ba1761ac534bf3eec2484e39217c8409031ed1025d",
+            "source_type": "exa",
+            "domain": ""
+          },
+          {
+            "title": "Congestion control performance degradation on reordered paths",
+            "url": "https://github.com/quic-go/quic-go/issues/5580",
+            "hash": "sha256:edc42d0ba9ba06f28a2e55b2d74e452000f36a5666560f00c05bb428d121ec41",
+            "source_type": "exa",
+            "domain": ""
+          },
+          {
+            "title": "Performance analysis of pluggable congestion control in QUIC ...",
+            "url": "https://ui.adsabs.harvard.edu/abs/2022AIPC.2424b0003N/abstract",
+            "hash": "sha256:7c7235be487715f31eca5a5c9c44aa69ae6cd2ced51372b3f274b9f89479ebd7",
+            "source_type": "exa",
+            "domain": ""
+          }
+        ],
+        "key_entries": [
+          {
+            "title": "A QUIC implementation in pure Go - GitHub",
+            "url": "https://github.com/quic-go/quic-go",
+            "description": "",
+            "tool": "exa"
+          },
+          {
+            "title": "QUIC Streams \u2013 quic-go docs",
+            "url": "https://quic-go.net/docs/quic/streams/",
+            "description": "",
+            "tool": "exa"
+          },
+          {
+            "title": "Congestion Control Enhancements for QUIC in NGINX",
+            "url": "https://blog.nginx.org/blog/congestion-control-enhancements-for-quic-in-nginx",
+            "description": "",
+            "tool": "exa"
+          },
+          {
+            "title": "quic - Go Packages",
+            "url": "https://pkg.go.dev/github.com/quic-go/quic-go",
+            "description": "",
+            "tool": "exa"
+          },
+          {
+            "title": "Revamping the quic-go API: Transitioning from Interfaces to Structs",
+            "url": "https://seemann.io/posts/2025-06-25---quic-go-api-revamp/",
+            "description": "",
+            "tool": "exa"
+          }
+        ]
+      },
+      {
+        "section": "history and evolution",
+        "finding_count": 10,
+        "source_count": 10,
+        "sources": [
+          {
+            "title": "QUIC Protocol: A Deep Dive - by Nan Wu - Medium",
+            "url": "https://medium.com/@wunan93cc/quic-protocol-a-deep-dive-3746c0ab3bd6",
+            "hash": "sha256:d993787471096ba13b13bdd77e4183898196d3938c3a5c4bd2e940d87d90f64e",
+            "source_type": "exa",
+            "domain": ""
+          },
+          {
+            "title": "Video Streaming Over QUIC: A Comprehensive Study",
+            "url": "https://dl.acm.org/doi/10.1145/3793674",
+            "hash": "sha256:0cf04a091f627bab780e5bcebf24e7769cb1eb5d983c0f63b9690513501a7c04",
+            "source_type": "exa",
+            "domain": ""
+          },
+          {
+            "title": "RFC 9002 - QUIC Loss Detection and Congestion Control",
+            "url": "https://datatracker.ietf.org/doc/rfc9002/",
+            "hash": "sha256:222d465e389a3377e236305b126facf2bb89ab021f5571f6f559787bf99ee544",
+            "source_type": "exa",
+            "domain": ""
+          },
+          {
+            "title": "QUIC vs. TCP\u2014Development and Monitoring Guide - Catchpoint",
+            "url": "https://www.catchpoint.com/http2-vs-http3/quic-vs-tcp",
+            "hash": "sha256:2b0669af8ce95ecd94793ed01f557d7a3f06007f5c25ebf89acadf1c76e0d06d",
+            "source_type": "exa",
+            "domain": ""
+          },
+          {
+            "title": "[PDF] A study of congestion control schemes on QUIC - WebThesis",
+            "url": "https://webthesis.biblio.polito.it/28622/1/tesi.pdf",
+            "hash": "sha256:47414201342aaf722c289f112ecf573f20622364eefd2c329f54a77b64ae6a20",
+            "source_type": "exa",
+            "domain": ""
+          },
+          {
+            "title": "The Performance and Future of QUIC Protocol in the Modern Internet",
+            "url": "https://www.researchgate.net/publication/353089470_The_Performance_and_Future_of_QUIC_Protocol_in_the_Modern_Internet",
+            "hash": "sha256:a5e0a5af9108b58fcca3b3fb7b850ea6b96b1110475475c611397bdfc81c9e2d",
+            "source_type": "exa",
+            "domain": ""
+          },
+          {
+            "title": "[PDF] Performance Analysis of QUIC versus TCP on Satellite Networks",
+            "url": "http://web.cs.wpi.edu/~claypool/mqp/satellite-21/final-report.pdf",
+            "hash": "sha256:34d42a851255362c12733e34c95254ccbd900168864790bdfac082b54b75154b",
+            "source_type": "exa",
+            "domain": ""
+          },
+          {
+            "title": "QUIC Congestion Control Algorithm characteristics in mixed satellite ...",
+            "url": "https://www.sciencedirect.com/science/article/pii/S0140366424002512",
+            "hash": "sha256:4955daf98415196f4589c18f4d87093ff7421c32d1d0ddaef5c6986683e4f540",
+            "source_type": "exa",
+            "domain": ""
+          },
+          {
+            "title": "Congestion Control \u2013 quic-go docs",
+            "url": "https://quic-go.net/docs/quic/congestion-control/",
+            "hash": "sha256:9f01637c65380fd04c1af2e1693557efd424ad3e4c15ccc4cb5d1ee7be4ecb91",
+            "source_type": "exa",
+            "domain": ""
+          },
+          {
+            "title": "Shenggan/quic_vs_tcp: A Survey and Benchmark of QUIC - GitHub",
+            "url": "https://github.com/Shenggan/quic_vs_tcp",
+            "hash": "sha256:cc7e3c682f28cd3f98cc3a638a1e9978f3b956d4ab940bb15d107a9f590430ca",
+            "source_type": "exa",
+            "domain": ""
+          }
+        ],
+        "key_entries": [
+          {
+            "title": "QUIC Protocol: A Deep Dive - by Nan Wu - Medium",
+            "url": "https://medium.com/@wunan93cc/quic-protocol-a-deep-dive-3746c0ab3bd6",
+            "description": "",
+            "tool": "exa"
+          },
+          {
+            "title": "Video Streaming Over QUIC: A Comprehensive Study",
+            "url": "https://dl.acm.org/doi/10.1145/3793674",
+            "description": "",
+            "tool": "exa"
+          },
+          {
+            "title": "RFC 9002 - QUIC Loss Detection and Congestion Control",
+            "url": "https://datatracker.ietf.org/doc/rfc9002/",
+            "description": "",
+            "tool": "exa"
+          },
+          {
+            "title": "QUIC vs. TCP\u2014Development and Monitoring Guide - Catchpoint",
+            "url": "https://www.catchpoint.com/http2-vs-http3/quic-vs-tcp",
+            "description": "",
+            "tool": "exa"
+          },
+          {
+            "title": "[PDF] A study of congestion control schemes on QUIC - WebThesis",
+            "url": "https://webthesis.biblio.polito.it/28622/1/tesi.pdf",
+            "description": "",
+            "tool": "exa"
+          }
+        ]
+      },
+      {
+        "section": "challenges, limitations, and known issues",
+        "finding_count": 8,
+        "source_count": 8,
+        "sources": [
+          {
+            "title": "how a Linux kernel optimization became a QUIC bug",
+            "url": "https://blog.cloudflare.com/quic-death-spiral-fix/",
+            "hash": "sha256:e5d8f4a8f909c8cf728917589a4dae1401159598e1ebacd54abd7f833016ff44",
+            "source_type": "exa",
+            "domain": ""
+          },
+          {
+            "title": "As an aside, I think QUIC is not a great protocol - LWN.net",
+            "url": "https://lwn.net/Articles/1020616/",
+            "hash": "sha256:00aea9f34786e11fb8f6bf61652bfcfe00cb3a7da086bdef88354bb6783f7468",
+            "source_type": "exa",
+            "domain": ""
+          },
+          {
+            "title": "QUIC is not Quick Enough over Fast Internet - arXiv",
+            "url": "https://arxiv.org/html/2310.09423v2",
+            "hash": "sha256:f63d7b022073ab58fb814caca15b38901a3784f3216d185c91e50e0d66037ad8",
+            "source_type": "exa",
+            "domain": ""
+          },
+          {
+            "title": "Diving into HTTP/3: Security, congestion control, and TCP ...",
+            "url": "https://edransit.medium.com/diving-into-http-3-security-congestion-control-and-tcp-comparisons-on-quic-protocol-5af5081a4043",
+            "hash": "sha256:6dfe1ae43836d60171cef65be88fd285ceb8ed874e03cdf24841e49b71a1876b",
+            "source_type": "exa",
+            "domain": ""
+          },
+          {
+            "title": "QUIC on the Fast Lane: Extending Performance Evaluations on High ...",
+            "url": "https://www.sciencedirect.com/science/article/pii/S014036642400166X",
+            "hash": "sha256:0df4ad0e3829b9d14d1d11c9f5b959414f48a37d2740a2fa3cd4b6b3059c8ff2",
+            "source_type": "exa",
+            "domain": ""
+          },
+          {
+            "title": "Flow Control \u2013 quic-go docs",
+            "url": "https://quic-go.net/docs/quic/flowcontrol/",
+            "hash": "sha256:8dd9413ee150d44641897bce9c2df182a9b305a1210d4450b70dbbd6fbe7e7f1",
+            "source_type": "exa",
+            "domain": ""
+          },
+          {
+            "title": "Performance Analysis of Pluggable Congestion Control in QUIC ...",
+            "url": "https://pubs.aip.org/aip/acp/article-pdf/doi/10.1063/5.0076775/16199619/020003_1_online.pdf",
+            "hash": "sha256:6d8b134468c97c16e2fd553699b661efdb7344d107ee490aa8407e420ac5578e",
+            "source_type": "exa",
+            "domain": ""
+          },
+          {
+            "title": "[PDF] QUIC on the Highway: Evaluating Performance on High-rate Links",
+            "url": "https://arxiv.org/pdf/2309.16395",
+            "hash": "sha256:c2775da02e25735c315520d174248d3153315b42772c36eb58f4090213bfd1e5",
+            "source_type": "tinyfish",
+            "domain": ""
+          }
+        ],
+        "key_entries": [
+          {
+            "title": "how a Linux kernel optimization became a QUIC bug",
+            "url": "https://blog.cloudflare.com/quic-death-spiral-fix/",
+            "description": "",
+            "tool": "exa"
+          },
+          {
+            "title": "As an aside, I think QUIC is not a great protocol - LWN.net",
+            "url": "https://lwn.net/Articles/1020616/",
+            "description": "",
+            "tool": "exa"
+          },
+          {
+            "title": "QUIC is not Quick Enough over Fast Internet - arXiv",
+            "url": "https://arxiv.org/html/2310.09423v2",
+            "description": "",
+            "tool": "exa"
+          },
+          {
+            "title": "Diving into HTTP/3: Security, congestion control, and TCP ...",
+            "url": "https://edransit.medium.com/diving-into-http-3-security-congestion-control-and-tcp-comparisons-on-quic-protocol-5af5081a4043",
+            "description": "",
+            "tool": "exa"
+          },
+          {
+            "title": "QUIC on the Fast Lane: Extending Performance Evaluations on High ...",
+            "url": "https://www.sciencedirect.com/science/article/pii/S014036642400166X",
+            "description": "",
+            "tool": "exa"
+          }
+        ]
+      },
+      {
+        "section": "architecture and design principles",
+        "finding_count": 5,
+        "source_count": 5,
+        "sources": [
+          {
+            "title": "[PDF] A Quick Look at QUIC*",
+            "url": "https://web.cs.ucla.edu/~lixia/papers/UnderstandQUIC.pdf",
+            "hash": "sha256:5b8d4f93258cb76b29f6ed7d2cca82c494b8bb1327ccc633f08a4413507f1696",
+            "source_type": "exa",
+            "domain": ""
+          },
+          {
+            "title": "[PDF] The QUIC Transport Protocol:Design and Internet-Scale Deployment",
+            "url": "https://research.google.com/pubs/archive/46403.pdf",
+            "hash": "sha256:e0e6f432bf89aa63726c0550e4b4a870944c42e0e11d02a1ea4002287e741456",
+            "source_type": "exa",
+            "domain": ""
+          },
+          {
+            "title": "[PDF] Innovating Transport with QUIC: Design Approaches and Research ...",
+            "url": "https://scispace.com/pdf/innovating-transport-with-quic-design-approaches-and-2xbj9n2ss5.pdf",
+            "hash": "sha256:bf1b360b0f9e4769ccd02ff0f9082abf4f3e099f82c90eb022e8b136348dd86b",
+            "source_type": "exa",
+            "domain": ""
+          },
+          {
+            "title": "The QUIC Transport Protocol: Design and Internet-Scale Deployment",
+            "url": "https://dl.acm.org/doi/10.1145/3098822.3098842",
+            "hash": "sha256:f33437ce7b79b42da74ce8e17abe511a080d497621eb6bba85375057eb6fcdab",
+            "source_type": "exa",
+            "domain": ""
+          },
+          {
+            "title": "Performance analysis of pluggable congestion control in QUIC ...",
+            "url": "https://www.researchgate.net/publication/359385389_Performance_analysis_of_pluggable_congestion_control_in_QUIC_protocol",
+            "hash": "sha256:d4d1bff3afe7ea2e7b51c314c243f1a8f35bb3a8a671915165fb9767d1c39f90",
+            "source_type": "tinyfish",
+            "domain": ""
+          }
+        ],
+        "key_entries": [
+          {
+            "title": "[PDF] A Quick Look at QUIC*",
+            "url": "https://web.cs.ucla.edu/~lixia/papers/UnderstandQUIC.pdf",
+            "description": "",
+            "tool": "exa"
+          },
+          {
+            "title": "[PDF] The QUIC Transport Protocol:Design and Internet-Scale Deployment",
+            "url": "https://research.google.com/pubs/archive/46403.pdf",
+            "description": "",
+            "tool": "exa"
+          },
+          {
+            "title": "[PDF] Innovating Transport with QUIC: Design Approaches and Research ...",
+            "url": "https://scispace.com/pdf/innovating-transport-with-quic-design-approaches-and-2xbj9n2ss5.pdf",
+            "description": "",
+            "tool": "exa"
+          },
+          {
+            "title": "The QUIC Transport Protocol: Design and Internet-Scale Deployment",
+            "url": "https://dl.acm.org/doi/10.1145/3098822.3098842",
+            "description": "",
+            "tool": "exa"
+          },
+          {
+            "title": "Performance analysis of pluggable congestion control in QUIC ...",
+            "url": "https://www.researchgate.net/publication/359385389_Performance_analysis_of_pluggable_congestion_control_in_QUIC_protocol",
+            "description": "In this paper, two congestion control algorithms for QUIC are proposed with different architectures - an event-based model that handles wireless traffic better ...",
+            "tool": "tinyfish"
+          }
+        ]
+      },
+      {
+        "section": "overview and fundamentals",
+        "finding_count": 4,
+        "source_count": 4,
+        "sources": [
+          {
+            "title": "[PDF] A QUIC Tutorial",
+            "url": "https://qlog.edm.uhasselt.be/sigcomm/files/QUICTutorial_SIGCOMM2020.pdf",
+            "hash": "sha256:991207b5e7df29d2a3507061dc4d15ca2052afe792567c3e76b9cdf6374e824a",
+            "source_type": "exa",
+            "domain": ""
+          },
+          {
+            "title": "QUIC Delay Control: an implementation of congestion and ... - arXiv",
+            "url": "https://arxiv.org/html/2507.00896v1",
+            "hash": "sha256:0614368c8212876cc3307dc4caa79386872be4c00ca8ca42c39c9d75aacafabf",
+            "source_type": "exa",
+            "domain": ""
+          },
+          {
+            "title": "Intro to QUIC Protocol: Fundamentals, Handshake & Practical Setup",
+            "url": "https://rootshell.yanivhaliwa.com/study/intro-quic-protocol-fundamentals",
+            "hash": "sha256:3553efe7948c2c37cb03f0b296a8743fdc997fa56e39a5fac5c3c6884afcda44",
+            "source_type": "exa",
+            "domain": ""
+          },
+          {
+            "title": "28 Days Later (my QUIC journey) | Meetecho Blog",
+            "url": "https://www.meetecho.com/blog/quic-journey/",
+            "hash": "sha256:4984c4e5a03903e56f9bb814d03d364ed214f67c132604b77cfd0f36cc939138",
+            "source_type": "exa",
+            "domain": ""
+          }
+        ],
+        "key_entries": [
+          {
+            "title": "[PDF] A QUIC Tutorial",
+            "url": "https://qlog.edm.uhasselt.be/sigcomm/files/QUICTutorial_SIGCOMM2020.pdf",
+            "description": "",
+            "tool": "exa"
+          },
+          {
+            "title": "QUIC Delay Control: an implementation of congestion and ... - arXiv",
+            "url": "https://arxiv.org/html/2507.00896v1",
+            "description": "",
+            "tool": "exa"
+          },
+          {
+            "title": "Intro to QUIC Protocol: Fundamentals, Handshake & Practical Setup",
+            "url": "https://rootshell.yanivhaliwa.com/study/intro-quic-protocol-fundamentals",
+            "description": "",
+            "tool": "exa"
+          },
+          {
+            "title": "28 Days Later (my QUIC journey) | Meetecho Blog",
+            "url": "https://www.meetecho.com/blog/quic-journey/",
+            "description": "",
+            "tool": "exa"
+          }
+        ]
+      },
+      {
+        "section": "future directions and open research questions",
+        "finding_count": 6,
+        "source_count": 6,
+        "sources": [
+          {
+            "title": "QUIC Wave: Bringing bursts at application level to efficiently face ...",
+            "url": "https://www.sciencedirect.com/science/article/pii/S1389128626001970",
+            "hash": "sha256:11122fd9fc72256f49128f74955cddabb2beb844da769c9ab76bf4f54b8d1f9f",
+            "source_type": "tinyfish",
+            "domain": ""
+          },
+          {
+            "title": "[PDF] <Analysis of QUIC over DASH> - Siva Kesava Reddy Kakarla",
+            "url": "https://www.sivak.dev/assets/pdf/UG_thesis.pdf",
+            "hash": "sha256:0d78a6a8537b57db8bfb47b229a43ecb0605da63f3176abb67c43f3fd99292b9",
+            "source_type": "tinyfish",
+            "domain": ""
+          },
+          {
+            "title": "[PDF] Innovating Transport with QUIC: Design Approaches and Research ...",
+            "url": "https://www.cuiyong.net/lunwen/2017/Innovating_Transport_with_QUIC_Design_Approaches_and_Research_Challenges.pdf",
+            "hash": "sha256:976250936f2c67e6f476d0a996e8ffafdd90a272cdd6ee1c972e917c5ea2e1d2",
+            "source_type": "tinyfish",
+            "domain": ""
+          },
+          {
+            "title": "Use of QUIC for Mobile-Oriented Future Internet (Q-MOFI) - MDPI",
+            "url": "https://www.mdpi.com/2079-9292/13/2/431",
+            "hash": "sha256:a64dc497edefbb581625135078c80ca98c0c2866a41e2daec216b9ab94951253",
+            "source_type": "tinyfish",
+            "domain": ""
+          },
+          {
+            "title": "[PDF] Performance analysis of modern QUIC implementations - Aaltodoc",
+            "url": "https://aaltodoc.aalto.fi/bitstreams/e3d93634-a772-41c7-970d-963bab63b1f5/download",
+            "hash": "sha256:53782cc5d0eed0d1fe13adfb58b37615e88815bef956d929e31e53a6b1177b92",
+            "source_type": "tinyfish",
+            "domain": ""
+          },
+          {
+            "title": "[PDF] Examining the Heterogeneous Throughput Performance Landscape ...",
+            "url": "https://doc.tm.kit.edu/2025-Examining-the-Heterogeneous-Throughput-Performance-Landscape-of-QUIC-Implementations-Koenig-et-al.pdf",
+            "hash": "sha256:cef94c7f0b8c0be437da91e98a6efba6b2dcae8316afc6d1a7207b5a003b2861",
+            "source_type": "exa",
+            "domain": ""
+          }
+        ],
+        "key_entries": [
+          {
+            "title": "QUIC Wave: Bringing bursts at application level to efficiently face ...",
+            "url": "https://www.sciencedirect.com/science/article/pii/S1389128626001970",
+            "description": "The main technical innovation leverages a burst-based transmission against the traditional Congestion Window (cwnd) paradigm, demonstrating good performance in ...",
+            "tool": "tinyfish"
+          },
+          {
+            "title": "[PDF] <Analysis of QUIC over DASH> - Siva Kesava Reddy Kakarla",
+            "url": "https://www.sivak.dev/assets/pdf/UG_thesis.pdf",
+            "description": "We find that DASH performs better over QUIC than TCP in terms of video quality since QUIC is able to render a better or same quality video as of TCP at any ...",
+            "tool": "tinyfish"
+          },
+          {
+            "title": "[PDF] Innovating Transport with QUIC: Design Approaches and Research ...",
+            "url": "https://www.cuiyong.net/lunwen/2017/Innovating_Transport_with_QUIC_Design_Approaches_and_Research_Challenges.pdf",
+            "description": "QUIC UDP Internet Connections (QUIC) is a new transport protocol that provides low-latency communication, security, and rapid deployment. QUIC has begun its ...",
+            "tool": "tinyfish"
+          },
+          {
+            "title": "Use of QUIC for Mobile-Oriented Future Internet (Q-MOFI) - MDPI",
+            "url": "https://www.mdpi.com/2079-9292/13/2/431",
+            "description": "QUIC is a connection-oriented protocol that uses a handshake to establish a connection and provides reliable data transfer, while UDP does not.",
+            "tool": "tinyfish"
+          },
+          {
+            "title": "[PDF] Performance analysis of modern QUIC implementations - Aaltodoc",
+            "url": "https://aaltodoc.aalto.fi/bitstreams/e3d93634-a772-41c7-970d-963bab63b1f5/download",
+            "description": "While QUIC is deployed on top of UDP, it is connection-oriented, provides reliable packet delivery, and congestion control. QUIC also integrates ...",
+            "tool": "tinyfish"
+          }
+        ]
+      },
+      {
+        "section": "performance characteristics and benchmarks",
+        "finding_count": 7,
+        "source_count": 7,
+        "sources": [
+          {
+            "title": "QUIC vs TCP: \u201cThe Ultimate Benchmark for Modern Network ...",
+            "url": "https://medium.com/@abhi.patel.7172/quic-vs-tcp-the-ultimate-benchmark-for-modern-network-performance-22be6e5af66d",
+            "hash": "sha256:5a224f2d30a4360e8cdef837526af182891f23bb3f39fca5bc8e45c3fcf7462b",
+            "source_type": "tinyfish",
+            "domain": ""
+          },
+          {
+            "title": "Performance Benchmarking of the QUIC Transport Protocol",
+            "url": "https://www.researchgate.net/publication/369345763_Performance_Benchmarking_of_the_QUIC_Transport_Protocol",
+            "hash": "sha256:0bde814dcaed46d1622e9493213505cd115fd6f45777610c1cffdbd8d927c0b8",
+            "source_type": "tinyfish",
+            "domain": ""
+          },
+          {
+            "title": "QUIC vs TCP: Which is Better? - Fastly",
+            "url": "https://www.fastly.com/blog/measuring-quic-vs-tcp-computational-efficiency",
+            "hash": "sha256:ba27152509472d906af36b2457001d391487b869394a86b70b3a9adb6f90bcc7",
+            "source_type": "tinyfish",
+            "domain": ""
+          },
+          {
+            "title": "[PDF] QUIC CPU Performance",
+            "url": "https://conferences.sigcomm.org/sigcomm/2020/files/slides/epiq/0%20QUIC%20and%20HTTP_3%20CPU%20Performance.pdf",
+            "hash": "sha256:a8343f9ef5914f23d9d3a9d067d4a6c7bbab08bb444b13791239d35b345763ad",
+            "source_type": "tinyfish",
+            "domain": ""
+          },
+          {
+            "title": "[PDF] Performance Evaluation of QUIC vs TCP for Cloud Control Systems",
+            "url": "https://lucris.lub.lu.se/ws/portalfiles/portal/162076810/1570917060.pdf",
+            "hash": "sha256:5807690cb4d84787af04d3fed8782eed512fd703f8df696777bdf8a3a1586d19",
+            "source_type": "tinyfish",
+            "domain": ""
+          },
+          {
+            "title": "draft-banks-quic-performance-00 - IETF Datatracker",
+            "url": "https://datatracker.ietf.org/doc/html/draft-banks-quic-performance-00",
+            "hash": "sha256:c92405b3307fc1a7871366ee8ef17552db07975385a7b3b2430bf4dc3b8fac4b",
+            "source_type": "exa",
+            "domain": ""
+          },
+          {
+            "title": "[PDF] Evaluating QUIC Performance over Web, Cloud Storage and Video ...",
+            "url": "https://vaibhavbajpai.com/documents/papers/proceedings/quic-tnsm-2022.pdf",
+            "hash": "sha256:57cd1c0648667c4d7ff6fb67613bcca8a95c72cd5ee6134f41bda905f99325c0",
+            "source_type": "exa",
+            "domain": ""
+          }
+        ],
+        "key_entries": [
+          {
+            "title": "QUIC vs TCP: \u201cThe Ultimate Benchmark for Modern Network ...",
+            "url": "https://medium.com/@abhi.patel.7172/quic-vs-tcp-the-ultimate-benchmark-for-modern-network-performance-22be6e5af66d",
+            "description": "QUIC supports multiple independent streams within a single connection, effectively mitigating Head-of-Line (HOL) blocking, a common limitation ...",
+            "tool": "tinyfish"
+          },
+          {
+            "title": "Performance Benchmarking of the QUIC Transport Protocol",
+            "url": "https://www.researchgate.net/publication/369345763_Performance_Benchmarking_of_the_QUIC_Transport_Protocol",
+            "description": "... Early investigations by Carlucci et al.[27] demonstrated QUIC's superior performance over TCP and SPDY[75], particularly in terms of connection setup times ...",
+            "tool": "tinyfish"
+          },
+          {
+            "title": "QUIC vs TCP: Which is Better? - Fastly",
+            "url": "https://www.fastly.com/blog/measuring-quic-vs-tcp-computational-efficiency",
+            "description": "Essentially, QUIC offers advantages in terms of reduced latency, improved multiplexing and concurrent streams, efficient congestion control, ...",
+            "tool": "tinyfish"
+          },
+          {
+            "title": "[PDF] QUIC CPU Performance",
+            "url": "https://conferences.sigcomm.org/sigcomm/2020/files/slides/epiq/0%20QUIC%20and%20HTTP_3%20CPU%20Performance.pdf",
+            "description": "Key Objectives: Improved quality of experience, high CPU efficiency, MORE QUIC! ... New: Move data ownership to streams. Enabled bulk application ...",
+            "tool": "tinyfish"
+          },
+          {
+            "title": "[PDF] Performance Evaluation of QUIC vs TCP for Cloud Control Systems",
+            "url": "https://lucris.lub.lu.se/ws/portalfiles/portal/162076810/1570917060.pdf",
+            "description": "The results of our evaluation suggest that the performance of different protocols varies based on the characteristics of different control systems. However, ...",
+            "tool": "tinyfish"
+          }
+        ]
+      },
+      {
+        "section": "comparative analysis and alternatives",
+        "finding_count": 7,
+        "source_count": 7,
+        "sources": [
+          {
+            "title": "Video Streaming Over QUIC: A Comprehensive Study",
+            "url": "https://dl.acm.org/doi/full/10.1145/3793674",
+            "hash": "sha256:105772c0c7542973e5c4d2b6f7f25aec7f16aca4fe07df5673970bfbfa2dd7a8",
+            "source_type": "exa",
+            "domain": ""
+          },
+          {
+            "title": "Implementation and Performance Evaluation of TCP over QUIC ...",
+            "url": "https://arxiv.org/html/2504.10054v1",
+            "hash": "sha256:c0208171c51a00d617bc6afaf917132bbf98d1ce301863a4d0aa3daa103d5ac8",
+            "source_type": "exa",
+            "domain": ""
+          },
+          {
+            "title": "[PDF] A Comparative Analysis of QUIC and FTP Protocols in Go",
+            "url": "https://journal.uob.edu.bh/bitstreams/e3b9061d-f896-4e7d-9550-f58ec7ab3d6e/download",
+            "hash": "sha256:96e850cc6dcfc4ca8023761ba3c6eab9688d5ebcee08e9dc3aaf54a7d44da35d",
+            "source_type": "exa",
+            "domain": ""
+          },
+          {
+            "title": "[PDF] Comparison of Different QUIC Implementations",
+            "url": "https://www.net.in.tum.de/fileadmin/TUM/NET/NET-2022-07-1/NET-2022-07-1_10.pdf",
+            "hash": "sha256:5c29b0fd861c7b5b907e3eaded09be1e0f131ef3c750d7a200abf1f5851db354",
+            "source_type": "exa",
+            "domain": ""
+          },
+          {
+            "title": "[PDF] Comparative Analysis of QUIC and Other Network Protocols for Real ...",
+            "url": "https://documentserver.uhasselt.be/bitstream/1942/46864/2/4349c449-e468-45c5-81d8-23c8f4468331.pdf",
+            "hash": "sha256:c6262a6bed173d5589f9100dfcb0286cf686206913a160ee43b332a6bdf4397b",
+            "source_type": "exa",
+            "domain": ""
+          },
+          {
+            "title": "Implementation and Performance Evaluation of TCP over ...",
+            "url": "https://arxiv.org/html/2504.10054v2",
+            "hash": "sha256:06e974a839befba49b58d9a679af1895784f5cfea60641dd51bbcc1a79779b10",
+            "source_type": "tinyfish",
+            "domain": ""
+          },
+          {
+            "title": "QUIC vs TCP: A Performance Evaluation over LTE with NS-3",
+            "url": "https://www.researchgate.net/publication/357497663_QUIC_vs_TCP_A_Performance_Evaluation_over_LTE_with_NS-3",
+            "hash": "sha256:7336fe42e904898ebbdf92bb52a6bd5ba39d51fa30c87cf00c99d90784fc293a",
+            "source_type": "tinyfish",
+            "domain": ""
+          }
+        ],
+        "key_entries": [
+          {
+            "title": "Video Streaming Over QUIC: A Comprehensive Study",
+            "url": "https://dl.acm.org/doi/full/10.1145/3793674",
+            "description": "",
+            "tool": "exa"
+          },
+          {
+            "title": "Implementation and Performance Evaluation of TCP over QUIC ...",
+            "url": "https://arxiv.org/html/2504.10054v1",
+            "description": "",
+            "tool": "exa"
+          },
+          {
+            "title": "[PDF] A Comparative Analysis of QUIC and FTP Protocols in Go",
+            "url": "https://journal.uob.edu.bh/bitstreams/e3b9061d-f896-4e7d-9550-f58ec7ab3d6e/download",
+            "description": "",
+            "tool": "exa"
+          },
+          {
+            "title": "[PDF] Comparison of Different QUIC Implementations",
+            "url": "https://www.net.in.tum.de/fileadmin/TUM/NET/NET-2022-07-1/NET-2022-07-1_10.pdf",
+            "description": "",
+            "tool": "exa"
+          },
+          {
+            "title": "[PDF] Comparative Analysis of QUIC and Other Network Protocols for Real ...",
+            "url": "https://documentserver.uhasselt.be/bitstream/1942/46864/2/4349c449-e468-45c5-81d8-23c8f4468331.pdf",
+            "description": "",
+            "tool": "exa"
+          }
+        ]
+      },
+      {
+        "section": "applications and real-world use cases",
+        "finding_count": 6,
+        "source_count": 6,
+        "sources": [
+          {
+            "title": "quic-protocol-the-features-use-cases-and-impact-for-iot-iov.md",
+            "url": "https://github.com/emqx/blog/blob/main/en/202304/quic-protocol-the-features-use-cases-and-impact-for-iot-iov.md",
+            "hash": "sha256:419c7342899082c59d536c90ca99c0730a32079d756a004c94af4f86dea8c494",
+            "source_type": "tinyfish",
+            "domain": ""
+          },
+          {
+            "title": "PBQ-Enhanced QUIC: QUIC with Deep Reinforcement Learning ...",
+            "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC9955954/",
+            "hash": "sha256:9a7d38aac2ed6b4aa3c96debaa7d883283bae817ee060d26880370861c909ef6",
+            "source_type": "tinyfish",
+            "domain": ""
+          },
+          {
+            "title": "(PDF) QUIC: Uses and Adoption - ResearchGate",
+            "url": "https://www.researchgate.net/publication/396523543_QUIC_Uses_and_Adoption",
+            "hash": "sha256:3e4cae55ae9ffed09ad8bbb4e344e53765924dfb457565039b0d35ffd08453b9",
+            "source_type": "tinyfish",
+            "domain": ""
+          },
+          {
+            "title": "[PDF] Video Streaming Over QUIC: A Comprehensive Study - arXiv",
+            "url": "https://arxiv.org/pdf/2505.21769",
+            "hash": "sha256:d4198c84fc0a843ee89db6ec79b7c235d3b5ac60c49d1525e242a20fb3bdb4eb",
+            "source_type": "exa",
+            "domain": ""
+          },
+          {
+            "title": "Impact of Congestion Control Algorithms on the QoE Performance of ...",
+            "url": "https://dl.acm.org/doi/10.1145/3772290.3772298",
+            "hash": "sha256:001d4c4436cd5cb543c42cc387f52b574c85de17d4d56076079d0e1580160627",
+            "source_type": "exa",
+            "domain": ""
+          },
+          {
+            "title": "[PDF] Assessing the Interplay Between WebRTC and QUIC Congestion ...",
+            "url": "https://hal.science/hal-04231048v1/file/Quic.pdf",
+            "hash": "sha256:d842b591aa834fc539a6385986da4e6e48f03d865a57f74fc9bfb85b5938732f",
+            "source_type": "exa",
+            "domain": ""
+          }
+        ],
+        "key_entries": [
+          {
+            "title": "quic-protocol-the-features-use-cases-and-impact-for-iot-iov.md",
+            "url": "https://github.com/emqx/blog/blob/main/en/202304/quic-protocol-the-features-use-cases-and-impact-for-iot-iov.md",
+            "description": "QUIC uses a combination of encryption and multiplexing to provide improved security and faster data transfer. It allows multiple streams of data to be sent over ...",
+            "tool": "tinyfish"
+          },
+          {
+            "title": "PBQ-Enhanced QUIC: QUIC with Deep Reinforcement Learning ...",
+            "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC9955954/",
+            "description": "We propose an efficient congestion control mechanism on the basis of deep reinforcement learning (DRL), ie, proximal bandwidth-delay quick optimization (PBQ) ...",
+            "tool": "tinyfish"
+          },
+          {
+            "title": "(PDF) QUIC: Uses and Adoption - ResearchGate",
+            "url": "https://www.researchgate.net/publication/396523543_QUIC_Uses_and_Adoption",
+            "description": "This paper explains QUIC's design and operation, contrasts it with \"TLS 1.3 over TCP,\" reviews adoption data and case studies, and outlines ...",
+            "tool": "tinyfish"
+          },
+          {
+            "title": "[PDF] Video Streaming Over QUIC: A Comprehensive Study - arXiv",
+            "url": "https://arxiv.org/pdf/2505.21769",
+            "description": "",
+            "tool": "exa"
+          },
+          {
+            "title": "Impact of Congestion Control Algorithms on the QoE Performance of ...",
+            "url": "https://dl.acm.org/doi/10.1145/3772290.3772298",
+            "description": "",
+            "tool": "exa"
+          }
+        ]
+      },
+      {
+        "section": "existing projects, open source implementations, and alternatives",
+        "finding_count": 5,
+        "source_count": 5,
+        "sources": [
+          {
+            "title": "A curated list of awesome QUIC and HTTP/3 resources - GitHub",
+            "url": "https://github.com/mmmarcos/awesome-quic",
+            "hash": "sha256:497258e1244622ff255d40fa7a692088fd0600f23d4357bfa54cef65510b7223",
+            "source_type": "exa",
+            "domain": ""
+          },
+          {
+            "title": "[PDF] Comparison of Different QUIC Implementations",
+            "url": "https://www.net.in.tum.de/fileadmin/TUM/NET/NET-2022-07-1/NET-2022-07-1_02.pdf",
+            "hash": "sha256:c4c9d48adae18228da6a2f918bb737265944d60bd53ea54c9666fc28b5b99364",
+            "source_type": "exa",
+            "domain": ""
+          },
+          {
+            "title": "Getting Media Over QUIC (MoQ) and WebRTC to like each other",
+            "url": "https://www.meetecho.com/blog/moq-webrtc/",
+            "hash": "sha256:b0e90db6b6e9e2a3c9ca2a37cda603894db62c20f8f712693a51be0dbda27a66",
+            "source_type": "exa",
+            "domain": ""
+          },
+          {
+            "title": "Quiwi - Another QUIC implementation in pure Go : r/golang - Reddit",
+            "url": "https://www.reddit.com/r/golang/comments/np5bed/quiwi_another_quic_implementation_in_pure_go/",
+            "hash": "sha256:f192f8f71b0f5e4bab363f4258c55539dc80d02ac580f3672293cb01cf8a5220",
+            "source_type": "exa",
+            "domain": ""
+          },
+          {
+            "title": "How We Added QUIC Support to OpenSSL without Patches or ...",
+            "url": "https://thenewstack.io/how-we-added-quic-support-to-openssl-without-patches-or-rebuilds/",
+            "hash": "sha256:3ee522bbf9cfb63763fd446b02896fc19ecee083bcb356453d9701a4f45f48e5",
+            "source_type": "exa",
+            "domain": ""
+          }
+        ],
+        "key_entries": [
+          {
+            "title": "A curated list of awesome QUIC and HTTP/3 resources - GitHub",
+            "url": "https://github.com/mmmarcos/awesome-quic",
+            "description": "",
+            "tool": "exa"
+          },
+          {
+            "title": "[PDF] Comparison of Different QUIC Implementations",
+            "url": "https://www.net.in.tum.de/fileadmin/TUM/NET/NET-2022-07-1/NET-2022-07-1_02.pdf",
+            "description": "",
+            "tool": "exa"
+          },
+          {
+            "title": "Getting Media Over QUIC (MoQ) and WebRTC to like each other",
+            "url": "https://www.meetecho.com/blog/moq-webrtc/",
+            "description": "",
+            "tool": "exa"
+          },
+          {
+            "title": "Quiwi - Another QUIC implementation in pure Go : r/golang - Reddit",
+            "url": "https://www.reddit.com/r/golang/comments/np5bed/quiwi_another_quic_implementation_in_pure_go/",
+            "description": "",
+            "tool": "exa"
+          },
+          {
+            "title": "How We Added QUIC Support to OpenSSL without Patches or ...",
+            "url": "https://thenewstack.io/how-we-added-quic-support-to-openssl-without-patches-or-rebuilds/",
+            "description": "",
+            "tool": "exa"
+          }
+        ]
+      }
+    ],
+    "findings": [
+      {
+        "title": "A QUIC implementation in pure Go - GitHub",
+        "description": "",
+        "source_ref": "https://github.com/quic-go/quic-go",
+        "source_hash": "sha256:e4a88b3c699edcb1886096cb4d7a667a844a3eb7e9af395d5c53aaeeb5296783",
+        "url": "https://github.com/quic-go/quic-go",
+        "tool": "exa",
+        "angle": "standards, governance, and community"
+      },
+      {
+        "title": "QUIC Streams \u2013 quic-go docs",
+        "description": "",
+        "source_ref": "https://quic-go.net/docs/quic/streams/",
+        "source_hash": "sha256:5bbd2f1af981d1d25efbdaca02c3598408039405573b258f40d7b004f824e3cc",
+        "url": "https://quic-go.net/docs/quic/streams/",
+        "tool": "exa",
+        "angle": "standards, governance, and community"
+      },
+      {
+        "title": "Congestion Control Enhancements for QUIC in NGINX",
+        "description": "",
+        "source_ref": "https://blog.nginx.org/blog/congestion-control-enhancements-for-quic-in-nginx",
+        "source_hash": "sha256:8877e637343c4cc43a58f72d4aa8b43a8241c3750d672d060f049243a1ead39d",
+        "url": "https://blog.nginx.org/blog/congestion-control-enhancements-for-quic-in-nginx",
+        "tool": "exa",
+        "angle": "standards, governance, and community"
+      },
+      {
+        "title": "quic - Go Packages",
+        "description": "",
+        "source_ref": "https://pkg.go.dev/github.com/quic-go/quic-go",
+        "source_hash": "sha256:c9cdb2ee01d04897cf1e267d31ab98e6fe6fbd666e20a7d7cad5e8f84f780b9a",
+        "url": "https://pkg.go.dev/github.com/quic-go/quic-go",
+        "tool": "exa",
+        "angle": "standards, governance, and community"
+      },
+      {
+        "title": "Revamping the quic-go API: Transitioning from Interfaces to Structs",
+        "description": "",
+        "source_ref": "https://seemann.io/posts/2025-06-25---quic-go-api-revamp/",
+        "source_hash": "sha256:5550d5ace9a31b63b78702be8f16569a8b95204499b4b994033cb9dcdf01fb13",
+        "url": "https://seemann.io/posts/2025-06-25---quic-go-api-revamp/",
+        "tool": "exa",
+        "angle": "standards, governance, and community"
+      },
+      {
+        "title": "Exchanging Congestion Control Data in QUIC - IETF",
+        "description": "",
+        "source_ref": "https://www.ietf.org/archive/id/draft-yuan-quic-congestion-data-01.html",
+        "source_hash": "sha256:c83602148c49c5360f9190620062899f15c7ab3493a8ea2a5c3599b2dfa432b3",
+        "url": "https://www.ietf.org/archive/id/draft-yuan-quic-congestion-data-01.html",
+        "tool": "exa",
+        "angle": "standards, governance, and community"
+      },
+      {
+        "title": "[2505.21769] Video Streaming Over QUIC: A Comprehensive Study",
+        "description": "",
+        "source_ref": "https://arxiv.org/abs/2505.21769",
+        "source_hash": "sha256:81807623448d2da572ff39f67f08522c35e997910f8d349a52a7a4e4c5934583",
+        "url": "https://arxiv.org/abs/2505.21769",
+        "tool": "exa",
+        "angle": "standards, governance, and community"
+      },
+      {
+        "title": "Are congestion windows for QUIC per stream of per connection?",
+        "description": "",
+        "source_ref": "https://groups.google.com/a/chromium.org/g/proto-quic/c/9_GHun_1gc0/m/J_jHDcgpBgAJ",
+        "source_hash": "sha256:43a9d94ddb64a72e620363ba1761ac534bf3eec2484e39217c8409031ed1025d",
+        "url": "https://groups.google.com/a/chromium.org/g/proto-quic/c/9_GHun_1gc0/m/J_jHDcgpBgAJ",
+        "tool": "exa",
+        "angle": "standards, governance, and community"
+      },
+      {
+        "title": "Congestion control performance degradation on reordered paths",
+        "description": "",
+        "source_ref": "https://github.com/quic-go/quic-go/issues/5580",
+        "source_hash": "sha256:edc42d0ba9ba06f28a2e55b2d74e452000f36a5666560f00c05bb428d121ec41",
+        "url": "https://github.com/quic-go/quic-go/issues/5580",
+        "tool": "exa",
+        "angle": "standards, governance, and community"
+      },
+      {
+        "title": "Performance analysis of pluggable congestion control in QUIC ...",
+        "description": "",
+        "source_ref": "https://ui.adsabs.harvard.edu/abs/2022AIPC.2424b0003N/abstract",
+        "source_hash": "sha256:7c7235be487715f31eca5a5c9c44aa69ae6cd2ced51372b3f274b9f89479ebd7",
+        "url": "https://ui.adsabs.harvard.edu/abs/2022AIPC.2424b0003N/abstract",
+        "tool": "exa",
+        "angle": "standards, governance, and community"
+      },
+      {
+        "title": "QUIC Protocol: A Deep Dive - by Nan Wu - Medium",
+        "description": "",
+        "source_ref": "https://medium.com/@wunan93cc/quic-protocol-a-deep-dive-3746c0ab3bd6",
+        "source_hash": "sha256:d993787471096ba13b13bdd77e4183898196d3938c3a5c4bd2e940d87d90f64e",
+        "url": "https://medium.com/@wunan93cc/quic-protocol-a-deep-dive-3746c0ab3bd6",
+        "tool": "exa",
+        "angle": "history and evolution"
+      },
+      {
+        "title": "Video Streaming Over QUIC: A Comprehensive Study",
+        "description": "",
+        "source_ref": "https://dl.acm.org/doi/10.1145/3793674",
+        "source_hash": "sha256:0cf04a091f627bab780e5bcebf24e7769cb1eb5d983c0f63b9690513501a7c04",
+        "url": "https://dl.acm.org/doi/10.1145/3793674",
+        "tool": "exa",
+        "angle": "history and evolution"
+      },
+      {
+        "title": "RFC 9002 - QUIC Loss Detection and Congestion Control",
+        "description": "",
+        "source_ref": "https://datatracker.ietf.org/doc/rfc9002/",
+        "source_hash": "sha256:222d465e389a3377e236305b126facf2bb89ab021f5571f6f559787bf99ee544",
+        "url": "https://datatracker.ietf.org/doc/rfc9002/",
+        "tool": "exa",
+        "angle": "history and evolution"
+      },
+      {
+        "title": "QUIC vs. TCP\u2014Development and Monitoring Guide - Catchpoint",
+        "description": "",
+        "source_ref": "https://www.catchpoint.com/http2-vs-http3/quic-vs-tcp",
+        "source_hash": "sha256:2b0669af8ce95ecd94793ed01f557d7a3f06007f5c25ebf89acadf1c76e0d06d",
+        "url": "https://www.catchpoint.com/http2-vs-http3/quic-vs-tcp",
+        "tool": "exa",
+        "angle": "history and evolution"
+      },
+      {
+        "title": "[PDF] A study of congestion control schemes on QUIC - WebThesis",
+        "description": "",
+        "source_ref": "https://webthesis.biblio.polito.it/28622/1/tesi.pdf",
+        "source_hash": "sha256:47414201342aaf722c289f112ecf573f20622364eefd2c329f54a77b64ae6a20",
+        "url": "https://webthesis.biblio.polito.it/28622/1/tesi.pdf",
+        "tool": "exa",
+        "angle": "history and evolution"
+      },
+      {
+        "title": "The Performance and Future of QUIC Protocol in the Modern Internet",
+        "description": "",
+        "source_ref": "https://www.researchgate.net/publication/353089470_The_Performance_and_Future_of_QUIC_Protocol_in_the_Modern_Internet",
+        "source_hash": "sha256:a5e0a5af9108b58fcca3b3fb7b850ea6b96b1110475475c611397bdfc81c9e2d",
+        "url": "https://www.researchgate.net/publication/353089470_The_Performance_and_Future_of_QUIC_Protocol_in_the_Modern_Internet",
+        "tool": "exa",
+        "angle": "history and evolution"
+      },
+      {
+        "title": "[PDF] Performance Analysis of QUIC versus TCP on Satellite Networks",
+        "description": "",
+        "source_ref": "http://web.cs.wpi.edu/~claypool/mqp/satellite-21/final-report.pdf",
+        "source_hash": "sha256:34d42a851255362c12733e34c95254ccbd900168864790bdfac082b54b75154b",
+        "url": "http://web.cs.wpi.edu/~claypool/mqp/satellite-21/final-report.pdf",
+        "tool": "exa",
+        "angle": "history and evolution"
+      },
+      {
+        "title": "QUIC Congestion Control Algorithm characteristics in mixed satellite ...",
+        "description": "",
+        "source_ref": "https://www.sciencedirect.com/science/article/pii/S0140366424002512",
+        "source_hash": "sha256:4955daf98415196f4589c18f4d87093ff7421c32d1d0ddaef5c6986683e4f540",
+        "url": "https://www.sciencedirect.com/science/article/pii/S0140366424002512",
+        "tool": "exa",
+        "angle": "history and evolution"
+      },
+      {
+        "title": "Congestion Control \u2013 quic-go docs",
+        "description": "",
+        "source_ref": "https://quic-go.net/docs/quic/congestion-control/",
+        "source_hash": "sha256:9f01637c65380fd04c1af2e1693557efd424ad3e4c15ccc4cb5d1ee7be4ecb91",
+        "url": "https://quic-go.net/docs/quic/congestion-control/",
+        "tool": "exa",
+        "angle": "history and evolution"
+      },
+      {
+        "title": "Shenggan/quic_vs_tcp: A Survey and Benchmark of QUIC - GitHub",
+        "description": "",
+        "source_ref": "https://github.com/Shenggan/quic_vs_tcp",
+        "source_hash": "sha256:cc7e3c682f28cd3f98cc3a638a1e9978f3b956d4ab940bb15d107a9f590430ca",
+        "url": "https://github.com/Shenggan/quic_vs_tcp",
+        "tool": "exa",
+        "angle": "history and evolution"
+      },
+      {
+        "title": "how a Linux kernel optimization became a QUIC bug",
+        "description": "",
+        "source_ref": "https://blog.cloudflare.com/quic-death-spiral-fix/",
+        "source_hash": "sha256:e5d8f4a8f909c8cf728917589a4dae1401159598e1ebacd54abd7f833016ff44",
+        "url": "https://blog.cloudflare.com/quic-death-spiral-fix/",
+        "tool": "exa",
+        "angle": "challenges, limitations, and known issues"
+      },
+      {
+        "title": "As an aside, I think QUIC is not a great protocol - LWN.net",
+        "description": "",
+        "source_ref": "https://lwn.net/Articles/1020616/",
+        "source_hash": "sha256:00aea9f34786e11fb8f6bf61652bfcfe00cb3a7da086bdef88354bb6783f7468",
+        "url": "https://lwn.net/Articles/1020616/",
+        "tool": "exa",
+        "angle": "challenges, limitations, and known issues"
+      },
+      {
+        "title": "QUIC is not Quick Enough over Fast Internet - arXiv",
+        "description": "",
+        "source_ref": "https://arxiv.org/html/2310.09423v2",
+        "source_hash": "sha256:f63d7b022073ab58fb814caca15b38901a3784f3216d185c91e50e0d66037ad8",
+        "url": "https://arxiv.org/html/2310.09423v2",
+        "tool": "exa",
+        "angle": "challenges, limitations, and known issues"
+      },
+      {
+        "title": "Diving into HTTP/3: Security, congestion control, and TCP ...",
+        "description": "",
+        "source_ref": "https://edransit.medium.com/diving-into-http-3-security-congestion-control-and-tcp-comparisons-on-quic-protocol-5af5081a4043",
+        "source_hash": "sha256:6dfe1ae43836d60171cef65be88fd285ceb8ed874e03cdf24841e49b71a1876b",
+        "url": "https://edransit.medium.com/diving-into-http-3-security-congestion-control-and-tcp-comparisons-on-quic-protocol-5af5081a4043",
+        "tool": "exa",
+        "angle": "challenges, limitations, and known issues"
+      },
+      {
+        "title": "QUIC on the Fast Lane: Extending Performance Evaluations on High ...",
+        "description": "",
+        "source_ref": "https://www.sciencedirect.com/science/article/pii/S014036642400166X",
+        "source_hash": "sha256:0df4ad0e3829b9d14d1d11c9f5b959414f48a37d2740a2fa3cd4b6b3059c8ff2",
+        "url": "https://www.sciencedirect.com/science/article/pii/S014036642400166X",
+        "tool": "exa",
+        "angle": "challenges, limitations, and known issues"
+      },
+      {
+        "title": "Flow Control \u2013 quic-go docs",
+        "description": "",
+        "source_ref": "https://quic-go.net/docs/quic/flowcontrol/",
+        "source_hash": "sha256:8dd9413ee150d44641897bce9c2df182a9b305a1210d4450b70dbbd6fbe7e7f1",
+        "url": "https://quic-go.net/docs/quic/flowcontrol/",
+        "tool": "exa",
+        "angle": "challenges, limitations, and known issues"
+      },
+      {
+        "title": "Performance Analysis of Pluggable Congestion Control in QUIC ...",
+        "description": "",
+        "source_ref": "https://pubs.aip.org/aip/acp/article-pdf/doi/10.1063/5.0076775/16199619/020003_1_online.pdf",
+        "source_hash": "sha256:6d8b134468c97c16e2fd553699b661efdb7344d107ee490aa8407e420ac5578e",
+        "url": "https://pubs.aip.org/aip/acp/article-pdf/doi/10.1063/5.0076775/16199619/020003_1_online.pdf",
+        "tool": "exa",
+        "angle": "challenges, limitations, and known issues"
+      },
+      {
+        "title": "[PDF] A Quick Look at QUIC*",
+        "description": "",
+        "source_ref": "https://web.cs.ucla.edu/~lixia/papers/UnderstandQUIC.pdf",
+        "source_hash": "sha256:5b8d4f93258cb76b29f6ed7d2cca82c494b8bb1327ccc633f08a4413507f1696",
+        "url": "https://web.cs.ucla.edu/~lixia/papers/UnderstandQUIC.pdf",
+        "tool": "exa",
+        "angle": "architecture and design principles"
+      },
+      {
+        "title": "[PDF] The QUIC Transport Protocol:Design and Internet-Scale Deployment",
+        "description": "",
+        "source_ref": "https://research.google.com/pubs/archive/46403.pdf",
+        "source_hash": "sha256:e0e6f432bf89aa63726c0550e4b4a870944c42e0e11d02a1ea4002287e741456",
+        "url": "https://research.google.com/pubs/archive/46403.pdf",
+        "tool": "exa",
+        "angle": "architecture and design principles"
+      },
+      {
+        "title": "[PDF] Innovating Transport with QUIC: Design Approaches and Research ...",
+        "description": "",
+        "source_ref": "https://scispace.com/pdf/innovating-transport-with-quic-design-approaches-and-2xbj9n2ss5.pdf",
+        "source_hash": "sha256:bf1b360b0f9e4769ccd02ff0f9082abf4f3e099f82c90eb022e8b136348dd86b",
+        "url": "https://scispace.com/pdf/innovating-transport-with-quic-design-approaches-and-2xbj9n2ss5.pdf",
+        "tool": "exa",
+        "angle": "architecture and design principles"
+      },
+      {
+        "title": "The QUIC Transport Protocol: Design and Internet-Scale Deployment",
+        "description": "",
+        "source_ref": "https://dl.acm.org/doi/10.1145/3098822.3098842",
+        "source_hash": "sha256:f33437ce7b79b42da74ce8e17abe511a080d497621eb6bba85375057eb6fcdab",
+        "url": "https://dl.acm.org/doi/10.1145/3098822.3098842",
+        "tool": "exa",
+        "angle": "architecture and design principles"
+      },
+      {
+        "title": "[PDF] A QUIC Tutorial",
+        "description": "",
+        "source_ref": "https://qlog.edm.uhasselt.be/sigcomm/files/QUICTutorial_SIGCOMM2020.pdf",
+        "source_hash": "sha256:991207b5e7df29d2a3507061dc4d15ca2052afe792567c3e76b9cdf6374e824a",
+        "url": "https://qlog.edm.uhasselt.be/sigcomm/files/QUICTutorial_SIGCOMM2020.pdf",
+        "tool": "exa",
+        "angle": "overview and fundamentals"
+      },
+      {
+        "title": "QUIC Delay Control: an implementation of congestion and ... - arXiv",
+        "description": "",
+        "source_ref": "https://arxiv.org/html/2507.00896v1",
+        "source_hash": "sha256:0614368c8212876cc3307dc4caa79386872be4c00ca8ca42c39c9d75aacafabf",
+        "url": "https://arxiv.org/html/2507.00896v1",
+        "tool": "exa",
+        "angle": "overview and fundamentals"
+      },
+      {
+        "title": "Intro to QUIC Protocol: Fundamentals, Handshake & Practical Setup",
+        "description": "",
+        "source_ref": "https://rootshell.yanivhaliwa.com/study/intro-quic-protocol-fundamentals",
+        "source_hash": "sha256:3553efe7948c2c37cb03f0b296a8743fdc997fa56e39a5fac5c3c6884afcda44",
+        "url": "https://rootshell.yanivhaliwa.com/study/intro-quic-protocol-fundamentals",
+        "tool": "exa",
+        "angle": "overview and fundamentals"
+      },
+      {
+        "title": "28 Days Later (my QUIC journey) | Meetecho Blog",
+        "description": "",
+        "source_ref": "https://www.meetecho.com/blog/quic-journey/",
+        "source_hash": "sha256:4984c4e5a03903e56f9bb814d03d364ed214f67c132604b77cfd0f36cc939138",
+        "url": "https://www.meetecho.com/blog/quic-journey/",
+        "tool": "exa",
+        "angle": "overview and fundamentals"
+      },
+      {
+        "title": "QUIC Wave: Bringing bursts at application level to efficiently face ...",
+        "description": "The main technical innovation leverages a burst-based transmission against the traditional Congestion Window (cwnd) paradigm, demonstrating good performance in ...",
+        "source_ref": "https://www.sciencedirect.com/science/article/pii/S1389128626001970",
+        "source_hash": "sha256:11122fd9fc72256f49128f74955cddabb2beb844da769c9ab76bf4f54b8d1f9f",
+        "url": "https://www.sciencedirect.com/science/article/pii/S1389128626001970",
+        "tool": "tinyfish",
+        "angle": "future directions and open research questions"
+      },
+      {
+        "title": "[PDF] <Analysis of QUIC over DASH> - Siva Kesava Reddy Kakarla",
+        "description": "We find that DASH performs better over QUIC than TCP in terms of video quality since QUIC is able to render a better or same quality video as of TCP at any ...",
+        "source_ref": "https://www.sivak.dev/assets/pdf/UG_thesis.pdf",
+        "source_hash": "sha256:0d78a6a8537b57db8bfb47b229a43ecb0605da63f3176abb67c43f3fd99292b9",
+        "url": "https://www.sivak.dev/assets/pdf/UG_thesis.pdf",
+        "tool": "tinyfish",
+        "angle": "future directions and open research questions"
+      },
+      {
+        "title": "[PDF] Innovating Transport with QUIC: Design Approaches and Research ...",
+        "description": "QUIC UDP Internet Connections (QUIC) is a new transport protocol that provides low-latency communication, security, and rapid deployment. QUIC has begun its ...",
+        "source_ref": "https://www.cuiyong.net/lunwen/2017/Innovating_Transport_with_QUIC_Design_Approaches_and_Research_Challenges.pdf",
+        "source_hash": "sha256:976250936f2c67e6f476d0a996e8ffafdd90a272cdd6ee1c972e917c5ea2e1d2",
+        "url": "https://www.cuiyong.net/lunwen/2017/Innovating_Transport_with_QUIC_Design_Approaches_and_Research_Challenges.pdf",
+        "tool": "tinyfish",
+        "angle": "future directions and open research questions"
+      },
+      {
+        "title": "Use of QUIC for Mobile-Oriented Future Internet (Q-MOFI) - MDPI",
+        "description": "QUIC is a connection-oriented protocol that uses a handshake to establish a connection and provides reliable data transfer, while UDP does not.",
+        "source_ref": "https://www.mdpi.com/2079-9292/13/2/431",
+        "source_hash": "sha256:a64dc497edefbb581625135078c80ca98c0c2866a41e2daec216b9ab94951253",
+        "url": "https://www.mdpi.com/2079-9292/13/2/431",
+        "tool": "tinyfish",
+        "angle": "future directions and open research questions"
+      },
+      {
+        "title": "[PDF] Performance analysis of modern QUIC implementations - Aaltodoc",
+        "description": "While QUIC is deployed on top of UDP, it is connection-oriented, provides reliable packet delivery, and congestion control. QUIC also integrates ...",
+        "source_ref": "https://aaltodoc.aalto.fi/bitstreams/e3d93634-a772-41c7-970d-963bab63b1f5/download",
+        "source_hash": "sha256:53782cc5d0eed0d1fe13adfb58b37615e88815bef956d929e31e53a6b1177b92",
+        "url": "https://aaltodoc.aalto.fi/bitstreams/e3d93634-a772-41c7-970d-963bab63b1f5/download",
+        "tool": "tinyfish",
+        "angle": "future directions and open research questions"
+      },
+      {
+        "title": "[PDF] QUIC on the Highway: Evaluating Performance on High-rate Links",
+        "description": "The performance differences between QUIC and TCP/TLS become more evi- dent when the implementations are pushed to their limits on high-speed ...",
+        "source_ref": "https://arxiv.org/pdf/2309.16395",
+        "source_hash": "sha256:c2775da02e25735c315520d174248d3153315b42772c36eb58f4090213bfd1e5",
+        "url": "https://arxiv.org/pdf/2309.16395",
+        "tool": "tinyfish",
+        "angle": "challenges, limitations, and known issues"
+      },
+      {
+        "title": "QUIC vs TCP: \u201cThe Ultimate Benchmark for Modern Network ...",
+        "description": "QUIC supports multiple independent streams within a single connection, effectively mitigating Head-of-Line (HOL) blocking, a common limitation ...",
+        "source_ref": "https://medium.com/@abhi.patel.7172/quic-vs-tcp-the-ultimate-benchmark-for-modern-network-performance-22be6e5af66d",
+        "source_hash": "sha256:5a224f2d30a4360e8cdef837526af182891f23bb3f39fca5bc8e45c3fcf7462b",
+        "url": "https://medium.com/@abhi.patel.7172/quic-vs-tcp-the-ultimate-benchmark-for-modern-network-performance-22be6e5af66d",
+        "tool": "tinyfish",
+        "angle": "performance characteristics and benchmarks"
+      },
+      {
+        "title": "Performance Benchmarking of the QUIC Transport Protocol",
+        "description": "... Early investigations by Carlucci et al.[27] demonstrated QUIC's superior performance over TCP and SPDY[75], particularly in terms of connection setup times ...",
+        "source_ref": "https://www.researchgate.net/publication/369345763_Performance_Benchmarking_of_the_QUIC_Transport_Protocol",
+        "source_hash": "sha256:0bde814dcaed46d1622e9493213505cd115fd6f45777610c1cffdbd8d927c0b8",
+        "url": "https://www.researchgate.net/publication/369345763_Performance_Benchmarking_of_the_QUIC_Transport_Protocol",
+        "tool": "tinyfish",
+        "angle": "performance characteristics and benchmarks"
+      },
+      {
+        "title": "QUIC vs TCP: Which is Better? - Fastly",
+        "description": "Essentially, QUIC offers advantages in terms of reduced latency, improved multiplexing and concurrent streams, efficient congestion control, ...",
+        "source_ref": "https://www.fastly.com/blog/measuring-quic-vs-tcp-computational-efficiency",
+        "source_hash": "sha256:ba27152509472d906af36b2457001d391487b869394a86b70b3a9adb6f90bcc7",
+        "url": "https://www.fastly.com/blog/measuring-quic-vs-tcp-computational-efficiency",
+        "tool": "tinyfish",
+        "angle": "performance characteristics and benchmarks"
+      },
+      {
+        "title": "[PDF] QUIC CPU Performance",
+        "description": "Key Objectives: Improved quality of experience, high CPU efficiency, MORE QUIC! ... New: Move data ownership to streams. Enabled bulk application ...",
+        "source_ref": "https://conferences.sigcomm.org/sigcomm/2020/files/slides/epiq/0%20QUIC%20and%20HTTP_3%20CPU%20Performance.pdf",
+        "source_hash": "sha256:a8343f9ef5914f23d9d3a9d067d4a6c7bbab08bb444b13791239d35b345763ad",
+        "url": "https://conferences.sigcomm.org/sigcomm/2020/files/slides/epiq/0%20QUIC%20and%20HTTP_3%20CPU%20Performance.pdf",
+        "tool": "tinyfish",
+        "angle": "performance characteristics and benchmarks"
+      },
+      {
+        "title": "[PDF] Performance Evaluation of QUIC vs TCP for Cloud Control Systems",
+        "description": "The results of our evaluation suggest that the performance of different protocols varies based on the characteristics of different control systems. However, ...",
+        "source_ref": "https://lucris.lub.lu.se/ws/portalfiles/portal/162076810/1570917060.pdf",
+        "source_hash": "sha256:5807690cb4d84787af04d3fed8782eed512fd703f8df696777bdf8a3a1586d19",
+        "url": "https://lucris.lub.lu.se/ws/portalfiles/portal/162076810/1570917060.pdf",
+        "tool": "tinyfish",
+        "angle": "performance characteristics and benchmarks"
+      },
+      {
+        "title": "draft-banks-quic-performance-00 - IETF Datatracker",
+        "description": "",
+        "source_ref": "https://datatracker.ietf.org/doc/html/draft-banks-quic-performance-00",
+        "source_hash": "sha256:c92405b3307fc1a7871366ee8ef17552db07975385a7b3b2430bf4dc3b8fac4b",
+        "url": "https://datatracker.ietf.org/doc/html/draft-banks-quic-performance-00",
+        "tool": "exa",
+        "angle": "performance characteristics and benchmarks"
+      },
+      {
+        "title": "[PDF] Evaluating QUIC Performance over Web, Cloud Storage and Video ...",
+        "description": "",
+        "source_ref": "https://vaibhavbajpai.com/documents/papers/proceedings/quic-tnsm-2022.pdf",
+        "source_hash": "sha256:57cd1c0648667c4d7ff6fb67613bcca8a95c72cd5ee6134f41bda905f99325c0",
+        "url": "https://vaibhavbajpai.com/documents/papers/proceedings/quic-tnsm-2022.pdf",
+        "tool": "exa",
+        "angle": "performance characteristics and benchmarks"
+      },
+      {
+        "title": "Video Streaming Over QUIC: A Comprehensive Study",
+        "description": "",
+        "source_ref": "https://dl.acm.org/doi/full/10.1145/3793674",
+        "source_hash": "sha256:105772c0c7542973e5c4d2b6f7f25aec7f16aca4fe07df5673970bfbfa2dd7a8",
+        "url": "https://dl.acm.org/doi/full/10.1145/3793674",
+        "tool": "exa",
+        "angle": "comparative analysis and alternatives"
+      },
+      {
+        "title": "Implementation and Performance Evaluation of TCP over QUIC ...",
+        "description": "",
+        "source_ref": "https://arxiv.org/html/2504.10054v1",
+        "source_hash": "sha256:c0208171c51a00d617bc6afaf917132bbf98d1ce301863a4d0aa3daa103d5ac8",
+        "url": "https://arxiv.org/html/2504.10054v1",
+        "tool": "exa",
+        "angle": "comparative analysis and alternatives"
+      },
+      {
+        "title": "[PDF] A Comparative Analysis of QUIC and FTP Protocols in Go",
+        "description": "",
+        "source_ref": "https://journal.uob.edu.bh/bitstreams/e3b9061d-f896-4e7d-9550-f58ec7ab3d6e/download",
+        "source_hash": "sha256:96e850cc6dcfc4ca8023761ba3c6eab9688d5ebcee08e9dc3aaf54a7d44da35d",
+        "url": "https://journal.uob.edu.bh/bitstreams/e3b9061d-f896-4e7d-9550-f58ec7ab3d6e/download",
+        "tool": "exa",
+        "angle": "comparative analysis and alternatives"
+      },
+      {
+        "title": "[PDF] Comparison of Different QUIC Implementations",
+        "description": "",
+        "source_ref": "https://www.net.in.tum.de/fileadmin/TUM/NET/NET-2022-07-1/NET-2022-07-1_10.pdf",
+        "source_hash": "sha256:5c29b0fd861c7b5b907e3eaded09be1e0f131ef3c750d7a200abf1f5851db354",
+        "url": "https://www.net.in.tum.de/fileadmin/TUM/NET/NET-2022-07-1/NET-2022-07-1_10.pdf",
+        "tool": "exa",
+        "angle": "comparative analysis and alternatives"
+      },
+      {
+        "title": "[PDF] Comparative Analysis of QUIC and Other Network Protocols for Real ...",
+        "description": "",
+        "source_ref": "https://documentserver.uhasselt.be/bitstream/1942/46864/2/4349c449-e468-45c5-81d8-23c8f4468331.pdf",
+        "source_hash": "sha256:c6262a6bed173d5589f9100dfcb0286cf686206913a160ee43b332a6bdf4397b",
+        "url": "https://documentserver.uhasselt.be/bitstream/1942/46864/2/4349c449-e468-45c5-81d8-23c8f4468331.pdf",
+        "tool": "exa",
+        "angle": "comparative analysis and alternatives"
+      },
+      {
+        "title": "Performance analysis of pluggable congestion control in QUIC ...",
+        "description": "In this paper, two congestion control algorithms for QUIC are proposed with different architectures - an event-based model that handles wireless traffic better ...",
+        "source_ref": "https://www.researchgate.net/publication/359385389_Performance_analysis_of_pluggable_congestion_control_in_QUIC_protocol",
+        "source_hash": "sha256:d4d1bff3afe7ea2e7b51c314c243f1a8f35bb3a8a671915165fb9767d1c39f90",
+        "url": "https://www.researchgate.net/publication/359385389_Performance_analysis_of_pluggable_congestion_control_in_QUIC_protocol",
+        "tool": "tinyfish",
+        "angle": "architecture and design principles"
+      },
+      {
+        "title": "quic-protocol-the-features-use-cases-and-impact-for-iot-iov.md",
+        "description": "QUIC uses a combination of encryption and multiplexing to provide improved security and faster data transfer. It allows multiple streams of data to be sent over ...",
+        "source_ref": "https://github.com/emqx/blog/blob/main/en/202304/quic-protocol-the-features-use-cases-and-impact-for-iot-iov.md",
+        "source_hash": "sha256:419c7342899082c59d536c90ca99c0730a32079d756a004c94af4f86dea8c494",
+        "url": "https://github.com/emqx/blog/blob/main/en/202304/quic-protocol-the-features-use-cases-and-impact-for-iot-iov.md",
+        "tool": "tinyfish",
+        "angle": "applications and real-world use cases"
+      },
+      {
+        "title": "PBQ-Enhanced QUIC: QUIC with Deep Reinforcement Learning ...",
+        "description": "We propose an efficient congestion control mechanism on the basis of deep reinforcement learning (DRL), ie, proximal bandwidth-delay quick optimization (PBQ) ...",
+        "source_ref": "https://pmc.ncbi.nlm.nih.gov/articles/PMC9955954/",
+        "source_hash": "sha256:9a7d38aac2ed6b4aa3c96debaa7d883283bae817ee060d26880370861c909ef6",
+        "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC9955954/",
+        "tool": "tinyfish",
+        "angle": "applications and real-world use cases"
+      },
+      {
+        "title": "(PDF) QUIC: Uses and Adoption - ResearchGate",
+        "description": "This paper explains QUIC's design and operation, contrasts it with \"TLS 1.3 over TCP,\" reviews adoption data and case studies, and outlines ...",
+        "source_ref": "https://www.researchgate.net/publication/396523543_QUIC_Uses_and_Adoption",
+        "source_hash": "sha256:3e4cae55ae9ffed09ad8bbb4e344e53765924dfb457565039b0d35ffd08453b9",
+        "url": "https://www.researchgate.net/publication/396523543_QUIC_Uses_and_Adoption",
+        "tool": "tinyfish",
+        "angle": "applications and real-world use cases"
+      },
+      {
+        "title": "A curated list of awesome QUIC and HTTP/3 resources - GitHub",
+        "description": "",
+        "source_ref": "https://github.com/mmmarcos/awesome-quic",
+        "source_hash": "sha256:497258e1244622ff255d40fa7a692088fd0600f23d4357bfa54cef65510b7223",
+        "url": "https://github.com/mmmarcos/awesome-quic",
+        "tool": "exa",
+        "angle": "existing projects, open source implementations, and alternatives"
+      },
+      {
+        "title": "[PDF] Comparison of Different QUIC Implementations",
+        "description": "",
+        "source_ref": "https://www.net.in.tum.de/fileadmin/TUM/NET/NET-2022-07-1/NET-2022-07-1_02.pdf",
+        "source_hash": "sha256:c4c9d48adae18228da6a2f918bb737265944d60bd53ea54c9666fc28b5b99364",
+        "url": "https://www.net.in.tum.de/fileadmin/TUM/NET/NET-2022-07-1/NET-2022-07-1_02.pdf",
+        "tool": "exa",
+        "angle": "existing projects, open source implementations, and alternatives"
+      },
+      {
+        "title": "Getting Media Over QUIC (MoQ) and WebRTC to like each other",
+        "description": "",
+        "source_ref": "https://www.meetecho.com/blog/moq-webrtc/",
+        "source_hash": "sha256:b0e90db6b6e9e2a3c9ca2a37cda603894db62c20f8f712693a51be0dbda27a66",
+        "url": "https://www.meetecho.com/blog/moq-webrtc/",
+        "tool": "exa",
+        "angle": "existing projects, open source implementations, and alternatives"
+      },
+      {
+        "title": "Quiwi - Another QUIC implementation in pure Go : r/golang - Reddit",
+        "description": "",
+        "source_ref": "https://www.reddit.com/r/golang/comments/np5bed/quiwi_another_quic_implementation_in_pure_go/",
+        "source_hash": "sha256:f192f8f71b0f5e4bab363f4258c55539dc80d02ac580f3672293cb01cf8a5220",
+        "url": "https://www.reddit.com/r/golang/comments/np5bed/quiwi_another_quic_implementation_in_pure_go/",
+        "tool": "exa",
+        "angle": "existing projects, open source implementations, and alternatives"
+      },
+      {
+        "title": "How We Added QUIC Support to OpenSSL without Patches or ...",
+        "description": "",
+        "source_ref": "https://thenewstack.io/how-we-added-quic-support-to-openssl-without-patches-or-rebuilds/",
+        "source_hash": "sha256:3ee522bbf9cfb63763fd446b02896fc19ecee083bcb356453d9701a4f45f48e5",
+        "url": "https://thenewstack.io/how-we-added-quic-support-to-openssl-without-patches-or-rebuilds/",
+        "tool": "exa",
+        "angle": "existing projects, open source implementations, and alternatives"
+      },
+      {
+        "title": "[PDF] Examining the Heterogeneous Throughput Performance Landscape ...",
+        "description": "",
+        "source_ref": "https://doc.tm.kit.edu/2025-Examining-the-Heterogeneous-Throughput-Performance-Landscape-of-QUIC-Implementations-Koenig-et-al.pdf",
+        "source_hash": "sha256:cef94c7f0b8c0be437da91e98a6efba6b2dcae8316afc6d1a7207b5a003b2861",
+        "url": "https://doc.tm.kit.edu/2025-Examining-the-Heterogeneous-Throughput-Performance-Landscape-of-QUIC-Implementations-Koenig-et-al.pdf",
+        "tool": "exa",
+        "angle": "future directions and open research questions"
+      },
+      {
+        "title": "Implementation and Performance Evaluation of TCP over ...",
+        "description": "Results indicate that TCP over QUIC maintains significantly higher throughput than native TCP in lossy or unstable environments, with up to a high improvement ...",
+        "source_ref": "https://arxiv.org/html/2504.10054v2",
+        "source_hash": "sha256:06e974a839befba49b58d9a679af1895784f5cfea60641dd51bbcc1a79779b10",
+        "url": "https://arxiv.org/html/2504.10054v2",
+        "tool": "tinyfish",
+        "angle": "comparative analysis and alternatives"
+      },
+      {
+        "title": "QUIC vs TCP: A Performance Evaluation over LTE with NS-3",
+        "description": "The results of the simulations showed that QUIC performed better than TCP in terms of throughput and minimized latency in moderate or good ...",
+        "source_ref": "https://www.researchgate.net/publication/357497663_QUIC_vs_TCP_A_Performance_Evaluation_over_LTE_with_NS-3",
+        "source_hash": "sha256:7336fe42e904898ebbdf92bb52a6bd5ba39d51fa30c87cf00c99d90784fc293a",
+        "url": "https://www.researchgate.net/publication/357497663_QUIC_vs_TCP_A_Performance_Evaluation_over_LTE_with_NS-3",
+        "tool": "tinyfish",
+        "angle": "comparative analysis and alternatives"
+      },
+      {
+        "title": "[PDF] Video Streaming Over QUIC: A Comprehensive Study - arXiv",
+        "description": "",
+        "source_ref": "https://arxiv.org/pdf/2505.21769",
+        "source_hash": "sha256:d4198c84fc0a843ee89db6ec79b7c235d3b5ac60c49d1525e242a20fb3bdb4eb",
+        "url": "https://arxiv.org/pdf/2505.21769",
+        "tool": "exa",
+        "angle": "applications and real-world use cases"
+      },
+      {
+        "title": "Impact of Congestion Control Algorithms on the QoE Performance of ...",
+        "description": "",
+        "source_ref": "https://dl.acm.org/doi/10.1145/3772290.3772298",
+        "source_hash": "sha256:001d4c4436cd5cb543c42cc387f52b574c85de17d4d56076079d0e1580160627",
+        "url": "https://dl.acm.org/doi/10.1145/3772290.3772298",
+        "tool": "exa",
+        "angle": "applications and real-world use cases"
+      },
+      {
+        "title": "[PDF] Assessing the Interplay Between WebRTC and QUIC Congestion ...",
+        "description": "",
+        "source_ref": "https://hal.science/hal-04231048v1/file/Quic.pdf",
+        "source_hash": "sha256:d842b591aa834fc539a6385986da4e6e48f03d865a57f74fc9bfb85b5938732f",
+        "url": "https://hal.science/hal-04231048v1/file/Quic.pdf",
+        "tool": "exa",
+        "angle": "applications and real-world use cases"
+      }
+    ],
+    "verification": {
+      "total_angles_verified": 10,
+      "corroborated_angles": 10,
+      "low_confidence_angles": 0,
+      "average_domain_diversity": 6.5
+    },
+    "cross_verification_details": [
+      {
+        "angle": "standards, governance, and community",
+        "total_sources": 10,
+        "unique_domains": [
+          "blog.nginx.org",
+          "quic-go.net",
+          "seemann.io",
+          "pkg.go.dev",
+          "www.ietf.org",
+          "arxiv.org",
+          "groups.google.com",
+          "github.com",
+          "ui.adsabs.harvard.edu"
+        ],
+        "domain_diversity": 9,
+        "tools_used": [
+          "exa"
+        ],
+        "tool_diversity": 1,
+        "status": "corroborated"
+      },
+      {
+        "angle": "history and evolution",
+        "total_sources": 10,
+        "unique_domains": [
+          "webthesis.biblio.polito.it",
+          "datatracker.ietf.org",
+          "medium.com",
+          "web.cs.wpi.edu",
+          "quic-go.net",
+          "www.researchgate.net",
+          "dl.acm.org",
+          "www.sciencedirect.com",
+          "github.com",
+          "www.catchpoint.com"
+        ],
+        "domain_diversity": 10,
+        "tools_used": [
+          "exa"
+        ],
+        "tool_diversity": 1,
+        "status": "corroborated"
+      },
+      {
+        "angle": "challenges, limitations, and known issues",
+        "total_sources": 8,
+        "unique_domains": [
+          "quic-go.net",
+          "edransit.medium.com",
+          "www.sciencedirect.com",
+          "arxiv.org",
+          "lwn.net",
+          "pubs.aip.org",
+          "blog.cloudflare.com"
+        ],
+        "domain_diversity": 7,
+        "tools_used": [
+          "tinyfish",
+          "exa"
+        ],
+        "tool_diversity": 2,
+        "status": "corroborated"
+      },
+      {
+        "angle": "architecture and design principles",
+        "total_sources": 5,
+        "unique_domains": [
+          "research.google.com",
+          "web.cs.ucla.edu",
+          "www.researchgate.net",
+          "dl.acm.org",
+          "scispace.com"
+        ],
+        "domain_diversity": 5,
+        "tools_used": [
+          "tinyfish",
+          "exa"
+        ],
+        "tool_diversity": 2,
+        "status": "corroborated"
+      },
+      {
+        "angle": "overview and fundamentals",
+        "total_sources": 4,
+        "unique_domains": [
+          "www.meetecho.com",
+          "rootshell.yanivhaliwa.com",
+          "arxiv.org",
+          "qlog.edm.uhasselt.be"
+        ],
+        "domain_diversity": 4,
+        "tools_used": [
+          "exa"
+        ],
+        "tool_diversity": 1,
+        "status": "corroborated"
+      },
+      {
+        "angle": "future directions and open research questions",
+        "total_sources": 6,
+        "unique_domains": [
+          "www.cuiyong.net",
+          "www.mdpi.com",
+          "doc.tm.kit.edu",
+          "aaltodoc.aalto.fi",
+          "www.sciencedirect.com",
+          "www.sivak.dev"
+        ],
+        "domain_diversity": 6,
+        "tools_used": [
+          "tinyfish",
+          "exa"
+        ],
+        "tool_diversity": 2,
+        "status": "corroborated"
+      },
+      {
+        "angle": "performance characteristics and benchmarks",
+        "total_sources": 7,
+        "unique_domains": [
+          "conferences.sigcomm.org",
+          "datatracker.ietf.org",
+          "www.fastly.com",
+          "medium.com",
+          "vaibhavbajpai.com",
+          "www.researchgate.net",
+          "lucris.lub.lu.se"
+        ],
+        "domain_diversity": 7,
+        "tools_used": [
+          "tinyfish",
+          "exa"
+        ],
+        "tool_diversity": 2,
+        "status": "corroborated"
+      },
+      {
+        "angle": "comparative analysis and alternatives",
+        "total_sources": 7,
+        "unique_domains": [
+          "documentserver.uhasselt.be",
+          "journal.uob.edu.bh",
+          "www.researchgate.net",
+          "dl.acm.org",
+          "arxiv.org",
+          "www.net.in.tum.de"
+        ],
+        "domain_diversity": 6,
+        "tools_used": [
+          "tinyfish",
+          "exa"
+        ],
+        "tool_diversity": 2,
+        "status": "corroborated"
+      },
+      {
+        "angle": "applications and real-world use cases",
+        "total_sources": 6,
+        "unique_domains": [
+          "www.researchgate.net",
+          "dl.acm.org",
+          "arxiv.org",
+          "hal.science",
+          "pmc.ncbi.nlm.nih.gov",
+          "github.com"
+        ],
+        "domain_diversity": 6,
+        "tools_used": [
+          "tinyfish",
+          "exa"
+        ],
+        "tool_diversity": 2,
+        "status": "corroborated"
+      },
+      {
+        "angle": "existing projects, open source implementations, and alternatives",
+        "total_sources": 5,
+        "unique_domains": [
+          "www.meetecho.com",
+          "thenewstack.io",
+          "www.reddit.com",
+          "www.net.in.tum.de",
+          "github.com"
+        ],
+        "domain_diversity": 5,
+        "tools_used": [
+          "exa"
+        ],
+        "tool_diversity": 1,
+        "status": "corroborated"
+      }
+    ],
+    "rounds": [
+      {
+        "round": 1,
+        "angles_searched": 10,
+        "new_findings": 68,
+        "corpus_findings": 0,
+        "web_findings": 68,
+        "elapsed_seconds": 2.0,
+        "budget_remaining": 57
+      }
+    ],
+    "sources": [
+      {
+        "title": "A QUIC implementation in pure Go - GitHub",
+        "url": "https://github.com/quic-go/quic-go",
+        "hash": "sha256:e4a88b3c699edcb1886096cb4d7a667a844a3eb7e9af395d5c53aaeeb5296783",
+        "source_type": "exa",
+        "domain": ""
+      },
+      {
+        "title": "QUIC Streams \u2013 quic-go docs",
+        "url": "https://quic-go.net/docs/quic/streams/",
+        "hash": "sha256:5bbd2f1af981d1d25efbdaca02c3598408039405573b258f40d7b004f824e3cc",
+        "source_type": "exa",
+        "domain": ""
+      },
+      {
+        "title": "Congestion Control Enhancements for QUIC in NGINX",
+        "url": "https://blog.nginx.org/blog/congestion-control-enhancements-for-quic-in-nginx",
+        "hash": "sha256:8877e637343c4cc43a58f72d4aa8b43a8241c3750d672d060f049243a1ead39d",
+        "source_type": "exa",
+        "domain": ""
+      },
+      {
+        "title": "quic - Go Packages",
+        "url": "https://pkg.go.dev/github.com/quic-go/quic-go",
+        "hash": "sha256:c9cdb2ee01d04897cf1e267d31ab98e6fe6fbd666e20a7d7cad5e8f84f780b9a",
+        "source_type": "exa",
+        "domain": ""
+      },
+      {
+        "title": "Revamping the quic-go API: Transitioning from Interfaces to Structs",
+        "url": "https://seemann.io/posts/2025-06-25---quic-go-api-revamp/",
+        "hash": "sha256:5550d5ace9a31b63b78702be8f16569a8b95204499b4b994033cb9dcdf01fb13",
+        "source_type": "exa",
+        "domain": ""
+      },
+      {
+        "title": "Exchanging Congestion Control Data in QUIC - IETF",
+        "url": "https://www.ietf.org/archive/id/draft-yuan-quic-congestion-data-01.html",
+        "hash": "sha256:c83602148c49c5360f9190620062899f15c7ab3493a8ea2a5c3599b2dfa432b3",
+        "source_type": "exa",
+        "domain": ""
+      },
+      {
+        "title": "[2505.21769] Video Streaming Over QUIC: A Comprehensive Study",
+        "url": "https://arxiv.org/abs/2505.21769",
+        "hash": "sha256:81807623448d2da572ff39f67f08522c35e997910f8d349a52a7a4e4c5934583",
+        "source_type": "exa",
+        "domain": ""
+      },
+      {
+        "title": "Are congestion windows for QUIC per stream of per connection?",
+        "url": "https://groups.google.com/a/chromium.org/g/proto-quic/c/9_GHun_1gc0/m/J_jHDcgpBgAJ",
+        "hash": "sha256:43a9d94ddb64a72e620363ba1761ac534bf3eec2484e39217c8409031ed1025d",
+        "source_type": "exa",
+        "domain": ""
+      },
+      {
+        "title": "Congestion control performance degradation on reordered paths",
+        "url": "https://github.com/quic-go/quic-go/issues/5580",
+        "hash": "sha256:edc42d0ba9ba06f28a2e55b2d74e452000f36a5666560f00c05bb428d121ec41",
+        "source_type": "exa",
+        "domain": ""
+      },
+      {
+        "title": "Performance analysis of pluggable congestion control in QUIC ...",
+        "url": "https://ui.adsabs.harvard.edu/abs/2022AIPC.2424b0003N/abstract",
+        "hash": "sha256:7c7235be487715f31eca5a5c9c44aa69ae6cd2ced51372b3f274b9f89479ebd7",
+        "source_type": "exa",
+        "domain": ""
+      },
+      {
+        "title": "QUIC Protocol: A Deep Dive - by Nan Wu - Medium",
+        "url": "https://medium.com/@wunan93cc/quic-protocol-a-deep-dive-3746c0ab3bd6",
+        "hash": "sha256:d993787471096ba13b13bdd77e4183898196d3938c3a5c4bd2e940d87d90f64e",
+        "source_type": "exa",
+        "domain": ""
+      },
+      {
+        "title": "Video Streaming Over QUIC: A Comprehensive Study",
+        "url": "https://dl.acm.org/doi/10.1145/3793674",
+        "hash": "sha256:0cf04a091f627bab780e5bcebf24e7769cb1eb5d983c0f63b9690513501a7c04",
+        "source_type": "exa",
+        "domain": ""
+      },
+      {
+        "title": "RFC 9002 - QUIC Loss Detection and Congestion Control",
+        "url": "https://datatracker.ietf.org/doc/rfc9002/",
+        "hash": "sha256:222d465e389a3377e236305b126facf2bb89ab021f5571f6f559787bf99ee544",
+        "source_type": "exa",
+        "domain": ""
+      },
+      {
+        "title": "QUIC vs. TCP\u2014Development and Monitoring Guide - Catchpoint",
+        "url": "https://www.catchpoint.com/http2-vs-http3/quic-vs-tcp",
+        "hash": "sha256:2b0669af8ce95ecd94793ed01f557d7a3f06007f5c25ebf89acadf1c76e0d06d",
+        "source_type": "exa",
+        "domain": ""
+      },
+      {
+        "title": "[PDF] A study of congestion control schemes on QUIC - WebThesis",
+        "url": "https://webthesis.biblio.polito.it/28622/1/tesi.pdf",
+        "hash": "sha256:47414201342aaf722c289f112ecf573f20622364eefd2c329f54a77b64ae6a20",
+        "source_type": "exa",
+        "domain": ""
+      },
+      {
+        "title": "The Performance and Future of QUIC Protocol in the Modern Internet",
+        "url": "https://www.researchgate.net/publication/353089470_The_Performance_and_Future_of_QUIC_Protocol_in_the_Modern_Internet",
+        "hash": "sha256:a5e0a5af9108b58fcca3b3fb7b850ea6b96b1110475475c611397bdfc81c9e2d",
+        "source_type": "exa",
+        "domain": ""
+      },
+      {
+        "title": "[PDF] Performance Analysis of QUIC versus TCP on Satellite Networks",
+        "url": "http://web.cs.wpi.edu/~claypool/mqp/satellite-21/final-report.pdf",
+        "hash": "sha256:34d42a851255362c12733e34c95254ccbd900168864790bdfac082b54b75154b",
+        "source_type": "exa",
+        "domain": ""
+      },
+      {
+        "title": "QUIC Congestion Control Algorithm characteristics in mixed satellite ...",
+        "url": "https://www.sciencedirect.com/science/article/pii/S0140366424002512",
+        "hash": "sha256:4955daf98415196f4589c18f4d87093ff7421c32d1d0ddaef5c6986683e4f540",
+        "source_type": "exa",
+        "domain": ""
+      },
+      {
+        "title": "Congestion Control \u2013 quic-go docs",
+        "url": "https://quic-go.net/docs/quic/congestion-control/",
+        "hash": "sha256:9f01637c65380fd04c1af2e1693557efd424ad3e4c15ccc4cb5d1ee7be4ecb91",
+        "source_type": "exa",
+        "domain": ""
+      },
+      {
+        "title": "Shenggan/quic_vs_tcp: A Survey and Benchmark of QUIC - GitHub",
+        "url": "https://github.com/Shenggan/quic_vs_tcp",
+        "hash": "sha256:cc7e3c682f28cd3f98cc3a638a1e9978f3b956d4ab940bb15d107a9f590430ca",
+        "source_type": "exa",
+        "domain": ""
+      },
+      {
+        "title": "how a Linux kernel optimization became a QUIC bug",
+        "url": "https://blog.cloudflare.com/quic-death-spiral-fix/",
+        "hash": "sha256:e5d8f4a8f909c8cf728917589a4dae1401159598e1ebacd54abd7f833016ff44",
+        "source_type": "exa",
+        "domain": ""
+      },
+      {
+        "title": "As an aside, I think QUIC is not a great protocol - LWN.net",
+        "url": "https://lwn.net/Articles/1020616/",
+        "hash": "sha256:00aea9f34786e11fb8f6bf61652bfcfe00cb3a7da086bdef88354bb6783f7468",
+        "source_type": "exa",
+        "domain": ""
+      },
+      {
+        "title": "QUIC is not Quick Enough over Fast Internet - arXiv",
+        "url": "https://arxiv.org/html/2310.09423v2",
+        "hash": "sha256:f63d7b022073ab58fb814caca15b38901a3784f3216d185c91e50e0d66037ad8",
+        "source_type": "exa",
+        "domain": ""
+      },
+      {
+        "title": "Diving into HTTP/3: Security, congestion control, and TCP ...",
+        "url": "https://edransit.medium.com/diving-into-http-3-security-congestion-control-and-tcp-comparisons-on-quic-protocol-5af5081a4043",
+        "hash": "sha256:6dfe1ae43836d60171cef65be88fd285ceb8ed874e03cdf24841e49b71a1876b",
+        "source_type": "exa",
+        "domain": ""
+      },
+      {
+        "title": "QUIC on the Fast Lane: Extending Performance Evaluations on High ...",
+        "url": "https://www.sciencedirect.com/science/article/pii/S014036642400166X",
+        "hash": "sha256:0df4ad0e3829b9d14d1d11c9f5b959414f48a37d2740a2fa3cd4b6b3059c8ff2",
+        "source_type": "exa",
+        "domain": ""
+      },
+      {
+        "title": "Flow Control \u2013 quic-go docs",
+        "url": "https://quic-go.net/docs/quic/flowcontrol/",
+        "hash": "sha256:8dd9413ee150d44641897bce9c2df182a9b305a1210d4450b70dbbd6fbe7e7f1",
+        "source_type": "exa",
+        "domain": ""
+      },
+      {
+        "title": "Performance Analysis of Pluggable Congestion Control in QUIC ...",
+        "url": "https://pubs.aip.org/aip/acp/article-pdf/doi/10.1063/5.0076775/16199619/020003_1_online.pdf",
+        "hash": "sha256:6d8b134468c97c16e2fd553699b661efdb7344d107ee490aa8407e420ac5578e",
+        "source_type": "exa",
+        "domain": ""
+      },
+      {
+        "title": "[PDF] QUIC on the Highway: Evaluating Performance on High-rate Links",
+        "url": "https://arxiv.org/pdf/2309.16395",
+        "hash": "sha256:c2775da02e25735c315520d174248d3153315b42772c36eb58f4090213bfd1e5",
+        "source_type": "tinyfish",
+        "domain": ""
+      },
+      {
+        "title": "[PDF] A Quick Look at QUIC*",
+        "url": "https://web.cs.ucla.edu/~lixia/papers/UnderstandQUIC.pdf",
+        "hash": "sha256:5b8d4f93258cb76b29f6ed7d2cca82c494b8bb1327ccc633f08a4413507f1696",
+        "source_type": "exa",
+        "domain": ""
+      },
+      {
+        "title": "[PDF] The QUIC Transport Protocol:Design and Internet-Scale Deployment",
+        "url": "https://research.google.com/pubs/archive/46403.pdf",
+        "hash": "sha256:e0e6f432bf89aa63726c0550e4b4a870944c42e0e11d02a1ea4002287e741456",
+        "source_type": "exa",
+        "domain": ""
+      },
+      {
+        "title": "[PDF] Innovating Transport with QUIC: Design Approaches and Research ...",
+        "url": "https://scispace.com/pdf/innovating-transport-with-quic-design-approaches-and-2xbj9n2ss5.pdf",
+        "hash": "sha256:bf1b360b0f9e4769ccd02ff0f9082abf4f3e099f82c90eb022e8b136348dd86b",
+        "source_type": "exa",
+        "domain": ""
+      },
+      {
+        "title": "The QUIC Transport Protocol: Design and Internet-Scale Deployment",
+        "url": "https://dl.acm.org/doi/10.1145/3098822.3098842",
+        "hash": "sha256:f33437ce7b79b42da74ce8e17abe511a080d497621eb6bba85375057eb6fcdab",
+        "source_type": "exa",
+        "domain": ""
+      },
+      {
+        "title": "Performance analysis of pluggable congestion control in QUIC ...",
+        "url": "https://www.researchgate.net/publication/359385389_Performance_analysis_of_pluggable_congestion_control_in_QUIC_protocol",
+        "hash": "sha256:d4d1bff3afe7ea2e7b51c314c243f1a8f35bb3a8a671915165fb9767d1c39f90",
+        "source_type": "tinyfish",
+        "domain": ""
+      },
+      {
+        "title": "[PDF] A QUIC Tutorial",
+        "url": "https://qlog.edm.uhasselt.be/sigcomm/files/QUICTutorial_SIGCOMM2020.pdf",
+        "hash": "sha256:991207b5e7df29d2a3507061dc4d15ca2052afe792567c3e76b9cdf6374e824a",
+        "source_type": "exa",
+        "domain": ""
+      },
+      {
+        "title": "QUIC Delay Control: an implementation of congestion and ... - arXiv",
+        "url": "https://arxiv.org/html/2507.00896v1",
+        "hash": "sha256:0614368c8212876cc3307dc4caa79386872be4c00ca8ca42c39c9d75aacafabf",
+        "source_type": "exa",
+        "domain": ""
+      },
+      {
+        "title": "Intro to QUIC Protocol: Fundamentals, Handshake & Practical Setup",
+        "url": "https://rootshell.yanivhaliwa.com/study/intro-quic-protocol-fundamentals",
+        "hash": "sha256:3553efe7948c2c37cb03f0b296a8743fdc997fa56e39a5fac5c3c6884afcda44",
+        "source_type": "exa",
+        "domain": ""
+      },
+      {
+        "title": "28 Days Later (my QUIC journey) | Meetecho Blog",
+        "url": "https://www.meetecho.com/blog/quic-journey/",
+        "hash": "sha256:4984c4e5a03903e56f9bb814d03d364ed214f67c132604b77cfd0f36cc939138",
+        "source_type": "exa",
+        "domain": ""
+      },
+      {
+        "title": "QUIC Wave: Bringing bursts at application level to efficiently face ...",
+        "url": "https://www.sciencedirect.com/science/article/pii/S1389128626001970",
+        "hash": "sha256:11122fd9fc72256f49128f74955cddabb2beb844da769c9ab76bf4f54b8d1f9f",
+        "source_type": "tinyfish",
+        "domain": ""
+      },
+      {
+        "title": "[PDF] <Analysis of QUIC over DASH> - Siva Kesava Reddy Kakarla",
+        "url": "https://www.sivak.dev/assets/pdf/UG_thesis.pdf",
+        "hash": "sha256:0d78a6a8537b57db8bfb47b229a43ecb0605da63f3176abb67c43f3fd99292b9",
+        "source_type": "tinyfish",
+        "domain": ""
+      },
+      {
+        "title": "[PDF] Innovating Transport with QUIC: Design Approaches and Research ...",
+        "url": "https://www.cuiyong.net/lunwen/2017/Innovating_Transport_with_QUIC_Design_Approaches_and_Research_Challenges.pdf",
+        "hash": "sha256:976250936f2c67e6f476d0a996e8ffafdd90a272cdd6ee1c972e917c5ea2e1d2",
+        "source_type": "tinyfish",
+        "domain": ""
+      },
+      {
+        "title": "Use of QUIC for Mobile-Oriented Future Internet (Q-MOFI) - MDPI",
+        "url": "https://www.mdpi.com/2079-9292/13/2/431",
+        "hash": "sha256:a64dc497edefbb581625135078c80ca98c0c2866a41e2daec216b9ab94951253",
+        "source_type": "tinyfish",
+        "domain": ""
+      },
+      {
+        "title": "[PDF] Performance analysis of modern QUIC implementations - Aaltodoc",
+        "url": "https://aaltodoc.aalto.fi/bitstreams/e3d93634-a772-41c7-970d-963bab63b1f5/download",
+        "hash": "sha256:53782cc5d0eed0d1fe13adfb58b37615e88815bef956d929e31e53a6b1177b92",
+        "source_type": "tinyfish",
+        "domain": ""
+      },
+      {
+        "title": "[PDF] Examining the Heterogeneous Throughput Performance Landscape ...",
+        "url": "https://doc.tm.kit.edu/2025-Examining-the-Heterogeneous-Throughput-Performance-Landscape-of-QUIC-Implementations-Koenig-et-al.pdf",
+        "hash": "sha256:cef94c7f0b8c0be437da91e98a6efba6b2dcae8316afc6d1a7207b5a003b2861",
+        "source_type": "exa",
+        "domain": ""
+      },
+      {
+        "title": "QUIC vs TCP: \u201cThe Ultimate Benchmark for Modern Network ...",
+        "url": "https://medium.com/@abhi.patel.7172/quic-vs-tcp-the-ultimate-benchmark-for-modern-network-performance-22be6e5af66d",
+        "hash": "sha256:5a224f2d30a4360e8cdef837526af182891f23bb3f39fca5bc8e45c3fcf7462b",
+        "source_type": "tinyfish",
+        "domain": ""
+      },
+      {
+        "title": "Performance Benchmarking of the QUIC Transport Protocol",
+        "url": "https://www.researchgate.net/publication/369345763_Performance_Benchmarking_of_the_QUIC_Transport_Protocol",
+        "hash": "sha256:0bde814dcaed46d1622e9493213505cd115fd6f45777610c1cffdbd8d927c0b8",
+        "source_type": "tinyfish",
+        "domain": ""
+      },
+      {
+        "title": "QUIC vs TCP: Which is Better? - Fastly",
+        "url": "https://www.fastly.com/blog/measuring-quic-vs-tcp-computational-efficiency",
+        "hash": "sha256:ba27152509472d906af36b2457001d391487b869394a86b70b3a9adb6f90bcc7",
+        "source_type": "tinyfish",
+        "domain": ""
+      },
+      {
+        "title": "[PDF] QUIC CPU Performance",
+        "url": "https://conferences.sigcomm.org/sigcomm/2020/files/slides/epiq/0%20QUIC%20and%20HTTP_3%20CPU%20Performance.pdf",
+        "hash": "sha256:a8343f9ef5914f23d9d3a9d067d4a6c7bbab08bb444b13791239d35b345763ad",
+        "source_type": "tinyfish",
+        "domain": ""
+      },
+      {
+        "title": "[PDF] Performance Evaluation of QUIC vs TCP for Cloud Control Systems",
+        "url": "https://lucris.lub.lu.se/ws/portalfiles/portal/162076810/1570917060.pdf",
+        "hash": "sha256:5807690cb4d84787af04d3fed8782eed512fd703f8df696777bdf8a3a1586d19",
+        "source_type": "tinyfish",
+        "domain": ""
+      },
+      {
+        "title": "draft-banks-quic-performance-00 - IETF Datatracker",
+        "url": "https://datatracker.ietf.org/doc/html/draft-banks-quic-performance-00",
+        "hash": "sha256:c92405b3307fc1a7871366ee8ef17552db07975385a7b3b2430bf4dc3b8fac4b",
+        "source_type": "exa",
+        "domain": ""
+      },
+      {
+        "title": "[PDF] Evaluating QUIC Performance over Web, Cloud Storage and Video ...",
+        "url": "https://vaibhavbajpai.com/documents/papers/proceedings/quic-tnsm-2022.pdf",
+        "hash": "sha256:57cd1c0648667c4d7ff6fb67613bcca8a95c72cd5ee6134f41bda905f99325c0",
+        "source_type": "exa",
+        "domain": ""
+      },
+      {
+        "title": "Video Streaming Over QUIC: A Comprehensive Study",
+        "url": "https://dl.acm.org/doi/full/10.1145/3793674",
+        "hash": "sha256:105772c0c7542973e5c4d2b6f7f25aec7f16aca4fe07df5673970bfbfa2dd7a8",
+        "source_type": "exa",
+        "domain": ""
+      },
+      {
+        "title": "Implementation and Performance Evaluation of TCP over QUIC ...",
+        "url": "https://arxiv.org/html/2504.10054v1",
+        "hash": "sha256:c0208171c51a00d617bc6afaf917132bbf98d1ce301863a4d0aa3daa103d5ac8",
+        "source_type": "exa",
+        "domain": ""
+      },
+      {
+        "title": "[PDF] A Comparative Analysis of QUIC and FTP Protocols in Go",
+        "url": "https://journal.uob.edu.bh/bitstreams/e3b9061d-f896-4e7d-9550-f58ec7ab3d6e/download",
+        "hash": "sha256:96e850cc6dcfc4ca8023761ba3c6eab9688d5ebcee08e9dc3aaf54a7d44da35d",
+        "source_type": "exa",
+        "domain": ""
+      },
+      {
+        "title": "[PDF] Comparison of Different QUIC Implementations",
+        "url": "https://www.net.in.tum.de/fileadmin/TUM/NET/NET-2022-07-1/NET-2022-07-1_10.pdf",
+        "hash": "sha256:5c29b0fd861c7b5b907e3eaded09be1e0f131ef3c750d7a200abf1f5851db354",
+        "source_type": "exa",
+        "domain": ""
+      },
+      {
+        "title": "[PDF] Comparative Analysis of QUIC and Other Network Protocols for Real ...",
+        "url": "https://documentserver.uhasselt.be/bitstream/1942/46864/2/4349c449-e468-45c5-81d8-23c8f4468331.pdf",
+        "hash": "sha256:c6262a6bed173d5589f9100dfcb0286cf686206913a160ee43b332a6bdf4397b",
+        "source_type": "exa",
+        "domain": ""
+      },
+      {
+        "title": "Implementation and Performance Evaluation of TCP over ...",
+        "url": "https://arxiv.org/html/2504.10054v2",
+        "hash": "sha256:06e974a839befba49b58d9a679af1895784f5cfea60641dd51bbcc1a79779b10",
+        "source_type": "tinyfish",
+        "domain": ""
+      },
+      {
+        "title": "QUIC vs TCP: A Performance Evaluation over LTE with NS-3",
+        "url": "https://www.researchgate.net/publication/357497663_QUIC_vs_TCP_A_Performance_Evaluation_over_LTE_with_NS-3",
+        "hash": "sha256:7336fe42e904898ebbdf92bb52a6bd5ba39d51fa30c87cf00c99d90784fc293a",
+        "source_type": "tinyfish",
+        "domain": ""
+      },
+      {
+        "title": "quic-protocol-the-features-use-cases-and-impact-for-iot-iov.md",
+        "url": "https://github.com/emqx/blog/blob/main/en/202304/quic-protocol-the-features-use-cases-and-impact-for-iot-iov.md",
+        "hash": "sha256:419c7342899082c59d536c90ca99c0730a32079d756a004c94af4f86dea8c494",
+        "source_type": "tinyfish",
+        "domain": ""
+      },
+      {
+        "title": "PBQ-Enhanced QUIC: QUIC with Deep Reinforcement Learning ...",
+        "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC9955954/",
+        "hash": "sha256:9a7d38aac2ed6b4aa3c96debaa7d883283bae817ee060d26880370861c909ef6",
+        "source_type": "tinyfish",
+        "domain": ""
+      },
+      {
+        "title": "(PDF) QUIC: Uses and Adoption - ResearchGate",
+        "url": "https://www.researchgate.net/publication/396523543_QUIC_Uses_and_Adoption",
+        "hash": "sha256:3e4cae55ae9ffed09ad8bbb4e344e53765924dfb457565039b0d35ffd08453b9",
+        "source_type": "tinyfish",
+        "domain": ""
+      },
+      {
+        "title": "[PDF] Video Streaming Over QUIC: A Comprehensive Study - arXiv",
+        "url": "https://arxiv.org/pdf/2505.21769",
+        "hash": "sha256:d4198c84fc0a843ee89db6ec79b7c235d3b5ac60c49d1525e242a20fb3bdb4eb",
+        "source_type": "exa",
+        "domain": ""
+      },
+      {
+        "title": "Impact of Congestion Control Algorithms on the QoE Performance of ...",
+        "url": "https://dl.acm.org/doi/10.1145/3772290.3772298",
+        "hash": "sha256:001d4c4436cd5cb543c42cc387f52b574c85de17d4d56076079d0e1580160627",
+        "source_type": "exa",
+        "domain": ""
+      },
+      {
+        "title": "[PDF] Assessing the Interplay Between WebRTC and QUIC Congestion ...",
+        "url": "https://hal.science/hal-04231048v1/file/Quic.pdf",
+        "hash": "sha256:d842b591aa834fc539a6385986da4e6e48f03d865a57f74fc9bfb85b5938732f",
+        "source_type": "exa",
+        "domain": ""
+      },
+      {
+        "title": "A curated list of awesome QUIC and HTTP/3 resources - GitHub",
+        "url": "https://github.com/mmmarcos/awesome-quic",
+        "hash": "sha256:497258e1244622ff255d40fa7a692088fd0600f23d4357bfa54cef65510b7223",
+        "source_type": "exa",
+        "domain": ""
+      },
+      {
+        "title": "[PDF] Comparison of Different QUIC Implementations",
+        "url": "https://www.net.in.tum.de/fileadmin/TUM/NET/NET-2022-07-1/NET-2022-07-1_02.pdf",
+        "hash": "sha256:c4c9d48adae18228da6a2f918bb737265944d60bd53ea54c9666fc28b5b99364",
+        "source_type": "exa",
+        "domain": ""
+      },
+      {
+        "title": "Getting Media Over QUIC (MoQ) and WebRTC to like each other",
+        "url": "https://www.meetecho.com/blog/moq-webrtc/",
+        "hash": "sha256:b0e90db6b6e9e2a3c9ca2a37cda603894db62c20f8f712693a51be0dbda27a66",
+        "source_type": "exa",
+        "domain": ""
+      },
+      {
+        "title": "Quiwi - Another QUIC implementation in pure Go : r/golang - Reddit",
+        "url": "https://www.reddit.com/r/golang/comments/np5bed/quiwi_another_quic_implementation_in_pure_go/",
+        "hash": "sha256:f192f8f71b0f5e4bab363f4258c55539dc80d02ac580f3672293cb01cf8a5220",
+        "source_type": "exa",
+        "domain": ""
+      },
+      {
+        "title": "How We Added QUIC Support to OpenSSL without Patches or ...",
+        "url": "https://thenewstack.io/how-we-added-quic-support-to-openssl-without-patches-or-rebuilds/",
+        "hash": "sha256:3ee522bbf9cfb63763fd446b02896fc19ecee083bcb356453d9701a4f45f48e5",
+        "source_type": "exa",
+        "domain": ""
+      }
+    ],
+    "sources_by_domain": [
+      [
+        "arxiv.org",
+        7
+      ],
+      [
+        "github.com",
+        5
+      ],
+      [
+        "www.researchgate.net",
+        5
+      ],
+      [
+        "dl.acm.org",
+        4
+      ],
+      [
+        "quic-go.net",
+        3
+      ],
+      [
+        "www.sciencedirect.com",
+        3
+      ],
+      [
+        "medium.com",
+        2
+      ],
+      [
+        "datatracker.ietf.org",
+        2
+      ],
+      [
+        "www.meetecho.com",
+        2
+      ],
+      [
+        "www.net.in.tum.de",
+        2
+      ],
+      [
+        "blog.nginx.org",
+        1
+      ],
+      [
+        "pkg.go.dev",
+        1
+      ],
+      [
+        "seemann.io",
+        1
+      ],
+      [
+        "www.ietf.org",
+        1
+      ],
+      [
+        "groups.google.com",
+        1
+      ],
+      [
+        "ui.adsabs.harvard.edu",
+        1
+      ],
+      [
+        "www.catchpoint.com",
+        1
+      ],
+      [
+        "webthesis.biblio.polito.it",
+        1
+      ],
+      [
+        "web.cs.wpi.edu",
+        1
+      ],
+      [
+        "blog.cloudflare.com",
+        1
+      ],
+      [
+        "lwn.net",
+        1
+      ],
+      [
+        "edransit.medium.com",
+        1
+      ],
+      [
+        "pubs.aip.org",
+        1
+      ],
+      [
+        "web.cs.ucla.edu",
+        1
+      ],
+      [
+        "research.google.com",
+        1
+      ],
+      [
+        "scispace.com",
+        1
+      ],
+      [
+        "qlog.edm.uhasselt.be",
+        1
+      ],
+      [
+        "rootshell.yanivhaliwa.com",
+        1
+      ],
+      [
+        "www.sivak.dev",
+        1
+      ],
+      [
+        "www.cuiyong.net",
+        1
+      ],
+      [
+        "www.mdpi.com",
+        1
+      ],
+      [
+        "aaltodoc.aalto.fi",
+        1
+      ],
+      [
+        "doc.tm.kit.edu",
+        1
+      ],
+      [
+        "www.fastly.com",
+        1
+      ],
+      [
+        "conferences.sigcomm.org",
+        1
+      ],
+      [
+        "lucris.lub.lu.se",
+        1
+      ],
+      [
+        "vaibhavbajpai.com",
+        1
+      ],
+      [
+        "journal.uob.edu.bh",
+        1
+      ],
+      [
+        "documentserver.uhasselt.be",
+        1
+      ],
+      [
+        "pmc.ncbi.nlm.nih.gov",
+        1
+      ],
+      [
+        "hal.science",
+        1
+      ],
+      [
+        "www.reddit.com",
+        1
+      ],
+      [
+        "thenewstack.io",
+        1
+      ]
+    ],
+    "probes": [
+      {
+        "name": "corpus_api_probe",
+        "status": "ok",
+        "endpoint": "http://127.0.0.1:9764/health",
+        "source_ref": "http://127.0.0.1:9764/health"
+      }
+    ],
+    "redaction": null,
+    "artifact_hash": "sha256:84b74973811b6723178b6dd724311be172cc146100cd69051572a4055c00a7fe",
+    "mutation_counters": {
+      "github_mutation_count": 0,
+      "github_api_write_verbs_used": [],
+      "dashboard_mutates_hermes_config": false
+    },
+    "ttl": 86400,
+    "build_recommendation": {
+      "recommendation": "build",
+      "rationale": "No GitHub projects were returned for this topic. Building may be appropriate, but verify with a narrower GitHub query before relying on this recommendation.",
+      "top_candidates": [],
+      "quality_projects_count": 0,
+      "relevant_projects_count": 0,
+      "total_projects_found": 0
+    },
+    "created_at": "2026-05-30T13:20:42Z"
+  },
+  "tool_trace": [
+    {
+      "tool": "exa",
+      "angle": "standards, governance, and community",
+      "results": 10
+    },
+    {
+      "tool": "exa",
+      "angle": "history and evolution",
+      "results": 10
+    },
+    {
+      "tool": "exa",
+      "angle": "challenges, limitations, and known issues",
+      "results": 10
+    },
+    {
+      "tool": "exa",
+      "angle": "architecture and design principles",
+      "results": 10
+    },
+    {
+      "tool": "exa",
+      "angle": "overview and fundamentals",
+      "results": 10
+    },
+    {
+      "tool": "tinyfish",
+      "angle": "future directions and open research questions",
+      "results": 10
+    },
+    {
+      "tool": "tinyfish",
+      "angle": "challenges, limitations, and known issues",
+      "results": 10
+    },
+    {
+      "tool": "tinyfish",
+      "angle": "performance characteristics and benchmarks",
+      "results": 10
+    },
+    {
+      "tool": "exa",
+      "angle": "performance characteristics and benchmarks",
+      "results": 10
+    },
+    {
+      "tool": "exa",
+      "angle": "comparative analysis and alternatives",
+      "results": 10
+    },
+    {
+      "tool": "tinyfish",
+      "angle": "architecture and design principles",
+      "results": 10
+    },
+    {
+      "tool": "tinyfish",
+      "angle": "applications and real-world use cases",
+      "results": 10
+    },
+    {
+      "tool": "exa",
+      "angle": "existing projects, open source implementations, and alternatives",
+      "results": 10
+    },
+    {
+      "tool": "exa",
+      "angle": "future directions and open research questions",
+      "results": 10
+    },
+    {
+      "tool": "tinyfish",
+      "angle": "comparative analysis and alternatives",
+      "results": 10
+    },
+    {
+      "tool": "exa",
+      "angle": "applications and real-world use cases",
+      "results": 10
+    },
+    {
+      "tool": "tinyfish",
+      "angle": "existing projects, open source implementations, and alternatives",
+      "results": 10
+    },
+    {
+      "tool": "tinyfish",
+      "angle": "overview and fundamentals",
+      "results": 10
+    },
+    {
+      "tool": "tinyfish",
+      "angle": "standards, governance, and community",
+      "results": 10
+    },
+    {
+      "tool": "tinyfish",
+      "angle": "history and evolution",
+      "results": 10
+    }
+  ],
+  "_detected_language": "go",
+  "id": "66c40d49-9dc",
+  "all_findings_truncated": 68,
+  "all_findings_sample": [
+    {
+      "id": "https://github.com/quic-go/quic-go",
+      "title": "A QUIC implementation in pure Go - GitHub",
+      "url": "https://github.com/quic-go/quic-go",
+      "_tool": "exa",
+      "_angle": "standards, governance, and community",
+      "_query": "quic go stream keystroke performance congestion standards, governance, and community",
+      "snippet": ""
+    },
+    {
+      "id": "https://quic-go.net/docs/quic/streams/",
+      "title": "QUIC Streams \u2013 quic-go docs",
+      "url": "https://quic-go.net/docs/quic/streams/",
+      "_tool": "exa",
+      "_angle": "standards, governance, and community",
+      "_query": "quic go stream keystroke performance congestion standards, governance, and community",
+      "snippet": ""
+    },
+    {
+      "id": "https://blog.nginx.org/blog/congestion-control-enhancements-for-quic-in-nginx",
+      "title": "Congestion Control Enhancements for QUIC in NGINX",
+      "url": "https://blog.nginx.org/blog/congestion-control-enhancements-for-quic-in-nginx",
+      "publishedDate": "2025-04-16T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "standards, governance, and community",
+      "_query": "quic go stream keystroke performance congestion standards, governance, and community",
+      "snippet": ""
+    },
+    {
+      "id": "https://pkg.go.dev/github.com/quic-go/quic-go",
+      "title": "quic - Go Packages",
+      "url": "https://pkg.go.dev/github.com/quic-go/quic-go",
+      "_tool": "exa",
+      "_angle": "standards, governance, and community",
+      "_query": "quic go stream keystroke performance congestion standards, governance, and community",
+      "snippet": ""
+    },
+    {
+      "id": "https://seemann.io/posts/2025-06-25---quic-go-api-revamp/",
+      "title": "Revamping the quic-go API: Transitioning from Interfaces to Structs",
+      "url": "https://seemann.io/posts/2025-06-25---quic-go-api-revamp/",
+      "publishedDate": "2025-06-25T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "standards, governance, and community",
+      "_query": "quic go stream keystroke performance congestion standards, governance, and community",
+      "snippet": ""
+    }
+  ],
+  "packet_summary": {
+    "sections": 10,
+    "sources": 68,
+    "method": {
+      "max_depth": 1,
+      "rounds_completed": 1,
+      "total_unique_sources": 68,
+      "unique_domains": 43,
+      "tools_used": "exa, tinyfish",
+      "budget_used_seconds": 2.0,
+      "time_budget_seconds": 60
+    }
+  }
+}

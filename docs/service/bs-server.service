@@ -1,0 +1,54 @@
+# bs-server.service — systemd user service for the bridgesessions session daemon
+#
+# Installation (per-user):
+#   mkdir -p ~/.config/systemd/user
+#   cp bs-server.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now bs-server.service
+#
+# Status & logs:
+#   systemctl --user status bs-server.service
+#   journalctl --user -u bs-server.service -f
+#
+# Requirements:
+#   - /usr/local/bin/bs-server must exist and be executable
+#   - ~/.bridgesessions/ must contain:
+#       id_ed25519.pem          (private key)
+#       id_ed25519-cert.pem     (TLS certificate)
+#       sessions.json            (persisted session state — created on first run if missing)
+
+[Unit]
+Description=bridgesessions session daemon
+Documentation=https://github.com/example/bridgesessions
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+
+# Paths to the server binary, data directory, and TLS material.
+# Adjust ExecStart if your binary lives elsewhere (e.g. ~/bin, /opt/bridgesessions).
+ExecStart=/usr/local/bin/bs-server \
+    --listen :9948 \
+    --persist %h/.bridgesessions/sessions.json \
+    --key %h/.bridgesessions/id_ed25519.pem \
+    --cert %h/.bridgesessions/id_ed25519-cert.pem
+
+# Restart policy — always bring the daemon back up after a crash.
+Restart=always
+RestartSec=5
+
+# Security hardening (optional but recommended for a network-facing daemon).
+# Remove or relax these if the server needs broader access.
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=%h/.bridgesessions
+
+# Logging goes to the journal (stdout/stderr captured automatically).
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

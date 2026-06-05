@@ -1,0 +1,100 @@
+# ── Build outputs ────────────────────────────────────────────
+build/
+build-*/
+build-windows-msvc-debug/
+build-msvc-*/
+release/
+debug/
+out/
+cmake-build-*/
+
+# ── Generated files ──────────────────────────────────────────
+compile_commands.json
+.ccls-cache/
+.vs/
+.vscode/
+.idea/
+*.user
+
+# ── CMake / Ninja intermediate files ────────────────────────
+CMakeCache.txt
+CMakeFiles/
+CMakeScripts/
+Testing/
+cmake_install.cmake
+install_manifest.txt
+CTestTestfile.cmake
+_deps/
+
+# ── MSVC debug / build logs ─────────────────────────────────
+*.pdb
+*.ilk
+*.pch
+*.obj
+*.exe
+*.lib
+*.exp
+*.idb
+*.pdb
+*.res
+*.tlog
+*.log
+*.lastbuildstate
+*.unsuccessfulbuild
+*.ipdb
+*.iobj
+
+# ── Build/test output logs (hermes sessions) ────────────────
+build_*.txt
+bld_*.txt
+cmake_*.txt
+test_*.txt
+test2_*.txt
+build_relay*.txt
+build_final*.txt
+build_srv*.txt
+build_srv2*.txt
+build_srv3*.txt
+build_srv4*.txt
+build_client*.txt
+run_transport*.txt
+_resume_build*
+_resume_build.*
+
+# ── Editor / OS cruft ───────────────────────────────────────
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+*.bak
+*.tmp
+*.orig
+*.rej
+
+# ── Local config / secrets ──────────────────────────────────
+.env
+.env.local
+.bridgesessions/
+authorized_keys
+id_ed25519
+id_ed25519.pub
+id_ed25519-cert.pem
+id_ed25519.pem
+*_autokey.pem
+*_autocert.pem
+known_servers
+known_hosts
+
+# ── Tarballs / one-off artifacts ────────────────────────────
+*.tar.gz
+*.zip
+*.tgz
+bridgesessions-src.tar.gz
+
+# ── Testing outputs ────────────────────────────────────────
+_test.txt
+*.csv
+*.dat

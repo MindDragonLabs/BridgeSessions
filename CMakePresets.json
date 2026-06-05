@@ -1,0 +1,112 @@
+{
+  "version": 8,
+  "configurePresets": [
+    {
+      "name": "debug",
+      "displayName": "Debug (macOS clang)",
+      "binaryDir": "${sourceDir}/build/debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+      }
+    },
+    {
+      "name": "release",
+      "displayName": "Release (macOS clang)",
+      "binaryDir": "${sourceDir}/build/release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+      }
+    },
+    {
+      "name": "fuzzer",
+      "displayName": "LibFuzzer (macOS clang)",
+      "binaryDir": "${sourceDir}/build/fuzzer",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_CXX_FLAGS": "-fsanitize=fuzzer,address,undefined -fno-omit-frame-pointer",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "BUILD_FUZZER": "ON"
+      }
+    },
+    {
+      "name": "linux-debug",
+      "displayName": "Debug (Linux gcc)",
+      "binaryDir": "${sourceDir}/build/linux-debug",
+      "toolchainFile": "${sourceDir}/cmake/toolchain-linux-amd64.cmake",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+      }
+    },
+    {
+      "name": "linux-release",
+      "displayName": "Release (Linux gcc)",
+      "binaryDir": "${sourceDir}/build/linux-release",
+      "toolchainFile": "${sourceDir}/cmake/toolchain-linux-amd64.cmake",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+      }
+    },
+    {
+      "name": "linux-amd64-release",
+      "displayName": "Release (Linux amd64 gcc)",
+      "inherits": "release",
+      "binaryDir": "${sourceDir}/build/linux-amd64-release",
+      "toolchainFile": "${sourceDir}/cmake/toolchain-linux-amd64.cmake"
+    },
+    {
+      "name": "linux-arm64-release",
+      "displayName": "Release (Linux arm64 gcc)",
+      "inherits": "release",
+      "binaryDir": "${sourceDir}/build/linux-arm64-release",
+      "toolchainFile": "${sourceDir}/cmake/toolchain-linux-arm64.cmake"
+    },
+    {
+      "name": "windows-msvc-debug",
+      "displayName": "Debug (Windows MSVC x64)",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/windows-msvc-debug",
+      "toolchainFile": "C:/vcpkg/scripts/buildsystems/vcpkg.cmake",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_C_COMPILER": "cl",
+        "CMAKE_CXX_COMPILER": "cl",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+      }
+    },
+    {
+      "name": "windows-msvc-release",
+      "displayName": "Release (Windows MSVC x64)",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/windows-msvc-release",
+      "toolchainFile": "C:/vcpkg/scripts/buildsystems/vcpkg.cmake",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_C_COMPILER": "cl",
+        "CMAKE_CXX_COMPILER": "cl",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "debug",
+      "configurePreset": "debug"
+    },
+    {
+      "name": "release",
+      "configurePreset": "release"
+    },
+    {
+      "name": "linux-amd64-release",
+      "configurePreset": "linux-amd64-release"
+    },
+    {
+      "name": "linux-arm64-release",
+      "configurePreset": "linux-arm64-release"
+    }
+  ]
+}

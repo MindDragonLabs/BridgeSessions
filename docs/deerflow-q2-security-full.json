@@ -1,0 +1,1943 @@
+{
+  "topic_id": "268f5683-33a",
+  "topic": "ed25519 key rotation patterns revocation production systems SSH key pinning TOFU 0-RTT QUIC replay attack mitigation nonce tls session ticket security terminal relay",
+  "active_angles": [
+    "architecture and design principles",
+    "future directions and open research questions",
+    "history and evolution",
+    "overview and fundamentals",
+    "performance characteristics and benchmarks"
+  ],
+  "completed_angles": [
+    "standards, governance, and community",
+    "comparative analysis and alternatives"
+  ],
+  "depth": 3,
+  "max_depth": 3,
+  "time_budget_seconds": 240,
+  "start_time": 1780147304.773022,
+  "corpus_results": [],
+  "web_results": [
+    {
+      "id": "https://medium.com/@instatunnel/0-rtt-replay-the-high-speed-flaw-in-http-3-that-bypasses-idempotency-ef5f688fcb34",
+      "title": "0-RTT Replay: The High-Speed Flaw in HTTP/3 That Bypasses ...",
+      "url": "https://medium.com/@instatunnel/0-rtt-replay-the-high-speed-flaw-in-http-3-that-bypasses-idempotency-ef5f688fcb34",
+      "publishedDate": "2026-01-20T12:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "comparative analysis and alternatives",
+      "_query": "ed25519 key rotation patterns revocation production systems SSH key pinning TOFU 0-RTT QUIC replay attack mitigation nonce tls session ticket security terminal relay comparative analysis and alternatives",
+      "snippet": ""
+    },
+    {
+      "id": "https://datatracker.ietf.org/doc/html/rfc8709",
+      "title": "RFC 8709 - Ed25519 and Ed448 Public Key Algorithms for the ...",
+      "url": "https://datatracker.ietf.org/doc/html/rfc8709",
+      "_tool": "exa",
+      "_angle": "comparative analysis and alternatives",
+      "_query": "ed25519 key rotation patterns revocation production systems SSH key pinning TOFU 0-RTT QUIC replay attack mitigation nonce tls session ticket security terminal relay comparative analysis and alternatives",
+      "snippet": ""
+    },
+    {
+      "id": "https://www.researchgate.net/publication/374821051_Replay_Attack_in_TLS_13_0-RTT_Handshake_Countermeasure_Techniques",
+      "title": "(PDF) Replay Attack in TLS 1.3 0-RTT Handshake - ResearchGate",
+      "url": "https://www.researchgate.net/publication/374821051_Replay_Attack_in_TLS_13_0-RTT_Handshake_Countermeasure_Techniques",
+      "publishedDate": "2023-10-26T12:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "comparative analysis and alternatives",
+      "_query": "ed25519 key rotation patterns revocation production systems SSH key pinning TOFU 0-RTT QUIC replay attack mitigation nonce tls session ticket security terminal relay comparative analysis and alternatives",
+      "snippet": ""
+    },
+    {
+      "id": "https://www.mdpi.com/2071-1050/14/23/15900",
+      "title": "Replay-Attack Detection and Prevention Mechanism in Industry 4.0 ...",
+      "url": "https://www.mdpi.com/2071-1050/14/23/15900",
+      "_tool": "exa",
+      "_angle": "comparative analysis and alternatives",
+      "_query": "ed25519 key rotation patterns revocation production systems SSH key pinning TOFU 0-RTT QUIC replay attack mitigation nonce tls session ticket security terminal relay comparative analysis and alternatives",
+      "snippet": ""
+    },
+    {
+      "id": "https://arxiv.org/html/2401.06657v3",
+      "title": "How Resilient is QUIC to Security and Privacy Attacks? - arXiv",
+      "url": "https://arxiv.org/html/2401.06657v3",
+      "publishedDate": "2025-07-01T12:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "comparative analysis and alternatives",
+      "_query": "ed25519 key rotation patterns revocation production systems SSH key pinning TOFU 0-RTT QUIC replay attack mitigation nonce tls session ticket security terminal relay comparative analysis and alternatives",
+      "snippet": ""
+    },
+    {
+      "id": "https://eprint.iacr.org/2019/228",
+      "title": "Session Resumption Protocols and Efficient Forward Security for ...",
+      "url": "https://eprint.iacr.org/2019/228",
+      "publishedDate": "2019-02-28T12:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "comparative analysis and alternatives",
+      "_query": "ed25519 key rotation patterns revocation production systems SSH key pinning TOFU 0-RTT QUIC replay attack mitigation nonce tls session ticket security terminal relay comparative analysis and alternatives",
+      "snippet": ""
+    },
+    {
+      "id": "https://www.ndss-symposium.org/wp-content/uploads/2017/09/transcript-collision-attacks-breaking-authentication-tls-ike-ssh.pdf",
+      "title": "[PDF] Transcript Collision Attacks: Breaking Authentication in TLS, IKE ...",
+      "url": "https://www.ndss-symposium.org/wp-content/uploads/2017/09/transcript-collision-attacks-breaking-authentication-tls-ike-ssh.pdf",
+      "_tool": "exa",
+      "_angle": "comparative analysis and alternatives",
+      "_query": "ed25519 key rotation patterns revocation production systems SSH key pinning TOFU 0-RTT QUIC replay attack mitigation nonce tls session ticket security terminal relay comparative analysis and alternatives",
+      "snippet": ""
+    },
+    {
+      "id": "https://nym.com/trust-center/cryptography",
+      "title": "Up-to-date cryptography - Nym Technologies",
+      "url": "https://nym.com/trust-center/cryptography",
+      "_tool": "exa",
+      "_angle": "comparative analysis and alternatives",
+      "_query": "ed25519 key rotation patterns revocation production systems SSH key pinning TOFU 0-RTT QUIC replay attack mitigation nonce tls session ticket security terminal relay comparative analysis and alternatives",
+      "snippet": ""
+    },
+    {
+      "id": "https://pmc.ncbi.nlm.nih.gov/articles/PMC8512771/",
+      "title": "rTLS: Secure and Efficient TLS Session Resumption for the Internet ...",
+      "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC8512771/",
+      "publishedDate": "2021-09-29T12:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "comparative analysis and alternatives",
+      "_query": "ed25519 key rotation patterns revocation production systems SSH key pinning TOFU 0-RTT QUIC replay attack mitigation nonce tls session ticket security terminal relay comparative analysis and alternatives",
+      "snippet": ""
+    },
+    {
+      "id": "https://dokumen.pub/bulletproof-tls-and-pki-2nbsped-9781907117091.html",
+      "title": "Bulletproof TLS and PKI [2 ed.] 9781907117091 - DOKUMEN.PUB",
+      "url": "https://dokumen.pub/bulletproof-tls-and-pki-2nbsped-9781907117091.html",
+      "_tool": "exa",
+      "_angle": "comparative analysis and alternatives",
+      "_query": "ed25519 key rotation patterns revocation production systems SSH key pinning TOFU 0-RTT QUIC replay attack mitigation nonce tls session ticket security terminal relay comparative analysis and alternatives",
+      "snippet": ""
+    },
+    {
+      "position": 1,
+      "site_name": "www.brandonchecketts.com",
+      "snippet": "Generate an ed25519 SSH key using current best practices from 2025. Rotate your keys, assign a useful comment, and use SSH-Agent and Agent ...",
+      "title": "SSH Key Best Practices for 2025 - Using ed25519, key rotation, and ...",
+      "url": "https://www.brandonchecketts.com/archives/ssh-ed25519-key-best-practices-for-2025",
+      "_tool": "tinyfish",
+      "_angle": "standards, governance, and community",
+      "_query": "ed25519 key rotation patterns revocation production systems SSH key pinning TOFU 0-RTT QUIC replay attack mitigation nonce tls session ticket security terminal relay standards, governance, and community"
+    },
+    {
+      "position": 2,
+      "site_name": "aws.plainenglish.io",
+      "snippet": "Step 1 : Generate a strong key pair (on your laptop) ; Recommended: ' ; ed25519'(modern, fast, secure). If needed, use RSA 4096.",
+      "title": "SSH Key Management : Easy Step-by-Step Guide | by Pawan Natekar",
+      "url": "https://aws.plainenglish.io/ssh-key-management-easy-step-by-step-guide-3c1e2d120884",
+      "_tool": "tinyfish",
+      "_angle": "standards, governance, and community",
+      "_query": "ed25519 key rotation patterns revocation production systems SSH key pinning TOFU 0-RTT QUIC replay attack mitigation nonce tls session ticket security terminal relay standards, governance, and community"
+    },
+    {
+      "position": 3,
+      "site_name": "www.appviewx.com",
+      "snippet": "In addition to the security risk, unmanaged SSH keys can lead to policy violations, failed audits, and massive regulatory penalties. To ensure robust protection ...",
+      "title": "9 SSH Key Management Best Practices You Need to Know",
+      "url": "https://www.appviewx.com/blogs/9-ssh-key-management-best-practices-you-need-to-know/",
+      "_tool": "tinyfish",
+      "_angle": "standards, governance, and community",
+      "_query": "ed25519 key rotation patterns revocation production systems SSH key pinning TOFU 0-RTT QUIC replay attack mitigation nonce tls session ticket security terminal relay standards, governance, and community"
+    },
+    {
+      "position": 4,
+      "site_name": "messari.io",
+      "snippet": "Classical Security: Ed25519 is considered very secure against classical computers; no practical attacks are known \u00b7 Quantum Security: Like all traditional ...",
+      "title": "Understanding Ed25519 | Messari",
+      "url": "https://messari.io/copilot/share/understanding-ed25519-ee5c6e19-3f05-4557-ac8f-9a1e84b9e8ff",
+      "_tool": "tinyfish",
+      "_angle": "standards, governance, and community",
+      "_query": "ed25519 key rotation patterns revocation production systems SSH key pinning TOFU 0-RTT QUIC replay attack mitigation nonce tls session ticket security terminal relay standards, governance, and community"
+    },
+    {
+      "position": 6,
+      "site_name": "www.brandonchecketts.com",
+      "snippet": "The Ed25519 key is much shorter, so initially you might think it is less secure. But these keys use a totally different algorithm.",
+      "title": "It's 2023. You Should Be Using an Ed25519 SSH Key (And Other ...",
+      "url": "https://www.brandonchecketts.com/archives/its-2023-you-should-be-using-an-ed25519-ssh-key-and-other-current-best-practices",
+      "_tool": "tinyfish",
+      "_angle": "standards, governance, and community",
+      "_query": "ed25519 key rotation patterns revocation production systems SSH key pinning TOFU 0-RTT QUIC replay attack mitigation nonce tls session ticket security terminal relay standards, governance, and community"
+    },
+    {
+      "position": 7,
+      "site_name": "ftp.ripe.net",
+      "snippet": "The new extension is called Address Protected Neighbor Discovery (AP-ND) and it protects the owner of an address against address theft and impersonation attacks ...",
+      "title": "1id-abstracts.txt - Index of /",
+      "url": "https://ftp.ripe.net/internet-drafts/1id-abstracts.txt",
+      "_tool": "tinyfish",
+      "_angle": "standards, governance, and community",
+      "_query": "ed25519 key rotation patterns revocation production systems SSH key pinning TOFU 0-RTT QUIC replay attack mitigation nonce tls session ticket security terminal relay standards, governance, and community"
+    },
+    {
+      "id": "https://www.hexnode.com/blogs/explained/what-is-ed25519-in-cybersecurity/",
+      "title": "What is Ed25519 in cybersecurity? - Hexnode Blogs",
+      "url": "https://www.hexnode.com/blogs/explained/what-is-ed25519-in-cybersecurity/",
+      "_tool": "exa",
+      "_angle": "challenges, limitations, and known issues",
+      "_query": "ed25519 key rotation patterns revocation production systems SSH key pinning TOFU 0-RTT QUIC replay attack mitigation nonce tls session ticket security terminal relay challenges, limitations, and known issues",
+      "snippet": ""
+    },
+    {
+      "id": "https://www.ssh.com/academy/common-ssh-key-risks-and-how-to-prevent-them",
+      "title": "Common SSH Key Risks and How to Prevent Them",
+      "url": "https://www.ssh.com/academy/common-ssh-key-risks-and-how-to-prevent-them",
+      "_tool": "exa",
+      "_angle": "challenges, limitations, and known issues",
+      "_query": "ed25519 key rotation patterns revocation production systems SSH key pinning TOFU 0-RTT QUIC replay attack mitigation nonce tls session ticket security terminal relay challenges, limitations, and known issues",
+      "snippet": ""
+    },
+    {
+      "id": "https://medium.com/asecuritysite-when-bob-met-alice/explaining-the-chalkias-ed25519-vulnerability-84443a01a92b",
+      "title": "Explaining The Chalkias Ed25519 Vulnerability - Medium",
+      "url": "https://medium.com/asecuritysite-when-bob-met-alice/explaining-the-chalkias-ed25519-vulnerability-84443a01a92b",
+      "publishedDate": "2022-07-02T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "challenges, limitations, and known issues",
+      "_query": "ed25519 key rotation patterns revocation production systems SSH key pinning TOFU 0-RTT QUIC replay attack mitigation nonce tls session ticket security terminal relay challenges, limitations, and known issues",
+      "snippet": ""
+    },
+    {
+      "id": "https://mirrors.dotsrc.org/opensuse/slowroll/repo/oss/ChangeLog",
+      "title": "ChangeLog - dotsrc.org",
+      "url": "https://mirrors.dotsrc.org/opensuse/slowroll/repo/oss/ChangeLog",
+      "_tool": "exa",
+      "_angle": "challenges, limitations, and known issues",
+      "_query": "ed25519 key rotation patterns revocation production systems SSH key pinning TOFU 0-RTT QUIC replay attack mitigation nonce tls session ticket security terminal relay challenges, limitations, and known issues",
+      "snippet": ""
+    },
+    {
+      "position": 2,
+      "site_name": "github.com",
+      "snippet": "Taming the Many EdDSAs & Ed25519 Signing Attacks. News and social network coverage of this attack. NIST Crypto Reading Club \"Taming the Many EdDSAs\" ( ...",
+      "title": "MystenLabs/ed25519-unsafe-libs - GitHub",
+      "url": "https://github.com/MystenLabs/ed25519-unsafe-libs",
+      "_tool": "tinyfish",
+      "_angle": "existing projects, open source implementations, and alternatives",
+      "_query": "ed25519 key rotation patterns revocation production systems SSH key pinning TOFU 0-RTT QUIC replay attack mitigation nonce tls session ticket security terminal relay existing projects, open source implementations, and alternatives"
+    },
+    {
+      "id": "https://github.com/PraneethGunas/tls-1.3-0-rtt-reply-experiment",
+      "title": "PraneethGunas/tls-1.3-0-rtt-reply-experiment - GitHub",
+      "url": "https://github.com/PraneethGunas/tls-1.3-0-rtt-reply-experiment",
+      "_tool": "exa",
+      "_angle": "applications and real-world use cases",
+      "_query": "real world ed25519 key rotation patterns revocation production systems SSH key pinning TOFU 0-RTT QUIC replay attack mitigation nonce tls session ticket security terminal relay case studies examples",
+      "snippet": ""
+    },
+    {
+      "id": "https://www.jumpserver.com/blog/ssh-key-management-best-practices",
+      "title": "SSH Key Management: Best Practices for Enterprise Security in 2026",
+      "url": "https://www.jumpserver.com/blog/ssh-key-management-best-practices",
+      "publishedDate": "2026-04-16T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "applications and real-world use cases",
+      "_query": "real world ed25519 key rotation patterns revocation production systems SSH key pinning TOFU 0-RTT QUIC replay attack mitigation nonce tls session ticket security terminal relay case studies examples",
+      "snippet": ""
+    },
+    {
+      "id": "https://www.encryptionconsulting.com/designing-an-effective-ssh-key-rotation-policy/",
+      "title": "Designing an effective SSH key Rotation policy",
+      "url": "https://www.encryptionconsulting.com/designing-an-effective-ssh-key-rotation-policy/",
+      "publishedDate": "2025-12-18T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "applications and real-world use cases",
+      "_query": "real world ed25519 key rotation patterns revocation production systems SSH key pinning TOFU 0-RTT QUIC replay attack mitigation nonce tls session ticket security terminal relay case studies examples",
+      "snippet": ""
+    },
+    {
+      "id": "https://www.ssl.com/article/key-management-best-practices-a-practical-guide/",
+      "title": "Key Management Best Practices: A Practical Guide - SSL.com",
+      "url": "https://www.ssl.com/article/key-management-best-practices-a-practical-guide/",
+      "publishedDate": "2024-05-03T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "applications and real-world use cases",
+      "_query": "real world ed25519 key rotation patterns revocation production systems SSH key pinning TOFU 0-RTT QUIC replay attack mitigation nonce tls session ticket security terminal relay case studies examples",
+      "snippet": ""
+    },
+    {
+      "id": "https://www.youtube.com/watch?v=T50mXiYsa-Y",
+      "title": "Mastering QUIC TLS Handshake & 0-RTT | System Design Tutorial #5",
+      "url": "https://www.youtube.com/watch?v=T50mXiYsa-Y",
+      "publishedDate": "2026-04-06T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "applications and real-world use cases",
+      "_query": "real world ed25519 key rotation patterns revocation production systems SSH key pinning TOFU 0-RTT QUIC replay attack mitigation nonce tls session ticket security terminal relay case studies examples",
+      "snippet": ""
+    },
+    {
+      "id": "https://web.njit.edu/~crix/CS.408/content/408-lecture-20-21.pdf",
+      "title": "[PDF] CS 408 Cryptography & Internet Security - NJIT",
+      "url": "https://web.njit.edu/~crix/CS.408/content/408-lecture-20-21.pdf",
+      "_tool": "exa",
+      "_angle": "applications and real-world use cases",
+      "_query": "real world ed25519 key rotation patterns revocation production systems SSH key pinning TOFU 0-RTT QUIC replay attack mitigation nonce tls session ticket security terminal relay case studies examples",
+      "snippet": ""
+    },
+    {
+      "id": "https://www.beyondtrust.com/blog/entry/ssh-key-management-overview-6-best-practices",
+      "title": "SSH Key Management Overview & 10 Best Practices - BeyondTrust",
+      "url": "https://www.beyondtrust.com/blog/entry/ssh-key-management-overview-6-best-practices",
+      "publishedDate": "2022-11-22T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "applications and real-world use cases",
+      "_query": "real world ed25519 key rotation patterns revocation production systems SSH key pinning TOFU 0-RTT QUIC replay attack mitigation nonce tls session ticket security terminal relay case studies examples",
+      "snippet": ""
+    }
+  ],
+  "findings": [],
+  "all_findings": [
+    {
+      "id": "https://medium.com/@instatunnel/0-rtt-replay-the-high-speed-flaw-in-http-3-that-bypasses-idempotency-ef5f688fcb34",
+      "title": "0-RTT Replay: The High-Speed Flaw in HTTP/3 That Bypasses ...",
+      "url": "https://medium.com/@instatunnel/0-rtt-replay-the-high-speed-flaw-in-http-3-that-bypasses-idempotency-ef5f688fcb34",
+      "publishedDate": "2026-01-20T12:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "comparative analysis and alternatives",
+      "_query": "ed25519 key rotation patterns revocation production systems SSH key pinning TOFU 0-RTT QUIC replay attack mitigation nonce tls session ticket security terminal relay comparative analysis and alternatives",
+      "snippet": ""
+    },
+    {
+      "id": "https://datatracker.ietf.org/doc/html/rfc8709",
+      "title": "RFC 8709 - Ed25519 and Ed448 Public Key Algorithms for the ...",
+      "url": "https://datatracker.ietf.org/doc/html/rfc8709",
+      "_tool": "exa",
+      "_angle": "comparative analysis and alternatives",
+      "_query": "ed25519 key rotation patterns revocation production systems SSH key pinning TOFU 0-RTT QUIC replay attack mitigation nonce tls session ticket security terminal relay comparative analysis and alternatives",
+      "snippet": ""
+    },
+    {
+      "id": "https://www.researchgate.net/publication/374821051_Replay_Attack_in_TLS_13_0-RTT_Handshake_Countermeasure_Techniques",
+      "title": "(PDF) Replay Attack in TLS 1.3 0-RTT Handshake - ResearchGate",
+      "url": "https://www.researchgate.net/publication/374821051_Replay_Attack_in_TLS_13_0-RTT_Handshake_Countermeasure_Techniques",
+      "publishedDate": "2023-10-26T12:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "comparative analysis and alternatives",
+      "_query": "ed25519 key rotation patterns revocation production systems SSH key pinning TOFU 0-RTT QUIC replay attack mitigation nonce tls session ticket security terminal relay comparative analysis and alternatives",
+      "snippet": ""
+    },
+    {
+      "id": "https://www.mdpi.com/2071-1050/14/23/15900",
+      "title": "Replay-Attack Detection and Prevention Mechanism in Industry 4.0 ...",
+      "url": "https://www.mdpi.com/2071-1050/14/23/15900",
+      "_tool": "exa",
+      "_angle": "comparative analysis and alternatives",
+      "_query": "ed25519 key rotation patterns revocation production systems SSH key pinning TOFU 0-RTT QUIC replay attack mitigation nonce tls session ticket security terminal relay comparative analysis and alternatives",
+      "snippet": ""
+    },
+    {
+      "id": "https://arxiv.org/html/2401.06657v3",
+      "title": "How Resilient is QUIC to Security and Privacy Attacks? - arXiv",
+      "url": "https://arxiv.org/html/2401.06657v3",
+      "publishedDate": "2025-07-01T12:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "comparative analysis and alternatives",
+      "_query": "ed25519 key rotation patterns revocation production systems SSH key pinning TOFU 0-RTT QUIC replay attack mitigation nonce tls session ticket security terminal relay comparative analysis and alternatives",
+      "snippet": ""
+    },
+    {
+      "id": "https://eprint.iacr.org/2019/228",
+      "title": "Session Resumption Protocols and Efficient Forward Security for ...",
+      "url": "https://eprint.iacr.org/2019/228",
+      "publishedDate": "2019-02-28T12:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "comparative analysis and alternatives",
+      "_query": "ed25519 key rotation patterns revocation production systems SSH key pinning TOFU 0-RTT QUIC replay attack mitigation nonce tls session ticket security terminal relay comparative analysis and alternatives",
+      "snippet": ""
+    },
+    {
+      "id": "https://www.ndss-symposium.org/wp-content/uploads/2017/09/transcript-collision-attacks-breaking-authentication-tls-ike-ssh.pdf",
+      "title": "[PDF] Transcript Collision Attacks: Breaking Authentication in TLS, IKE ...",
+      "url": "https://www.ndss-symposium.org/wp-content/uploads/2017/09/transcript-collision-attacks-breaking-authentication-tls-ike-ssh.pdf",
+      "_tool": "exa",
+      "_angle": "comparative analysis and alternatives",
+      "_query": "ed25519 key rotation patterns revocation production systems SSH key pinning TOFU 0-RTT QUIC replay attack mitigation nonce tls session ticket security terminal relay comparative analysis and alternatives",
+      "snippet": ""
+    },
+    {
+      "id": "https://nym.com/trust-center/cryptography",
+      "title": "Up-to-date cryptography - Nym Technologies",
+      "url": "https://nym.com/trust-center/cryptography",
+      "_tool": "exa",
+      "_angle": "comparative analysis and alternatives",
+      "_query": "ed25519 key rotation patterns revocation production systems SSH key pinning TOFU 0-RTT QUIC replay attack mitigation nonce tls session ticket security terminal relay comparative analysis and alternatives",
+      "snippet": ""
+    },
+    {
+      "id": "https://pmc.ncbi.nlm.nih.gov/articles/PMC8512771/",
+      "title": "rTLS: Secure and Efficient TLS Session Resumption for the Internet ...",
+      "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC8512771/",
+      "publishedDate": "2021-09-29T12:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "comparative analysis and alternatives",
+      "_query": "ed25519 key rotation patterns revocation production systems SSH key pinning TOFU 0-RTT QUIC replay attack mitigation nonce tls session ticket security terminal relay comparative analysis and alternatives",
+      "snippet": ""
+    },
+    {
+      "id": "https://dokumen.pub/bulletproof-tls-and-pki-2nbsped-9781907117091.html",
+      "title": "Bulletproof TLS and PKI [2 ed.] 9781907117091 - DOKUMEN.PUB",
+      "url": "https://dokumen.pub/bulletproof-tls-and-pki-2nbsped-9781907117091.html",
+      "_tool": "exa",
+      "_angle": "comparative analysis and alternatives",
+      "_query": "ed25519 key rotation patterns revocation production systems SSH key pinning TOFU 0-RTT QUIC replay attack mitigation nonce tls session ticket security terminal relay comparative analysis and alternatives",
+      "snippet": ""
+    },
+    {
+      "position": 1,
+      "site_name": "www.brandonchecketts.com",
+      "snippet": "Generate an ed25519 SSH key using current best practices from 2025. Rotate your keys, assign a useful comment, and use SSH-Agent and Agent ...",
+      "title": "SSH Key Best Practices for 2025 - Using ed25519, key rotation, and ...",
+      "url": "https://www.brandonchecketts.com/archives/ssh-ed25519-key-best-practices-for-2025",
+      "_tool": "tinyfish",
+      "_angle": "standards, governance, and community",
+      "_query": "ed25519 key rotation patterns revocation production systems SSH key pinning TOFU 0-RTT QUIC replay attack mitigation nonce tls session ticket security terminal relay standards, governance, and community"
+    },
+    {
+      "position": 2,
+      "site_name": "aws.plainenglish.io",
+      "snippet": "Step 1 : Generate a strong key pair (on your laptop) ; Recommended: ' ; ed25519'(modern, fast, secure). If needed, use RSA 4096.",
+      "title": "SSH Key Management : Easy Step-by-Step Guide | by Pawan Natekar",
+      "url": "https://aws.plainenglish.io/ssh-key-management-easy-step-by-step-guide-3c1e2d120884",
+      "_tool": "tinyfish",
+      "_angle": "standards, governance, and community",
+      "_query": "ed25519 key rotation patterns revocation production systems SSH key pinning TOFU 0-RTT QUIC replay attack mitigation nonce tls session ticket security terminal relay standards, governance, and community"
+    },
+    {
+      "position": 3,
+      "site_name": "www.appviewx.com",
+      "snippet": "In addition to the security risk, unmanaged SSH keys can lead to policy violations, failed audits, and massive regulatory penalties. To ensure robust protection ...",
+      "title": "9 SSH Key Management Best Practices You Need to Know",
+      "url": "https://www.appviewx.com/blogs/9-ssh-key-management-best-practices-you-need-to-know/",
+      "_tool": "tinyfish",
+      "_angle": "standards, governance, and community",
+      "_query": "ed25519 key rotation patterns revocation production systems SSH key pinning TOFU 0-RTT QUIC replay attack mitigation nonce tls session ticket security terminal relay standards, governance, and community"
+    },
+    {
+      "position": 4,
+      "site_name": "messari.io",
+      "snippet": "Classical Security: Ed25519 is considered very secure against classical computers; no practical attacks are known \u00b7 Quantum Security: Like all traditional ...",
+      "title": "Understanding Ed25519 | Messari",
+      "url": "https://messari.io/copilot/share/understanding-ed25519-ee5c6e19-3f05-4557-ac8f-9a1e84b9e8ff",
+      "_tool": "tinyfish",
+      "_angle": "standards, governance, and community",
+      "_query": "ed25519 key rotation patterns revocation production systems SSH key pinning TOFU 0-RTT QUIC replay attack mitigation nonce tls session ticket security terminal relay standards, governance, and community"
+    },
+    {
+      "position": 6,
+      "site_name": "www.brandonchecketts.com",
+      "snippet": "The Ed25519 key is much shorter, so initially you might think it is less secure. But these keys use a totally different algorithm.",
+      "title": "It's 2023. You Should Be Using an Ed25519 SSH Key (And Other ...",
+      "url": "https://www.brandonchecketts.com/archives/its-2023-you-should-be-using-an-ed25519-ssh-key-and-other-current-best-practices",
+      "_tool": "tinyfish",
+      "_angle": "standards, governance, and community",
+      "_query": "ed25519 key rotation patterns revocation production systems SSH key pinning TOFU 0-RTT QUIC replay attack mitigation nonce tls session ticket security terminal relay standards, governance, and community"
+    },
+    {
+      "position": 7,
+      "site_name": "ftp.ripe.net",
+      "snippet": "The new extension is called Address Protected Neighbor Discovery (AP-ND) and it protects the owner of an address against address theft and impersonation attacks ...",
+      "title": "1id-abstracts.txt - Index of /",
+      "url": "https://ftp.ripe.net/internet-drafts/1id-abstracts.txt",
+      "_tool": "tinyfish",
+      "_angle": "standards, governance, and community",
+      "_query": "ed25519 key rotation patterns revocation production systems SSH key pinning TOFU 0-RTT QUIC replay attack mitigation nonce tls session ticket security terminal relay standards, governance, and community"
+    },
+    {
+      "id": "https://www.hexnode.com/blogs/explained/what-is-ed25519-in-cybersecurity/",
+      "title": "What is Ed25519 in cybersecurity? - Hexnode Blogs",
+      "url": "https://www.hexnode.com/blogs/explained/what-is-ed25519-in-cybersecurity/",
+      "_tool": "exa",
+      "_angle": "challenges, limitations, and known issues",
+      "_query": "ed25519 key rotation patterns revocation production systems SSH key pinning TOFU 0-RTT QUIC replay attack mitigation nonce tls session ticket security terminal relay challenges, limitations, and known issues",
+      "snippet": ""
+    },
+    {
+      "id": "https://www.ssh.com/academy/common-ssh-key-risks-and-how-to-prevent-them",
+      "title": "Common SSH Key Risks and How to Prevent Them",
+      "url": "https://www.ssh.com/academy/common-ssh-key-risks-and-how-to-prevent-them",
+      "_tool": "exa",
+      "_angle": "challenges, limitations, and known issues",
+      "_query": "ed25519 key rotation patterns revocation production systems SSH key pinning TOFU 0-RTT QUIC replay attack mitigation nonce tls session ticket security terminal relay challenges, limitations, and known issues",
+      "snippet": ""
+    },
+    {
+      "id": "https://medium.com/asecuritysite-when-bob-met-alice/explaining-the-chalkias-ed25519-vulnerability-84443a01a92b",
+      "title": "Explaining The Chalkias Ed25519 Vulnerability - Medium",
+      "url": "https://medium.com/asecuritysite-when-bob-met-alice/explaining-the-chalkias-ed25519-vulnerability-84443a01a92b",
+      "publishedDate": "2022-07-02T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "challenges, limitations, and known issues",
+      "_query": "ed25519 key rotation patterns revocation production systems SSH key pinning TOFU 0-RTT QUIC replay attack mitigation nonce tls session ticket security terminal relay challenges, limitations, and known issues",
+      "snippet": ""
+    },
+    {
+      "id": "https://mirrors.dotsrc.org/opensuse/slowroll/repo/oss/ChangeLog",
+      "title": "ChangeLog - dotsrc.org",
+      "url": "https://mirrors.dotsrc.org/opensuse/slowroll/repo/oss/ChangeLog",
+      "_tool": "exa",
+      "_angle": "challenges, limitations, and known issues",
+      "_query": "ed25519 key rotation patterns revocation production systems SSH key pinning TOFU 0-RTT QUIC replay attack mitigation nonce tls session ticket security terminal relay challenges, limitations, and known issues",
+      "snippet": ""
+    },
+    {
+      "position": 2,
+      "site_name": "github.com",
+      "snippet": "Taming the Many EdDSAs & Ed25519 Signing Attacks. News and social network coverage of this attack. NIST Crypto Reading Club \"Taming the Many EdDSAs\" ( ...",
+      "title": "MystenLabs/ed25519-unsafe-libs - GitHub",
+      "url": "https://github.com/MystenLabs/ed25519-unsafe-libs",
+      "_tool": "tinyfish",
+      "_angle": "existing projects, open source implementations, and alternatives",
+      "_query": "ed25519 key rotation patterns revocation production systems SSH key pinning TOFU 0-RTT QUIC replay attack mitigation nonce tls session ticket security terminal relay existing projects, open source implementations, and alternatives"
+    },
+    {
+      "id": "https://github.com/PraneethGunas/tls-1.3-0-rtt-reply-experiment",
+      "title": "PraneethGunas/tls-1.3-0-rtt-reply-experiment - GitHub",
+      "url": "https://github.com/PraneethGunas/tls-1.3-0-rtt-reply-experiment",
+      "_tool": "exa",
+      "_angle": "applications and real-world use cases",
+      "_query": "real world ed25519 key rotation patterns revocation production systems SSH key pinning TOFU 0-RTT QUIC replay attack mitigation nonce tls session ticket security terminal relay case studies examples",
+      "snippet": ""
+    },
+    {
+      "id": "https://www.jumpserver.com/blog/ssh-key-management-best-practices",
+      "title": "SSH Key Management: Best Practices for Enterprise Security in 2026",
+      "url": "https://www.jumpserver.com/blog/ssh-key-management-best-practices",
+      "publishedDate": "2026-04-16T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "applications and real-world use cases",
+      "_query": "real world ed25519 key rotation patterns revocation production systems SSH key pinning TOFU 0-RTT QUIC replay attack mitigation nonce tls session ticket security terminal relay case studies examples",
+      "snippet": ""
+    },
+    {
+      "id": "https://www.encryptionconsulting.com/designing-an-effective-ssh-key-rotation-policy/",
+      "title": "Designing an effective SSH key Rotation policy",
+      "url": "https://www.encryptionconsulting.com/designing-an-effective-ssh-key-rotation-policy/",
+      "publishedDate": "2025-12-18T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "applications and real-world use cases",
+      "_query": "real world ed25519 key rotation patterns revocation production systems SSH key pinning TOFU 0-RTT QUIC replay attack mitigation nonce tls session ticket security terminal relay case studies examples",
+      "snippet": ""
+    },
+    {
+      "id": "https://www.ssl.com/article/key-management-best-practices-a-practical-guide/",
+      "title": "Key Management Best Practices: A Practical Guide - SSL.com",
+      "url": "https://www.ssl.com/article/key-management-best-practices-a-practical-guide/",
+      "publishedDate": "2024-05-03T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "applications and real-world use cases",
+      "_query": "real world ed25519 key rotation patterns revocation production systems SSH key pinning TOFU 0-RTT QUIC replay attack mitigation nonce tls session ticket security terminal relay case studies examples",
+      "snippet": ""
+    },
+    {
+      "id": "https://www.youtube.com/watch?v=T50mXiYsa-Y",
+      "title": "Mastering QUIC TLS Handshake & 0-RTT | System Design Tutorial #5",
+      "url": "https://www.youtube.com/watch?v=T50mXiYsa-Y",
+      "publishedDate": "2026-04-06T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "applications and real-world use cases",
+      "_query": "real world ed25519 key rotation patterns revocation production systems SSH key pinning TOFU 0-RTT QUIC replay attack mitigation nonce tls session ticket security terminal relay case studies examples",
+      "snippet": ""
+    },
+    {
+      "id": "https://web.njit.edu/~crix/CS.408/content/408-lecture-20-21.pdf",
+      "title": "[PDF] CS 408 Cryptography & Internet Security - NJIT",
+      "url": "https://web.njit.edu/~crix/CS.408/content/408-lecture-20-21.pdf",
+      "_tool": "exa",
+      "_angle": "applications and real-world use cases",
+      "_query": "real world ed25519 key rotation patterns revocation production systems SSH key pinning TOFU 0-RTT QUIC replay attack mitigation nonce tls session ticket security terminal relay case studies examples",
+      "snippet": ""
+    },
+    {
+      "id": "https://www.beyondtrust.com/blog/entry/ssh-key-management-overview-6-best-practices",
+      "title": "SSH Key Management Overview & 10 Best Practices - BeyondTrust",
+      "url": "https://www.beyondtrust.com/blog/entry/ssh-key-management-overview-6-best-practices",
+      "publishedDate": "2022-11-22T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "applications and real-world use cases",
+      "_query": "real world ed25519 key rotation patterns revocation production systems SSH key pinning TOFU 0-RTT QUIC replay attack mitigation nonce tls session ticket security terminal relay case studies examples",
+      "snippet": ""
+    }
+  ],
+  "seen_urls": [
+    "https://medium.com/@instatunnel/0-rtt-replay-the-high-speed-flaw-in-http-3-that-bypasses-idempotency-ef5f688fcb34",
+    "https://datatracker.ietf.org/doc/html/rfc8709",
+    "https://www.researchgate.net/publication/374821051_Replay_Attack_in_TLS_13_0-RTT_Handshake_Countermeasure_Techniques",
+    "https://www.mdpi.com/2071-1050/14/23/15900",
+    "https://arxiv.org/html/2401.06657v3",
+    "https://eprint.iacr.org/2019/228",
+    "https://www.ndss-symposium.org/wp-content/uploads/2017/09/transcript-collision-attacks-breaking-authentication-tls-ike-ssh.pdf",
+    "https://nym.com/trust-center/cryptography",
+    "https://pmc.ncbi.nlm.nih.gov/articles/PMC8512771/",
+    "https://dokumen.pub/bulletproof-tls-and-pki-2nbsped-9781907117091.html",
+    "https://www.brandonchecketts.com/archives/ssh-ed25519-key-best-practices-for-2025",
+    "https://aws.plainenglish.io/ssh-key-management-easy-step-by-step-guide-3c1e2d120884",
+    "https://www.appviewx.com/blogs/9-ssh-key-management-best-practices-you-need-to-know/",
+    "https://messari.io/copilot/share/understanding-ed25519-ee5c6e19-3f05-4557-ac8f-9a1e84b9e8ff",
+    "https://www.brandonchecketts.com/archives/its-2023-you-should-be-using-an-ed25519-ssh-key-and-other-current-best-practices",
+    "https://ftp.ripe.net/internet-drafts/1id-abstracts.txt",
+    "https://www.hexnode.com/blogs/explained/what-is-ed25519-in-cybersecurity/",
+    "https://www.ssh.com/academy/common-ssh-key-risks-and-how-to-prevent-them",
+    "https://medium.com/asecuritysite-when-bob-met-alice/explaining-the-chalkias-ed25519-vulnerability-84443a01a92b",
+    "https://mirrors.dotsrc.org/opensuse/slowroll/repo/oss/ChangeLog",
+    "https://github.com/MystenLabs/ed25519-unsafe-libs",
+    "https://github.com/PraneethGunas/tls-1.3-0-rtt-reply-experiment",
+    "https://www.jumpserver.com/blog/ssh-key-management-best-practices",
+    "https://www.encryptionconsulting.com/designing-an-effective-ssh-key-rotation-policy/",
+    "https://www.ssl.com/article/key-management-best-practices-a-practical-guide/",
+    "https://www.youtube.com/watch?v=T50mXiYsa-Y",
+    "https://web.njit.edu/~crix/CS.408/content/408-lecture-20-21.pdf",
+    "https://www.beyondtrust.com/blog/entry/ssh-key-management-overview-6-best-practices"
+  ],
+  "gaps": [
+    "overview and fundamentals",
+    "history and evolution",
+    "architecture and design principles",
+    "existing projects, open source implementations, and alternatives",
+    "performance characteristics and benchmarks",
+    "applications and real-world use cases",
+    "challenges, limitations, and known issues",
+    "future directions and open research questions"
+  ],
+  "round_metadata": [
+    {
+      "round": 1,
+      "angles_searched": 10,
+      "new_findings": 21,
+      "corpus_findings": 0,
+      "web_findings": 21,
+      "elapsed_seconds": 4.0,
+      "budget_remaining": 235
+    },
+    {
+      "round": 2,
+      "angles_searched": 7,
+      "new_findings": 7,
+      "corpus_findings": 0,
+      "web_findings": 7,
+      "elapsed_seconds": 8.4,
+      "budget_remaining": 231
+    },
+    {
+      "round": 3,
+      "angles_searched": 6,
+      "new_findings": 0,
+      "corpus_findings": 0,
+      "web_findings": 0,
+      "elapsed_seconds": 12.2,
+      "budget_remaining": 227
+    }
+  ],
+  "confidence": 0.72,
+  "cross_verification": [
+    {
+      "angle": "comparative analysis and alternatives",
+      "total_sources": 10,
+      "unique_domains": [
+        "datatracker.ietf.org",
+        "medium.com",
+        "www.ndss-symposium.org",
+        "dokumen.pub",
+        "www.mdpi.com",
+        "eprint.iacr.org",
+        "www.researchgate.net",
+        "arxiv.org",
+        "pmc.ncbi.nlm.nih.gov",
+        "nym.com"
+      ],
+      "domain_diversity": 10,
+      "tools_used": [
+        "exa"
+      ],
+      "tool_diversity": 1,
+      "status": "corroborated"
+    },
+    {
+      "angle": "standards, governance, and community",
+      "total_sources": 6,
+      "unique_domains": [
+        "messari.io",
+        "www.appviewx.com",
+        "aws.plainenglish.io",
+        "ftp.ripe.net",
+        "www.brandonchecketts.com"
+      ],
+      "domain_diversity": 5,
+      "tools_used": [
+        "tinyfish"
+      ],
+      "tool_diversity": 1,
+      "status": "corroborated"
+    },
+    {
+      "angle": "challenges, limitations, and known issues",
+      "total_sources": 4,
+      "unique_domains": [
+        "www.hexnode.com",
+        "mirrors.dotsrc.org",
+        "www.ssh.com",
+        "medium.com"
+      ],
+      "domain_diversity": 4,
+      "tools_used": [
+        "exa"
+      ],
+      "tool_diversity": 1,
+      "status": "corroborated"
+    },
+    {
+      "angle": "existing projects, open source implementations, and alternatives",
+      "total_sources": 1,
+      "unique_domains": [
+        "github.com"
+      ],
+      "domain_diversity": 1,
+      "tools_used": [
+        "tinyfish"
+      ],
+      "tool_diversity": 1,
+      "status": "low_corroboration",
+      "note": "Only 1 unique domain \u2014 claims may lack independent verification"
+    },
+    {
+      "angle": "applications and real-world use cases",
+      "total_sources": 7,
+      "unique_domains": [
+        "www.jumpserver.com",
+        "web.njit.edu",
+        "www.beyondtrust.com",
+        "www.ssl.com",
+        "github.com",
+        "www.youtube.com",
+        "www.encryptionconsulting.com"
+      ],
+      "domain_diversity": 7,
+      "tools_used": [
+        "exa"
+      ],
+      "tool_diversity": 1,
+      "status": "corroborated"
+    }
+  ],
+  "status": "complete",
+  "error": null,
+  "research_packet": {
+    "packet_id": "268f5683-33a",
+    "producer": "HermesOptimizer",
+    "backend": "deerflow-iterative-v2",
+    "topic": "ed25519 key rotation patterns revocation production systems SSH key pinning TOFU 0-RTT QUIC replay attack mitigation nonce tls session ticket security terminal relay",
+    "kind": "deep-research-paper",
+    "consumers": [
+      "liminal-dashboard"
+    ],
+    "status": "ready",
+    "confidence": 0.72,
+    "research_method": {
+      "max_depth": 3,
+      "rounds_completed": 3,
+      "total_unique_sources": 28,
+      "unique_domains": 25,
+      "tools_used": "exa, tinyfish",
+      "budget_used_seconds": 12.2,
+      "time_budget_seconds": 240
+    },
+    "abstract": "Deep research on 'ed25519 key rotation patterns revocation production systems SSH key pinning TOFU 0-RTT QUIC replay attack mitigation nonce tls session ticket security terminal relay' across 5 research dimensions using 3 iterative rounds with exa, tinyfish. Drew from 28 unique sources across 25 domains. Confidence: 0.72.",
+    "sections": [
+      {
+        "section": "comparative analysis and alternatives",
+        "finding_count": 10,
+        "source_count": 10,
+        "sources": [
+          {
+            "title": "0-RTT Replay: The High-Speed Flaw in HTTP/3 That Bypasses ...",
+            "url": "https://medium.com/@instatunnel/0-rtt-replay-the-high-speed-flaw-in-http-3-that-bypasses-idempotency-ef5f688fcb34",
+            "hash": "sha256:bcb93a97e7cc3ab9646d0ff34817a7027a5f368286ab1c0a59112fa3591dd294",
+            "source_type": "exa",
+            "domain": ""
+          },
+          {
+            "title": "RFC 8709 - Ed25519 and Ed448 Public Key Algorithms for the ...",
+            "url": "https://datatracker.ietf.org/doc/html/rfc8709",
+            "hash": "sha256:a934e03db20dc9f92704931035aa425d0cb745a218ef710c8cfa15e06308633e",
+            "source_type": "exa",
+            "domain": ""
+          },
+          {
+            "title": "(PDF) Replay Attack in TLS 1.3 0-RTT Handshake - ResearchGate",
+            "url": "https://www.researchgate.net/publication/374821051_Replay_Attack_in_TLS_13_0-RTT_Handshake_Countermeasure_Techniques",
+            "hash": "sha256:03898b9950483a4bed8e0971f67094b4d54ff13fadc79247f3be6d55f89ee30f",
+            "source_type": "exa",
+            "domain": ""
+          },
+          {
+            "title": "Replay-Attack Detection and Prevention Mechanism in Industry 4.0 ...",
+            "url": "https://www.mdpi.com/2071-1050/14/23/15900",
+            "hash": "sha256:9479fa4cbc7ae147451a30d684d84f7afff4e062e93efdb69142f6559eeabce3",
+            "source_type": "exa",
+            "domain": ""
+          },
+          {
+            "title": "How Resilient is QUIC to Security and Privacy Attacks? - arXiv",
+            "url": "https://arxiv.org/html/2401.06657v3",
+            "hash": "sha256:27bcdd94d50301e2576437a826cad83bc14e562fdea6d09d535b2c4635338a6a",
+            "source_type": "exa",
+            "domain": ""
+          },
+          {
+            "title": "Session Resumption Protocols and Efficient Forward Security for ...",
+            "url": "https://eprint.iacr.org/2019/228",
+            "hash": "sha256:7fa9fc366a2453d39a420b57010f09327b9a1744ae107c3a3e9805f3f6fefa5c",
+            "source_type": "exa",
+            "domain": ""
+          },
+          {
+            "title": "[PDF] Transcript Collision Attacks: Breaking Authentication in TLS, IKE ...",
+            "url": "https://www.ndss-symposium.org/wp-content/uploads/2017/09/transcript-collision-attacks-breaking-authentication-tls-ike-ssh.pdf",
+            "hash": "sha256:c26b5ecb4985f7f321ebf68e4933d446b3720b1330451b4a88629c737cccb7ac",
+            "source_type": "exa",
+            "domain": ""
+          },
+          {
+            "title": "Up-to-date cryptography - Nym Technologies",
+            "url": "https://nym.com/trust-center/cryptography",
+            "hash": "sha256:2891e16672422f43de09fb586cb8e31de744be9f4aa433fdabe5c7a3418e462a",
+            "source_type": "exa",
+            "domain": ""
+          },
+          {
+            "title": "rTLS: Secure and Efficient TLS Session Resumption for the Internet ...",
+            "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC8512771/",
+            "hash": "sha256:f203a078e8843affcc3d0a8dd29736e386ad8a4147349768160c8e2d1765374d",
+            "source_type": "exa",
+            "domain": ""
+          },
+          {
+            "title": "Bulletproof TLS and PKI [2 ed.] 9781907117091 - DOKUMEN.PUB",
+            "url": "https://dokumen.pub/bulletproof-tls-and-pki-2nbsped-9781907117091.html",
+            "hash": "sha256:2eddcbb3bfbd1a1b81d1b2ca6a6f9a6b8150df8ee8e09c70a0a8254b8c120c25",
+            "source_type": "exa",
+            "domain": ""
+          }
+        ],
+        "key_entries": [
+          {
+            "title": "0-RTT Replay: The High-Speed Flaw in HTTP/3 That Bypasses ...",
+            "url": "https://medium.com/@instatunnel/0-rtt-replay-the-high-speed-flaw-in-http-3-that-bypasses-idempotency-ef5f688fcb34",
+            "description": "",
+            "tool": "exa"
+          },
+          {
+            "title": "RFC 8709 - Ed25519 and Ed448 Public Key Algorithms for the ...",
+            "url": "https://datatracker.ietf.org/doc/html/rfc8709",
+            "description": "",
+            "tool": "exa"
+          },
+          {
+            "title": "(PDF) Replay Attack in TLS 1.3 0-RTT Handshake - ResearchGate",
+            "url": "https://www.researchgate.net/publication/374821051_Replay_Attack_in_TLS_13_0-RTT_Handshake_Countermeasure_Techniques",
+            "description": "",
+            "tool": "exa"
+          },
+          {
+            "title": "Replay-Attack Detection and Prevention Mechanism in Industry 4.0 ...",
+            "url": "https://www.mdpi.com/2071-1050/14/23/15900",
+            "description": "",
+            "tool": "exa"
+          },
+          {
+            "title": "How Resilient is QUIC to Security and Privacy Attacks? - arXiv",
+            "url": "https://arxiv.org/html/2401.06657v3",
+            "description": "",
+            "tool": "exa"
+          }
+        ]
+      },
+      {
+        "section": "standards, governance, and community",
+        "finding_count": 6,
+        "source_count": 6,
+        "sources": [
+          {
+            "title": "SSH Key Best Practices for 2025 - Using ed25519, key rotation, and ...",
+            "url": "https://www.brandonchecketts.com/archives/ssh-ed25519-key-best-practices-for-2025",
+            "hash": "sha256:08f8f0293dce87c01222ae340d827469e0d09571a15a910793a92972cc8754b4",
+            "source_type": "tinyfish",
+            "domain": ""
+          },
+          {
+            "title": "SSH Key Management : Easy Step-by-Step Guide | by Pawan Natekar",
+            "url": "https://aws.plainenglish.io/ssh-key-management-easy-step-by-step-guide-3c1e2d120884",
+            "hash": "sha256:79e212f4413a51c8f33c4b380e647c0a5709d4c1ae70193d029a8c2babb86151",
+            "source_type": "tinyfish",
+            "domain": ""
+          },
+          {
+            "title": "9 SSH Key Management Best Practices You Need to Know",
+            "url": "https://www.appviewx.com/blogs/9-ssh-key-management-best-practices-you-need-to-know/",
+            "hash": "sha256:fd8a47628851c0eb3ccf952684324bff248e88bc465b680ca2e1d9724890f1b5",
+            "source_type": "tinyfish",
+            "domain": ""
+          },
+          {
+            "title": "Understanding Ed25519 | Messari",
+            "url": "https://messari.io/copilot/share/understanding-ed25519-ee5c6e19-3f05-4557-ac8f-9a1e84b9e8ff",
+            "hash": "sha256:88ae6707743956e7ccd458eff7d8a003253718b85ed0a6ee330f3df9c2ebfc2a",
+            "source_type": "tinyfish",
+            "domain": ""
+          },
+          {
+            "title": "It's 2023. You Should Be Using an Ed25519 SSH Key (And Other ...",
+            "url": "https://www.brandonchecketts.com/archives/its-2023-you-should-be-using-an-ed25519-ssh-key-and-other-current-best-practices",
+            "hash": "sha256:80f213a05ce4a6bfa787e4dfc6a86679336201e8b67df14a26ccd566900d98ab",
+            "source_type": "tinyfish",
+            "domain": ""
+          },
+          {
+            "title": "1id-abstracts.txt - Index of /",
+            "url": "https://ftp.ripe.net/internet-drafts/1id-abstracts.txt",
+            "hash": "sha256:6f7ea8238c9902b1260c08e191f5c778f02d3bdaa35cac6cfd653b5306a684e5",
+            "source_type": "tinyfish",
+            "domain": ""
+          }
+        ],
+        "key_entries": [
+          {
+            "title": "SSH Key Best Practices for 2025 - Using ed25519, key rotation, and ...",
+            "url": "https://www.brandonchecketts.com/archives/ssh-ed25519-key-best-practices-for-2025",
+            "description": "Generate an ed25519 SSH key using current best practices from 2025. Rotate your keys, assign a useful comment, and use SSH-Agent and Agent ...",
+            "tool": "tinyfish"
+          },
+          {
+            "title": "SSH Key Management : Easy Step-by-Step Guide | by Pawan Natekar",
+            "url": "https://aws.plainenglish.io/ssh-key-management-easy-step-by-step-guide-3c1e2d120884",
+            "description": "Step 1 : Generate a strong key pair (on your laptop) ; Recommended: ' ; ed25519'(modern, fast, secure). If needed, use RSA 4096.",
+            "tool": "tinyfish"
+          },
+          {
+            "title": "9 SSH Key Management Best Practices You Need to Know",
+            "url": "https://www.appviewx.com/blogs/9-ssh-key-management-best-practices-you-need-to-know/",
+            "description": "In addition to the security risk, unmanaged SSH keys can lead to policy violations, failed audits, and massive regulatory penalties. To ensure robust protection ...",
+            "tool": "tinyfish"
+          },
+          {
+            "title": "Understanding Ed25519 | Messari",
+            "url": "https://messari.io/copilot/share/understanding-ed25519-ee5c6e19-3f05-4557-ac8f-9a1e84b9e8ff",
+            "description": "Classical Security: Ed25519 is considered very secure against classical computers; no practical attacks are known \u00b7 Quantum Security: Like all traditional ...",
+            "tool": "tinyfish"
+          },
+          {
+            "title": "It's 2023. You Should Be Using an Ed25519 SSH Key (And Other ...",
+            "url": "https://www.brandonchecketts.com/archives/its-2023-you-should-be-using-an-ed25519-ssh-key-and-other-current-best-practices",
+            "description": "The Ed25519 key is much shorter, so initially you might think it is less secure. But these keys use a totally different algorithm.",
+            "tool": "tinyfish"
+          }
+        ]
+      },
+      {
+        "section": "challenges, limitations, and known issues",
+        "finding_count": 4,
+        "source_count": 4,
+        "sources": [
+          {
+            "title": "What is Ed25519 in cybersecurity? - Hexnode Blogs",
+            "url": "https://www.hexnode.com/blogs/explained/what-is-ed25519-in-cybersecurity/",
+            "hash": "sha256:9bc9f86bb20198424e73af989507bf885608a7b577be3eeec6f2debc73f4480d",
+            "source_type": "exa",
+            "domain": ""
+          },
+          {
+            "title": "Common SSH Key Risks and How to Prevent Them",
+            "url": "https://www.ssh.com/academy/common-ssh-key-risks-and-how-to-prevent-them",
+            "hash": "sha256:22cd5fc450b5acf6a9eb5922d5ca0557b7127803c635fd9e38b30554dab1fd85",
+            "source_type": "exa",
+            "domain": ""
+          },
+          {
+            "title": "Explaining The Chalkias Ed25519 Vulnerability - Medium",
+            "url": "https://medium.com/asecuritysite-when-bob-met-alice/explaining-the-chalkias-ed25519-vulnerability-84443a01a92b",
+            "hash": "sha256:2155e21cacb26ee492c7a01b706c23df13a4fb118337454f3e71202e9bcc87e4",
+            "source_type": "exa",
+            "domain": ""
+          },
+          {
+            "title": "ChangeLog - dotsrc.org",
+            "url": "https://mirrors.dotsrc.org/opensuse/slowroll/repo/oss/ChangeLog",
+            "hash": "sha256:e7253d9ce8b3296984cd8b23b91d2ec97be5db9b2dbeb53c0506f71bfc6eb4d3",
+            "source_type": "exa",
+            "domain": ""
+          }
+        ],
+        "key_entries": [
+          {
+            "title": "What is Ed25519 in cybersecurity? - Hexnode Blogs",
+            "url": "https://www.hexnode.com/blogs/explained/what-is-ed25519-in-cybersecurity/",
+            "description": "",
+            "tool": "exa"
+          },
+          {
+            "title": "Common SSH Key Risks and How to Prevent Them",
+            "url": "https://www.ssh.com/academy/common-ssh-key-risks-and-how-to-prevent-them",
+            "description": "",
+            "tool": "exa"
+          },
+          {
+            "title": "Explaining The Chalkias Ed25519 Vulnerability - Medium",
+            "url": "https://medium.com/asecuritysite-when-bob-met-alice/explaining-the-chalkias-ed25519-vulnerability-84443a01a92b",
+            "description": "",
+            "tool": "exa"
+          },
+          {
+            "title": "ChangeLog - dotsrc.org",
+            "url": "https://mirrors.dotsrc.org/opensuse/slowroll/repo/oss/ChangeLog",
+            "description": "",
+            "tool": "exa"
+          }
+        ]
+      },
+      {
+        "section": "existing projects, open source implementations, and alternatives",
+        "finding_count": 1,
+        "source_count": 1,
+        "sources": [
+          {
+            "title": "MystenLabs/ed25519-unsafe-libs - GitHub",
+            "url": "https://github.com/MystenLabs/ed25519-unsafe-libs",
+            "hash": "sha256:77c70ec913fac3c9b2297409688626c1f85d93ba9870117b3b6ecd787caf675b",
+            "source_type": "tinyfish",
+            "domain": ""
+          }
+        ],
+        "key_entries": [
+          {
+            "title": "MystenLabs/ed25519-unsafe-libs - GitHub",
+            "url": "https://github.com/MystenLabs/ed25519-unsafe-libs",
+            "description": "Taming the Many EdDSAs & Ed25519 Signing Attacks. News and social network coverage of this attack. NIST Crypto Reading Club \"Taming the Many EdDSAs\" ( ...",
+            "tool": "tinyfish"
+          }
+        ]
+      },
+      {
+        "section": "applications and real-world use cases",
+        "finding_count": 7,
+        "source_count": 7,
+        "sources": [
+          {
+            "title": "PraneethGunas/tls-1.3-0-rtt-reply-experiment - GitHub",
+            "url": "https://github.com/PraneethGunas/tls-1.3-0-rtt-reply-experiment",
+            "hash": "sha256:05513224b0909bf0ffe61853e1b7029fce92a269d53958f0d0a307195b9842cd",
+            "source_type": "exa",
+            "domain": ""
+          },
+          {
+            "title": "SSH Key Management: Best Practices for Enterprise Security in 2026",
+            "url": "https://www.jumpserver.com/blog/ssh-key-management-best-practices",
+            "hash": "sha256:49d908cdd4327c43078586056b475be478f69f0049f09a69b23573f0aa6c5100",
+            "source_type": "exa",
+            "domain": ""
+          },
+          {
+            "title": "Designing an effective SSH key Rotation policy",
+            "url": "https://www.encryptionconsulting.com/designing-an-effective-ssh-key-rotation-policy/",
+            "hash": "sha256:8efc4fa224fe0f7d78981d23c95a282ccd4d85ce8eef4d8f5ed843eae79e00b2",
+            "source_type": "exa",
+            "domain": ""
+          },
+          {
+            "title": "Key Management Best Practices: A Practical Guide - SSL.com",
+            "url": "https://www.ssl.com/article/key-management-best-practices-a-practical-guide/",
+            "hash": "sha256:93ae6f252a05b8b16d8d02d99c4863594b25bb5ce0d21803f2ba2236b1365133",
+            "source_type": "exa",
+            "domain": ""
+          },
+          {
+            "title": "Mastering QUIC TLS Handshake & 0-RTT | System Design Tutorial #5",
+            "url": "https://www.youtube.com/watch?v=T50mXiYsa-Y",
+            "hash": "sha256:6004c22291716003dd19f1c37a9c29dee7c6c0ca10c4448a9bf87abfd937bf40",
+            "source_type": "exa",
+            "domain": ""
+          },
+          {
+            "title": "[PDF] CS 408 Cryptography & Internet Security - NJIT",
+            "url": "https://web.njit.edu/~crix/CS.408/content/408-lecture-20-21.pdf",
+            "hash": "sha256:0bcbb481e9407e38313c705deb6cf01c3a78b0a340ac05d8ab87814da2bb04d3",
+            "source_type": "exa",
+            "domain": ""
+          },
+          {
+            "title": "SSH Key Management Overview & 10 Best Practices - BeyondTrust",
+            "url": "https://www.beyondtrust.com/blog/entry/ssh-key-management-overview-6-best-practices",
+            "hash": "sha256:6d389c7efa342f87fc8b47b94d96e4649a7fb5bbb82efb771765717509e271a1",
+            "source_type": "exa",
+            "domain": ""
+          }
+        ],
+        "key_entries": [
+          {
+            "title": "PraneethGunas/tls-1.3-0-rtt-reply-experiment - GitHub",
+            "url": "https://github.com/PraneethGunas/tls-1.3-0-rtt-reply-experiment",
+            "description": "",
+            "tool": "exa"
+          },
+          {
+            "title": "SSH Key Management: Best Practices for Enterprise Security in 2026",
+            "url": "https://www.jumpserver.com/blog/ssh-key-management-best-practices",
+            "description": "",
+            "tool": "exa"
+          },
+          {
+            "title": "Designing an effective SSH key Rotation policy",
+            "url": "https://www.encryptionconsulting.com/designing-an-effective-ssh-key-rotation-policy/",
+            "description": "",
+            "tool": "exa"
+          },
+          {
+            "title": "Key Management Best Practices: A Practical Guide - SSL.com",
+            "url": "https://www.ssl.com/article/key-management-best-practices-a-practical-guide/",
+            "description": "",
+            "tool": "exa"
+          },
+          {
+            "title": "Mastering QUIC TLS Handshake & 0-RTT | System Design Tutorial #5",
+            "url": "https://www.youtube.com/watch?v=T50mXiYsa-Y",
+            "description": "",
+            "tool": "exa"
+          }
+        ]
+      }
+    ],
+    "findings": [
+      {
+        "title": "0-RTT Replay: The High-Speed Flaw in HTTP/3 That Bypasses ...",
+        "description": "",
+        "source_ref": "https://medium.com/@instatunnel/0-rtt-replay-the-high-speed-flaw-in-http-3-that-bypasses-idempotency-ef5f688fcb34",
+        "source_hash": "sha256:bcb93a97e7cc3ab9646d0ff34817a7027a5f368286ab1c0a59112fa3591dd294",
+        "url": "https://medium.com/@instatunnel/0-rtt-replay-the-high-speed-flaw-in-http-3-that-bypasses-idempotency-ef5f688fcb34",
+        "tool": "exa",
+        "angle": "comparative analysis and alternatives"
+      },
+      {
+        "title": "RFC 8709 - Ed25519 and Ed448 Public Key Algorithms for the ...",
+        "description": "",
+        "source_ref": "https://datatracker.ietf.org/doc/html/rfc8709",
+        "source_hash": "sha256:a934e03db20dc9f92704931035aa425d0cb745a218ef710c8cfa15e06308633e",
+        "url": "https://datatracker.ietf.org/doc/html/rfc8709",
+        "tool": "exa",
+        "angle": "comparative analysis and alternatives"
+      },
+      {
+        "title": "(PDF) Replay Attack in TLS 1.3 0-RTT Handshake - ResearchGate",
+        "description": "",
+        "source_ref": "https://www.researchgate.net/publication/374821051_Replay_Attack_in_TLS_13_0-RTT_Handshake_Countermeasure_Techniques",
+        "source_hash": "sha256:03898b9950483a4bed8e0971f67094b4d54ff13fadc79247f3be6d55f89ee30f",
+        "url": "https://www.researchgate.net/publication/374821051_Replay_Attack_in_TLS_13_0-RTT_Handshake_Countermeasure_Techniques",
+        "tool": "exa",
+        "angle": "comparative analysis and alternatives"
+      },
+      {
+        "title": "Replay-Attack Detection and Prevention Mechanism in Industry 4.0 ...",
+        "description": "",
+        "source_ref": "https://www.mdpi.com/2071-1050/14/23/15900",
+        "source_hash": "sha256:9479fa4cbc7ae147451a30d684d84f7afff4e062e93efdb69142f6559eeabce3",
+        "url": "https://www.mdpi.com/2071-1050/14/23/15900",
+        "tool": "exa",
+        "angle": "comparative analysis and alternatives"
+      },
+      {
+        "title": "How Resilient is QUIC to Security and Privacy Attacks? - arXiv",
+        "description": "",
+        "source_ref": "https://arxiv.org/html/2401.06657v3",
+        "source_hash": "sha256:27bcdd94d50301e2576437a826cad83bc14e562fdea6d09d535b2c4635338a6a",
+        "url": "https://arxiv.org/html/2401.06657v3",
+        "tool": "exa",
+        "angle": "comparative analysis and alternatives"
+      },
+      {
+        "title": "Session Resumption Protocols and Efficient Forward Security for ...",
+        "description": "",
+        "source_ref": "https://eprint.iacr.org/2019/228",
+        "source_hash": "sha256:7fa9fc366a2453d39a420b57010f09327b9a1744ae107c3a3e9805f3f6fefa5c",
+        "url": "https://eprint.iacr.org/2019/228",
+        "tool": "exa",
+        "angle": "comparative analysis and alternatives"
+      },
+      {
+        "title": "[PDF] Transcript Collision Attacks: Breaking Authentication in TLS, IKE ...",
+        "description": "",
+        "source_ref": "https://www.ndss-symposium.org/wp-content/uploads/2017/09/transcript-collision-attacks-breaking-authentication-tls-ike-ssh.pdf",
+        "source_hash": "sha256:c26b5ecb4985f7f321ebf68e4933d446b3720b1330451b4a88629c737cccb7ac",
+        "url": "https://www.ndss-symposium.org/wp-content/uploads/2017/09/transcript-collision-attacks-breaking-authentication-tls-ike-ssh.pdf",
+        "tool": "exa",
+        "angle": "comparative analysis and alternatives"
+      },
+      {
+        "title": "Up-to-date cryptography - Nym Technologies",
+        "description": "",
+        "source_ref": "https://nym.com/trust-center/cryptography",
+        "source_hash": "sha256:2891e16672422f43de09fb586cb8e31de744be9f4aa433fdabe5c7a3418e462a",
+        "url": "https://nym.com/trust-center/cryptography",
+        "tool": "exa",
+        "angle": "comparative analysis and alternatives"
+      },
+      {
+        "title": "rTLS: Secure and Efficient TLS Session Resumption for the Internet ...",
+        "description": "",
+        "source_ref": "https://pmc.ncbi.nlm.nih.gov/articles/PMC8512771/",
+        "source_hash": "sha256:f203a078e8843affcc3d0a8dd29736e386ad8a4147349768160c8e2d1765374d",
+        "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC8512771/",
+        "tool": "exa",
+        "angle": "comparative analysis and alternatives"
+      },
+      {
+        "title": "Bulletproof TLS and PKI [2 ed.] 9781907117091 - DOKUMEN.PUB",
+        "description": "",
+        "source_ref": "https://dokumen.pub/bulletproof-tls-and-pki-2nbsped-9781907117091.html",
+        "source_hash": "sha256:2eddcbb3bfbd1a1b81d1b2ca6a6f9a6b8150df8ee8e09c70a0a8254b8c120c25",
+        "url": "https://dokumen.pub/bulletproof-tls-and-pki-2nbsped-9781907117091.html",
+        "tool": "exa",
+        "angle": "comparative analysis and alternatives"
+      },
+      {
+        "title": "SSH Key Best Practices for 2025 - Using ed25519, key rotation, and ...",
+        "description": "Generate an ed25519 SSH key using current best practices from 2025. Rotate your keys, assign a useful comment, and use SSH-Agent and Agent ...",
+        "source_ref": "https://www.brandonchecketts.com/archives/ssh-ed25519-key-best-practices-for-2025",
+        "source_hash": "sha256:08f8f0293dce87c01222ae340d827469e0d09571a15a910793a92972cc8754b4",
+        "url": "https://www.brandonchecketts.com/archives/ssh-ed25519-key-best-practices-for-2025",
+        "tool": "tinyfish",
+        "angle": "standards, governance, and community"
+      },
+      {
+        "title": "SSH Key Management : Easy Step-by-Step Guide | by Pawan Natekar",
+        "description": "Step 1 : Generate a strong key pair (on your laptop) ; Recommended: ' ; ed25519'(modern, fast, secure). If needed, use RSA 4096.",
+        "source_ref": "https://aws.plainenglish.io/ssh-key-management-easy-step-by-step-guide-3c1e2d120884",
+        "source_hash": "sha256:79e212f4413a51c8f33c4b380e647c0a5709d4c1ae70193d029a8c2babb86151",
+        "url": "https://aws.plainenglish.io/ssh-key-management-easy-step-by-step-guide-3c1e2d120884",
+        "tool": "tinyfish",
+        "angle": "standards, governance, and community"
+      },
+      {
+        "title": "9 SSH Key Management Best Practices You Need to Know",
+        "description": "In addition to the security risk, unmanaged SSH keys can lead to policy violations, failed audits, and massive regulatory penalties. To ensure robust protection ...",
+        "source_ref": "https://www.appviewx.com/blogs/9-ssh-key-management-best-practices-you-need-to-know/",
+        "source_hash": "sha256:fd8a47628851c0eb3ccf952684324bff248e88bc465b680ca2e1d9724890f1b5",
+        "url": "https://www.appviewx.com/blogs/9-ssh-key-management-best-practices-you-need-to-know/",
+        "tool": "tinyfish",
+        "angle": "standards, governance, and community"
+      },
+      {
+        "title": "Understanding Ed25519 | Messari",
+        "description": "Classical Security: Ed25519 is considered very secure against classical computers; no practical attacks are known \u00b7 Quantum Security: Like all traditional ...",
+        "source_ref": "https://messari.io/copilot/share/understanding-ed25519-ee5c6e19-3f05-4557-ac8f-9a1e84b9e8ff",
+        "source_hash": "sha256:88ae6707743956e7ccd458eff7d8a003253718b85ed0a6ee330f3df9c2ebfc2a",
+        "url": "https://messari.io/copilot/share/understanding-ed25519-ee5c6e19-3f05-4557-ac8f-9a1e84b9e8ff",
+        "tool": "tinyfish",
+        "angle": "standards, governance, and community"
+      },
+      {
+        "title": "It's 2023. You Should Be Using an Ed25519 SSH Key (And Other ...",
+        "description": "The Ed25519 key is much shorter, so initially you might think it is less secure. But these keys use a totally different algorithm.",
+        "source_ref": "https://www.brandonchecketts.com/archives/its-2023-you-should-be-using-an-ed25519-ssh-key-and-other-current-best-practices",
+        "source_hash": "sha256:80f213a05ce4a6bfa787e4dfc6a86679336201e8b67df14a26ccd566900d98ab",
+        "url": "https://www.brandonchecketts.com/archives/its-2023-you-should-be-using-an-ed25519-ssh-key-and-other-current-best-practices",
+        "tool": "tinyfish",
+        "angle": "standards, governance, and community"
+      },
+      {
+        "title": "1id-abstracts.txt - Index of /",
+        "description": "The new extension is called Address Protected Neighbor Discovery (AP-ND) and it protects the owner of an address against address theft and impersonation attacks ...",
+        "source_ref": "https://ftp.ripe.net/internet-drafts/1id-abstracts.txt",
+        "source_hash": "sha256:6f7ea8238c9902b1260c08e191f5c778f02d3bdaa35cac6cfd653b5306a684e5",
+        "url": "https://ftp.ripe.net/internet-drafts/1id-abstracts.txt",
+        "tool": "tinyfish",
+        "angle": "standards, governance, and community"
+      },
+      {
+        "title": "What is Ed25519 in cybersecurity? - Hexnode Blogs",
+        "description": "",
+        "source_ref": "https://www.hexnode.com/blogs/explained/what-is-ed25519-in-cybersecurity/",
+        "source_hash": "sha256:9bc9f86bb20198424e73af989507bf885608a7b577be3eeec6f2debc73f4480d",
+        "url": "https://www.hexnode.com/blogs/explained/what-is-ed25519-in-cybersecurity/",
+        "tool": "exa",
+        "angle": "challenges, limitations, and known issues"
+      },
+      {
+        "title": "Common SSH Key Risks and How to Prevent Them",
+        "description": "",
+        "source_ref": "https://www.ssh.com/academy/common-ssh-key-risks-and-how-to-prevent-them",
+        "source_hash": "sha256:22cd5fc450b5acf6a9eb5922d5ca0557b7127803c635fd9e38b30554dab1fd85",
+        "url": "https://www.ssh.com/academy/common-ssh-key-risks-and-how-to-prevent-them",
+        "tool": "exa",
+        "angle": "challenges, limitations, and known issues"
+      },
+      {
+        "title": "Explaining The Chalkias Ed25519 Vulnerability - Medium",
+        "description": "",
+        "source_ref": "https://medium.com/asecuritysite-when-bob-met-alice/explaining-the-chalkias-ed25519-vulnerability-84443a01a92b",
+        "source_hash": "sha256:2155e21cacb26ee492c7a01b706c23df13a4fb118337454f3e71202e9bcc87e4",
+        "url": "https://medium.com/asecuritysite-when-bob-met-alice/explaining-the-chalkias-ed25519-vulnerability-84443a01a92b",
+        "tool": "exa",
+        "angle": "challenges, limitations, and known issues"
+      },
+      {
+        "title": "ChangeLog - dotsrc.org",
+        "description": "",
+        "source_ref": "https://mirrors.dotsrc.org/opensuse/slowroll/repo/oss/ChangeLog",
+        "source_hash": "sha256:e7253d9ce8b3296984cd8b23b91d2ec97be5db9b2dbeb53c0506f71bfc6eb4d3",
+        "url": "https://mirrors.dotsrc.org/opensuse/slowroll/repo/oss/ChangeLog",
+        "tool": "exa",
+        "angle": "challenges, limitations, and known issues"
+      },
+      {
+        "title": "MystenLabs/ed25519-unsafe-libs - GitHub",
+        "description": "Taming the Many EdDSAs & Ed25519 Signing Attacks. News and social network coverage of this attack. NIST Crypto Reading Club \"Taming the Many EdDSAs\" ( ...",
+        "source_ref": "https://github.com/MystenLabs/ed25519-unsafe-libs",
+        "source_hash": "sha256:77c70ec913fac3c9b2297409688626c1f85d93ba9870117b3b6ecd787caf675b",
+        "url": "https://github.com/MystenLabs/ed25519-unsafe-libs",
+        "tool": "tinyfish",
+        "angle": "existing projects, open source implementations, and alternatives"
+      },
+      {
+        "title": "PraneethGunas/tls-1.3-0-rtt-reply-experiment - GitHub",
+        "description": "",
+        "source_ref": "https://github.com/PraneethGunas/tls-1.3-0-rtt-reply-experiment",
+        "source_hash": "sha256:05513224b0909bf0ffe61853e1b7029fce92a269d53958f0d0a307195b9842cd",
+        "url": "https://github.com/PraneethGunas/tls-1.3-0-rtt-reply-experiment",
+        "tool": "exa",
+        "angle": "applications and real-world use cases"
+      },
+      {
+        "title": "SSH Key Management: Best Practices for Enterprise Security in 2026",
+        "description": "",
+        "source_ref": "https://www.jumpserver.com/blog/ssh-key-management-best-practices",
+        "source_hash": "sha256:49d908cdd4327c43078586056b475be478f69f0049f09a69b23573f0aa6c5100",
+        "url": "https://www.jumpserver.com/blog/ssh-key-management-best-practices",
+        "tool": "exa",
+        "angle": "applications and real-world use cases"
+      },
+      {
+        "title": "Designing an effective SSH key Rotation policy",
+        "description": "",
+        "source_ref": "https://www.encryptionconsulting.com/designing-an-effective-ssh-key-rotation-policy/",
+        "source_hash": "sha256:8efc4fa224fe0f7d78981d23c95a282ccd4d85ce8eef4d8f5ed843eae79e00b2",
+        "url": "https://www.encryptionconsulting.com/designing-an-effective-ssh-key-rotation-policy/",
+        "tool": "exa",
+        "angle": "applications and real-world use cases"
+      },
+      {
+        "title": "Key Management Best Practices: A Practical Guide - SSL.com",
+        "description": "",
+        "source_ref": "https://www.ssl.com/article/key-management-best-practices-a-practical-guide/",
+        "source_hash": "sha256:93ae6f252a05b8b16d8d02d99c4863594b25bb5ce0d21803f2ba2236b1365133",
+        "url": "https://www.ssl.com/article/key-management-best-practices-a-practical-guide/",
+        "tool": "exa",
+        "angle": "applications and real-world use cases"
+      },
+      {
+        "title": "Mastering QUIC TLS Handshake & 0-RTT | System Design Tutorial #5",
+        "description": "",
+        "source_ref": "https://www.youtube.com/watch?v=T50mXiYsa-Y",
+        "source_hash": "sha256:6004c22291716003dd19f1c37a9c29dee7c6c0ca10c4448a9bf87abfd937bf40",
+        "url": "https://www.youtube.com/watch?v=T50mXiYsa-Y",
+        "tool": "exa",
+        "angle": "applications and real-world use cases"
+      },
+      {
+        "title": "[PDF] CS 408 Cryptography & Internet Security - NJIT",
+        "description": "",
+        "source_ref": "https://web.njit.edu/~crix/CS.408/content/408-lecture-20-21.pdf",
+        "source_hash": "sha256:0bcbb481e9407e38313c705deb6cf01c3a78b0a340ac05d8ab87814da2bb04d3",
+        "url": "https://web.njit.edu/~crix/CS.408/content/408-lecture-20-21.pdf",
+        "tool": "exa",
+        "angle": "applications and real-world use cases"
+      },
+      {
+        "title": "SSH Key Management Overview & 10 Best Practices - BeyondTrust",
+        "description": "",
+        "source_ref": "https://www.beyondtrust.com/blog/entry/ssh-key-management-overview-6-best-practices",
+        "source_hash": "sha256:6d389c7efa342f87fc8b47b94d96e4649a7fb5bbb82efb771765717509e271a1",
+        "url": "https://www.beyondtrust.com/blog/entry/ssh-key-management-overview-6-best-practices",
+        "tool": "exa",
+        "angle": "applications and real-world use cases"
+      }
+    ],
+    "verification": {
+      "total_angles_verified": 5,
+      "corroborated_angles": 4,
+      "low_confidence_angles": 1,
+      "average_domain_diversity": 5.4
+    },
+    "cross_verification_details": [
+      {
+        "angle": "comparative analysis and alternatives",
+        "total_sources": 10,
+        "unique_domains": [
+          "datatracker.ietf.org",
+          "medium.com",
+          "www.ndss-symposium.org",
+          "dokumen.pub",
+          "www.mdpi.com",
+          "eprint.iacr.org",
+          "www.researchgate.net",
+          "arxiv.org",
+          "pmc.ncbi.nlm.nih.gov",
+          "nym.com"
+        ],
+        "domain_diversity": 10,
+        "tools_used": [
+          "exa"
+        ],
+        "tool_diversity": 1,
+        "status": "corroborated"
+      },
+      {
+        "angle": "standards, governance, and community",
+        "total_sources": 6,
+        "unique_domains": [
+          "messari.io",
+          "www.appviewx.com",
+          "aws.plainenglish.io",
+          "ftp.ripe.net",
+          "www.brandonchecketts.com"
+        ],
+        "domain_diversity": 5,
+        "tools_used": [
+          "tinyfish"
+        ],
+        "tool_diversity": 1,
+        "status": "corroborated"
+      },
+      {
+        "angle": "challenges, limitations, and known issues",
+        "total_sources": 4,
+        "unique_domains": [
+          "www.hexnode.com",
+          "mirrors.dotsrc.org",
+          "www.ssh.com",
+          "medium.com"
+        ],
+        "domain_diversity": 4,
+        "tools_used": [
+          "exa"
+        ],
+        "tool_diversity": 1,
+        "status": "corroborated"
+      },
+      {
+        "angle": "existing projects, open source implementations, and alternatives",
+        "total_sources": 1,
+        "unique_domains": [
+          "github.com"
+        ],
+        "domain_diversity": 1,
+        "tools_used": [
+          "tinyfish"
+        ],
+        "tool_diversity": 1,
+        "status": "low_corroboration",
+        "note": "Only 1 unique domain \u2014 claims may lack independent verification"
+      },
+      {
+        "angle": "applications and real-world use cases",
+        "total_sources": 7,
+        "unique_domains": [
+          "www.jumpserver.com",
+          "web.njit.edu",
+          "www.beyondtrust.com",
+          "www.ssl.com",
+          "github.com",
+          "www.youtube.com",
+          "www.encryptionconsulting.com"
+        ],
+        "domain_diversity": 7,
+        "tools_used": [
+          "exa"
+        ],
+        "tool_diversity": 1,
+        "status": "corroborated"
+      }
+    ],
+    "rounds": [
+      {
+        "round": 1,
+        "angles_searched": 10,
+        "new_findings": 21,
+        "corpus_findings": 0,
+        "web_findings": 21,
+        "elapsed_seconds": 4.0,
+        "budget_remaining": 235
+      },
+      {
+        "round": 2,
+        "angles_searched": 7,
+        "new_findings": 7,
+        "corpus_findings": 0,
+        "web_findings": 7,
+        "elapsed_seconds": 8.4,
+        "budget_remaining": 231
+      },
+      {
+        "round": 3,
+        "angles_searched": 6,
+        "new_findings": 0,
+        "corpus_findings": 0,
+        "web_findings": 0,
+        "elapsed_seconds": 12.2,
+        "budget_remaining": 227
+      }
+    ],
+    "sources": [
+      {
+        "title": "0-RTT Replay: The High-Speed Flaw in HTTP/3 That Bypasses ...",
+        "url": "https://medium.com/@instatunnel/0-rtt-replay-the-high-speed-flaw-in-http-3-that-bypasses-idempotency-ef5f688fcb34",
+        "hash": "sha256:bcb93a97e7cc3ab9646d0ff34817a7027a5f368286ab1c0a59112fa3591dd294",
+        "source_type": "exa",
+        "domain": ""
+      },
+      {
+        "title": "RFC 8709 - Ed25519 and Ed448 Public Key Algorithms for the ...",
+        "url": "https://datatracker.ietf.org/doc/html/rfc8709",
+        "hash": "sha256:a934e03db20dc9f92704931035aa425d0cb745a218ef710c8cfa15e06308633e",
+        "source_type": "exa",
+        "domain": ""
+      },
+      {
+        "title": "(PDF) Replay Attack in TLS 1.3 0-RTT Handshake - ResearchGate",
+        "url": "https://www.researchgate.net/publication/374821051_Replay_Attack_in_TLS_13_0-RTT_Handshake_Countermeasure_Techniques",
+        "hash": "sha256:03898b9950483a4bed8e0971f67094b4d54ff13fadc79247f3be6d55f89ee30f",
+        "source_type": "exa",
+        "domain": ""
+      },
+      {
+        "title": "Replay-Attack Detection and Prevention Mechanism in Industry 4.0 ...",
+        "url": "https://www.mdpi.com/2071-1050/14/23/15900",
+        "hash": "sha256:9479fa4cbc7ae147451a30d684d84f7afff4e062e93efdb69142f6559eeabce3",
+        "source_type": "exa",
+        "domain": ""
+      },
+      {
+        "title": "How Resilient is QUIC to Security and Privacy Attacks? - arXiv",
+        "url": "https://arxiv.org/html/2401.06657v3",
+        "hash": "sha256:27bcdd94d50301e2576437a826cad83bc14e562fdea6d09d535b2c4635338a6a",
+        "source_type": "exa",
+        "domain": ""
+      },
+      {
+        "title": "Session Resumption Protocols and Efficient Forward Security for ...",
+        "url": "https://eprint.iacr.org/2019/228",
+        "hash": "sha256:7fa9fc366a2453d39a420b57010f09327b9a1744ae107c3a3e9805f3f6fefa5c",
+        "source_type": "exa",
+        "domain": ""
+      },
+      {
+        "title": "[PDF] Transcript Collision Attacks: Breaking Authentication in TLS, IKE ...",
+        "url": "https://www.ndss-symposium.org/wp-content/uploads/2017/09/transcript-collision-attacks-breaking-authentication-tls-ike-ssh.pdf",
+        "hash": "sha256:c26b5ecb4985f7f321ebf68e4933d446b3720b1330451b4a88629c737cccb7ac",
+        "source_type": "exa",
+        "domain": ""
+      },
+      {
+        "title": "Up-to-date cryptography - Nym Technologies",
+        "url": "https://nym.com/trust-center/cryptography",
+        "hash": "sha256:2891e16672422f43de09fb586cb8e31de744be9f4aa433fdabe5c7a3418e462a",
+        "source_type": "exa",
+        "domain": ""
+      },
+      {
+        "title": "rTLS: Secure and Efficient TLS Session Resumption for the Internet ...",
+        "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC8512771/",
+        "hash": "sha256:f203a078e8843affcc3d0a8dd29736e386ad8a4147349768160c8e2d1765374d",
+        "source_type": "exa",
+        "domain": ""
+      },
+      {
+        "title": "Bulletproof TLS and PKI [2 ed.] 9781907117091 - DOKUMEN.PUB",
+        "url": "https://dokumen.pub/bulletproof-tls-and-pki-2nbsped-9781907117091.html",
+        "hash": "sha256:2eddcbb3bfbd1a1b81d1b2ca6a6f9a6b8150df8ee8e09c70a0a8254b8c120c25",
+        "source_type": "exa",
+        "domain": ""
+      },
+      {
+        "title": "SSH Key Best Practices for 2025 - Using ed25519, key rotation, and ...",
+        "url": "https://www.brandonchecketts.com/archives/ssh-ed25519-key-best-practices-for-2025",
+        "hash": "sha256:08f8f0293dce87c01222ae340d827469e0d09571a15a910793a92972cc8754b4",
+        "source_type": "tinyfish",
+        "domain": ""
+      },
+      {
+        "title": "SSH Key Management : Easy Step-by-Step Guide | by Pawan Natekar",
+        "url": "https://aws.plainenglish.io/ssh-key-management-easy-step-by-step-guide-3c1e2d120884",
+        "hash": "sha256:79e212f4413a51c8f33c4b380e647c0a5709d4c1ae70193d029a8c2babb86151",
+        "source_type": "tinyfish",
+        "domain": ""
+      },
+      {
+        "title": "9 SSH Key Management Best Practices You Need to Know",
+        "url": "https://www.appviewx.com/blogs/9-ssh-key-management-best-practices-you-need-to-know/",
+        "hash": "sha256:fd8a47628851c0eb3ccf952684324bff248e88bc465b680ca2e1d9724890f1b5",
+        "source_type": "tinyfish",
+        "domain": ""
+      },
+      {
+        "title": "Understanding Ed25519 | Messari",
+        "url": "https://messari.io/copilot/share/understanding-ed25519-ee5c6e19-3f05-4557-ac8f-9a1e84b9e8ff",
+        "hash": "sha256:88ae6707743956e7ccd458eff7d8a003253718b85ed0a6ee330f3df9c2ebfc2a",
+        "source_type": "tinyfish",
+        "domain": ""
+      },
+      {
+        "title": "It's 2023. You Should Be Using an Ed25519 SSH Key (And Other ...",
+        "url": "https://www.brandonchecketts.com/archives/its-2023-you-should-be-using-an-ed25519-ssh-key-and-other-current-best-practices",
+        "hash": "sha256:80f213a05ce4a6bfa787e4dfc6a86679336201e8b67df14a26ccd566900d98ab",
+        "source_type": "tinyfish",
+        "domain": ""
+      },
+      {
+        "title": "1id-abstracts.txt - Index of /",
+        "url": "https://ftp.ripe.net/internet-drafts/1id-abstracts.txt",
+        "hash": "sha256:6f7ea8238c9902b1260c08e191f5c778f02d3bdaa35cac6cfd653b5306a684e5",
+        "source_type": "tinyfish",
+        "domain": ""
+      },
+      {
+        "title": "What is Ed25519 in cybersecurity? - Hexnode Blogs",
+        "url": "https://www.hexnode.com/blogs/explained/what-is-ed25519-in-cybersecurity/",
+        "hash": "sha256:9bc9f86bb20198424e73af989507bf885608a7b577be3eeec6f2debc73f4480d",
+        "source_type": "exa",
+        "domain": ""
+      },
+      {
+        "title": "Common SSH Key Risks and How to Prevent Them",
+        "url": "https://www.ssh.com/academy/common-ssh-key-risks-and-how-to-prevent-them",
+        "hash": "sha256:22cd5fc450b5acf6a9eb5922d5ca0557b7127803c635fd9e38b30554dab1fd85",
+        "source_type": "exa",
+        "domain": ""
+      },
+      {
+        "title": "Explaining The Chalkias Ed25519 Vulnerability - Medium",
+        "url": "https://medium.com/asecuritysite-when-bob-met-alice/explaining-the-chalkias-ed25519-vulnerability-84443a01a92b",
+        "hash": "sha256:2155e21cacb26ee492c7a01b706c23df13a4fb118337454f3e71202e9bcc87e4",
+        "source_type": "exa",
+        "domain": ""
+      },
+      {
+        "title": "ChangeLog - dotsrc.org",
+        "url": "https://mirrors.dotsrc.org/opensuse/slowroll/repo/oss/ChangeLog",
+        "hash": "sha256:e7253d9ce8b3296984cd8b23b91d2ec97be5db9b2dbeb53c0506f71bfc6eb4d3",
+        "source_type": "exa",
+        "domain": ""
+      },
+      {
+        "title": "MystenLabs/ed25519-unsafe-libs - GitHub",
+        "url": "https://github.com/MystenLabs/ed25519-unsafe-libs",
+        "hash": "sha256:77c70ec913fac3c9b2297409688626c1f85d93ba9870117b3b6ecd787caf675b",
+        "source_type": "tinyfish",
+        "domain": ""
+      },
+      {
+        "title": "PraneethGunas/tls-1.3-0-rtt-reply-experiment - GitHub",
+        "url": "https://github.com/PraneethGunas/tls-1.3-0-rtt-reply-experiment",
+        "hash": "sha256:05513224b0909bf0ffe61853e1b7029fce92a269d53958f0d0a307195b9842cd",
+        "source_type": "exa",
+        "domain": ""
+      },
+      {
+        "title": "SSH Key Management: Best Practices for Enterprise Security in 2026",
+        "url": "https://www.jumpserver.com/blog/ssh-key-management-best-practices",
+        "hash": "sha256:49d908cdd4327c43078586056b475be478f69f0049f09a69b23573f0aa6c5100",
+        "source_type": "exa",
+        "domain": ""
+      },
+      {
+        "title": "Designing an effective SSH key Rotation policy",
+        "url": "https://www.encryptionconsulting.com/designing-an-effective-ssh-key-rotation-policy/",
+        "hash": "sha256:8efc4fa224fe0f7d78981d23c95a282ccd4d85ce8eef4d8f5ed843eae79e00b2",
+        "source_type": "exa",
+        "domain": ""
+      },
+      {
+        "title": "Key Management Best Practices: A Practical Guide - SSL.com",
+        "url": "https://www.ssl.com/article/key-management-best-practices-a-practical-guide/",
+        "hash": "sha256:93ae6f252a05b8b16d8d02d99c4863594b25bb5ce0d21803f2ba2236b1365133",
+        "source_type": "exa",
+        "domain": ""
+      },
+      {
+        "title": "Mastering QUIC TLS Handshake & 0-RTT | System Design Tutorial #5",
+        "url": "https://www.youtube.com/watch?v=T50mXiYsa-Y",
+        "hash": "sha256:6004c22291716003dd19f1c37a9c29dee7c6c0ca10c4448a9bf87abfd937bf40",
+        "source_type": "exa",
+        "domain": ""
+      },
+      {
+        "title": "[PDF] CS 408 Cryptography & Internet Security - NJIT",
+        "url": "https://web.njit.edu/~crix/CS.408/content/408-lecture-20-21.pdf",
+        "hash": "sha256:0bcbb481e9407e38313c705deb6cf01c3a78b0a340ac05d8ab87814da2bb04d3",
+        "source_type": "exa",
+        "domain": ""
+      },
+      {
+        "title": "SSH Key Management Overview & 10 Best Practices - BeyondTrust",
+        "url": "https://www.beyondtrust.com/blog/entry/ssh-key-management-overview-6-best-practices",
+        "hash": "sha256:6d389c7efa342f87fc8b47b94d96e4649a7fb5bbb82efb771765717509e271a1",
+        "source_type": "exa",
+        "domain": ""
+      }
+    ],
+    "sources_by_domain": [
+      [
+        "medium.com",
+        2
+      ],
+      [
+        "www.brandonchecketts.com",
+        2
+      ],
+      [
+        "github.com",
+        2
+      ],
+      [
+        "datatracker.ietf.org",
+        1
+      ],
+      [
+        "www.researchgate.net",
+        1
+      ],
+      [
+        "www.mdpi.com",
+        1
+      ],
+      [
+        "arxiv.org",
+        1
+      ],
+      [
+        "eprint.iacr.org",
+        1
+      ],
+      [
+        "www.ndss-symposium.org",
+        1
+      ],
+      [
+        "nym.com",
+        1
+      ],
+      [
+        "pmc.ncbi.nlm.nih.gov",
+        1
+      ],
+      [
+        "dokumen.pub",
+        1
+      ],
+      [
+        "aws.plainenglish.io",
+        1
+      ],
+      [
+        "www.appviewx.com",
+        1
+      ],
+      [
+        "messari.io",
+        1
+      ],
+      [
+        "ftp.ripe.net",
+        1
+      ],
+      [
+        "www.hexnode.com",
+        1
+      ],
+      [
+        "www.ssh.com",
+        1
+      ],
+      [
+        "mirrors.dotsrc.org",
+        1
+      ],
+      [
+        "www.jumpserver.com",
+        1
+      ],
+      [
+        "www.encryptionconsulting.com",
+        1
+      ],
+      [
+        "www.ssl.com",
+        1
+      ],
+      [
+        "www.youtube.com",
+        1
+      ],
+      [
+        "web.njit.edu",
+        1
+      ],
+      [
+        "www.beyondtrust.com",
+        1
+      ]
+    ],
+    "probes": [
+      {
+        "name": "corpus_api_probe",
+        "status": "ok",
+        "endpoint": "http://127.0.0.1:9764/health",
+        "source_ref": "http://127.0.0.1:9764/health"
+      }
+    ],
+    "redaction": null,
+    "artifact_hash": "sha256:cb79dfcbcf966c5e07db6425109c2e998dfaf0fdc128c37d150cfe87193c0c5c",
+    "mutation_counters": {
+      "github_mutation_count": 0,
+      "github_api_write_verbs_used": [],
+      "dashboard_mutates_hermes_config": false
+    },
+    "ttl": 86400,
+    "build_recommendation": {
+      "recommendation": "build",
+      "rationale": "No GitHub projects were returned for this topic. Building may be appropriate, but verify with a narrower GitHub query before relying on this recommendation.",
+      "top_candidates": [],
+      "quality_projects_count": 0,
+      "relevant_projects_count": 0,
+      "total_projects_found": 0
+    },
+    "created_at": "2026-05-30T13:21:56Z"
+  },
+  "tool_trace": [
+    {
+      "tool": "exa",
+      "angle": "comparative analysis and alternatives",
+      "results": 10
+    },
+    {
+      "tool": "tinyfish",
+      "angle": "standards, governance, and community",
+      "results": 7
+    },
+    {
+      "tool": "exa",
+      "angle": "architecture and design principles",
+      "results": 3
+    },
+    {
+      "tool": "exa",
+      "angle": "comparative analysis and alternatives",
+      "results": 10
+    },
+    {
+      "tool": "exa",
+      "angle": "architecture and design principles",
+      "results": 3
+    },
+    {
+      "tool": "exa",
+      "angle": "future directions and open research questions",
+      "results": 3
+    },
+    {
+      "tool": "exa",
+      "angle": "challenges, limitations, and known issues",
+      "results": 9
+    },
+    {
+      "tool": "tinyfish",
+      "angle": "performance characteristics and benchmarks",
+      "results": 3
+    },
+    {
+      "tool": "tinyfish",
+      "angle": "history and evolution",
+      "results": 3
+    },
+    {
+      "tool": "tinyfish",
+      "angle": "applications and real-world use cases",
+      "results": 3
+    },
+    {
+      "tool": "tinyfish",
+      "angle": "existing projects, open source implementations, and alternatives",
+      "results": 4
+    },
+    {
+      "tool": "exa",
+      "angle": "overview and fundamentals",
+      "results": 3
+    },
+    {
+      "tool": "exa",
+      "angle": "overview and fundamentals",
+      "results": 3
+    },
+    {
+      "tool": "exa",
+      "angle": "architecture and design principles",
+      "results": 3
+    },
+    {
+      "tool": "exa",
+      "angle": "future directions and open research questions",
+      "results": 3
+    },
+    {
+      "tool": "exa",
+      "angle": "applications and real-world use cases",
+      "results": 10
+    },
+    {
+      "tool": "exa",
+      "angle": "performance characteristics and benchmarks",
+      "results": 3
+    },
+    {
+      "tool": "exa",
+      "angle": "applications and real-world use cases",
+      "results": 10
+    },
+    {
+      "tool": "exa",
+      "angle": "architecture and design principles",
+      "results": 1
+    },
+    {
+      "tool": "exa",
+      "angle": "overview and fundamentals",
+      "results": 3
+    },
+    {
+      "tool": "exa",
+      "angle": "architecture and design principles",
+      "results": 3
+    },
+    {
+      "tool": "exa",
+      "angle": "overview and fundamentals",
+      "results": 3
+    }
+  ],
+  "_detected_language": null,
+  "id": "268f5683-33a",
+  "packet_summary": {
+    "sections": 5,
+    "sources": 28,
+    "method": {
+      "max_depth": 3,
+      "rounds_completed": 3,
+      "total_unique_sources": 28,
+      "unique_domains": 25,
+      "tools_used": "exa, tinyfish",
+      "budget_used_seconds": 12.2,
+      "time_budget_seconds": 240
+    }
+  }
+}

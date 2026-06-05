@@ -1,0 +1,1787 @@
+{
+  "topic_id": "a666ae25-cde",
+  "topic": "Go goroutine concurrency model thousands long lived connections idle sessions memory overhead goroutine per connection vs async event loop epoll go scheduler performance terminal session mux",
+  "active_angles": [
+    "challenges, limitations, and known issues",
+    "history and evolution",
+    "standards, governance, and community",
+    "comparative analysis and alternatives",
+    "future directions and open research questions"
+  ],
+  "completed_angles": [
+    "applications and real-world use cases"
+  ],
+  "depth": 3,
+  "max_depth": 3,
+  "time_budget_seconds": 240,
+  "start_time": 1780147304.7793658,
+  "corpus_results": [],
+  "web_results": [
+    {
+      "id": "https://www.reddit.com/r/golang/comments/14p41sk/what_are_the_pros_and_cons_of_go_concurrency/",
+      "title": "What are the pros and cons of Go concurrency model compared to ...",
+      "url": "https://www.reddit.com/r/golang/comments/14p41sk/what_are_the_pros_and_cons_of_go_concurrency/",
+      "publishedDate": "2023-07-03T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "applications and real-world use cases",
+      "_query": "Go goroutine concurrency model thousands long lived connections idle sessions memory overhead goroutine per connection vs async event loop epoll go scheduler performance terminal session mux applications and real-world use cases",
+      "snippet": ""
+    },
+    {
+      "id": "https://medium.com/codex/go-concurrency-works-great-until-production-traffic-arrives-503f0fd13f14",
+      "title": "Go concurrency works great \u2014 Until production traffic Arrives - Medium",
+      "url": "https://medium.com/codex/go-concurrency-works-great-until-production-traffic-arrives-503f0fd13f14",
+      "publishedDate": "2026-05-22T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "applications and real-world use cases",
+      "_query": "Go goroutine concurrency model thousands long lived connections idle sessions memory overhead goroutine per connection vs async event loop epoll go scheduler performance terminal session mux applications and real-world use cases",
+      "snippet": ""
+    },
+    {
+      "id": "https://dev.to/jamesli/go-io-optimization-goroutine-per-connection-netpoller-the-readerwriter-interface-572o",
+      "title": "goroutine-per-connection, netpoller & the Reader/Writer Interface",
+      "url": "https://dev.to/jamesli/go-io-optimization-goroutine-per-connection-netpoller-the-readerwriter-interface-572o",
+      "publishedDate": "2026-05-19T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "applications and real-world use cases",
+      "_query": "Go goroutine concurrency model thousands long lived connections idle sessions memory overhead goroutine per connection vs async event loop epoll go scheduler performance terminal session mux applications and real-world use cases",
+      "snippet": ""
+    },
+    {
+      "id": "https://projectlighthouse.io/en/books/go-intermediate/pages/concurrency-model",
+      "title": "Go Concurrency Model: Goroutines and the GMP Scheduler",
+      "url": "https://projectlighthouse.io/en/books/go-intermediate/pages/concurrency-model",
+      "_tool": "exa",
+      "_angle": "applications and real-world use cases",
+      "_query": "Go goroutine concurrency model thousands long lived connections idle sessions memory overhead goroutine per connection vs async event loop epoll go scheduler performance terminal session mux applications and real-world use cases",
+      "snippet": ""
+    },
+    {
+      "id": "https://sahilserver.substack.com/p/designing-go-routines",
+      "title": "Designing Go-routines - by Sahil Sarwar - Brain Bytes & Binary",
+      "url": "https://sahilserver.substack.com/p/designing-go-routines",
+      "publishedDate": "2025-04-04T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "applications and real-world use cases",
+      "_query": "Go goroutine concurrency model thousands long lived connections idle sessions memory overhead goroutine per connection vs async event loop epoll go scheduler performance terminal session mux applications and real-world use cases",
+      "snippet": ""
+    },
+    {
+      "id": "https://jayconrod.com/posts/128/goroutines-the-concurrency-model-we-wanted-all-along",
+      "title": "Goroutines: the concurrency model we wanted all along",
+      "url": "https://jayconrod.com/posts/128/goroutines-the-concurrency-model-we-wanted-all-along",
+      "publishedDate": "2023-07-02T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "applications and real-world use cases",
+      "_query": "Go goroutine concurrency model thousands long lived connections idle sessions memory overhead goroutine per connection vs async event loop epoll go scheduler performance terminal session mux applications and real-world use cases",
+      "snippet": ""
+    },
+    {
+      "id": "https://www.youtube.com/watch?v=eqSgTJ6HTsw",
+      "title": "Golang Concurrency Explained (Crash Course) - YouTube",
+      "url": "https://www.youtube.com/watch?v=eqSgTJ6HTsw",
+      "publishedDate": "2025-08-22T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "applications and real-world use cases",
+      "_query": "Go goroutine concurrency model thousands long lived connections idle sessions memory overhead goroutine per connection vs async event loop epoll go scheduler performance terminal session mux applications and real-world use cases",
+      "snippet": ""
+    },
+    {
+      "id": "https://avivcarmi.com/go-fundamentals-concurrency-model/",
+      "title": "Go Fundamentals: Concurrency Model - Aviv Carmi",
+      "url": "https://avivcarmi.com/go-fundamentals-concurrency-model/",
+      "publishedDate": "2026-01-17T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "applications and real-world use cases",
+      "_query": "Go goroutine concurrency model thousands long lived connections idle sessions memory overhead goroutine per connection vs async event loop epoll go scheduler performance terminal session mux applications and real-world use cases",
+      "snippet": ""
+    },
+    {
+      "id": "https://algomaster.io/learn/concurrency-interview/go-goroutines-and-scheduler",
+      "title": "Goroutines and Scheduler | Concurrency Interview - AlgoMaster.io",
+      "url": "https://algomaster.io/learn/concurrency-interview/go-goroutines-and-scheduler",
+      "publishedDate": "2026-02-01T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "applications and real-world use cases",
+      "_query": "Go goroutine concurrency model thousands long lived connections idle sessions memory overhead goroutine per connection vs async event loop epoll go scheduler performance terminal session mux applications and real-world use cases",
+      "snippet": ""
+    },
+    {
+      "id": "https://getstream.io/blog/goroutines-go-concurrency-guide/",
+      "title": "Goroutines in Go: A Practical Guide to Concurrency - GetStream.io",
+      "url": "https://getstream.io/blog/goroutines-go-concurrency-guide/",
+      "publishedDate": "2025-03-07T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "applications and real-world use cases",
+      "_query": "Go goroutine concurrency model thousands long lived connections idle sessions memory overhead goroutine per connection vs async event loop epoll go scheduler performance terminal session mux applications and real-world use cases",
+      "snippet": ""
+    },
+    {
+      "id": "https://bitfieldconsulting.com/posts/goroutines",
+      "title": "Go go goroutines: understanding Go's concurrency model",
+      "url": "https://bitfieldconsulting.com/posts/goroutines",
+      "publishedDate": "2025-08-15T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "architecture and design principles",
+      "_query": "Go goroutine concurrency model thousands long lived connections idle sessions memory overhead goroutine per connection vs async event loop epoll go scheduler performance terminal session mux architecture and design principles",
+      "snippet": ""
+    },
+    {
+      "id": "https://medium.com/swlh/unlocking-the-power-of-goroutines-understanding-gos-lightweight-concurrency-model-3775f8e696b0",
+      "title": "Understanding Golang's lightweight concurrency model",
+      "url": "https://medium.com/swlh/unlocking-the-power-of-goroutines-understanding-gos-lightweight-concurrency-model-3775f8e696b0",
+      "publishedDate": "2025-05-30T13:21:45.638Z",
+      "_tool": "exa",
+      "_angle": "architecture and design principles",
+      "_query": "Go goroutine concurrency model thousands long lived connections idle sessions memory overhead goroutine per connection vs async event loop epoll go scheduler performance terminal session mux architecture and design principles",
+      "snippet": ""
+    },
+    {
+      "id": "https://dev.to/jones_charles_ad50858dbc0/in-depth-go-concurrency-a-practical-guide-to-goroutine-performance-nee",
+      "title": "In-Depth Go Concurrency: A Practical Guide to Goroutine ...",
+      "url": "https://dev.to/jones_charles_ad50858dbc0/in-depth-go-concurrency-a-practical-guide-to-goroutine-performance-nee",
+      "publishedDate": "2025-05-04T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "architecture and design principles",
+      "_query": "Go goroutine concurrency model thousands long lived connections idle sessions memory overhead goroutine per connection vs async event loop epoll go scheduler performance terminal session mux architecture and design principles",
+      "snippet": ""
+    },
+    {
+      "id": "https://antonz.org/go-concurrency/internals/",
+      "title": "Gist of Go: Concurrency internals",
+      "url": "https://antonz.org/go-concurrency/internals/",
+      "publishedDate": "2025-12-05T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "architecture and design principles",
+      "_query": "Go goroutine concurrency model thousands long lived connections idle sessions memory overhead goroutine per connection vs async event loop epoll go scheduler performance terminal session mux architecture and design principles",
+      "snippet": ""
+    },
+    {
+      "id": "https://news.ycombinator.com/item?id=36636457",
+      "title": "Goroutines: The concurrency model we wanted all along",
+      "url": "https://news.ycombinator.com/item?id=36636457",
+      "publishedDate": "2023-07-07T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "architecture and design principles",
+      "_query": "Go goroutine concurrency model thousands long lived connections idle sessions memory overhead goroutine per connection vs async event loop epoll go scheduler performance terminal session mux architecture and design principles",
+      "snippet": ""
+    },
+    {
+      "position": 2,
+      "site_name": "github.com",
+      "snippet": "Go language strongly supports concurrency through lightweight goroutines and runtime mechanisms. Since Go 1.5, GOMAXPROCS is set to the number ...",
+      "title": "go-concurrency-parallelism-models.md - bmf-tech - GitHub",
+      "url": "https://github.com/bmf-san/bmf-tech/blob/main/content/en/posts/go-concurrency-parallelism-models.md",
+      "_tool": "tinyfish",
+      "_angle": "existing projects, open source implementations, and alternatives",
+      "_query": "Go goroutine concurrency model thousands long lived connections idle sessions memory overhead goroutine per connection vs async event loop epoll go scheduler performance terminal session mux existing projects, open source implementations, and alternatives"
+    },
+    {
+      "position": 3,
+      "site_name": "www.reddit.com",
+      "snippet": "Go's concurrency model, built around goroutines and channels, is one of its standout features. As I dive deeper into developing concurrent ...",
+      "title": "Exploring Go's Concurrency Model: Best Practices and ... - Reddit",
+      "url": "https://www.reddit.com/r/golang/comments/1p5m607/exploring_gos_concurrency_model_best_practices/",
+      "_tool": "tinyfish",
+      "_angle": "existing projects, open source implementations, and alternatives",
+      "_query": "Go goroutine concurrency model thousands long lived connections idle sessions memory overhead goroutine per connection vs async event loop epoll go scheduler performance terminal session mux existing projects, open source implementations, and alternatives"
+    },
+    {
+      "position": 6,
+      "site_name": "pratikpandey.substack.com",
+      "snippet": "The Go scheduler is a specific part of the Go runtime responsible for managing the execution of goroutines. It's an M:N scheduler, meaning it multiplexes M ...",
+      "title": "Go Concurrency Series: Deep Dive into Go Scheduler(I)",
+      "url": "https://pratikpandey.substack.com/p/go-concurrency-series-deep-dive-into",
+      "_tool": "tinyfish",
+      "_angle": "existing projects, open source implementations, and alternatives",
+      "_query": "Go goroutine concurrency model thousands long lived connections idle sessions memory overhead goroutine per connection vs async event loop epoll go scheduler performance terminal session mux existing projects, open source implementations, and alternatives"
+    },
+    {
+      "position": 10,
+      "site_name": "levelup.gitconnected.com",
+      "snippet": "For goroutines and channels, I created an application using a Dispatcher -> Worker -> Job pattern to benchmark and compare results in differing ...",
+      "title": "Demystifying Golang Channels, Goroutines, and Optimal Concurrency",
+      "url": "https://levelup.gitconnected.com/golang-channels-goroutines-and-optimal-concurrency-demystifying-through-examples-a43ba6aee74f",
+      "_tool": "tinyfish",
+      "_angle": "performance characteristics and benchmarks",
+      "_query": "Go goroutine concurrency model thousands long lived connections idle sessions memory overhead goroutine per connection vs async event loop epoll go scheduler performance terminal session mux performance characteristics and benchmarks"
+    },
+    {
+      "position": 10,
+      "site_name": "levelup.gitconnected.com",
+      "snippet": "In this article, I'll share how I leveraged Go's powerful concurrency model to solve real-world challenges and optimize our system's performance.",
+      "title": "How Go's Concurrency Model Solved My Challenges",
+      "url": "https://levelup.gitconnected.com/how-i-solved-real-world-challenges-with-gos-powerful-concurrency-model-ee0b60f3aa6e",
+      "_tool": "tinyfish",
+      "_angle": "future directions and open research questions",
+      "_query": "Go goroutine concurrency model thousands long lived connections idle sessions memory overhead goroutine per connection vs async event loop epoll go scheduler performance terminal session mux future directions and open research questions"
+    },
+    {
+      "position": 9,
+      "site_name": "www.youtube.com",
+      "snippet": "Dive into the world of Go concurrency with Goroutines! This video provides a beginner-friendly guide to understanding and using Goroutines, ...",
+      "title": "Goroutines: Go's Lightweight Concurrency Explained for Beginners!",
+      "url": "https://www.youtube.com/watch?v=Qf0sZMH1InU",
+      "_tool": "tinyfish",
+      "_angle": "comparative analysis and alternatives",
+      "_query": "Go goroutine concurrency model thousands long lived connections idle sessions memory overhead goroutine per connection vs async event loop epoll go scheduler performance terminal session mux comparative analysis and alternatives"
+    },
+    {
+      "position": 10,
+      "site_name": "blog.stackademic.com",
+      "snippet": "Go provides concurrency primitives (goroutines and channels) that can achieve parallelism when multiple cores are available. You write ...",
+      "title": "Go Concurrency and Goroutines: A Complete Guide",
+      "url": "https://blog.stackademic.com/go-concurrency-and-goroutines-a-complete-guide-c81510c13ef7",
+      "_tool": "tinyfish",
+      "_angle": "applications and real-world use cases",
+      "_query": "Go goroutine concurrency model thousands long lived connections idle sessions memory overhead goroutine per connection vs async event loop epoll go scheduler performance terminal session mux applications and real-world use cases"
+    },
+    {
+      "id": "https://medium.com/@aditimishra_541/understanding-gos-goroutine-scheduler-f8be8d962b45",
+      "title": "Understanding Go's Goroutine Scheduler | by Aditi Mishra - Medium",
+      "url": "https://medium.com/@aditimishra_541/understanding-gos-goroutine-scheduler-f8be8d962b45",
+      "publishedDate": "2025-03-16T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "overview and fundamentals",
+      "_query": "Go goroutine concurrency model thousands long lived connections idle sessions memory overhead goroutine per connection vs async event loop epoll go scheduler performance terminal session mux overview and fundamentals",
+      "snippet": ""
+    }
+  ],
+  "findings": [],
+  "all_findings": [
+    {
+      "id": "https://www.reddit.com/r/golang/comments/14p41sk/what_are_the_pros_and_cons_of_go_concurrency/",
+      "title": "What are the pros and cons of Go concurrency model compared to ...",
+      "url": "https://www.reddit.com/r/golang/comments/14p41sk/what_are_the_pros_and_cons_of_go_concurrency/",
+      "publishedDate": "2023-07-03T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "applications and real-world use cases",
+      "_query": "Go goroutine concurrency model thousands long lived connections idle sessions memory overhead goroutine per connection vs async event loop epoll go scheduler performance terminal session mux applications and real-world use cases",
+      "snippet": ""
+    },
+    {
+      "id": "https://medium.com/codex/go-concurrency-works-great-until-production-traffic-arrives-503f0fd13f14",
+      "title": "Go concurrency works great \u2014 Until production traffic Arrives - Medium",
+      "url": "https://medium.com/codex/go-concurrency-works-great-until-production-traffic-arrives-503f0fd13f14",
+      "publishedDate": "2026-05-22T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "applications and real-world use cases",
+      "_query": "Go goroutine concurrency model thousands long lived connections idle sessions memory overhead goroutine per connection vs async event loop epoll go scheduler performance terminal session mux applications and real-world use cases",
+      "snippet": ""
+    },
+    {
+      "id": "https://dev.to/jamesli/go-io-optimization-goroutine-per-connection-netpoller-the-readerwriter-interface-572o",
+      "title": "goroutine-per-connection, netpoller & the Reader/Writer Interface",
+      "url": "https://dev.to/jamesli/go-io-optimization-goroutine-per-connection-netpoller-the-readerwriter-interface-572o",
+      "publishedDate": "2026-05-19T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "applications and real-world use cases",
+      "_query": "Go goroutine concurrency model thousands long lived connections idle sessions memory overhead goroutine per connection vs async event loop epoll go scheduler performance terminal session mux applications and real-world use cases",
+      "snippet": ""
+    },
+    {
+      "id": "https://projectlighthouse.io/en/books/go-intermediate/pages/concurrency-model",
+      "title": "Go Concurrency Model: Goroutines and the GMP Scheduler",
+      "url": "https://projectlighthouse.io/en/books/go-intermediate/pages/concurrency-model",
+      "_tool": "exa",
+      "_angle": "applications and real-world use cases",
+      "_query": "Go goroutine concurrency model thousands long lived connections idle sessions memory overhead goroutine per connection vs async event loop epoll go scheduler performance terminal session mux applications and real-world use cases",
+      "snippet": ""
+    },
+    {
+      "id": "https://sahilserver.substack.com/p/designing-go-routines",
+      "title": "Designing Go-routines - by Sahil Sarwar - Brain Bytes & Binary",
+      "url": "https://sahilserver.substack.com/p/designing-go-routines",
+      "publishedDate": "2025-04-04T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "applications and real-world use cases",
+      "_query": "Go goroutine concurrency model thousands long lived connections idle sessions memory overhead goroutine per connection vs async event loop epoll go scheduler performance terminal session mux applications and real-world use cases",
+      "snippet": ""
+    },
+    {
+      "id": "https://jayconrod.com/posts/128/goroutines-the-concurrency-model-we-wanted-all-along",
+      "title": "Goroutines: the concurrency model we wanted all along",
+      "url": "https://jayconrod.com/posts/128/goroutines-the-concurrency-model-we-wanted-all-along",
+      "publishedDate": "2023-07-02T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "applications and real-world use cases",
+      "_query": "Go goroutine concurrency model thousands long lived connections idle sessions memory overhead goroutine per connection vs async event loop epoll go scheduler performance terminal session mux applications and real-world use cases",
+      "snippet": ""
+    },
+    {
+      "id": "https://www.youtube.com/watch?v=eqSgTJ6HTsw",
+      "title": "Golang Concurrency Explained (Crash Course) - YouTube",
+      "url": "https://www.youtube.com/watch?v=eqSgTJ6HTsw",
+      "publishedDate": "2025-08-22T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "applications and real-world use cases",
+      "_query": "Go goroutine concurrency model thousands long lived connections idle sessions memory overhead goroutine per connection vs async event loop epoll go scheduler performance terminal session mux applications and real-world use cases",
+      "snippet": ""
+    },
+    {
+      "id": "https://avivcarmi.com/go-fundamentals-concurrency-model/",
+      "title": "Go Fundamentals: Concurrency Model - Aviv Carmi",
+      "url": "https://avivcarmi.com/go-fundamentals-concurrency-model/",
+      "publishedDate": "2026-01-17T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "applications and real-world use cases",
+      "_query": "Go goroutine concurrency model thousands long lived connections idle sessions memory overhead goroutine per connection vs async event loop epoll go scheduler performance terminal session mux applications and real-world use cases",
+      "snippet": ""
+    },
+    {
+      "id": "https://algomaster.io/learn/concurrency-interview/go-goroutines-and-scheduler",
+      "title": "Goroutines and Scheduler | Concurrency Interview - AlgoMaster.io",
+      "url": "https://algomaster.io/learn/concurrency-interview/go-goroutines-and-scheduler",
+      "publishedDate": "2026-02-01T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "applications and real-world use cases",
+      "_query": "Go goroutine concurrency model thousands long lived connections idle sessions memory overhead goroutine per connection vs async event loop epoll go scheduler performance terminal session mux applications and real-world use cases",
+      "snippet": ""
+    },
+    {
+      "id": "https://getstream.io/blog/goroutines-go-concurrency-guide/",
+      "title": "Goroutines in Go: A Practical Guide to Concurrency - GetStream.io",
+      "url": "https://getstream.io/blog/goroutines-go-concurrency-guide/",
+      "publishedDate": "2025-03-07T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "applications and real-world use cases",
+      "_query": "Go goroutine concurrency model thousands long lived connections idle sessions memory overhead goroutine per connection vs async event loop epoll go scheduler performance terminal session mux applications and real-world use cases",
+      "snippet": ""
+    },
+    {
+      "id": "https://bitfieldconsulting.com/posts/goroutines",
+      "title": "Go go goroutines: understanding Go's concurrency model",
+      "url": "https://bitfieldconsulting.com/posts/goroutines",
+      "publishedDate": "2025-08-15T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "architecture and design principles",
+      "_query": "Go goroutine concurrency model thousands long lived connections idle sessions memory overhead goroutine per connection vs async event loop epoll go scheduler performance terminal session mux architecture and design principles",
+      "snippet": ""
+    },
+    {
+      "id": "https://medium.com/swlh/unlocking-the-power-of-goroutines-understanding-gos-lightweight-concurrency-model-3775f8e696b0",
+      "title": "Understanding Golang's lightweight concurrency model",
+      "url": "https://medium.com/swlh/unlocking-the-power-of-goroutines-understanding-gos-lightweight-concurrency-model-3775f8e696b0",
+      "publishedDate": "2025-05-30T13:21:45.638Z",
+      "_tool": "exa",
+      "_angle": "architecture and design principles",
+      "_query": "Go goroutine concurrency model thousands long lived connections idle sessions memory overhead goroutine per connection vs async event loop epoll go scheduler performance terminal session mux architecture and design principles",
+      "snippet": ""
+    },
+    {
+      "id": "https://dev.to/jones_charles_ad50858dbc0/in-depth-go-concurrency-a-practical-guide-to-goroutine-performance-nee",
+      "title": "In-Depth Go Concurrency: A Practical Guide to Goroutine ...",
+      "url": "https://dev.to/jones_charles_ad50858dbc0/in-depth-go-concurrency-a-practical-guide-to-goroutine-performance-nee",
+      "publishedDate": "2025-05-04T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "architecture and design principles",
+      "_query": "Go goroutine concurrency model thousands long lived connections idle sessions memory overhead goroutine per connection vs async event loop epoll go scheduler performance terminal session mux architecture and design principles",
+      "snippet": ""
+    },
+    {
+      "id": "https://antonz.org/go-concurrency/internals/",
+      "title": "Gist of Go: Concurrency internals",
+      "url": "https://antonz.org/go-concurrency/internals/",
+      "publishedDate": "2025-12-05T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "architecture and design principles",
+      "_query": "Go goroutine concurrency model thousands long lived connections idle sessions memory overhead goroutine per connection vs async event loop epoll go scheduler performance terminal session mux architecture and design principles",
+      "snippet": ""
+    },
+    {
+      "id": "https://news.ycombinator.com/item?id=36636457",
+      "title": "Goroutines: The concurrency model we wanted all along",
+      "url": "https://news.ycombinator.com/item?id=36636457",
+      "publishedDate": "2023-07-07T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "architecture and design principles",
+      "_query": "Go goroutine concurrency model thousands long lived connections idle sessions memory overhead goroutine per connection vs async event loop epoll go scheduler performance terminal session mux architecture and design principles",
+      "snippet": ""
+    },
+    {
+      "position": 2,
+      "site_name": "github.com",
+      "snippet": "Go language strongly supports concurrency through lightweight goroutines and runtime mechanisms. Since Go 1.5, GOMAXPROCS is set to the number ...",
+      "title": "go-concurrency-parallelism-models.md - bmf-tech - GitHub",
+      "url": "https://github.com/bmf-san/bmf-tech/blob/main/content/en/posts/go-concurrency-parallelism-models.md",
+      "_tool": "tinyfish",
+      "_angle": "existing projects, open source implementations, and alternatives",
+      "_query": "Go goroutine concurrency model thousands long lived connections idle sessions memory overhead goroutine per connection vs async event loop epoll go scheduler performance terminal session mux existing projects, open source implementations, and alternatives"
+    },
+    {
+      "position": 3,
+      "site_name": "www.reddit.com",
+      "snippet": "Go's concurrency model, built around goroutines and channels, is one of its standout features. As I dive deeper into developing concurrent ...",
+      "title": "Exploring Go's Concurrency Model: Best Practices and ... - Reddit",
+      "url": "https://www.reddit.com/r/golang/comments/1p5m607/exploring_gos_concurrency_model_best_practices/",
+      "_tool": "tinyfish",
+      "_angle": "existing projects, open source implementations, and alternatives",
+      "_query": "Go goroutine concurrency model thousands long lived connections idle sessions memory overhead goroutine per connection vs async event loop epoll go scheduler performance terminal session mux existing projects, open source implementations, and alternatives"
+    },
+    {
+      "position": 6,
+      "site_name": "pratikpandey.substack.com",
+      "snippet": "The Go scheduler is a specific part of the Go runtime responsible for managing the execution of goroutines. It's an M:N scheduler, meaning it multiplexes M ...",
+      "title": "Go Concurrency Series: Deep Dive into Go Scheduler(I)",
+      "url": "https://pratikpandey.substack.com/p/go-concurrency-series-deep-dive-into",
+      "_tool": "tinyfish",
+      "_angle": "existing projects, open source implementations, and alternatives",
+      "_query": "Go goroutine concurrency model thousands long lived connections idle sessions memory overhead goroutine per connection vs async event loop epoll go scheduler performance terminal session mux existing projects, open source implementations, and alternatives"
+    },
+    {
+      "position": 10,
+      "site_name": "levelup.gitconnected.com",
+      "snippet": "For goroutines and channels, I created an application using a Dispatcher -> Worker -> Job pattern to benchmark and compare results in differing ...",
+      "title": "Demystifying Golang Channels, Goroutines, and Optimal Concurrency",
+      "url": "https://levelup.gitconnected.com/golang-channels-goroutines-and-optimal-concurrency-demystifying-through-examples-a43ba6aee74f",
+      "_tool": "tinyfish",
+      "_angle": "performance characteristics and benchmarks",
+      "_query": "Go goroutine concurrency model thousands long lived connections idle sessions memory overhead goroutine per connection vs async event loop epoll go scheduler performance terminal session mux performance characteristics and benchmarks"
+    },
+    {
+      "position": 10,
+      "site_name": "levelup.gitconnected.com",
+      "snippet": "In this article, I'll share how I leveraged Go's powerful concurrency model to solve real-world challenges and optimize our system's performance.",
+      "title": "How Go's Concurrency Model Solved My Challenges",
+      "url": "https://levelup.gitconnected.com/how-i-solved-real-world-challenges-with-gos-powerful-concurrency-model-ee0b60f3aa6e",
+      "_tool": "tinyfish",
+      "_angle": "future directions and open research questions",
+      "_query": "Go goroutine concurrency model thousands long lived connections idle sessions memory overhead goroutine per connection vs async event loop epoll go scheduler performance terminal session mux future directions and open research questions"
+    },
+    {
+      "position": 9,
+      "site_name": "www.youtube.com",
+      "snippet": "Dive into the world of Go concurrency with Goroutines! This video provides a beginner-friendly guide to understanding and using Goroutines, ...",
+      "title": "Goroutines: Go's Lightweight Concurrency Explained for Beginners!",
+      "url": "https://www.youtube.com/watch?v=Qf0sZMH1InU",
+      "_tool": "tinyfish",
+      "_angle": "comparative analysis and alternatives",
+      "_query": "Go goroutine concurrency model thousands long lived connections idle sessions memory overhead goroutine per connection vs async event loop epoll go scheduler performance terminal session mux comparative analysis and alternatives"
+    },
+    {
+      "position": 10,
+      "site_name": "blog.stackademic.com",
+      "snippet": "Go provides concurrency primitives (goroutines and channels) that can achieve parallelism when multiple cores are available. You write ...",
+      "title": "Go Concurrency and Goroutines: A Complete Guide",
+      "url": "https://blog.stackademic.com/go-concurrency-and-goroutines-a-complete-guide-c81510c13ef7",
+      "_tool": "tinyfish",
+      "_angle": "applications and real-world use cases",
+      "_query": "Go goroutine concurrency model thousands long lived connections idle sessions memory overhead goroutine per connection vs async event loop epoll go scheduler performance terminal session mux applications and real-world use cases"
+    },
+    {
+      "id": "https://medium.com/@aditimishra_541/understanding-gos-goroutine-scheduler-f8be8d962b45",
+      "title": "Understanding Go's Goroutine Scheduler | by Aditi Mishra - Medium",
+      "url": "https://medium.com/@aditimishra_541/understanding-gos-goroutine-scheduler-f8be8d962b45",
+      "publishedDate": "2025-03-16T00:00:00.000Z",
+      "_tool": "exa",
+      "_angle": "overview and fundamentals",
+      "_query": "Go goroutine concurrency model thousands long lived connections idle sessions memory overhead goroutine per connection vs async event loop epoll go scheduler performance terminal session mux overview and fundamentals",
+      "snippet": ""
+    }
+  ],
+  "seen_urls": [
+    "https://www.reddit.com/r/golang/comments/14p41sk/what_are_the_pros_and_cons_of_go_concurrency/",
+    "https://medium.com/codex/go-concurrency-works-great-until-production-traffic-arrives-503f0fd13f14",
+    "https://dev.to/jamesli/go-io-optimization-goroutine-per-connection-netpoller-the-readerwriter-interface-572o",
+    "https://projectlighthouse.io/en/books/go-intermediate/pages/concurrency-model",
+    "https://sahilserver.substack.com/p/designing-go-routines",
+    "https://jayconrod.com/posts/128/goroutines-the-concurrency-model-we-wanted-all-along",
+    "https://www.youtube.com/watch?v=eqSgTJ6HTsw",
+    "https://avivcarmi.com/go-fundamentals-concurrency-model/",
+    "https://algomaster.io/learn/concurrency-interview/go-goroutines-and-scheduler",
+    "https://getstream.io/blog/goroutines-go-concurrency-guide/",
+    "https://bitfieldconsulting.com/posts/goroutines",
+    "https://medium.com/swlh/unlocking-the-power-of-goroutines-understanding-gos-lightweight-concurrency-model-3775f8e696b0",
+    "https://dev.to/jones_charles_ad50858dbc0/in-depth-go-concurrency-a-practical-guide-to-goroutine-performance-nee",
+    "https://antonz.org/go-concurrency/internals/",
+    "https://news.ycombinator.com/item?id=36636457",
+    "https://github.com/bmf-san/bmf-tech/blob/main/content/en/posts/go-concurrency-parallelism-models.md",
+    "https://www.reddit.com/r/golang/comments/1p5m607/exploring_gos_concurrency_model_best_practices/",
+    "https://pratikpandey.substack.com/p/go-concurrency-series-deep-dive-into",
+    "https://levelup.gitconnected.com/golang-channels-goroutines-and-optimal-concurrency-demystifying-through-examples-a43ba6aee74f",
+    "https://levelup.gitconnected.com/how-i-solved-real-world-challenges-with-gos-powerful-concurrency-model-ee0b60f3aa6e",
+    "https://www.youtube.com/watch?v=Qf0sZMH1InU",
+    "https://blog.stackademic.com/go-concurrency-and-goroutines-a-complete-guide-c81510c13ef7",
+    "https://medium.com/@aditimishra_541/understanding-gos-goroutine-scheduler-f8be8d962b45"
+  ],
+  "gaps": [
+    "overview and fundamentals",
+    "history and evolution",
+    "architecture and design principles",
+    "existing projects, open source implementations, and alternatives",
+    "performance characteristics and benchmarks",
+    "comparative analysis and alternatives",
+    "challenges, limitations, and known issues",
+    "future directions and open research questions",
+    "standards, governance, and community"
+  ],
+  "round_metadata": [
+    {
+      "round": 1,
+      "angles_searched": 10,
+      "new_findings": 22,
+      "corpus_findings": 0,
+      "web_findings": 22,
+      "elapsed_seconds": 4.0,
+      "budget_remaining": 235
+    },
+    {
+      "round": 2,
+      "angles_searched": 7,
+      "new_findings": 1,
+      "corpus_findings": 0,
+      "web_findings": 1,
+      "elapsed_seconds": 8.3,
+      "budget_remaining": 231
+    },
+    {
+      "round": 3,
+      "angles_searched": 6,
+      "new_findings": 0,
+      "corpus_findings": 0,
+      "web_findings": 0,
+      "elapsed_seconds": 12.2,
+      "budget_remaining": 227
+    }
+  ],
+  "confidence": 0.56,
+  "cross_verification": [
+    {
+      "angle": "applications and real-world use cases",
+      "total_sources": 11,
+      "unique_domains": [
+        "blog.stackademic.com",
+        "medium.com",
+        "sahilserver.substack.com",
+        "avivcarmi.com",
+        "algomaster.io",
+        "getstream.io",
+        "projectlighthouse.io",
+        "dev.to",
+        "www.reddit.com",
+        "jayconrod.com",
+        "www.youtube.com"
+      ],
+      "domain_diversity": 11,
+      "tools_used": [
+        "tinyfish",
+        "exa"
+      ],
+      "tool_diversity": 2,
+      "status": "corroborated"
+    },
+    {
+      "angle": "architecture and design principles",
+      "total_sources": 5,
+      "unique_domains": [
+        "medium.com",
+        "news.ycombinator.com",
+        "antonz.org",
+        "bitfieldconsulting.com",
+        "dev.to"
+      ],
+      "domain_diversity": 5,
+      "tools_used": [
+        "exa"
+      ],
+      "tool_diversity": 1,
+      "status": "corroborated"
+    },
+    {
+      "angle": "existing projects, open source implementations, and alternatives",
+      "total_sources": 3,
+      "unique_domains": [
+        "pratikpandey.substack.com",
+        "www.reddit.com",
+        "github.com"
+      ],
+      "domain_diversity": 3,
+      "tools_used": [
+        "tinyfish"
+      ],
+      "tool_diversity": 1,
+      "status": "corroborated"
+    },
+    {
+      "angle": "performance characteristics and benchmarks",
+      "total_sources": 1,
+      "unique_domains": [
+        "levelup.gitconnected.com"
+      ],
+      "domain_diversity": 1,
+      "tools_used": [
+        "tinyfish"
+      ],
+      "tool_diversity": 1,
+      "status": "low_corroboration",
+      "note": "Only 1 unique domain \u2014 claims may lack independent verification"
+    },
+    {
+      "angle": "future directions and open research questions",
+      "total_sources": 1,
+      "unique_domains": [
+        "levelup.gitconnected.com"
+      ],
+      "domain_diversity": 1,
+      "tools_used": [
+        "tinyfish"
+      ],
+      "tool_diversity": 1,
+      "status": "low_corroboration",
+      "note": "Only 1 unique domain \u2014 claims may lack independent verification"
+    },
+    {
+      "angle": "comparative analysis and alternatives",
+      "total_sources": 1,
+      "unique_domains": [
+        "www.youtube.com"
+      ],
+      "domain_diversity": 1,
+      "tools_used": [
+        "tinyfish"
+      ],
+      "tool_diversity": 1,
+      "status": "low_corroboration",
+      "note": "Only 1 unique domain \u2014 claims may lack independent verification"
+    },
+    {
+      "angle": "overview and fundamentals",
+      "total_sources": 1,
+      "unique_domains": [
+        "medium.com"
+      ],
+      "domain_diversity": 1,
+      "tools_used": [
+        "exa"
+      ],
+      "tool_diversity": 1,
+      "status": "low_corroboration",
+      "note": "Only 1 unique domain \u2014 claims may lack independent verification"
+    }
+  ],
+  "status": "complete",
+  "error": null,
+  "research_packet": {
+    "packet_id": "a666ae25-cde",
+    "producer": "HermesOptimizer",
+    "backend": "deerflow-iterative-v2",
+    "topic": "Go goroutine concurrency model thousands long lived connections idle sessions memory overhead goroutine per connection vs async event loop epoll go scheduler performance terminal session mux",
+    "kind": "deep-research-paper",
+    "consumers": [
+      "liminal-dashboard"
+    ],
+    "status": "ready",
+    "confidence": 0.56,
+    "research_method": {
+      "max_depth": 3,
+      "rounds_completed": 3,
+      "total_unique_sources": 23,
+      "unique_domains": 17,
+      "tools_used": "exa, tinyfish",
+      "budget_used_seconds": 12.2,
+      "time_budget_seconds": 240
+    },
+    "abstract": "Deep research on 'Go goroutine concurrency model thousands long lived connections idle sessions memory overhead goroutine per connection vs async event loop epoll go scheduler performance terminal session mux' across 7 research dimensions using 3 iterative rounds with exa, tinyfish. Drew from 23 unique sources across 17 domains. Confidence: 0.56.",
+    "sections": [
+      {
+        "section": "applications and real-world use cases",
+        "finding_count": 11,
+        "source_count": 11,
+        "sources": [
+          {
+            "title": "What are the pros and cons of Go concurrency model compared to ...",
+            "url": "https://www.reddit.com/r/golang/comments/14p41sk/what_are_the_pros_and_cons_of_go_concurrency/",
+            "hash": "sha256:7b6004e407db3c8dc7ee83ae8e93df3977cfbadd01cbb108ebc8378676bde994",
+            "source_type": "exa",
+            "domain": ""
+          },
+          {
+            "title": "Go concurrency works great \u2014 Until production traffic Arrives - Medium",
+            "url": "https://medium.com/codex/go-concurrency-works-great-until-production-traffic-arrives-503f0fd13f14",
+            "hash": "sha256:3744d6f6e6235c8f9b691078472a8ee5cc96683739d05e03e4c4ccc46c83cd59",
+            "source_type": "exa",
+            "domain": ""
+          },
+          {
+            "title": "goroutine-per-connection, netpoller & the Reader/Writer Interface",
+            "url": "https://dev.to/jamesli/go-io-optimization-goroutine-per-connection-netpoller-the-readerwriter-interface-572o",
+            "hash": "sha256:6d386cd73af1db2064ce359bf600600364c8e1f76d27d7ad2f4e6cc730354ea0",
+            "source_type": "exa",
+            "domain": ""
+          },
+          {
+            "title": "Go Concurrency Model: Goroutines and the GMP Scheduler",
+            "url": "https://projectlighthouse.io/en/books/go-intermediate/pages/concurrency-model",
+            "hash": "sha256:a2b3b60f61a6ad5b2eb7eb9936b47f0f538cafca6ac13e4ccfcecbcbcfe42810",
+            "source_type": "exa",
+            "domain": ""
+          },
+          {
+            "title": "Designing Go-routines - by Sahil Sarwar - Brain Bytes & Binary",
+            "url": "https://sahilserver.substack.com/p/designing-go-routines",
+            "hash": "sha256:b6239fd7a01c99575895c8350671eabd4b2356bc4857b837d432987aad281f8c",
+            "source_type": "exa",
+            "domain": ""
+          },
+          {
+            "title": "Goroutines: the concurrency model we wanted all along",
+            "url": "https://jayconrod.com/posts/128/goroutines-the-concurrency-model-we-wanted-all-along",
+            "hash": "sha256:ab5c1f96f2ca3665c8eba5b01283a93ac86c870033a535926e16ca1b1abcc9df",
+            "source_type": "exa",
+            "domain": ""
+          },
+          {
+            "title": "Golang Concurrency Explained (Crash Course) - YouTube",
+            "url": "https://www.youtube.com/watch?v=eqSgTJ6HTsw",
+            "hash": "sha256:f66cd3dc6da28b95c202f0e3898ae004028130357e506c0c31b3c41d0b474ac0",
+            "source_type": "exa",
+            "domain": ""
+          },
+          {
+            "title": "Go Fundamentals: Concurrency Model - Aviv Carmi",
+            "url": "https://avivcarmi.com/go-fundamentals-concurrency-model/",
+            "hash": "sha256:05b5e25adc89a7537e2c99ffe6bb10fb833db39773de95a763dff01355823ae0",
+            "source_type": "exa",
+            "domain": ""
+          },
+          {
+            "title": "Goroutines and Scheduler | Concurrency Interview - AlgoMaster.io",
+            "url": "https://algomaster.io/learn/concurrency-interview/go-goroutines-and-scheduler",
+            "hash": "sha256:2675f876c8e42fe94d4085a97e682aa0b8a5742e34e62ee1ab84517bd8b0c14e",
+            "source_type": "exa",
+            "domain": ""
+          },
+          {
+            "title": "Goroutines in Go: A Practical Guide to Concurrency - GetStream.io",
+            "url": "https://getstream.io/blog/goroutines-go-concurrency-guide/",
+            "hash": "sha256:2885edb3c2c2b7435a34222caf2dbc42abf77cbdc531d73cbbffa79a99191f4e",
+            "source_type": "exa",
+            "domain": ""
+          },
+          {
+            "title": "Go Concurrency and Goroutines: A Complete Guide",
+            "url": "https://blog.stackademic.com/go-concurrency-and-goroutines-a-complete-guide-c81510c13ef7",
+            "hash": "sha256:e22c2a52b09831e0b244a248ee4e8fa9a76ec7df9eed964127ce902d11131b7f",
+            "source_type": "tinyfish",
+            "domain": ""
+          }
+        ],
+        "key_entries": [
+          {
+            "title": "What are the pros and cons of Go concurrency model compared to ...",
+            "url": "https://www.reddit.com/r/golang/comments/14p41sk/what_are_the_pros_and_cons_of_go_concurrency/",
+            "description": "",
+            "tool": "exa"
+          },
+          {
+            "title": "Go concurrency works great \u2014 Until production traffic Arrives - Medium",
+            "url": "https://medium.com/codex/go-concurrency-works-great-until-production-traffic-arrives-503f0fd13f14",
+            "description": "",
+            "tool": "exa"
+          },
+          {
+            "title": "goroutine-per-connection, netpoller & the Reader/Writer Interface",
+            "url": "https://dev.to/jamesli/go-io-optimization-goroutine-per-connection-netpoller-the-readerwriter-interface-572o",
+            "description": "",
+            "tool": "exa"
+          },
+          {
+            "title": "Go Concurrency Model: Goroutines and the GMP Scheduler",
+            "url": "https://projectlighthouse.io/en/books/go-intermediate/pages/concurrency-model",
+            "description": "",
+            "tool": "exa"
+          },
+          {
+            "title": "Designing Go-routines - by Sahil Sarwar - Brain Bytes & Binary",
+            "url": "https://sahilserver.substack.com/p/designing-go-routines",
+            "description": "",
+            "tool": "exa"
+          }
+        ]
+      },
+      {
+        "section": "architecture and design principles",
+        "finding_count": 5,
+        "source_count": 5,
+        "sources": [
+          {
+            "title": "Go go goroutines: understanding Go's concurrency model",
+            "url": "https://bitfieldconsulting.com/posts/goroutines",
+            "hash": "sha256:ccc8d2b79e7754b04dccf6744b299e6c29d890b5bbbc4a3a968a9e1dfcab47e3",
+            "source_type": "exa",
+            "domain": ""
+          },
+          {
+            "title": "Understanding Golang's lightweight concurrency model",
+            "url": "https://medium.com/swlh/unlocking-the-power-of-goroutines-understanding-gos-lightweight-concurrency-model-3775f8e696b0",
+            "hash": "sha256:9fba354788425b531017c66bd223e3b911931a59ca57ab2cfc2ef8c307ec05ec",
+            "source_type": "exa",
+            "domain": ""
+          },
+          {
+            "title": "In-Depth Go Concurrency: A Practical Guide to Goroutine ...",
+            "url": "https://dev.to/jones_charles_ad50858dbc0/in-depth-go-concurrency-a-practical-guide-to-goroutine-performance-nee",
+            "hash": "sha256:ab0d9868f6f4ecd64647a2bb2c664624a406efc55b10fbbf1d83f9e6c3e0e9e0",
+            "source_type": "exa",
+            "domain": ""
+          },
+          {
+            "title": "Gist of Go: Concurrency internals",
+            "url": "https://antonz.org/go-concurrency/internals/",
+            "hash": "sha256:892055054f2c237eb702e3fc59e6168be12e24fca5bdae14e1427c7d010d3c44",
+            "source_type": "exa",
+            "domain": ""
+          },
+          {
+            "title": "Goroutines: The concurrency model we wanted all along",
+            "url": "https://news.ycombinator.com/item?id=36636457",
+            "hash": "sha256:31806796f0d0cef742c18c995dde6461ed6b9d41e664bdb52952bdce7711cd14",
+            "source_type": "exa",
+            "domain": ""
+          }
+        ],
+        "key_entries": [
+          {
+            "title": "Go go goroutines: understanding Go's concurrency model",
+            "url": "https://bitfieldconsulting.com/posts/goroutines",
+            "description": "",
+            "tool": "exa"
+          },
+          {
+            "title": "Understanding Golang's lightweight concurrency model",
+            "url": "https://medium.com/swlh/unlocking-the-power-of-goroutines-understanding-gos-lightweight-concurrency-model-3775f8e696b0",
+            "description": "",
+            "tool": "exa"
+          },
+          {
+            "title": "In-Depth Go Concurrency: A Practical Guide to Goroutine ...",
+            "url": "https://dev.to/jones_charles_ad50858dbc0/in-depth-go-concurrency-a-practical-guide-to-goroutine-performance-nee",
+            "description": "",
+            "tool": "exa"
+          },
+          {
+            "title": "Gist of Go: Concurrency internals",
+            "url": "https://antonz.org/go-concurrency/internals/",
+            "description": "",
+            "tool": "exa"
+          },
+          {
+            "title": "Goroutines: The concurrency model we wanted all along",
+            "url": "https://news.ycombinator.com/item?id=36636457",
+            "description": "",
+            "tool": "exa"
+          }
+        ]
+      },
+      {
+        "section": "existing projects, open source implementations, and alternatives",
+        "finding_count": 3,
+        "source_count": 3,
+        "sources": [
+          {
+            "title": "go-concurrency-parallelism-models.md - bmf-tech - GitHub",
+            "url": "https://github.com/bmf-san/bmf-tech/blob/main/content/en/posts/go-concurrency-parallelism-models.md",
+            "hash": "sha256:0a1d397e1c94309c1c90645b3045ae071b6a05f1a5c75e3b4897a939b01ca089",
+            "source_type": "tinyfish",
+            "domain": ""
+          },
+          {
+            "title": "Exploring Go's Concurrency Model: Best Practices and ... - Reddit",
+            "url": "https://www.reddit.com/r/golang/comments/1p5m607/exploring_gos_concurrency_model_best_practices/",
+            "hash": "sha256:9bc3800f313ad7bc5e17b78fab29ca32b239a1da6c393a9a5ad6dfb37f6c2d71",
+            "source_type": "tinyfish",
+            "domain": ""
+          },
+          {
+            "title": "Go Concurrency Series: Deep Dive into Go Scheduler(I)",
+            "url": "https://pratikpandey.substack.com/p/go-concurrency-series-deep-dive-into",
+            "hash": "sha256:f393cd13baf852cf94356609b6d0ef88c74ee15d12194fc20b3c7434941395d2",
+            "source_type": "tinyfish",
+            "domain": ""
+          }
+        ],
+        "key_entries": [
+          {
+            "title": "go-concurrency-parallelism-models.md - bmf-tech - GitHub",
+            "url": "https://github.com/bmf-san/bmf-tech/blob/main/content/en/posts/go-concurrency-parallelism-models.md",
+            "description": "Go language strongly supports concurrency through lightweight goroutines and runtime mechanisms. Since Go 1.5, GOMAXPROCS is set to the number ...",
+            "tool": "tinyfish"
+          },
+          {
+            "title": "Exploring Go's Concurrency Model: Best Practices and ... - Reddit",
+            "url": "https://www.reddit.com/r/golang/comments/1p5m607/exploring_gos_concurrency_model_best_practices/",
+            "description": "Go's concurrency model, built around goroutines and channels, is one of its standout features. As I dive deeper into developing concurrent ...",
+            "tool": "tinyfish"
+          },
+          {
+            "title": "Go Concurrency Series: Deep Dive into Go Scheduler(I)",
+            "url": "https://pratikpandey.substack.com/p/go-concurrency-series-deep-dive-into",
+            "description": "The Go scheduler is a specific part of the Go runtime responsible for managing the execution of goroutines. It's an M:N scheduler, meaning it multiplexes M ...",
+            "tool": "tinyfish"
+          }
+        ]
+      },
+      {
+        "section": "performance characteristics and benchmarks",
+        "finding_count": 1,
+        "source_count": 1,
+        "sources": [
+          {
+            "title": "Demystifying Golang Channels, Goroutines, and Optimal Concurrency",
+            "url": "https://levelup.gitconnected.com/golang-channels-goroutines-and-optimal-concurrency-demystifying-through-examples-a43ba6aee74f",
+            "hash": "sha256:f94d75341e38f527acf17b4c1dfcf57a767eae665557e4a8f71eb299fc44ec4f",
+            "source_type": "tinyfish",
+            "domain": ""
+          }
+        ],
+        "key_entries": [
+          {
+            "title": "Demystifying Golang Channels, Goroutines, and Optimal Concurrency",
+            "url": "https://levelup.gitconnected.com/golang-channels-goroutines-and-optimal-concurrency-demystifying-through-examples-a43ba6aee74f",
+            "description": "For goroutines and channels, I created an application using a Dispatcher -> Worker -> Job pattern to benchmark and compare results in differing ...",
+            "tool": "tinyfish"
+          }
+        ]
+      },
+      {
+        "section": "future directions and open research questions",
+        "finding_count": 1,
+        "source_count": 1,
+        "sources": [
+          {
+            "title": "How Go's Concurrency Model Solved My Challenges",
+            "url": "https://levelup.gitconnected.com/how-i-solved-real-world-challenges-with-gos-powerful-concurrency-model-ee0b60f3aa6e",
+            "hash": "sha256:d1cafe826c15e414e9f737e6377629b06e4a713cc9cd981a8247ec40da672790",
+            "source_type": "tinyfish",
+            "domain": ""
+          }
+        ],
+        "key_entries": [
+          {
+            "title": "How Go's Concurrency Model Solved My Challenges",
+            "url": "https://levelup.gitconnected.com/how-i-solved-real-world-challenges-with-gos-powerful-concurrency-model-ee0b60f3aa6e",
+            "description": "In this article, I'll share how I leveraged Go's powerful concurrency model to solve real-world challenges and optimize our system's performance.",
+            "tool": "tinyfish"
+          }
+        ]
+      },
+      {
+        "section": "comparative analysis and alternatives",
+        "finding_count": 1,
+        "source_count": 1,
+        "sources": [
+          {
+            "title": "Goroutines: Go's Lightweight Concurrency Explained for Beginners!",
+            "url": "https://www.youtube.com/watch?v=Qf0sZMH1InU",
+            "hash": "sha256:c3cb6472bd3bd5e5a76c0a2501f565561f5812e84bd5a93e8621c880f10dba8c",
+            "source_type": "tinyfish",
+            "domain": ""
+          }
+        ],
+        "key_entries": [
+          {
+            "title": "Goroutines: Go's Lightweight Concurrency Explained for Beginners!",
+            "url": "https://www.youtube.com/watch?v=Qf0sZMH1InU",
+            "description": "Dive into the world of Go concurrency with Goroutines! This video provides a beginner-friendly guide to understanding and using Goroutines, ...",
+            "tool": "tinyfish"
+          }
+        ]
+      },
+      {
+        "section": "overview and fundamentals",
+        "finding_count": 1,
+        "source_count": 1,
+        "sources": [
+          {
+            "title": "Understanding Go's Goroutine Scheduler | by Aditi Mishra - Medium",
+            "url": "https://medium.com/@aditimishra_541/understanding-gos-goroutine-scheduler-f8be8d962b45",
+            "hash": "sha256:12058d6021b7d1c02d2546ef7c7c9d71545b247e44ac76bf13b3896dc05cc180",
+            "source_type": "exa",
+            "domain": ""
+          }
+        ],
+        "key_entries": [
+          {
+            "title": "Understanding Go's Goroutine Scheduler | by Aditi Mishra - Medium",
+            "url": "https://medium.com/@aditimishra_541/understanding-gos-goroutine-scheduler-f8be8d962b45",
+            "description": "",
+            "tool": "exa"
+          }
+        ]
+      }
+    ],
+    "findings": [
+      {
+        "title": "What are the pros and cons of Go concurrency model compared to ...",
+        "description": "",
+        "source_ref": "https://www.reddit.com/r/golang/comments/14p41sk/what_are_the_pros_and_cons_of_go_concurrency/",
+        "source_hash": "sha256:7b6004e407db3c8dc7ee83ae8e93df3977cfbadd01cbb108ebc8378676bde994",
+        "url": "https://www.reddit.com/r/golang/comments/14p41sk/what_are_the_pros_and_cons_of_go_concurrency/",
+        "tool": "exa",
+        "angle": "applications and real-world use cases"
+      },
+      {
+        "title": "Go concurrency works great \u2014 Until production traffic Arrives - Medium",
+        "description": "",
+        "source_ref": "https://medium.com/codex/go-concurrency-works-great-until-production-traffic-arrives-503f0fd13f14",
+        "source_hash": "sha256:3744d6f6e6235c8f9b691078472a8ee5cc96683739d05e03e4c4ccc46c83cd59",
+        "url": "https://medium.com/codex/go-concurrency-works-great-until-production-traffic-arrives-503f0fd13f14",
+        "tool": "exa",
+        "angle": "applications and real-world use cases"
+      },
+      {
+        "title": "goroutine-per-connection, netpoller & the Reader/Writer Interface",
+        "description": "",
+        "source_ref": "https://dev.to/jamesli/go-io-optimization-goroutine-per-connection-netpoller-the-readerwriter-interface-572o",
+        "source_hash": "sha256:6d386cd73af1db2064ce359bf600600364c8e1f76d27d7ad2f4e6cc730354ea0",
+        "url": "https://dev.to/jamesli/go-io-optimization-goroutine-per-connection-netpoller-the-readerwriter-interface-572o",
+        "tool": "exa",
+        "angle": "applications and real-world use cases"
+      },
+      {
+        "title": "Go Concurrency Model: Goroutines and the GMP Scheduler",
+        "description": "",
+        "source_ref": "https://projectlighthouse.io/en/books/go-intermediate/pages/concurrency-model",
+        "source_hash": "sha256:a2b3b60f61a6ad5b2eb7eb9936b47f0f538cafca6ac13e4ccfcecbcbcfe42810",
+        "url": "https://projectlighthouse.io/en/books/go-intermediate/pages/concurrency-model",
+        "tool": "exa",
+        "angle": "applications and real-world use cases"
+      },
+      {
+        "title": "Designing Go-routines - by Sahil Sarwar - Brain Bytes & Binary",
+        "description": "",
+        "source_ref": "https://sahilserver.substack.com/p/designing-go-routines",
+        "source_hash": "sha256:b6239fd7a01c99575895c8350671eabd4b2356bc4857b837d432987aad281f8c",
+        "url": "https://sahilserver.substack.com/p/designing-go-routines",
+        "tool": "exa",
+        "angle": "applications and real-world use cases"
+      },
+      {
+        "title": "Goroutines: the concurrency model we wanted all along",
+        "description": "",
+        "source_ref": "https://jayconrod.com/posts/128/goroutines-the-concurrency-model-we-wanted-all-along",
+        "source_hash": "sha256:ab5c1f96f2ca3665c8eba5b01283a93ac86c870033a535926e16ca1b1abcc9df",
+        "url": "https://jayconrod.com/posts/128/goroutines-the-concurrency-model-we-wanted-all-along",
+        "tool": "exa",
+        "angle": "applications and real-world use cases"
+      },
+      {
+        "title": "Golang Concurrency Explained (Crash Course) - YouTube",
+        "description": "",
+        "source_ref": "https://www.youtube.com/watch?v=eqSgTJ6HTsw",
+        "source_hash": "sha256:f66cd3dc6da28b95c202f0e3898ae004028130357e506c0c31b3c41d0b474ac0",
+        "url": "https://www.youtube.com/watch?v=eqSgTJ6HTsw",
+        "tool": "exa",
+        "angle": "applications and real-world use cases"
+      },
+      {
+        "title": "Go Fundamentals: Concurrency Model - Aviv Carmi",
+        "description": "",
+        "source_ref": "https://avivcarmi.com/go-fundamentals-concurrency-model/",
+        "source_hash": "sha256:05b5e25adc89a7537e2c99ffe6bb10fb833db39773de95a763dff01355823ae0",
+        "url": "https://avivcarmi.com/go-fundamentals-concurrency-model/",
+        "tool": "exa",
+        "angle": "applications and real-world use cases"
+      },
+      {
+        "title": "Goroutines and Scheduler | Concurrency Interview - AlgoMaster.io",
+        "description": "",
+        "source_ref": "https://algomaster.io/learn/concurrency-interview/go-goroutines-and-scheduler",
+        "source_hash": "sha256:2675f876c8e42fe94d4085a97e682aa0b8a5742e34e62ee1ab84517bd8b0c14e",
+        "url": "https://algomaster.io/learn/concurrency-interview/go-goroutines-and-scheduler",
+        "tool": "exa",
+        "angle": "applications and real-world use cases"
+      },
+      {
+        "title": "Goroutines in Go: A Practical Guide to Concurrency - GetStream.io",
+        "description": "",
+        "source_ref": "https://getstream.io/blog/goroutines-go-concurrency-guide/",
+        "source_hash": "sha256:2885edb3c2c2b7435a34222caf2dbc42abf77cbdc531d73cbbffa79a99191f4e",
+        "url": "https://getstream.io/blog/goroutines-go-concurrency-guide/",
+        "tool": "exa",
+        "angle": "applications and real-world use cases"
+      },
+      {
+        "title": "Go go goroutines: understanding Go's concurrency model",
+        "description": "",
+        "source_ref": "https://bitfieldconsulting.com/posts/goroutines",
+        "source_hash": "sha256:ccc8d2b79e7754b04dccf6744b299e6c29d890b5bbbc4a3a968a9e1dfcab47e3",
+        "url": "https://bitfieldconsulting.com/posts/goroutines",
+        "tool": "exa",
+        "angle": "architecture and design principles"
+      },
+      {
+        "title": "Understanding Golang's lightweight concurrency model",
+        "description": "",
+        "source_ref": "https://medium.com/swlh/unlocking-the-power-of-goroutines-understanding-gos-lightweight-concurrency-model-3775f8e696b0",
+        "source_hash": "sha256:9fba354788425b531017c66bd223e3b911931a59ca57ab2cfc2ef8c307ec05ec",
+        "url": "https://medium.com/swlh/unlocking-the-power-of-goroutines-understanding-gos-lightweight-concurrency-model-3775f8e696b0",
+        "tool": "exa",
+        "angle": "architecture and design principles"
+      },
+      {
+        "title": "In-Depth Go Concurrency: A Practical Guide to Goroutine ...",
+        "description": "",
+        "source_ref": "https://dev.to/jones_charles_ad50858dbc0/in-depth-go-concurrency-a-practical-guide-to-goroutine-performance-nee",
+        "source_hash": "sha256:ab0d9868f6f4ecd64647a2bb2c664624a406efc55b10fbbf1d83f9e6c3e0e9e0",
+        "url": "https://dev.to/jones_charles_ad50858dbc0/in-depth-go-concurrency-a-practical-guide-to-goroutine-performance-nee",
+        "tool": "exa",
+        "angle": "architecture and design principles"
+      },
+      {
+        "title": "Gist of Go: Concurrency internals",
+        "description": "",
+        "source_ref": "https://antonz.org/go-concurrency/internals/",
+        "source_hash": "sha256:892055054f2c237eb702e3fc59e6168be12e24fca5bdae14e1427c7d010d3c44",
+        "url": "https://antonz.org/go-concurrency/internals/",
+        "tool": "exa",
+        "angle": "architecture and design principles"
+      },
+      {
+        "title": "Goroutines: The concurrency model we wanted all along",
+        "description": "",
+        "source_ref": "https://news.ycombinator.com/item?id=36636457",
+        "source_hash": "sha256:31806796f0d0cef742c18c995dde6461ed6b9d41e664bdb52952bdce7711cd14",
+        "url": "https://news.ycombinator.com/item?id=36636457",
+        "tool": "exa",
+        "angle": "architecture and design principles"
+      },
+      {
+        "title": "go-concurrency-parallelism-models.md - bmf-tech - GitHub",
+        "description": "Go language strongly supports concurrency through lightweight goroutines and runtime mechanisms. Since Go 1.5, GOMAXPROCS is set to the number ...",
+        "source_ref": "https://github.com/bmf-san/bmf-tech/blob/main/content/en/posts/go-concurrency-parallelism-models.md",
+        "source_hash": "sha256:0a1d397e1c94309c1c90645b3045ae071b6a05f1a5c75e3b4897a939b01ca089",
+        "url": "https://github.com/bmf-san/bmf-tech/blob/main/content/en/posts/go-concurrency-parallelism-models.md",
+        "tool": "tinyfish",
+        "angle": "existing projects, open source implementations, and alternatives"
+      },
+      {
+        "title": "Exploring Go's Concurrency Model: Best Practices and ... - Reddit",
+        "description": "Go's concurrency model, built around goroutines and channels, is one of its standout features. As I dive deeper into developing concurrent ...",
+        "source_ref": "https://www.reddit.com/r/golang/comments/1p5m607/exploring_gos_concurrency_model_best_practices/",
+        "source_hash": "sha256:9bc3800f313ad7bc5e17b78fab29ca32b239a1da6c393a9a5ad6dfb37f6c2d71",
+        "url": "https://www.reddit.com/r/golang/comments/1p5m607/exploring_gos_concurrency_model_best_practices/",
+        "tool": "tinyfish",
+        "angle": "existing projects, open source implementations, and alternatives"
+      },
+      {
+        "title": "Go Concurrency Series: Deep Dive into Go Scheduler(I)",
+        "description": "The Go scheduler is a specific part of the Go runtime responsible for managing the execution of goroutines. It's an M:N scheduler, meaning it multiplexes M ...",
+        "source_ref": "https://pratikpandey.substack.com/p/go-concurrency-series-deep-dive-into",
+        "source_hash": "sha256:f393cd13baf852cf94356609b6d0ef88c74ee15d12194fc20b3c7434941395d2",
+        "url": "https://pratikpandey.substack.com/p/go-concurrency-series-deep-dive-into",
+        "tool": "tinyfish",
+        "angle": "existing projects, open source implementations, and alternatives"
+      },
+      {
+        "title": "Demystifying Golang Channels, Goroutines, and Optimal Concurrency",
+        "description": "For goroutines and channels, I created an application using a Dispatcher -> Worker -> Job pattern to benchmark and compare results in differing ...",
+        "source_ref": "https://levelup.gitconnected.com/golang-channels-goroutines-and-optimal-concurrency-demystifying-through-examples-a43ba6aee74f",
+        "source_hash": "sha256:f94d75341e38f527acf17b4c1dfcf57a767eae665557e4a8f71eb299fc44ec4f",
+        "url": "https://levelup.gitconnected.com/golang-channels-goroutines-and-optimal-concurrency-demystifying-through-examples-a43ba6aee74f",
+        "tool": "tinyfish",
+        "angle": "performance characteristics and benchmarks"
+      },
+      {
+        "title": "How Go's Concurrency Model Solved My Challenges",
+        "description": "In this article, I'll share how I leveraged Go's powerful concurrency model to solve real-world challenges and optimize our system's performance.",
+        "source_ref": "https://levelup.gitconnected.com/how-i-solved-real-world-challenges-with-gos-powerful-concurrency-model-ee0b60f3aa6e",
+        "source_hash": "sha256:d1cafe826c15e414e9f737e6377629b06e4a713cc9cd981a8247ec40da672790",
+        "url": "https://levelup.gitconnected.com/how-i-solved-real-world-challenges-with-gos-powerful-concurrency-model-ee0b60f3aa6e",
+        "tool": "tinyfish",
+        "angle": "future directions and open research questions"
+      },
+      {
+        "title": "Goroutines: Go's Lightweight Concurrency Explained for Beginners!",
+        "description": "Dive into the world of Go concurrency with Goroutines! This video provides a beginner-friendly guide to understanding and using Goroutines, ...",
+        "source_ref": "https://www.youtube.com/watch?v=Qf0sZMH1InU",
+        "source_hash": "sha256:c3cb6472bd3bd5e5a76c0a2501f565561f5812e84bd5a93e8621c880f10dba8c",
+        "url": "https://www.youtube.com/watch?v=Qf0sZMH1InU",
+        "tool": "tinyfish",
+        "angle": "comparative analysis and alternatives"
+      },
+      {
+        "title": "Go Concurrency and Goroutines: A Complete Guide",
+        "description": "Go provides concurrency primitives (goroutines and channels) that can achieve parallelism when multiple cores are available. You write ...",
+        "source_ref": "https://blog.stackademic.com/go-concurrency-and-goroutines-a-complete-guide-c81510c13ef7",
+        "source_hash": "sha256:e22c2a52b09831e0b244a248ee4e8fa9a76ec7df9eed964127ce902d11131b7f",
+        "url": "https://blog.stackademic.com/go-concurrency-and-goroutines-a-complete-guide-c81510c13ef7",
+        "tool": "tinyfish",
+        "angle": "applications and real-world use cases"
+      },
+      {
+        "title": "Understanding Go's Goroutine Scheduler | by Aditi Mishra - Medium",
+        "description": "",
+        "source_ref": "https://medium.com/@aditimishra_541/understanding-gos-goroutine-scheduler-f8be8d962b45",
+        "source_hash": "sha256:12058d6021b7d1c02d2546ef7c7c9d71545b247e44ac76bf13b3896dc05cc180",
+        "url": "https://medium.com/@aditimishra_541/understanding-gos-goroutine-scheduler-f8be8d962b45",
+        "tool": "exa",
+        "angle": "overview and fundamentals"
+      }
+    ],
+    "verification": {
+      "total_angles_verified": 7,
+      "corroborated_angles": 3,
+      "low_confidence_angles": 4,
+      "average_domain_diversity": 3.3
+    },
+    "cross_verification_details": [
+      {
+        "angle": "applications and real-world use cases",
+        "total_sources": 11,
+        "unique_domains": [
+          "blog.stackademic.com",
+          "medium.com",
+          "sahilserver.substack.com",
+          "avivcarmi.com",
+          "algomaster.io",
+          "getstream.io",
+          "projectlighthouse.io",
+          "dev.to",
+          "www.reddit.com",
+          "jayconrod.com",
+          "www.youtube.com"
+        ],
+        "domain_diversity": 11,
+        "tools_used": [
+          "tinyfish",
+          "exa"
+        ],
+        "tool_diversity": 2,
+        "status": "corroborated"
+      },
+      {
+        "angle": "architecture and design principles",
+        "total_sources": 5,
+        "unique_domains": [
+          "medium.com",
+          "news.ycombinator.com",
+          "antonz.org",
+          "bitfieldconsulting.com",
+          "dev.to"
+        ],
+        "domain_diversity": 5,
+        "tools_used": [
+          "exa"
+        ],
+        "tool_diversity": 1,
+        "status": "corroborated"
+      },
+      {
+        "angle": "existing projects, open source implementations, and alternatives",
+        "total_sources": 3,
+        "unique_domains": [
+          "pratikpandey.substack.com",
+          "www.reddit.com",
+          "github.com"
+        ],
+        "domain_diversity": 3,
+        "tools_used": [
+          "tinyfish"
+        ],
+        "tool_diversity": 1,
+        "status": "corroborated"
+      },
+      {
+        "angle": "performance characteristics and benchmarks",
+        "total_sources": 1,
+        "unique_domains": [
+          "levelup.gitconnected.com"
+        ],
+        "domain_diversity": 1,
+        "tools_used": [
+          "tinyfish"
+        ],
+        "tool_diversity": 1,
+        "status": "low_corroboration",
+        "note": "Only 1 unique domain \u2014 claims may lack independent verification"
+      },
+      {
+        "angle": "future directions and open research questions",
+        "total_sources": 1,
+        "unique_domains": [
+          "levelup.gitconnected.com"
+        ],
+        "domain_diversity": 1,
+        "tools_used": [
+          "tinyfish"
+        ],
+        "tool_diversity": 1,
+        "status": "low_corroboration",
+        "note": "Only 1 unique domain \u2014 claims may lack independent verification"
+      },
+      {
+        "angle": "comparative analysis and alternatives",
+        "total_sources": 1,
+        "unique_domains": [
+          "www.youtube.com"
+        ],
+        "domain_diversity": 1,
+        "tools_used": [
+          "tinyfish"
+        ],
+        "tool_diversity": 1,
+        "status": "low_corroboration",
+        "note": "Only 1 unique domain \u2014 claims may lack independent verification"
+      },
+      {
+        "angle": "overview and fundamentals",
+        "total_sources": 1,
+        "unique_domains": [
+          "medium.com"
+        ],
+        "domain_diversity": 1,
+        "tools_used": [
+          "exa"
+        ],
+        "tool_diversity": 1,
+        "status": "low_corroboration",
+        "note": "Only 1 unique domain \u2014 claims may lack independent verification"
+      }
+    ],
+    "rounds": [
+      {
+        "round": 1,
+        "angles_searched": 10,
+        "new_findings": 22,
+        "corpus_findings": 0,
+        "web_findings": 22,
+        "elapsed_seconds": 4.0,
+        "budget_remaining": 235
+      },
+      {
+        "round": 2,
+        "angles_searched": 7,
+        "new_findings": 1,
+        "corpus_findings": 0,
+        "web_findings": 1,
+        "elapsed_seconds": 8.3,
+        "budget_remaining": 231
+      },
+      {
+        "round": 3,
+        "angles_searched": 6,
+        "new_findings": 0,
+        "corpus_findings": 0,
+        "web_findings": 0,
+        "elapsed_seconds": 12.2,
+        "budget_remaining": 227
+      }
+    ],
+    "sources": [
+      {
+        "title": "What are the pros and cons of Go concurrency model compared to ...",
+        "url": "https://www.reddit.com/r/golang/comments/14p41sk/what_are_the_pros_and_cons_of_go_concurrency/",
+        "hash": "sha256:7b6004e407db3c8dc7ee83ae8e93df3977cfbadd01cbb108ebc8378676bde994",
+        "source_type": "exa",
+        "domain": ""
+      },
+      {
+        "title": "Go concurrency works great \u2014 Until production traffic Arrives - Medium",
+        "url": "https://medium.com/codex/go-concurrency-works-great-until-production-traffic-arrives-503f0fd13f14",
+        "hash": "sha256:3744d6f6e6235c8f9b691078472a8ee5cc96683739d05e03e4c4ccc46c83cd59",
+        "source_type": "exa",
+        "domain": ""
+      },
+      {
+        "title": "goroutine-per-connection, netpoller & the Reader/Writer Interface",
+        "url": "https://dev.to/jamesli/go-io-optimization-goroutine-per-connection-netpoller-the-readerwriter-interface-572o",
+        "hash": "sha256:6d386cd73af1db2064ce359bf600600364c8e1f76d27d7ad2f4e6cc730354ea0",
+        "source_type": "exa",
+        "domain": ""
+      },
+      {
+        "title": "Go Concurrency Model: Goroutines and the GMP Scheduler",
+        "url": "https://projectlighthouse.io/en/books/go-intermediate/pages/concurrency-model",
+        "hash": "sha256:a2b3b60f61a6ad5b2eb7eb9936b47f0f538cafca6ac13e4ccfcecbcbcfe42810",
+        "source_type": "exa",
+        "domain": ""
+      },
+      {
+        "title": "Designing Go-routines - by Sahil Sarwar - Brain Bytes & Binary",
+        "url": "https://sahilserver.substack.com/p/designing-go-routines",
+        "hash": "sha256:b6239fd7a01c99575895c8350671eabd4b2356bc4857b837d432987aad281f8c",
+        "source_type": "exa",
+        "domain": ""
+      },
+      {
+        "title": "Goroutines: the concurrency model we wanted all along",
+        "url": "https://jayconrod.com/posts/128/goroutines-the-concurrency-model-we-wanted-all-along",
+        "hash": "sha256:ab5c1f96f2ca3665c8eba5b01283a93ac86c870033a535926e16ca1b1abcc9df",
+        "source_type": "exa",
+        "domain": ""
+      },
+      {
+        "title": "Golang Concurrency Explained (Crash Course) - YouTube",
+        "url": "https://www.youtube.com/watch?v=eqSgTJ6HTsw",
+        "hash": "sha256:f66cd3dc6da28b95c202f0e3898ae004028130357e506c0c31b3c41d0b474ac0",
+        "source_type": "exa",
+        "domain": ""
+      },
+      {
+        "title": "Go Fundamentals: Concurrency Model - Aviv Carmi",
+        "url": "https://avivcarmi.com/go-fundamentals-concurrency-model/",
+        "hash": "sha256:05b5e25adc89a7537e2c99ffe6bb10fb833db39773de95a763dff01355823ae0",
+        "source_type": "exa",
+        "domain": ""
+      },
+      {
+        "title": "Goroutines and Scheduler | Concurrency Interview - AlgoMaster.io",
+        "url": "https://algomaster.io/learn/concurrency-interview/go-goroutines-and-scheduler",
+        "hash": "sha256:2675f876c8e42fe94d4085a97e682aa0b8a5742e34e62ee1ab84517bd8b0c14e",
+        "source_type": "exa",
+        "domain": ""
+      },
+      {
+        "title": "Goroutines in Go: A Practical Guide to Concurrency - GetStream.io",
+        "url": "https://getstream.io/blog/goroutines-go-concurrency-guide/",
+        "hash": "sha256:2885edb3c2c2b7435a34222caf2dbc42abf77cbdc531d73cbbffa79a99191f4e",
+        "source_type": "exa",
+        "domain": ""
+      },
+      {
+        "title": "Go Concurrency and Goroutines: A Complete Guide",
+        "url": "https://blog.stackademic.com/go-concurrency-and-goroutines-a-complete-guide-c81510c13ef7",
+        "hash": "sha256:e22c2a52b09831e0b244a248ee4e8fa9a76ec7df9eed964127ce902d11131b7f",
+        "source_type": "tinyfish",
+        "domain": ""
+      },
+      {
+        "title": "Go go goroutines: understanding Go's concurrency model",
+        "url": "https://bitfieldconsulting.com/posts/goroutines",
+        "hash": "sha256:ccc8d2b79e7754b04dccf6744b299e6c29d890b5bbbc4a3a968a9e1dfcab47e3",
+        "source_type": "exa",
+        "domain": ""
+      },
+      {
+        "title": "Understanding Golang's lightweight concurrency model",
+        "url": "https://medium.com/swlh/unlocking-the-power-of-goroutines-understanding-gos-lightweight-concurrency-model-3775f8e696b0",
+        "hash": "sha256:9fba354788425b531017c66bd223e3b911931a59ca57ab2cfc2ef8c307ec05ec",
+        "source_type": "exa",
+        "domain": ""
+      },
+      {
+        "title": "In-Depth Go Concurrency: A Practical Guide to Goroutine ...",
+        "url": "https://dev.to/jones_charles_ad50858dbc0/in-depth-go-concurrency-a-practical-guide-to-goroutine-performance-nee",
+        "hash": "sha256:ab0d9868f6f4ecd64647a2bb2c664624a406efc55b10fbbf1d83f9e6c3e0e9e0",
+        "source_type": "exa",
+        "domain": ""
+      },
+      {
+        "title": "Gist of Go: Concurrency internals",
+        "url": "https://antonz.org/go-concurrency/internals/",
+        "hash": "sha256:892055054f2c237eb702e3fc59e6168be12e24fca5bdae14e1427c7d010d3c44",
+        "source_type": "exa",
+        "domain": ""
+      },
+      {
+        "title": "Goroutines: The concurrency model we wanted all along",
+        "url": "https://news.ycombinator.com/item?id=36636457",
+        "hash": "sha256:31806796f0d0cef742c18c995dde6461ed6b9d41e664bdb52952bdce7711cd14",
+        "source_type": "exa",
+        "domain": ""
+      },
+      {
+        "title": "go-concurrency-parallelism-models.md - bmf-tech - GitHub",
+        "url": "https://github.com/bmf-san/bmf-tech/blob/main/content/en/posts/go-concurrency-parallelism-models.md",
+        "hash": "sha256:0a1d397e1c94309c1c90645b3045ae071b6a05f1a5c75e3b4897a939b01ca089",
+        "source_type": "tinyfish",
+        "domain": ""
+      },
+      {
+        "title": "Exploring Go's Concurrency Model: Best Practices and ... - Reddit",
+        "url": "https://www.reddit.com/r/golang/comments/1p5m607/exploring_gos_concurrency_model_best_practices/",
+        "hash": "sha256:9bc3800f313ad7bc5e17b78fab29ca32b239a1da6c393a9a5ad6dfb37f6c2d71",
+        "source_type": "tinyfish",
+        "domain": ""
+      },
+      {
+        "title": "Go Concurrency Series: Deep Dive into Go Scheduler(I)",
+        "url": "https://pratikpandey.substack.com/p/go-concurrency-series-deep-dive-into",
+        "hash": "sha256:f393cd13baf852cf94356609b6d0ef88c74ee15d12194fc20b3c7434941395d2",
+        "source_type": "tinyfish",
+        "domain": ""
+      },
+      {
+        "title": "Demystifying Golang Channels, Goroutines, and Optimal Concurrency",
+        "url": "https://levelup.gitconnected.com/golang-channels-goroutines-and-optimal-concurrency-demystifying-through-examples-a43ba6aee74f",
+        "hash": "sha256:f94d75341e38f527acf17b4c1dfcf57a767eae665557e4a8f71eb299fc44ec4f",
+        "source_type": "tinyfish",
+        "domain": ""
+      },
+      {
+        "title": "How Go's Concurrency Model Solved My Challenges",
+        "url": "https://levelup.gitconnected.com/how-i-solved-real-world-challenges-with-gos-powerful-concurrency-model-ee0b60f3aa6e",
+        "hash": "sha256:d1cafe826c15e414e9f737e6377629b06e4a713cc9cd981a8247ec40da672790",
+        "source_type": "tinyfish",
+        "domain": ""
+      },
+      {
+        "title": "Goroutines: Go's Lightweight Concurrency Explained for Beginners!",
+        "url": "https://www.youtube.com/watch?v=Qf0sZMH1InU",
+        "hash": "sha256:c3cb6472bd3bd5e5a76c0a2501f565561f5812e84bd5a93e8621c880f10dba8c",
+        "source_type": "tinyfish",
+        "domain": ""
+      },
+      {
+        "title": "Understanding Go's Goroutine Scheduler | by Aditi Mishra - Medium",
+        "url": "https://medium.com/@aditimishra_541/understanding-gos-goroutine-scheduler-f8be8d962b45",
+        "hash": "sha256:12058d6021b7d1c02d2546ef7c7c9d71545b247e44ac76bf13b3896dc05cc180",
+        "source_type": "exa",
+        "domain": ""
+      }
+    ],
+    "sources_by_domain": [
+      [
+        "medium.com",
+        3
+      ],
+      [
+        "www.reddit.com",
+        2
+      ],
+      [
+        "dev.to",
+        2
+      ],
+      [
+        "www.youtube.com",
+        2
+      ],
+      [
+        "levelup.gitconnected.com",
+        2
+      ],
+      [
+        "projectlighthouse.io",
+        1
+      ],
+      [
+        "sahilserver.substack.com",
+        1
+      ],
+      [
+        "jayconrod.com",
+        1
+      ],
+      [
+        "avivcarmi.com",
+        1
+      ],
+      [
+        "algomaster.io",
+        1
+      ],
+      [
+        "getstream.io",
+        1
+      ],
+      [
+        "blog.stackademic.com",
+        1
+      ],
+      [
+        "bitfieldconsulting.com",
+        1
+      ],
+      [
+        "antonz.org",
+        1
+      ],
+      [
+        "news.ycombinator.com",
+        1
+      ],
+      [
+        "github.com",
+        1
+      ],
+      [
+        "pratikpandey.substack.com",
+        1
+      ]
+    ],
+    "probes": [
+      {
+        "name": "corpus_api_probe",
+        "status": "ok",
+        "endpoint": "http://127.0.0.1:9764/health",
+        "source_ref": "http://127.0.0.1:9764/health"
+      }
+    ],
+    "redaction": null,
+    "artifact_hash": "sha256:97dd33a15082e110a2e0586444b7e8123dfad27b27d28883be21f010503e5edb",
+    "mutation_counters": {
+      "github_mutation_count": 0,
+      "github_api_write_verbs_used": [],
+      "dashboard_mutates_hermes_config": false
+    },
+    "ttl": 86400,
+    "build_recommendation": {
+      "recommendation": "build",
+      "rationale": "No GitHub projects were returned for this topic. Building may be appropriate, but verify with a narrower GitHub query before relying on this recommendation.",
+      "top_candidates": [],
+      "quality_projects_count": 0,
+      "relevant_projects_count": 0,
+      "total_projects_found": 0
+    },
+    "created_at": "2026-05-30T13:21:56Z"
+  },
+  "tool_trace": [
+    {
+      "tool": "exa",
+      "angle": "applications and real-world use cases",
+      "results": 10
+    },
+    {
+      "tool": "exa",
+      "angle": "architecture and design principles",
+      "results": 10
+    },
+    {
+      "tool": "tinyfish",
+      "angle": "existing projects, open source implementations, and alternatives",
+      "results": 10
+    },
+    {
+      "tool": "tinyfish",
+      "angle": "performance characteristics and benchmarks",
+      "results": 10
+    },
+    {
+      "tool": "tinyfish",
+      "angle": "overview and fundamentals",
+      "results": 10
+    },
+    {
+      "tool": "tinyfish",
+      "angle": "future directions and open research questions",
+      "results": 10
+    },
+    {
+      "tool": "tinyfish",
+      "angle": "comparative analysis and alternatives",
+      "results": 10
+    },
+    {
+      "tool": "tinyfish",
+      "angle": "challenges, limitations, and known issues",
+      "results": 10
+    },
+    {
+      "tool": "tinyfish",
+      "angle": "standards, governance, and community",
+      "results": 10
+    },
+    {
+      "tool": "tinyfish",
+      "angle": "architecture and design principles",
+      "results": 10
+    },
+    {
+      "tool": "tinyfish",
+      "angle": "applications and real-world use cases",
+      "results": 10
+    },
+    {
+      "tool": "exa",
+      "angle": "history and evolution",
+      "results": 10
+    },
+    {
+      "tool": "exa",
+      "angle": "challenges, limitations, and known issues",
+      "results": 10
+    },
+    {
+      "tool": "exa",
+      "angle": "challenges, limitations, and known issues",
+      "results": 10
+    },
+    {
+      "tool": "exa",
+      "angle": "performance characteristics and benchmarks",
+      "results": 10
+    },
+    {
+      "tool": "exa",
+      "angle": "overview and fundamentals",
+      "results": 10
+    },
+    {
+      "tool": "exa",
+      "angle": "comparative analysis and alternatives",
+      "results": 10
+    },
+    {
+      "tool": "exa",
+      "angle": "overview and fundamentals",
+      "results": 10
+    },
+    {
+      "tool": "exa",
+      "angle": "future directions and open research questions",
+      "results": 10
+    },
+    {
+      "tool": "exa",
+      "angle": "challenges, limitations, and known issues",
+      "results": 10
+    },
+    {
+      "tool": "exa",
+      "angle": "performance characteristics and benchmarks",
+      "results": 10
+    },
+    {
+      "tool": "exa",
+      "angle": "comparative analysis and alternatives",
+      "results": 10
+    },
+    {
+      "tool": "exa",
+      "angle": "overview and fundamentals",
+      "results": 10
+    },
+    {
+      "tool": "exa",
+      "angle": "comparative analysis and alternatives",
+      "results": 10
+    },
+    {
+      "tool": "exa",
+      "angle": "challenges, limitations, and known issues",
+      "results": 10
+    },
+    {
+      "tool": "exa",
+      "angle": "comparative analysis and alternatives",
+      "results": 10
+    },
+    {
+      "tool": "exa",
+      "angle": "comparative analysis and alternatives",
+      "results": 10
+    },
+    {
+      "tool": "exa",
+      "angle": "future directions and open research questions",
+      "results": 10
+    }
+  ],
+  "_detected_language": "go",
+  "id": "a666ae25-cde",
+  "packet_summary": {
+    "sections": 7,
+    "sources": 23,
+    "method": {
+      "max_depth": 3,
+      "rounds_completed": 3,
+      "total_unique_sources": 23,
+      "unique_domains": 17,
+      "tools_used": "exa, tinyfish",
+      "budget_used_seconds": 12.2,
+      "time_budget_seconds": 240
+    }
+  }
+}

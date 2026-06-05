@@ -1,0 +1,235 @@
+{
+  "topic": "secure terminal relay architecture TOFU key pinning ed25519 key rotation 0-RTT replay attack QUIC PTY security session persistence output buffer memory goroutine concurrency model terminal multiplexing",
+  "topic_id": "68b3be43-b39",
+  "status": "complete",
+  "depth": 3,
+  "confidence": 0.58,
+  "rounds": [
+    {
+      "round": 1,
+      "angles_searched": 10,
+      "new_findings": 4,
+      "corpus_findings": 0,
+      "web_findings": 4,
+      "elapsed_seconds": 4.4,
+      "budget_remaining": 295
+    },
+    {
+      "round": 2,
+      "angles_searched": 7,
+      "new_findings": 12,
+      "corpus_findings": 0,
+      "web_findings": 12,
+      "elapsed_seconds": 9.8,
+      "budget_remaining": 290
+    },
+    {
+      "round": 3,
+      "angles_searched": 6,
+      "new_findings": 0,
+      "corpus_findings": 0,
+      "web_findings": 0,
+      "elapsed_seconds": 12.0,
+      "budget_remaining": 288
+    }
+  ],
+  "gaps": [
+    "overview and fundamentals",
+    "history and evolution",
+    "architecture and design principles",
+    "existing projects, open source implementations, and alternatives",
+    "performance characteristics and benchmarks",
+    "comparative analysis and alternatives",
+    "applications and real-world use cases",
+    "challenges, limitations, and known issues",
+    "future directions and open research questions",
+    "standards, governance, and community"
+  ],
+  "cross_verification": [
+    {
+      "angle": "performance characteristics and benchmarks",
+      "total_sources": 2,
+      "unique_domains": [
+        "mirrors.dotsrc.org",
+        "medium.com"
+      ],
+      "domain_diversity": 2,
+      "tools_used": [
+        "exa"
+      ],
+      "tool_diversity": 1,
+      "status": "corroborated"
+    },
+    {
+      "angle": "history and evolution",
+      "total_sources": 2,
+      "unique_domains": [
+        "mirrors.dotsrc.org",
+        "gist.github.com"
+      ],
+      "domain_diversity": 2,
+      "tools_used": [
+        "exa"
+      ],
+      "tool_diversity": 1,
+      "status": "corroborated"
+    },
+    {
+      "angle": "challenges, limitations, and known issues",
+      "total_sources": 1,
+      "unique_domains": [
+        "www.reddit.com"
+      ],
+      "domain_diversity": 1,
+      "tools_used": [
+        "exa"
+      ],
+      "tool_diversity": 1,
+      "status": "low_corroboration",
+      "note": "Only 1 unique domain — claims may lack independent verification"
+    },
+    {
+      "angle": "applications and real-world use cases",
+      "total_sources": 11,
+      "unique_domains": [
+        "github.com",
+        "songlh.github.io"
+      ],
+      "domain_diversity": 2,
+      "tools_used": [
+        "github",
+        "tinyfish"
+      ],
+      "tool_diversity": 2,
+      "status": "corroborated"
+    }
+  ],
+  "packet_summary": {
+    "sections": 4,
+    "sources": 16,
+    "method": {
+      "max_depth": 3,
+      "rounds_completed": 3,
+      "total_unique_sources": 16,
+      "unique_domains": 6,
+      "tools_used": "exa, github, tinyfish",
+      "budget_used_seconds": 12.0,
+      "time_budget_seconds": 300
+    }
+  },
+  "web_results": [
+    {
+      "title": "0-RTT Replay: The High-Speed Flaw in HTTP/3 That Bypasses ...",
+      "url": "https://medium.com/@instatunnel/0-rtt-replay-the-high-speed-flaw-in-http-3-that-bypasses-idempotency-ef5f688fcb34",
+      "snippet": "",
+      "tool": "exa",
+      "angle": "performance characteristics and benchmarks"
+    },
+    {
+      "title": "ChangeLog - dotsrc.org",
+      "url": "https://mirrors.dotsrc.org/opensuse/slowroll/repo/oss/ChangeLog",
+      "snippet": "",
+      "tool": "exa",
+      "angle": "performance characteristics and benchmarks"
+    },
+    {
+      "title": "THE COMPLETE SECURITY COURSE - GitHub Gist",
+      "url": "https://gist.github.com/MangaD/8930cef55514f8d2833575aed1628a33",
+      "snippet": "",
+      "tool": "exa",
+      "angle": "history and evolution"
+    },
+    {
+      "title": "https://mirrors.dotsrc.org/opensuse/tumbleweed/rep...",
+      "url": "https://mirrors.dotsrc.org/opensuse/tumbleweed/repo/oss/ChangeLog",
+      "snippet": "",
+      "tool": "exa",
+      "angle": "history and evolution"
+    },
+    {
+      "title": "Anyone using tmux to manage multiple terminals ? : r/cybersecurity",
+      "url": "https://www.reddit.com/r/cybersecurity/comments/1km9buc/anyone_using_tmux_to_manage_multiple_terminals/",
+      "snippet": "",
+      "tool": "exa",
+      "angle": "challenges, limitations, and known issues"
+    },
+    {
+      "title": "swati1024/torrents",
+      "url": "https://github.com/swati1024/torrents",
+      "snippet": "Skip to content   Search… All gists Back to GitHub Sign in Sign up Instantly share code, notes, and snippets.  @giansalex giansalex/torrent-courses-download-list.md forked from M-Younus/torrent courses download-list Last active 2 days ago 15188  Code Revisions 15 Stars 151 Forks 88 <script src=\"https://gist.github.com/giansalex/4cd3631e94433bbbd71bf07aedb33a7b.js\"></script>     torrent-courses-download-list.md Torrent Courses List Download  http://kickass.to/infiniteskills-learning-jquery-mobile",
+      "tool": "github",
+      "angle": "applications and real-world use cases"
+    },
+    {
+      "title": "nyaundid/EC2-AWS-AND-SHELL",
+      "url": "https://github.com/nyaundid/EC2-AWS-AND-SHELL",
+      "snippet": "SEIS 665 Assignment 2: Linux & Git Overview This week we will focus on becoming familiar with launching a Linux server and working with some basic Linux and Git commands. We will use AWS to launch and host the Linux server. AWS might seem a little confusing at this point. Don’t worry, we will gain much more hands-on experience with AWS throughout the course. The goal is to get you comfortable working with the technology and not overwhelm you with all the details.  Requirements You need to have a",
+      "tool": "github",
+      "angle": "applications and real-world use cases"
+    },
+    {
+      "title": "aarav12e/Atm_Simulation_System",
+      "url": "https://github.com/aarav12e/Atm_Simulation_System",
+      "snippet": "ATM Simulation System is a Java console application that simulates a real-world ATM banking environment. Built entirely with Object-Oriented Programming principles, it lets users open bank accounts, log in securely, and perform core banking operations — all from the terminal.",
+      "tool": "github",
+      "angle": "applications and real-world use cases"
+    },
+    {
+      "title": "Dhanuskiruthick/VAULT-CLI",
+      "url": "https://github.com/Dhanuskiruthick/VAULT-CLI",
+      "snippet": "🔒 VAULT CLI: A terminal-based auth system showcasing real cybersecurity engineering. Features bcrypt password hashing, SQL injection prevention with parameterized queries, brute-force protection, and secure logging. Built for practical threat modeling and learning real-world security practices.",
+      "tool": "github",
+      "angle": "applications and real-world use cases"
+    },
+    {
+      "title": "NiharikaSrivastava/SecureMyMedia_SystemProgramming",
+      "url": "https://github.com/NiharikaSrivastava/SecureMyMedia_SystemProgramming",
+      "snippet": "This project extensively uses the concept of Shell Scripting and C Programming to provide multiple functionalities of media security simultaneously to the user. It enables the system to efficiently hide and handle the background complexities involved in the equivalent GUI Operations through the terminal itself. In combination with concepts like Process Management, Pipes, File I/O and Signals, it creates a user-friendly environment. Complex functionalities like encryption and decryption of multip",
+      "tool": "github",
+      "angle": "applications and real-world use cases"
+    },
+    {
+      "title": "ajay-moturi/NexaPay-Bank-Project-Using-Core-java-J2SE-",
+      "url": "https://github.com/ajay-moturi/NexaPay-Bank-Project-Using-Core-java-J2SE-",
+      "snippet": "A console-based ATM Simulator built entirely in Java that replicates real-world banking operations. This project demonstrates core Java programming concepts through a fully functional banking system where users can create accounts, authenticate securely via PIN, and perform essential banking transactions — all from the terminal.",
+      "tool": "github",
+      "angle": "applications and real-world use cases"
+    },
+    {
+      "title": "muhaMmadShykh17/-SecureAuthTerminal-or-Password-Security-Authentication",
+      "url": "https://github.com/muhaMmadShykh17/-SecureAuthTerminal-or-Password-Security-Authentication",
+      "snippet": "A JavaFX-based Secure Authentication Terminal simulating real-world login security with API integration, session management, and animated hacker-style UI.",
+      "tool": "github",
+      "angle": "applications and real-world use cases"
+    },
+    {
+      "title": "joss12/TermAuth-Terminal-Native-Authentication-System",
+      "url": "https://github.com/joss12/TermAuth-Terminal-Native-Authentication-System",
+      "snippet": "TermAuth is a fully-featured, professional-grade terminal-based authentication system designed for real-world user management and secure CLI operations.  Built entirely in Node.js with PostgreSQL,",
+      "tool": "github",
+      "angle": "applications and real-world use cases"
+    },
+    {
+      "title": "kxnux-builds/atm-banking-system-cpp",
+      "url": "https://github.com/kxnux-builds/atm-banking-system-cpp",
+      "snippet": "A console-based ATM Banking System built using modern C++ concepts. Features secure PIN authentication, account locking, deposits, withdrawals, transaction history, and cross-platform terminal support. Designed with clean OOP architecture and real-world banking workflows.",
+      "tool": "github",
+      "angle": "applications and real-world use cases"
+    },
+    {
+      "title": "Abood-789/Banking-System-",
+      "url": "https://github.com/Abood-789/Banking-System-",
+      "snippet": "The Console-Based Mobile Banking System is a C++ application developed using Object-Oriented Programming principles. The system simulates real-world banking operations such as account registration, secure login, balance inquiry, currency conversion, and payment scheduling in a terminal-based environment.",
+      "tool": "github",
+      "angle": "applications and real-world use cases"
+    },
+    {
+      "title": "[PDF] Understanding Real-World Concurrency Bugs in Go - Linhai Song",
+      "url": "https://songlh.github.io/paper/go-study.pdf",
+      "snippet": "In this paper, we perform the first systematic study on concurrency bugs in real Go programs. We studied six pop- ular Go software including Docker, Kubernetes, ...",
+      "tool": "tinyfish",
+      "angle": "applications and real-world use cases"
+    }
+  ],
+  "_detected_language": null
+}

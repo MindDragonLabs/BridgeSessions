@@ -1,0 +1,483 @@
+{
+  "topic": "two way clipboard remote terminal macOS NSPasteboard change notification rich text images clipboard content model QUIC stream backpressure terminal emulator PTY relay architecture",
+  "topic_id": "828afd90-ef1",
+  "status": "complete",
+  "depth": 3,
+  "confidence": 0.73,
+  "rounds": [
+    {
+      "round": 1,
+      "angles_searched": 10,
+      "new_findings": 30,
+      "corpus_findings": 0,
+      "web_findings": 30,
+      "elapsed_seconds": 4.0,
+      "budget_remaining": 296
+    },
+    {
+      "round": 2,
+      "angles_searched": 7,
+      "new_findings": 23,
+      "corpus_findings": 0,
+      "web_findings": 23,
+      "elapsed_seconds": 9.4,
+      "budget_remaining": 290
+    },
+    {
+      "round": 3,
+      "angles_searched": 6,
+      "new_findings": 2,
+      "corpus_findings": 0,
+      "web_findings": 2,
+      "elapsed_seconds": 11.7,
+      "budget_remaining": 288
+    }
+  ],
+  "gaps": [
+    "overview and fundamentals",
+    "architecture and design principles",
+    "performance characteristics and benchmarks",
+    "comparative analysis and alternatives",
+    "challenges, limitations, and known issues",
+    "future directions and open research questions",
+    "standards, governance, and community"
+  ],
+  "cross_verification": [
+    {
+      "angle": "existing projects, open source implementations, and alternatives",
+      "total_sources": 10,
+      "unique_domains": [
+        "developer.apple.com",
+        "pasteapp.io",
+        "gist.github.com",
+        "betterprogramming.pub",
+        "www.reddit.com",
+        "medium.com",
+        "apps.apple.com",
+        "www.ntwind.com",
+        "github.com",
+        "www.jvt.me"
+      ],
+      "domain_diversity": 10,
+      "tools_used": [
+        "exa"
+      ],
+      "tool_diversity": 1,
+      "status": "corroborated"
+    },
+    {
+      "angle": "history and evolution",
+      "total_sources": 8,
+      "unique_domains": [
+        "developer.apple.com",
+        "awesomecopy.app",
+        "www.reddit.com",
+        "nathancraddock.com",
+        "www.linkedin.com"
+      ],
+      "domain_diversity": 5,
+      "tools_used": [
+        "exa",
+        "tinyfish"
+      ],
+      "tool_diversity": 2,
+      "status": "corroborated"
+    },
+    {
+      "angle": "future directions and open research questions",
+      "total_sources": 2,
+      "unique_domains": [
+        "www.kaggle.com",
+        "github.com"
+      ],
+      "domain_diversity": 2,
+      "tools_used": [
+        "exa"
+      ],
+      "tool_diversity": 1,
+      "status": "corroborated"
+    },
+    {
+      "angle": "comparative analysis and alternatives",
+      "total_sources": 9,
+      "unique_domains": [
+        "currently.att.yahoo.com",
+        "www.youtube.com",
+        "zapier.com",
+        "blog.curiosity.ai",
+        "levelup.gitconnected.com",
+        "lifehacker.com",
+        "www.reddit.com",
+        "medium.com"
+      ],
+      "domain_diversity": 8,
+      "tools_used": [
+        "exa",
+        "tinyfish"
+      ],
+      "tool_diversity": 2,
+      "status": "corroborated"
+    },
+    {
+      "angle": "applications and real-world use cases",
+      "total_sources": 17,
+      "unique_domains": [
+        "medium.com",
+        "apps.apple.com",
+        "scriptingosx.com",
+        "github.com",
+        "clipgate.github.io"
+      ],
+      "domain_diversity": 5,
+      "tools_used": [
+        "github",
+        "exa",
+        "tinyfish"
+      ],
+      "tool_diversity": 3,
+      "status": "corroborated"
+    },
+    {
+      "angle": "challenges, limitations, and known issues",
+      "total_sources": 3,
+      "unique_domains": [
+        "appletreats.substack.com",
+        "www.cultofmac.com",
+        "9to5mac.com"
+      ],
+      "domain_diversity": 3,
+      "tools_used": [
+        "exa"
+      ],
+      "tool_diversity": 1,
+      "status": "corroborated"
+    },
+    {
+      "angle": "standards, governance, and community",
+      "total_sources": 5,
+      "unique_domains": [
+        "www.youtube.com",
+        "developer.apple.com",
+        "curiosum.com",
+        "mjtsai.com"
+      ],
+      "domain_diversity": 4,
+      "tools_used": [
+        "exa",
+        "tinyfish"
+      ],
+      "tool_diversity": 2,
+      "status": "corroborated"
+    },
+    {
+      "angle": "performance characteristics and benchmarks",
+      "total_sources": 1,
+      "unique_domains": [
+        "apps.apple.com"
+      ],
+      "domain_diversity": 1,
+      "tools_used": [
+        "exa"
+      ],
+      "tool_diversity": 1,
+      "status": "low_corroboration",
+      "note": "Only 1 unique domain — claims may lack independent verification"
+    }
+  ],
+  "packet_summary": {
+    "sections": 8,
+    "sources": 55,
+    "method": {
+      "max_depth": 3,
+      "rounds_completed": 3,
+      "total_unique_sources": 55,
+      "unique_domains": 27,
+      "tools_used": "exa, github, tinyfish",
+      "budget_used_seconds": 11.7,
+      "time_budget_seconds": 300
+    }
+  },
+  "web_results": [
+    {
+      "title": "[OS] I couldn't find a simple free clipboard manager for macOS, so I ...",
+      "url": "https://www.reddit.com/r/macapps/comments/1sg1lwj/os_i_couldnt_find_a_simple_free_clipboard_manager/",
+      "snippet": "",
+      "tool": "exa",
+      "angle": "existing projects, open source implementations, and alternatives"
+    },
+    {
+      "title": "Pasteboard Viewer - App Store - Apple",
+      "url": "https://apps.apple.com/vn/app/pasteboard-viewer/id1499215709?platform=mac",
+      "snippet": "",
+      "tool": "exa",
+      "angle": "existing projects, open source implementations, and alternatives"
+    },
+    {
+      "title": "GitHub - neilberkman/clippy: Unified clipboard tool for macOS that ...",
+      "url": "https://github.com/neilberkman/clippy",
+      "snippet": "",
+      "tool": "exa",
+      "angle": "existing projects, open source implementations, and alternatives"
+    },
+    {
+      "title": "Getting access to rich-text data from the clipboard (on Mac)",
+      "url": "https://www.jvt.me/posts/2026/01/13/mac-html-clipboard/",
+      "snippet": "",
+      "tool": "exa",
+      "angle": "existing projects, open source implementations, and alternatives"
+    },
+    {
+      "title": "Paste – The Best Clipboard Manager for Mac, iPhone, and iPad",
+      "url": "https://pasteapp.io/",
+      "snippet": "",
+      "tool": "exa",
+      "angle": "existing projects, open source implementations, and alternatives"
+    },
+    {
+      "title": "Clipboard Remote - Copy & Paste over LAN between PCs, Macs ...",
+      "url": "https://www.ntwind.com/cross-platform/clipboard-remote.html",
+      "snippet": "",
+      "tool": "exa",
+      "angle": "existing projects, open source implementations, and alternatives"
+    },
+    {
+      "title": "Observe NSPasteboard — Swift 4. How to listen for clipboard changes",
+      "url": "https://betterprogramming.pub/watch-nspasteboard-swift-4-fad29d2f874e",
+      "snippet": "",
+      "tool": "exa",
+      "angle": "existing projects, open source implementations, and alternatives"
+    },
+    {
+      "title": "NSPasteboard | Apple Developer Documentation",
+      "url": "https://developer.apple.com/documentation/AppKit/NSPasteboard",
+      "snippet": "",
+      "tool": "exa",
+      "angle": "existing projects, open source implementations, and alternatives"
+    },
+    {
+      "title": "Leveraging the macOS clipboard on the command line with 'pbcopy ...",
+      "url": "https://medium.com/decisionbrain/leveraging-the-macos-clipboard-on-the-command-line-with-pbcopy-and-pbpaste-f61e1df72f67",
+      "snippet": "",
+      "tool": "exa",
+      "angle": "existing projects, open source implementations, and alternatives"
+    },
+    {
+      "title": "macOS Pasteboard Monitor - GitHub Gist",
+      "url": "https://gist.github.com/ajpc500/13566fd48647885845cd2c91746ed852",
+      "snippet": "",
+      "tool": "exa",
+      "angle": "existing projects, open source implementations, and alternatives"
+    },
+    {
+      "title": "Read this if you develop an app that reads or modifies the clipboard ...",
+      "url": "https://www.reddit.com/r/macapps/comments/1k0xdwh/read_this_if_you_develop_an_app_that_reads_or/",
+      "snippet": "",
+      "tool": "exa",
+      "angle": "history and evolution"
+    },
+    {
+      "title": "NSPasteboard | Apple Developer Documentation",
+      "url": "https://developer.apple.com/documentation/appkit/nspasteboard",
+      "snippet": "",
+      "tool": "exa",
+      "angle": "history and evolution"
+    },
+    {
+      "title": "How NSPasteboard Works: The Technology Behind Your Clipboard",
+      "url": "https://awesomecopy.app/blog/how-nspasteboard-works",
+      "snippet": "",
+      "tool": "exa",
+      "angle": "history and evolution"
+    },
+    {
+      "title": "NSPasteboard | Apple Developer Documentation",
+      "url": "https://developer.apple.com/documentation/AppKit/NSPasteboard?language=objc",
+      "snippet": "",
+      "tool": "exa",
+      "angle": "history and evolution"
+    },
+    {
+      "title": "NSPasteboard in System Extension | Apple Developer Forums",
+      "url": "https://developer.apple.com/forums/thread/779851",
+      "snippet": "",
+      "tool": "exa",
+      "angle": "history and evolution"
+    },
+    {
+      "title": "copy_to_clipboard fails with \"Error using the system clipboard\" on ...",
+      "url": "https://github.com/ghostty-org/ghostty/discussions/10011",
+      "snippet": "",
+      "tool": "exa",
+      "angle": "future directions and open research questions"
+    },
+    {
+      "title": "Fork of NLP Assignment - Kaggle",
+      "url": "https://www.kaggle.com/code/mihirprajapati01/fork-of-nlp-assignment",
+      "snippet": "",
+      "tool": "exa",
+      "angle": "future directions and open research questions"
+    },
+    {
+      "title": "How to use MacOS clipboard history | Harry Salt posted on the topic",
+      "url": "https://www.linkedin.com/posts/harry-salt_a-free-tech-tip-macos-finally-has-clipboard-activity-7387518303101034496-xzkm",
+      "snippet": "MacOS FINALLY has clipboard history Here's how to use it: 1. Open spotlight with command + space 2. Press command + 4 I've still got a ...",
+      "tool": "tinyfish",
+      "angle": "history and evolution"
+    },
+    {
+      "title": "Clipboard history : r/MacOS - Reddit",
+      "url": "https://www.reddit.com/r/MacOS/comments/13k0igk/clipboard_history/",
+      "snippet": "I use CopyClip. Free and works well. I haven't tried any others though, so there may be better ones I'm not aware of.",
+      "tool": "tinyfish",
+      "angle": "history and evolution"
+    },
+    {
+      "title": "Writing to the macOS clipboard the hard way - Nathan Craddock",
+      "url": "https://nathancraddock.com/blog/writing-to-the-clipboard-the-hard-way/",
+      "snippet": "I want to write a string to the macOS system clipboard from a Lua script. How can I do it? We will walk through four approaches for writing ...",
+      "tool": "tinyfish",
+      "angle": "history and evolution"
+    },
+    {
+      "title": "The 5 best clipboard managers for every device - Zapier",
+      "url": "https://zapier.com/blog/best-clipboard-managers/",
+      "snippet": "We spent time testing all the clipboard managers we could get our hands on, and these are the five best, so you can copy and paste multiple items at once.",
+      "tool": "tinyfish",
+      "angle": "comparative analysis and alternatives"
+    },
+    {
+      "title": "Pasteboard Viewer - App Store - Apple",
+      "url": "https://apps.apple.com/lt/app/pasteboard-viewer/id1499215709?platform=mac",
+      "snippet": "This is a developer utility that lets you inspect the various system pasteboards. This can be useful to ensure your app is putting the correct data on ...",
+      "tool": "tinyfish",
+      "angle": "applications and real-world use cases"
+    },
+    {
+      "title": "Clipboard Remote - LAN Paste - App Store - Apple",
+      "url": "https://apps.apple.com/kn/app/clipboard-remote-lan-paste/id6692629153",
+      "snippet": "Clipboard Remote is a versatile app that lets you copy and paste text, URLs, images, and photos between your computers and mobile devices. It focuses on manual ...",
+      "tool": "tinyfish",
+      "angle": "applications and real-world use cases"
+    },
+    {
+      "title": "PasteNow - Instant Clipboard - App Store - Apple",
+      "url": "https://apps.apple.com/us/app/pastenow-instant-clipboard/id1552536109",
+      "snippet": "PasteNow is a cross-platform clipboard management tool that focuses on privacy and simplicity, it supports syncing clipboard records across all iOS and macOS ...",
+      "tool": "tinyfish",
+      "angle": "applications and real-world use cases"
+    },
+    {
+      "title": "macOS 16 to enable clipboard privacy protection - 9to5Mac",
+      "url": "https://9to5mac.com/2025/05/12/macos-16-clipboard-privacy-protection/",
+      "snippet": "",
+      "tool": "exa",
+      "angle": "challenges, limitations, and known issues"
+    },
+    {
+      "title": "macOS 16 will warn when apps access pasteboard (aka clipboard ...",
+      "url": "https://appletreats.substack.com/p/macos-16-will-warn-when-apps-access",
+      "snippet": "",
+      "tool": "exa",
+      "angle": "challenges, limitations, and known issues"
+    },
+    {
+      "title": "macOS 16 to clamp down on clipboard snooping by Mac apps",
+      "url": "https://www.cultofmac.com/news/macos-16-clamp-down-clipboard-snooping-by-mac-apps",
+      "snippet": "",
+      "tool": "exa",
+      "angle": "challenges, limitations, and known issues"
+    },
+    {
+      "title": "Copy Terminal Output to Your Clipboard Instantly with This macOS ...",
+      "url": "https://www.youtube.com/shorts/-gBIwkFn5S0",
+      "snippet": "... text, just pipe (|) your command output to pbcopy—and it's ready to ... This content isn't available. Skip video. Ever needed to copy ...",
+      "tool": "tinyfish",
+      "angle": "standards, governance, and community"
+    },
+    {
+      "title": "NSPasteboard | Apple Developer Documentation",
+      "url": "https://developer.apple.com/documentation/appkit/nspasteboard?language=objc",
+      "snippet": "NSPasteboard objects are an application's sole interface to the server and to all pasteboard operations. An NSPasteboard object is also used to transfer data ...",
+      "tool": "tinyfish",
+      "angle": "standards, governance, and community"
+    },
+    {
+      "title": "Pasteboard Privacy Preview in macOS 15.4 - Michael Tsai",
+      "url": "https://mjtsai.com/blog/2025/05/12/pasteboard-privacy-preview-in-macos-15-4/",
+      "snippet": "Prepare your app for an upcoming feature in macOS that alerts a person using a device when your app programmatically reads the general pasteboard.",
+      "tool": "tinyfish",
+      "angle": "standards, governance, and community"
+    },
+    {
+      "title": "Pasteboard Viewer - App Store - Apple",
+      "url": "https://apps.apple.com/at/app/pasteboard-viewer/id1499215709?l=en-GB&platform=mac",
+      "snippet": "",
+      "tool": "exa",
+      "angle": "performance characteristics and benchmarks"
+    },
+    {
+      "title": "Best Free or Open-Source Clipboard Manager for Mac with built-in ...",
+      "url": "https://www.reddit.com/r/macapps/comments/1j0hyjz/best_free_or_opensource_clipboard_manager_for_mac/",
+      "snippet": "",
+      "tool": "exa",
+      "angle": "comparative analysis and alternatives"
+    },
+    {
+      "title": "Mac clipboard manager apps can make a big difference to my writing",
+      "url": "https://medium.com/@yulia.savliuk/i-compared-3-clipboard-managers-and-changed-the-way-i-move-text-and-ideas-through-my-writing-d5c9a3b3de1e",
+      "snippet": "",
+      "tool": "exa",
+      "angle": "comparative analysis and alternatives"
+    },
+    {
+      "title": "These Are the Best Clipboard Managers for Your Mac",
+      "url": "https://currently.att.yahoo.com/att/best-clipboard-managers-mac-170000652.html",
+      "snippet": "",
+      "tool": "exa",
+      "angle": "comparative analysis and alternatives"
+    },
+    {
+      "title": "These Are the Best Clipboard Managers for Your Mac - Lifehacker",
+      "url": "https://lifehacker.com/tech/best-mac-clipboard-managers",
+      "snippet": "",
+      "tool": "exa",
+      "angle": "comparative analysis and alternatives"
+    },
+    {
+      "title": "Best Clipboard Manager for Mac (2025) - YouTube",
+      "url": "https://www.youtube.com/watch?v=E46fyPjZY8o",
+      "snippet": "",
+      "tool": "exa",
+      "angle": "comparative analysis and alternatives"
+    },
+    {
+      "title": "5+1 Best Clipboard Managers for macOS | by Leon Zucchini - Curiosity",
+      "url": "https://blog.curiosity.ai/5-1-best-clipboard-managers-for-macos-3c14693f6857",
+      "snippet": "",
+      "tool": "exa",
+      "angle": "comparative analysis and alternatives"
+    },
+    {
+      "title": "SwiftUI/MacOS: Working with NSPasteboard - Level Up Coding",
+      "url": "https://levelup.gitconnected.com/swiftui-macos-working-with-nspasteboard-b5811f98d5d1",
+      "snippet": "",
+      "tool": "exa",
+      "angle": "comparative analysis and alternatives"
+    },
+    {
+      "title": "This Is The Best macOS Clipboard App I've Ever Used (I've ... - Medium",
+      "url": "https://medium.com/macoclock/this-is-the-best-macos-clipboard-app-ive-ever-used-i-ve-tried-them-all-8f46c878418b",
+      "snippet": "",
+      "tool": "exa",
+      "angle": "comparative analysis and alternatives"
+    },
+    {
+      "title": "savvyapps/SAVuegram",
+      "url": "https://github.com/savvyapps/SAVuegram",
+      "snippet": "A simple social media web app built with Vue.js and Firebase's Cloud Firestore as a way to teach people how to build a real-world app using the two technologies. Follow along with our tutorial.",
+      "tool": "github",
+      "angle": "applications and real-world use cases"
+    }
+  ],
+  "_detected_language": null
+}
