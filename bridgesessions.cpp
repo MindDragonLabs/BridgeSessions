@@ -36,11 +36,15 @@
 #include <memory>
 #include <mutex>
 #include <shared_mutex>
+#include <unordered_map>
 #include <filesystem>
 #ifdef _WIN32
 #include <io.h>
 #include <sys/stat.h>
 #endif
+#include <nlohmann/json.hpp>
+#include <spdlog/spdlog.h>
+#include <spdlog/sinks/rotating_file_sink.h>
 
 // ────────────────────────────────────────────────────────────────────
 // 1. MESSAGE TYPES (ported from bs-protocol, namespace bs::mesh)
@@ -1652,6 +1656,341 @@ void Session::reset_restart_failures() {
 }
 
 #endif // _WIN32
+
+// ────────────────────────────────────────────────────────────────────
+// CONFIG PARSER — key=value config file parser
+// ────────────────────────────────────────────────────────────────────
+
+struct PeerEntry {
+    std::string name;
+    std::string addr;       // "host:port"
+    std::string pubkey_hex; // learned via Hello, empty until then
+    uint64_t last_seen = 0;
+};
+
+struct MeshConfig {
+    std::string node_name = "unnamed";
+    std::string listen_addr = "0.0.0.0";
+    uint16_t listen_port = 19948;
+    size_t max_peers = 50;
+    int gossip_interval_secs = 30;
+    int reconnect_backoff_max_secs = 30;
+    int ping_interval_secs = 5;
+    int pong_timeout_secs = 30;
+    std::vector<PeerEntry> seeds;
+    std::vector<PeerEntry> discovered;
+    std::string authorized_keys_path = "~/.bridgesessions/authorized_keys";
+    std::string persistence_path = "~/.bridgesessions/sessions.json";
+    int scrollback_lines = 2000;
+    int idle_timeout_hours = 168;
+    std::string default_shell;
+    std::string terminal = "xterm-256color";
+
+    MeshConfig() {
+#ifdef _WIN32
+        default_shell = "cmd.exe";
+#else
+        default_shell = "/bin/bash -l";
+#endif
+    }
+};
+
+// ── expand_home — resolve ~ to HOME/USERPROFILE ─────────────────────
+
+[[nodiscard]] std::string expand_home(const std::string& path) {
+    if (path.empty() || path[0] != '~') return path;
+
+    std::string home;
+#ifdef _WIN32
+    const char* env = std::getenv("USERPROFILE");
+    if (env) home = env;
+#else
+    const char* env = std::getenv("HOME");
+    if (env) home = env;
+#endif
+    if (home.empty()) return path; // fallback: return as-is
+
+    // strip leading ~  (and optional /)
+    std::string rest = path.substr(1);
+    // Ensure single separator
+    if (!rest.empty() && (rest[0] == '/' || rest[0] == '\\')) {
+        // If home ends with separator and rest starts with one, skip the first char of rest
+        if (!home.empty() && (home.back() == '/' || home.back() == '\\')) {
+            rest = rest.substr(1);
+        }
+    }
+    return home + rest;
+}
+
+// ── Helpers ─────────────────────────────────────────────────────────
+
+namespace {
+
+// Trim leading whitespace
+std::string_view ltrim(std::string_view s) {
+    while (!s.empty() && (s.front() == ' ' || s.front() == '\t')) {
+        s.remove_prefix(1);
+    }
+    return s;
+}
+
+// Trim trailing whitespace
+std::string_view rtrim(std::string_view s) {
+    while (!s.empty() && (s.back() == ' ' || s.back() == '\t')) {
+        s.remove_suffix(1);
+    }
+    return s;
+}
+
+// Trim both sides
+std::string_view trim(std::string_view s) {
+    return ltrim(rtrim(s));
+}
+
+// Parse an integer from a string_view
+std::optional<int> parse_int(std::string_view s) {
+    s = trim(s);
+    if (s.empty()) return std::nullopt;
+    try {
+        int sign = 1;
+        size_t pos = 0;
+        if (s[pos] == '-') { sign = -1; ++pos; }
+        if (pos >= s.size()) return std::nullopt;
+        int val = 0;
+        for (; pos < s.size(); ++pos) {
+            if (s[pos] < '0' || s[pos] > '9') return std::nullopt;
+            val = val * 10 + (s[pos] - '0');
+        }
+        return val * sign;
+    } catch (...) {
+        return std::nullopt;
+    }
+}
+
+// Parse host:port string → fills addr and port
+void parse_listen_addr(const std::string& raw, std::string& out_addr, uint16_t& out_port) {
+    auto colon = raw.rfind(':');
+    if (colon == std::string::npos) {
+        // No colon — treat as address only, keep default port
+        out_addr = raw;
+        return;
+    }
+    std::string addr_part = raw.substr(0, colon);
+    std::string port_part = raw.substr(colon + 1);
+
+    if (addr_part.empty()) {
+        out_addr = "0.0.0.0";
+    } else {
+        out_addr = addr_part;
+    }
+
+    auto port_opt = parse_int(port_part);
+    if (port_opt.has_value() && *port_opt > 0 && *port_opt <= 65535) {
+        out_port = static_cast<uint16_t>(*port_opt);
+    }
+}
+
+// Write a seed/discovered line to output
+void write_peer_line(std::ostream& os, const std::string& prefix, const PeerEntry& p) {
+    os << prefix << " " << p.name << " " << p.addr;
+    if (!p.pubkey_hex.empty()) {
+        os << " pubkey=" << p.pubkey_hex;
+    }
+    if (p.last_seen > 0) {
+        os << " last_seen=" << p.last_seen;
+    }
+    os << "\n";
+}
+
+} // anonymous namespace
+
+// ── load_config — parse key=value config file ────────────────────────
+
+[[nodiscard]] MeshConfig load_config(const std::string& path) {
+    MeshConfig cfg;
+    std::string resolved = expand_home(path);
+
+    std::ifstream f(resolved);
+    if (!f.is_open()) return cfg; // missing file = all defaults
+
+    std::string line;
+    while (std::getline(f, line)) {
+        // Trim the line
+        std::string_view sv(line);
+        sv = trim(sv);
+
+        // Skip blank lines and comments
+        if (sv.empty() || sv[0] == '#') continue;
+
+        // Find the first space or tab delimiter
+        size_t space_pos = std::string::npos;
+        for (size_t i = 0; i < sv.size(); ++i) {
+            if (sv[i] == ' ' || sv[i] == '\t') {
+                space_pos = i;
+                break;
+            }
+        }
+        if (space_pos == std::string::npos) continue; // no delimiter, malformed
+
+        std::string_view key = trim(sv.substr(0, space_pos));
+        std::string_view val = trim(sv.substr(space_pos + 1));
+        if (key.empty()) continue;
+
+        std::string key_str(key);
+
+        // ── node.<key> ───────────────────────────────────────
+        if (key_str == "node.name") {
+            cfg.node_name = std::string(val);
+        } else if (key_str == "node.listen") {
+            parse_listen_addr(std::string(val), cfg.listen_addr, cfg.listen_port);
+        }
+        // ── mesh.<key> ───────────────────────────────────────
+        else if (key_str == "mesh.max_peers") {
+            auto v = parse_int(val);
+            if (v.has_value() && *v >= 0) cfg.max_peers = static_cast<size_t>(*v);
+        } else if (key_str == "mesh.gossip_interval_secs") {
+            auto v = parse_int(val);
+            if (v.has_value()) cfg.gossip_interval_secs = *v;
+        } else if (key_str == "mesh.reconnect_backoff_max_secs") {
+            auto v = parse_int(val);
+            if (v.has_value()) cfg.reconnect_backoff_max_secs = *v;
+        } else if (key_str == "mesh.ping_interval_secs") {
+            auto v = parse_int(val);
+            if (v.has_value()) cfg.ping_interval_secs = *v;
+        } else if (key_str == "mesh.pong_timeout_secs") {
+            auto v = parse_int(val);
+            if (v.has_value()) cfg.pong_timeout_secs = *v;
+        }
+        // ── sessions.<key> ───────────────────────────────────
+        else if (key_str == "sessions.scrollback_lines") {
+            auto v = parse_int(val);
+            if (v.has_value()) cfg.scrollback_lines = *v;
+        } else if (key_str == "sessions.idle_timeout_hours") {
+            auto v = parse_int(val);
+            if (v.has_value()) cfg.idle_timeout_hours = *v;
+        } else if (key_str == "sessions.default_shell") {
+            cfg.default_shell = std::string(val);
+        } else if (key_str == "sessions.terminal") {
+            cfg.terminal = std::string(val);
+        } else if (key_str == "sessions.persistence_path") {
+            cfg.persistence_path = std::string(val);
+        } else if (key_str == "sessions.authorized_keys_path") {
+            cfg.authorized_keys_path = std::string(val);
+        }
+        // ── seed <name> <addr> ───────────────────────────────
+        else if (key_str == "seed") {
+            // val contains "<name> <addr>"
+            std::string_view v2(val);
+            size_t sp2 = std::string::npos;
+            for (size_t i = 0; i < v2.size(); ++i) {
+                if (v2[i] == ' ' || v2[i] == '\t') {
+                    sp2 = i;
+                    break;
+                }
+            }
+            if (sp2 == std::string::npos) continue; // malformed seed line
+
+            std::string seed_name = std::string(trim(v2.substr(0, sp2)));
+            std::string seed_addr = std::string(trim(v2.substr(sp2 + 1)));
+            if (seed_name.empty() || seed_addr.empty()) continue;
+
+            // Deduplicate by name: if a seed with this name already exists, update addr
+            bool found = false;
+            for (auto& s : cfg.seeds) {
+                if (s.name == seed_name) {
+                    s.addr = seed_addr;
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                PeerEntry p;
+                p.name = std::move(seed_name);
+                p.addr = std::move(seed_addr);
+                cfg.seeds.push_back(std::move(p));
+            }
+        }
+        // ── discovered <name> <addr> [pubkey=<hex>] [last_seen=<unix>] ──
+        else if (key_str == "discovered") {
+            // Parse: discovered <name> <addr> [pubkey=<hex>] [last_seen=<ts>]
+            std::string v2(val);
+            std::istringstream iss(v2);
+            std::string d_name, d_addr;
+            if (!(iss >> d_name >> d_addr)) continue; // need at least name and addr
+
+            PeerEntry p;
+            p.name = d_name;
+            p.addr = d_addr;
+
+            std::string extra;
+            while (iss >> extra) {
+                if (extra.starts_with("pubkey=")) {
+                    p.pubkey_hex = extra.substr(7);
+                } else if (extra.starts_with("last_seen=")) {
+                    auto ts = parse_int(std::string_view(extra).substr(10));
+                    if (ts.has_value()) p.last_seen = static_cast<uint64_t>(*ts);
+                }
+            }
+            cfg.discovered.push_back(std::move(p));
+        }
+        // ── unknown keys silently ignored ───────────────────
+    }
+
+    return cfg;
+}
+
+// ── save_config — write MeshConfig back to file ──────────────────────
+
+[[nodiscard]] bool save_config(const std::string& path, const MeshConfig& cfg) {
+    std::string resolved = expand_home(path);
+
+    std::ofstream f(resolved, std::ios::trunc);
+    if (!f.is_open()) return false;
+
+    f << "# bridgesessions mesh config\n";
+    f << "# Generated — edit with care\n\n";
+
+    // Node section
+    f << "# ── Node identity ──────────────────────────────────\n";
+    f << "node.name " << cfg.node_name << "\n";
+    f << "node.listen " << cfg.listen_addr << ":" << cfg.listen_port << "\n";
+    f << "\n";
+
+    // Mesh section
+    f << "# ── Mesh settings ──────────────────────────────────\n";
+    f << "mesh.max_peers " << cfg.max_peers << "\n";
+    f << "mesh.gossip_interval_secs " << cfg.gossip_interval_secs << "\n";
+    f << "mesh.reconnect_backoff_max_secs " << cfg.reconnect_backoff_max_secs << "\n";
+    f << "mesh.ping_interval_secs " << cfg.ping_interval_secs << "\n";
+    f << "mesh.pong_timeout_secs " << cfg.pong_timeout_secs << "\n";
+    f << "\n";
+
+    // Seeds
+    f << "# ── Bootstrap peers ────────────────────────────────\n";
+    for (const auto& s : cfg.seeds) {
+        write_peer_line(f, "seed", s);
+    }
+    f << "\n";
+
+    // Discovered
+    f << "# ── Discovered peers (auto-populated) ──────────────\n";
+    for (const auto& d : cfg.discovered) {
+        write_peer_line(f, "discovered", d);
+    }
+    f << "\n";
+
+    // Sessions
+    f << "# ── Session defaults ───────────────────────────────\n";
+    f << "sessions.scrollback_lines " << cfg.scrollback_lines << "\n";
+    f << "sessions.idle_timeout_hours " << cfg.idle_timeout_hours << "\n";
+    f << "sessions.default_shell " << cfg.default_shell << "\n";
+    f << "sessions.terminal " << cfg.terminal << "\n";
+    f << "sessions.persistence_path " << cfg.persistence_path << "\n";
+    f << "sessions.authorized_keys_path " << cfg.authorized_keys_path << "\n";
+
+    f.close();
+    return true;
+}
 
 } // namespace bs::mesh
 
