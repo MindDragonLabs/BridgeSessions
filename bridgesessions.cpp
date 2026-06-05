@@ -12,9 +12,18 @@
 #include <algorithm>
 #include <span>
 #include <cstdio>
+#include <fstream>
+#include <sstream>
 #include <stdexcept>
+#include <functional>
 #include <zstd.h>
 #include <openssl/evp.h>
+#include <openssl/pem.h>
+#include <openssl/x509.h>
+#include <openssl/x509v3.h>
+#include <openssl/bio.h>
+#include <openssl/ssl.h>
+#include <openssl/err.h>
 
 // ────────────────────────────────────────────────────────────────────
 // 1. MESSAGE TYPES (ported from bs-protocol, namespace bs::mesh)
@@ -587,6 +596,288 @@ Message decode(std::span<const uint8_t> raw) {
 
 size_t max_encoded_size(const Message&) {
     return MAX_FRAME_SIZE;
+}
+
+// ────────────────────────────────────────────────────────────────────
+// 3. TLS TRANSPORT (ed25519 mTLS, unified Listen/Connect)
+// ────────────────────────────────────────────────────────────────────
+
+// ── RAII deleters ───────────────────────────────────────────────
+
+struct SslCtxDeleter { void operator()(SSL_CTX* ctx) noexcept { SSL_CTX_free(ctx); } };
+struct SslDeleter    { void operator()(SSL* ssl) noexcept    { SSL_free(ssl);     } };
+using SslCtxPtr = std::unique_ptr<SSL_CTX, SslCtxDeleter>;
+using SslPtr    = std::unique_ptr<SSL, SslDeleter>;
+
+// ── enum for TLS mode ───────────────────────────────────────────
+
+enum class TlsMode { Listen, Connect };
+
+// ── NodeTlsConfig ───────────────────────────────────────────────
+
+struct NodeTlsConfig {
+    std::string cert_file;
+    std::string key_file;
+    std::string authorized_keys_file;           // for Listen mode
+    std::function<bool(const std::string&)> tofu_cb;  // for Connect mode
+};
+
+// ── Internal helpers ────────────────────────────────────────────
+
+namespace {
+
+// ── BIO helpers ──────────────────────────────────────────────
+
+std::string bio_to_string(BIO* bio) {
+    char* data = nullptr;
+    long len = BIO_get_mem_data(bio, &data);
+    return std::string(data, len);
+}
+
+// ── PEM I/O ──────────────────────────────────────────────────
+
+std::string cert_to_pem(X509* cert) {
+    BIO* bio = BIO_new(BIO_s_mem());
+    if (!bio) throw std::runtime_error("BIO_new failed");
+    PEM_write_bio_X509(bio, cert);
+    auto s = bio_to_string(bio);
+    BIO_free(bio);
+    return s;
+}
+
+std::string key_to_pem(EVP_PKEY* key) {
+    BIO* bio = BIO_new(BIO_s_mem());
+    if (!bio) throw std::runtime_error("BIO_new failed");
+    PEM_write_bio_PrivateKey(bio, key, nullptr, nullptr, 0, nullptr, nullptr);
+    auto s = bio_to_string(bio);
+    BIO_free(bio);
+    return s;
+}
+
+EVP_PKEY* key_from_pem(const std::string& pem) {
+    BIO* bio = BIO_new_mem_buf(pem.data(), static_cast<int>(pem.size()));
+    if (!bio) return nullptr;
+    EVP_PKEY* key = PEM_read_bio_PrivateKey(bio, nullptr, nullptr, nullptr);
+    BIO_free(bio);
+    return key;
+}
+
+// ── Key generation ────────────────────────────────────────────
+
+std::pair<EVP_PKEY*, X509*> generate_ed25519_cert(const char* cn) {
+    EVP_PKEY_CTX* pctx = EVP_PKEY_CTX_new_id(EVP_PKEY_ED25519, nullptr);
+    if (!pctx) throw std::runtime_error("EVP_PKEY_CTX_new_id(ED25519) failed");
+
+    EVP_PKEY* pkey = nullptr;
+    if (EVP_PKEY_keygen_init(pctx) <= 0 || EVP_PKEY_keygen(pctx, &pkey) <= 0) {
+        EVP_PKEY_CTX_free(pctx);
+        throw std::runtime_error("ed25519 keygen failed");
+    }
+    EVP_PKEY_CTX_free(pctx);
+
+    X509* cert = X509_new();
+    if (!cert) { EVP_PKEY_free(pkey); throw std::runtime_error("X509_new failed"); }
+    X509_set_version(cert, 2);
+    ASN1_INTEGER_set(X509_get_serialNumber(cert), 1);
+    X509_gmtime_adj(X509_get_notBefore(cert), 0);
+    X509_gmtime_adj(X509_get_notAfter(cert), 365LL * 24LL * 3600LL * 10LL);
+    X509_set_pubkey(cert, pkey);
+
+    X509_NAME* name = X509_get_subject_name(cert);
+    X509_NAME_add_entry_by_txt(name, "CN", MBSTRING_ASC,
+                               reinterpret_cast<const unsigned char*>(cn), -1, -1, 0);
+    X509_set_issuer_name(cert, name);
+
+    if (X509_sign(cert, pkey, nullptr) == 0) {
+        X509_free(cert);
+        EVP_PKEY_free(pkey);
+        throw std::runtime_error("X509_sign failed");
+    }
+    return {pkey, cert};
+}
+
+// ── Public key helpers ────────────────────────────────────────
+
+std::vector<uint8_t> extract_raw_pubkey(EVP_PKEY* key) {
+    std::vector<uint8_t> raw(32);
+    size_t len = 32;
+    if (EVP_PKEY_get_raw_public_key(key, raw.data(), &len) <= 0)
+        return {};
+    raw.resize(len);
+    return raw;
+}
+
+std::string pubkey_hex(EVP_PKEY* key) {
+    auto raw = extract_raw_pubkey(key);
+    if (raw.empty()) return "";
+    std::string hex;
+    for (auto b : raw) {
+        char buf[3];
+        snprintf(buf, sizeof(buf), "%02x", b);
+        hex += buf;
+    }
+    return hex;
+}
+
+std::vector<uint8_t> hex_decode(const std::string& hex) {
+    std::vector<uint8_t> raw;
+    for (size_t i = 0; i + 1 < hex.size(); i += 2) {
+        unsigned int byte = 0;
+        std::stringstream ss;
+        ss << std::hex << hex.substr(i, 2);
+        ss >> byte;
+        raw.push_back(static_cast<uint8_t>(byte));
+    }
+    return raw;
+}
+
+// ── AuthorizedKeys ────────────────────────────────────────────
+
+struct AuthorizedKeys {
+    std::vector<std::vector<uint8_t>> keys;
+
+    void load_from_file(const std::string& path) {
+        if (path.empty()) return;
+        std::ifstream f(path);
+        if (!f.is_open()) return;
+        std::string line;
+        while (std::getline(f, line)) {
+            auto hash = line.find('#');
+            if (hash != std::string::npos) line.resize(hash);
+            while (!line.empty() && (line.back() == ' ' || line.back() == '\t' ||
+                   line.back() == '\r' || line.back() == '\n'))
+                line.pop_back();
+            if (!line.empty()) {
+                auto raw = hex_decode(line);
+                if (raw.size() == 32) keys.push_back(std::move(raw));
+            }
+        }
+    }
+
+    bool contains(const std::vector<uint8_t>& key) const {
+        for (auto& k : keys) if (k == key) return true;
+        return false;
+    }
+};
+
+// ── Custom cert verify callbacks ──────────────────────────────
+
+// Server: verifies client's ed25519 raw public key against authorized_keys
+int server_cert_verify_cb(X509_STORE_CTX* ctx, void* arg) {
+    auto* auth = static_cast<AuthorizedKeys*>(arg);
+    X509* cert = X509_STORE_CTX_get0_cert(ctx);
+    if (!cert) return 0;
+    EVP_PKEY* pk = X509_get0_pubkey(cert);
+    if (!pk) return 0;
+    auto raw = extract_raw_pubkey(pk);
+    if (raw.empty()) return 0;
+    return auth->contains(raw) ? 1 : 0;
+}
+
+// Client: TOFU via SHA-256 fingerprint callback
+int client_cert_verify_cb(X509_STORE_CTX* ctx, void* arg) {
+    auto* cb = static_cast<std::function<bool(const std::string&)>*>(arg);
+    X509* cert = X509_STORE_CTX_get0_cert(ctx);
+    if (!cert) return 0;
+    unsigned char md[EVP_MAX_MD_SIZE];
+    unsigned int len = 0;
+    if (!X509_digest(cert, EVP_sha256(), md, &len)) return 0;
+    std::string fp;
+    for (unsigned int i = 0; i < len; ++i) {
+        char h[3];
+        snprintf(h, sizeof(h), "%02x", md[i]);
+        fp += h;
+    }
+    return (*cb)(fp) ? 1 : 0;
+}
+
+} // anonymous namespace
+
+// ── Public: generate_cert_key_pair ────────────────────────────────
+
+std::pair<std::string, std::string> generate_cert_key_pair(const char* common_name) {
+    auto [pkey, cert] = generate_ed25519_cert(common_name);
+    auto c = cert_to_pem(cert);
+    auto k = key_to_pem(pkey);
+    X509_free(cert);
+    EVP_PKEY_free(pkey);
+    return {c, k};
+}
+
+// ── Public: pubkey_hex_from_pem ──────────────────────────────────
+
+std::string pubkey_hex_from_pem(const std::string& key_pem) {
+    EVP_PKEY* pkey = key_from_pem(key_pem);
+    if (!pkey) return "";
+    auto hex = pubkey_hex(pkey);
+    EVP_PKEY_free(pkey);
+    return hex;
+}
+
+// ── Public: peer_public_key_hex ──────────────────────────────────
+
+std::string peer_public_key_hex(SSL* ssl) {
+    if (!ssl) return "";
+    X509* cert = SSL_get1_peer_certificate(ssl);
+    if (!cert) return "";
+    EVP_PKEY* pkey = X509_get0_pubkey(cert);
+    std::string hex = pkey ? pubkey_hex(pkey) : "";
+    X509_free(cert);
+    return hex;
+}
+
+// ── Public: unified create_node_tls ──────────────────────────────
+
+SslCtxPtr create_node_tls(const NodeTlsConfig& cfg, TlsMode mode) {
+    SslCtxPtr ctx;
+
+    if (mode == TlsMode::Listen) {
+        ctx = SslCtxPtr(SSL_CTX_new(TLS_server_method()));
+        if (!ctx) throw std::runtime_error("TLS_server_method failed");
+    } else {
+        ctx = SslCtxPtr(SSL_CTX_new(TLS_client_method()));
+        if (!ctx) throw std::runtime_error("TLS_client_method failed");
+    }
+
+    // Both modes: TLS 1.3 only
+    SSL_CTX_set_min_proto_version(ctx.get(), TLS1_3_VERSION);
+    SSL_CTX_set_max_proto_version(ctx.get(), TLS1_3_VERSION);
+
+    // Load own certificate + key
+    if (!cfg.cert_file.empty()) {
+        if (SSL_CTX_use_certificate_file(ctx.get(), cfg.cert_file.c_str(),
+                                          SSL_FILETYPE_PEM) <= 0)
+            throw std::runtime_error("load cert: " + cfg.cert_file);
+    }
+    if (!cfg.key_file.empty()) {
+        if (SSL_CTX_use_PrivateKey_file(ctx.get(), cfg.key_file.c_str(),
+                                         SSL_FILETYPE_PEM) <= 0)
+            throw std::runtime_error("load key: " + cfg.key_file);
+    }
+
+    if (mode == TlsMode::Listen) {
+        // Server: verify client cert + fail if no cert presented
+        SSL_CTX_set_verify(ctx.get(),
+                           SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT,
+                           nullptr);
+
+        auto* auth = new AuthorizedKeys{};
+        if (!cfg.authorized_keys_file.empty())
+            auth->load_from_file(cfg.authorized_keys_file);
+        SSL_CTX_set_cert_verify_callback(ctx.get(), server_cert_verify_cb, auth);
+
+        // TLS session cache — reuse sessions across reconnects
+        SSL_CTX_set_session_cache_mode(ctx.get(), SSL_SESS_CACHE_SERVER);
+        SSL_CTX_sess_set_cache_size(ctx.get(), 256);
+    } else {
+        // Client: verify server cert via TOFU
+        SSL_CTX_set_verify(ctx.get(), SSL_VERIFY_PEER, nullptr);
+
+        auto* cb = new std::function<bool(const std::string&)>(cfg.tofu_cb);
+        SSL_CTX_set_cert_verify_callback(ctx.get(), client_cert_verify_cb, cb);
+    }
+
+    return ctx;
 }
 
 } // namespace bs::mesh
