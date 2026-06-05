@@ -3,6 +3,11 @@
 // Namespace: bs::mesh
 
 #define NOMINMAX
+#ifdef _WIN32
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#pragma comment(lib, "ws2_32.lib")
+#endif
 #include <cstdint>
 #include <cstddef>
 #include <string>
@@ -2390,18 +2395,12 @@ public:
 #define SOCKET_ERROR (-1)
 #define CLOSESOCK close
 #else
-// windows.h already included → winsock.h available
+// windows.h / winsock2.h already included at top
 #define CLOSESOCK closesocket
 #endif
 
 class MeshController {
-    MeshConfig config_;
-    SessionRegistry sessions_;
-    SslCtxPtr tls_listen_;
-    SslCtxPtr tls_connect_;
-    std::string our_pubkey_;
-    std::string home_dir_;
-
+public:
     struct Conn {
         std::string peer_name;
         std::string peer_pubkey;
@@ -2413,6 +2412,14 @@ class MeshController {
         Session* attached_session = nullptr;
         std::string remote_session;
     };
+
+private:
+    MeshConfig config_;
+    SessionRegistry sessions_;
+    SslCtxPtr tls_listen_;
+    SslCtxPtr tls_connect_;
+    std::string our_pubkey_;
+    std::string home_dir_;
 
     std::vector<Conn> conns_;
     static constexpr size_t kMaxConnections = 64;
@@ -2806,16 +2813,381 @@ class MeshController {
             auto& g = std::get<GossipMsg>(msg);
             merge_peers(g.peers);
         }
-        else if (std::holds_alternative<AttachMsg>(msg)) {
-            // Phase 6 will handle this fully — for now just store it
-            auto& a = std::get<AttachMsg>(msg);
-            c.remote_session = a.session_name;
-            // Forward to Phase 6 relay when implemented
+        else {
+            // Route everything else through session / common handlers
+            handle_inbound_session(c, msg);
+            handle_outbound_session(c, msg);
+            common_message_handler(c, msg);
         }
-        // Other messages deferred to Phase 6
     }
 
     // ── Check for data on a connection ─────────────────────────
+
+public:
+    // ────────────────────────────────────────────────────────────────
+    // Phase 6: Session message handlers (public for tests)
+    // ────────────────────────────────────────────────────────────────
+
+    // write_all — write all bytes to a HANDLE (Windows) or fd (POSIX)
+    // For PTY writes (child stdin). Stripped-down version for ConPTY.
+    bool write_all(void* handle, const void* data, size_t len) {
+        if (!handle || !data || len == 0) return true;
+#ifdef _WIN32
+        HANDLE h = reinterpret_cast<HANDLE>(handle);
+        const char* p = static_cast<const char*>(data);
+        size_t remaining = len;
+        while (remaining > 0) {
+            DWORD written = 0;
+            if (!WriteFile(h, p, static_cast<DWORD>(std::min(remaining, size_t(4096))),
+                           &written, nullptr)) {
+                return false;
+            }
+            p += written;
+            remaining -= written;
+        }
+        return true;
+#else
+        int fd = reinterpret_cast<intptr_t>(handle);
+        const char* p = static_cast<const char*>(data);
+        size_t remaining = len;
+        while (remaining > 0) {
+            ssize_t n = write(fd, p, remaining);
+            if (n <= 0) return false;
+            p += n;
+            remaining -= static_cast<size_t>(n);
+        }
+        return true;
+#endif
+    }
+
+    // 1. handle_inbound_session — messages from a remote peer
+    //    operating on OUR local sessions
+    void handle_inbound_session(Conn& conn, Message& msg) {
+        // AttachMsg — peer wants to attach to one of our sessions
+        if (std::holds_alternative<AttachMsg>(msg)) {
+            auto& a = std::get<AttachMsg>(msg);
+            log_event("session_attach_request",
+                      a.session_name + " from " + conn.peer_name);
+
+            auto* s = sessions_.attach(a.session_name,
+                                       config_.default_shell,
+                                       a.cols, a.rows, a.term);
+            if (s) {
+                conn.attached_session = s;
+                s->peer_id = conn.peer_pubkey;
+
+                // Send scrollback to reattaching peer
+                auto lines = s->scrollback.read_last_lines(
+                    static_cast<size_t>(config_.scrollback_lines));
+                if (!lines.empty()) {
+                    ScrollbackMsg sb;
+                    sb.data = std::move(lines);
+                    sb.total_lines = 0; // best-effort
+                    sb.chunk_index = 0;
+                    try {
+                        write_frame(conn.ssl.get(), sb, 0);
+                    } catch (...) {}
+                }
+                log_event("session_attached",
+                          a.session_name + " from " + conn.peer_name);
+            } else {
+                log_event("session_attach_failed",
+                          a.session_name + " from " + conn.peer_name);
+            }
+            return;
+        }
+
+        // KeystrokeMsg — peer typed something; forward to PTY
+        if (std::holds_alternative<KeystrokeMsg>(msg)) {
+            auto& ks = std::get<KeystrokeMsg>(msg);
+            if (conn.attached_session && conn.attached_session->is_valid()) {
+#ifdef _WIN32
+                write_all(conn.attached_session->write_handle,
+                          ks.data.data(), ks.data.size());
+#else
+                write_all(reinterpret_cast<void*>(
+                    static_cast<intptr_t>(conn.attached_session->master_fd)),
+                    ks.data.data(), ks.data.size());
+#endif
+            }
+            return;
+        }
+
+        // ResizeMsg — peer resized their terminal
+        if (std::holds_alternative<ResizeMsg>(msg)) {
+            auto& r = std::get<ResizeMsg>(msg);
+            if (conn.attached_session && conn.attached_session->is_valid()) {
+#ifdef _WIN32
+                if (conn.attached_session->hpcon) {
+                    resize_pty(reinterpret_cast<intptr_t>(conn.attached_session->hpcon),
+                               r.cols, r.rows);
+                }
+#else
+                // POSIX would use TIOCSWINSZ
+#endif
+            }
+            return;
+        }
+
+        // DetachMsg — peer wants to detach from session
+        if (std::holds_alternative<DetachMsg>(msg)) {
+            if (conn.attached_session) {
+                sessions_.detach(conn.attached_session->name);
+                conn.attached_session = nullptr;
+                log_event("session_detached", "from " + conn.peer_name);
+            }
+            return;
+        }
+
+        // SignalMsg — send signal to child process
+        if (std::holds_alternative<SignalMsg>(msg)) {
+            auto& sig = std::get<SignalMsg>(msg);
+            if (conn.attached_session && conn.attached_session->is_valid()) {
+#ifdef _WIN32
+                if (conn.attached_session->child_pid) {
+                    DWORD ctrl_event = 0;
+                    switch (sig.signal) {
+                        case SignalMsg::SignalType::CtrlC:
+                            ctrl_event = CTRL_C_EVENT; break;
+                        case SignalMsg::SignalType::CtrlZ:
+                            ctrl_event = CTRL_BREAK_EVENT; break;
+                        default: break;
+                    }
+                    if (ctrl_event)
+                        GenerateConsoleCtrlEvent(ctrl_event,
+                            GetProcessId(conn.attached_session->child_pid));
+                }
+#else
+                if (conn.attached_session->child_pid > 0) {
+                    int sig = (sig.signal == SignalMsg::SignalType::CtrlC) ? SIGINT :
+                              (sig.signal == SignalMsg::SignalType::CtrlZ) ? SIGTSTP :
+                              SIGQUIT;
+                    kill(conn.attached_session->child_pid, sig);
+                }
+#endif
+            }
+            return;
+        }
+
+        // ClipboardMsg — write bracketed paste to PTY
+        // Also echo hash back to confirm receipt
+        if (std::holds_alternative<ClipboardMsg>(msg)) {
+            auto& cb = std::get<ClipboardMsg>(msg);
+            if (conn.attached_session && conn.attached_session->is_valid()) {
+                // Write bracketed paste: ESC[200~ <data> ESC[201~
+                std::string paste = "\x1b[200~" + cb.text + "\x1b[201~";
+#ifdef _WIN32
+                write_all(conn.attached_session->write_handle,
+                          paste.data(), paste.size());
+#else
+                write_all(reinterpret_cast<void*>(
+                    static_cast<intptr_t>(conn.attached_session->master_fd)),
+                    paste.data(), paste.size());
+#endif
+                // Echo hash back
+                if (!cb.hash.empty()) {
+                    ClipboardEchoMsg echo;
+                    echo.hash = cb.hash;
+                    try {
+                        write_frame(conn.ssl.get(), echo, 0);
+                    } catch (...) {}
+                }
+            }
+            return;
+        }
+    }
+
+    // 2. handle_outbound_session — messages from our local sessions
+    //    destined for a local client (shell_peer CLI mode)
+    void handle_outbound_session(Conn& conn, Message& msg) {
+        // OutputMsg — write to local stdout (shell_peer display)
+        if (std::holds_alternative<OutputMsg>(msg)) {
+            auto& o = std::get<OutputMsg>(msg);
+            fwrite(o.data.data(), 1, o.data.size(), stdout);
+            fflush(stdout);
+            return;
+        }
+
+        // ClipboardMsg — write to local clipboard
+        if (std::holds_alternative<ClipboardMsg>(msg)) {
+            auto& cb = std::get<ClipboardMsg>(msg);
+#ifdef _WIN32
+            if (OpenClipboard(nullptr)) {
+                EmptyClipboard();
+                size_t wsize = MultiByteToWideChar(CP_UTF8, 0,
+                    cb.text.c_str(), static_cast<int>(cb.text.size()),
+                    nullptr, 0);
+                HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE,
+                    (wsize + 1) * sizeof(WCHAR));
+                if (hMem) {
+                    auto* wstr = static_cast<WCHAR*>(GlobalLock(hMem));
+                    if (wstr) {
+                        MultiByteToWideChar(CP_UTF8, 0,
+                            cb.text.c_str(), static_cast<int>(cb.text.size()),
+                            wstr, static_cast<int>(wsize));
+                        wstr[wsize] = L'\0';
+                        GlobalUnlock(hMem);
+                    }
+                    SetClipboardData(CF_UNICODETEXT, hMem);
+                }
+                CloseClipboard();
+            }
+#endif
+            return;
+        }
+
+        // ExitCodeMsg / SessionDiedMsg — clear remote session tracking
+        if (std::holds_alternative<ExitCodeMsg>(msg) ||
+            std::holds_alternative<SessionDiedMsg>(msg)) {
+            conn.remote_session.clear();
+            return;
+        }
+    }
+
+    // 3. common_message_handler — protocol-level messages
+    void common_message_handler(Conn& conn, Message& msg) {
+        // PingMsg → PongMsg (already handled in dispatch, but safe to be here)
+        if (std::holds_alternative<PingMsg>(msg)) {
+            try {
+                write_frame(conn.ssl.get(), PongMsg{}, CONTROL_STREAM_ID);
+            } catch (...) {}
+            return;
+        }
+
+        // PongMsg → update last_pong (already handled, but safe)
+        if (std::holds_alternative<PongMsg>(msg)) {
+            conn.last_pong = std::chrono::steady_clock::now();
+            return;
+        }
+
+        // ScrollbackMsg — write to local stdout (for shell_peer)
+        if (std::holds_alternative<ScrollbackMsg>(msg)) {
+            auto& sb = std::get<ScrollbackMsg>(msg);
+            fwrite(sb.data.data(), 1, sb.data.size(), stdout);
+            fflush(stdout);
+            // Send ack
+            try {
+                write_frame(conn.ssl.get(), ScrollbackAckMsg{}, 0);
+            } catch (...) {}
+            return;
+        }
+
+        // ImageDataMsg / ImageFrameMsg — stub, render later (Phase 8)
+        if (std::holds_alternative<ImageDataMsg>(msg) ||
+            std::holds_alternative<ImageFrameMsg>(msg)) {
+            // Phase 8 will handle rendering
+            return;
+        }
+
+        // SessionListMsg — format and display
+        if (std::holds_alternative<SessionListMsg>(msg)) {
+            auto& sl = std::get<SessionListMsg>(msg);
+            printf("=== Sessions ===\n");
+            for (auto& si : sl.sessions) {
+                printf("  %s  [%s]  uptime=%llus\n",
+                       si.name.c_str(), si.state.c_str(),
+                       (unsigned long long)si.uptime_seconds);
+            }
+            fflush(stdout);
+            return;
+        }
+    }
+
+    // 4. pty_output_poller — poll PTY output for each attached session
+    void pty_output_poller() {
+        for (auto& conn : conns_) {
+            auto* s = conn.attached_session;
+            if (!s || !s->is_valid()) continue;
+
+#ifdef _WIN32
+            // PeekNamedPipe to check for available data
+            DWORD bytes_avail = 0;
+            if (!PeekNamedPipe(s->master_fd, nullptr, 0, nullptr, &bytes_avail, nullptr))
+                continue;
+            if (bytes_avail == 0) continue;
+
+            // Read available data
+            std::string buf;
+            buf.resize(bytes_avail);
+            DWORD bytes_read = 0;
+            if (!ReadFile(s->master_fd, &buf[0], bytes_avail, &bytes_read, nullptr))
+                continue;
+            buf.resize(bytes_read);
+#else
+            // POSIX: non-blocking read or poll
+            char tmp[4096];
+            ssize_t n = read(s->master_fd, tmp, sizeof(tmp));
+            if (n <= 0) continue;
+            std::string buf(tmp, static_cast<size_t>(n));
+#endif
+
+            if (buf.empty()) continue;
+
+            // Write to ring buffer
+            s->scrollback.write(std::string_view(buf));
+            s->touch_output();
+
+            // OSC 52 scan
+            auto osc = scan_osc52(buf);
+            if (osc.clipboard_text && !osc.clipboard_text->empty()) {
+                ClipboardMsg cb;
+                cb.text = *osc.clipboard_text;
+                cb.hash = sha256_hex(cb.text);
+                try {
+                    write_frame(conn.ssl.get(), cb, 0);
+                } catch (...) {}
+            }
+
+            // Send OutputMsg with cleaned text
+            if (!osc.cleaned_text.empty()) {
+                OutputMsg om;
+                om.data = std::move(osc.cleaned_text);
+                try {
+                    write_frame(conn.ssl.get(), om, 0);
+                } catch (...) {}
+            }
+
+            // Check child exit
+#ifdef _WIN32
+            if (s->child_pid &&
+                WaitForSingleObject(s->child_pid, 0) == WAIT_OBJECT_0) {
+                DWORD exit_code = 0;
+                GetExitCodeProcess(s->child_pid, &exit_code);
+                CloseHandle(s->child_pid);
+                s->child_pid = nullptr;
+                s->state = SessionState::Died;
+
+                SessionDiedMsg sdm;
+                sdm.exit_code = static_cast<int32_t>(exit_code);
+                sdm.signal_num = 0;
+                try {
+                    write_frame(conn.ssl.get(), sdm, 0);
+                } catch (...) {}
+                log_event("session_died", s->name + " exit_code=" + std::to_string(exit_code));
+            }
+#else
+            if (s->child_pid > 0) {
+                int status = 0;
+                pid_t result = waitpid(s->child_pid, &status, WNOHANG);
+                if (result == s->child_pid) {
+                    s->child_pid = -1;
+                    s->state = SessionState::Died;
+                    SessionDiedMsg sdm;
+                    if (WIFEXITED(status)) {
+                        sdm.exit_code = WEXITSTATUS(status);
+                    } else if (WIFSIGNALED(status)) {
+                        sdm.signal_num = WTERMSIG(status);
+                    }
+                    try {
+                        write_frame(conn.ssl.get(), sdm, 0);
+                    } catch (...) {}
+                }
+            }
+#endif
+        }
+    }
+
+private:
 
     void check_conn_read(int conn_idx) {
         auto& c = conns_[static_cast<size_t>(conn_idx)];
@@ -3120,6 +3492,9 @@ public:
             // 9. Clean dead connections
             clean_dead_conns();
 
+            // 9.5. Poll PTY output for all attached sessions
+            pty_output_poller();
+
             // 10. Reap dead sessions
             sessions_.reap_dead();
         }
@@ -3165,10 +3540,206 @@ public:
 } // namespace bs::mesh
 
 // ────────────────────────────────────────────────────────────────────
-// 2. MAIN (guarded for test builds)
+// 2. MAIN — CLI + daemon (guarded for test builds)
 // ────────────────────────────────────────────────────────────────────
 
 #ifndef BS_TESTING
-#include <cstdio>
-int main() { return 0; }
+
+#include <CLI/CLI.hpp>
+#include <cstdlib>
+#include <iostream>
+
+namespace {
+
+std::string resolve_home(const std::string& path) {
+    return bs::mesh::expand_home(path);
+}
+
+// ── keygen: generate ed25519 keypair ──────────────────────────────
+int cmd_keygen() {
+    std::string home = resolve_home("~");
+    if (home.empty()) { std::cerr << "HOME/USERPROFILE not set\n"; return 1; }
+
+    std::string dir = home + "/.bridgesessions";
+    std::filesystem::create_directories(dir);
+
+    auto [cert, key] = bs::mesh::generate_cert_key_pair("bridgesessions");
+    auto pubkey = bs::mesh::pubkey_hex_from_pem(key);
+
+    std::string key_path  = dir + "/id_ed25519.pem";
+    std::string cert_path = dir + "/id_ed25519-cert.pem";
+    std::string pub_path  = dir + "/id_ed25519.pub";
+
+    // Write key
+    {
+        std::ofstream f(key_path);
+        f << key;
+    }
+    // Write cert
+    {
+        std::ofstream f(cert_path);
+        f << cert;
+    }
+    // Write public key
+    {
+        std::ofstream f(pub_path);
+        f << pubkey << "\n";
+    }
+
+    std::cout << "Generated ed25519 keypair:\n"
+              << "  Private key: " << key_path << "\n"
+              << "  Certificate: " << cert_path << "\n"
+              << "  Public key:  " << pub_path << "\n"
+              << "  Pubkey hex:  " << pubkey << "\n";
+
+    return 0;
+}
+
+// ── authorize: register a hex-encoded ed25519 public key ──────────
+int cmd_authorize(const char* hex_pubkey) {
+    if (!hex_pubkey || !*hex_pubkey) {
+        std::cerr << "usage: bridgesessions authorize <hex-pubkey>\n";
+        return 1;
+    }
+
+    std::string home = resolve_home("~");
+    if (home.empty()) { std::cerr << "HOME/USERPROFILE not set\n"; return 1; }
+
+    std::string dir = home + "/.bridgesessions";
+    std::filesystem::create_directories(dir);
+    std::string path = dir + "/authorized_keys";
+
+    // Check for duplicates
+    {
+        std::ifstream existing(path);
+        std::string line;
+        while (std::getline(existing, line)) {
+            if (line == hex_pubkey) {
+                std::cout << "Key already authorized: " << hex_pubkey << "\n";
+                return 0;
+            }
+        }
+    }
+
+    // Append
+    {
+        std::ofstream f(path, std::ios::app);
+        f << hex_pubkey << "\n";
+    }
+
+    std::cout << "Authorized key: " << hex_pubkey << "\n";
+    std::cout << "Written to: " << path << "\n";
+    return 0;
+}
+
+} // anonymous namespace
+
+int main(int argc, char** argv) {
+#ifdef _WIN32
+    WSADATA wsa;
+    WSAStartup(MAKEWORD(2,2), &wsa);
+#endif
+
+    CLI::App app{"bridgesessions — mesh terminal relay"};
+    app.set_version_flag("--version,-V", "1.0.0-mesh");
+
+    // Global options
+    std::string config_path = "";
+    app.add_option("--config", config_path, "Config file path");
+
+    // Subcommand: shell
+    std::string shell_peer, shell_session = "default", shell_cmd;
+    uint16_t shell_cols = 80, shell_rows = 24;
+    auto* shell_cmd_app = app.add_subcommand("shell", "Open shell on a peer");
+    shell_cmd_app->add_option("peer", shell_peer, "Peer name")->required();
+    shell_cmd_app->add_option("-n,--name", shell_session, "Session name");
+    shell_cmd_app->add_option("-x,--cmd", shell_cmd, "Command override");
+    shell_cmd_app->add_option("--cols", shell_cols, "Terminal columns");
+    shell_cmd_app->add_option("--rows", shell_rows, "Terminal rows");
+
+    // Subcommand: sessions
+    std::string sessions_peer;
+    bool sessions_all = false;
+    auto* sessions_cmd_app = app.add_subcommand("sessions", "List sessions");
+    sessions_cmd_app->add_option("peer", sessions_peer, "Peer name (omit for local)");
+    sessions_cmd_app->add_flag("--all", sessions_all, "All peers");
+
+    // Subcommand: keygen
+    auto* keygen_cmd_app = app.add_subcommand("keygen", "Generate ed25519 keypair");
+
+    // Subcommand: authorize
+    std::string auth_pubkey;
+    auto* auth_cmd_app = app.add_subcommand("authorize", "Authorize a peer public key");
+    auth_cmd_app->add_option("pubkey", auth_pubkey, "Hex pubkey")->required();
+
+    // Subcommand: peers
+    auto* peers_cmd = app.add_subcommand("peers", "Manage peers");
+    peers_cmd->require_subcommand(1);
+
+    auto* peers_list = peers_cmd->add_subcommand("list", "List peers");
+    std::string peer_add_name, peer_add_addr;
+    auto* peers_add = peers_cmd->add_subcommand("add", "Add a seed peer");
+    peers_add->add_option("name", peer_add_name)->required();
+    peers_add->add_option("addr", peer_add_addr)->required();
+    std::string peer_remove_name;
+    auto* peers_remove = peers_cmd->add_subcommand("remove", "Remove a peer");
+    peers_remove->add_option("name", peer_remove_name)->required();
+
+    CLI11_PARSE(app, argc, argv);
+
+    // Resolve config path
+    if (config_path.empty()) {
+        config_path = resolve_home("~/.bridgesessions/config");
+    }
+
+    // Dispatch
+    if (shell_cmd_app->parsed()) {
+        bs::mesh::MeshConfig cfg = bs::mesh::load_config(config_path);
+        bs::mesh::bootstrap_identity(resolve_home("~/.bridgesessions"));
+        bs::mesh::MeshController mc(cfg);
+        mc.shell_peer(shell_peer, shell_session, shell_cmd, shell_cols, shell_rows, "xterm-256color");
+        return 0;
+    }
+    if (sessions_cmd_app->parsed()) {
+        bs::mesh::MeshConfig cfg = bs::mesh::load_config(config_path);
+        bs::mesh::MeshController mc(cfg);
+        mc.list_sessions(sessions_peer, sessions_all);
+        return 0;
+    }
+    if (keygen_cmd_app->parsed()) {
+        return cmd_keygen();
+    }
+    if (auth_cmd_app->parsed()) {
+        return cmd_authorize(auth_pubkey.c_str());
+    }
+    if (peers_list->parsed()) {
+        bs::mesh::MeshConfig cfg = bs::mesh::load_config(config_path);
+        for (auto& p : cfg.seeds) std::cout << p.name << " " << p.addr << std::endl;
+        for (auto& p : cfg.discovered) std::cout << "[d] " << p.name << " " << p.addr << std::endl;
+        return 0;
+    }
+    if (peers_add->parsed()) {
+        bs::mesh::MeshConfig cfg = bs::mesh::load_config(config_path);
+        cfg.seeds.push_back({peer_add_name, peer_add_addr});
+        bs::mesh::save_config(config_path, cfg);
+        std::cout << "added seed " << peer_add_name << " -> " << peer_add_addr << std::endl;
+        return 0;
+    }
+    if (peers_remove->parsed()) {
+        bs::mesh::MeshConfig cfg = bs::mesh::load_config(config_path);
+        cfg.seeds.erase(std::remove_if(cfg.seeds.begin(), cfg.seeds.end(),
+            [&](auto& p){ return p.name == peer_remove_name; }), cfg.seeds.end());
+        bs::mesh::save_config(config_path, cfg);
+        std::cout << "removed seed " << peer_remove_name << std::endl;
+        return 0;
+    }
+
+    // Default: daemon mode
+    bs::mesh::MeshConfig cfg = bs::mesh::load_config(config_path);
+    bs::mesh::bootstrap_identity(resolve_home("~/.bridgesessions"));
+    bs::mesh::MeshController mc(cfg);
+    mc.run();
+    return 0;
+}
+
 #endif
