@@ -68,6 +68,19 @@
 #include <spdlog/spdlog.h>
 #include <spdlog/sinks/rotating_file_sink.h>
 
+// ── D15: WebRTC (libdatachannel, Windows-only for now) ─────────────
+#ifdef _WIN32
+#ifndef BS_NO_WEBRTC
+#include <rtc/rtc.hpp>
+#endif
+#endif
+
+// ── D17: NAT traversal (miniupnpc) ─────────────────────────────────
+#ifndef BS_NO_NAT
+#include <miniupnpc/miniupnpc.h>
+#include <miniupnpc/upnpcommands.h>
+#endif
+
 // ────────────────────────────────────────────────────────────────────
 // 1. MESSAGE TYPES (ported from bs-protocol, namespace bs::mesh)
 // ────────────────────────────────────────────────────────────────────
@@ -283,6 +296,10 @@ enum class MessageType : uint8_t {
     Hello          = 0x15,  // bidirectional: mesh node introduction
     Gossip         = 0x16,  // bidirectional: mesh peer list exchange
     SessionSearch  = 0x17,  // bidirectional: search for a session across the mesh
+    SdpOffer       = 0x18,  // bidirectional: WebRTC SDP offer (over TCP gossip)
+    SdpAnswer      = 0x19,  // bidirectional: WebRTC SDP answer (over TCP gossip)
+    DhtFindNode    = 0x1A,  // bidirectional: Kademlia find-node query
+    DhtFindValue   = 0x1B,  // bidirectional: Kademlia find-value query
 };
 
 // ── Empty Message Structs (must be declared before variant) ──────
@@ -414,6 +431,38 @@ struct SessionSearchMsg {
     bool operator==(const SessionSearchMsg&) const = default;
 };
 
+// ── WebRTC SDP Exchange Message Structs (D15) ───────────────────
+
+struct SdpOfferMsg {
+    std::string sdp;        // SDP offer string
+    std::string peer_name;  // offering peer name
+
+    bool operator==(const SdpOfferMsg&) const = default;
+};
+
+struct SdpAnswerMsg {
+    std::string sdp;        // SDP answer string
+    std::string peer_name;  // answering peer name
+
+    bool operator==(const SdpAnswerMsg&) const = default;
+};
+
+// ── DHT Message Structs (D16) ───────────────────────────────────
+
+struct DhtFindNodeMsg {
+    std::array<uint8_t, 32> target_id{};  // SHA-256 of target pubkey
+    std::string sender_name;              // querying node name
+
+    bool operator==(const DhtFindNodeMsg&) const = default;
+};
+
+struct DhtFindValueMsg {
+    std::array<uint8_t, 32> key{};  // SHA-256 key being sought
+    std::string sender_name;        // querying node name
+
+    bool operator==(const DhtFindValueMsg&) const = default;
+};
+
 // ── Message Variant ──────────────────────────────────────────────
 
 using Message = std::variant<
@@ -438,7 +487,11 @@ using Message = std::variant<
     ImageAckMsg,        // 18
     HelloMsg,           // 19 — NEW
     GossipMsg,          // 20 — NEW
-    SessionSearchMsg    // 21 — NEW
+    SessionSearchMsg,   // 21 — NEW
+    SdpOfferMsg,        // 22 — D15
+    SdpAnswerMsg,       // 23 — D15
+    DhtFindNodeMsg,     // 24 — D16
+    DhtFindValueMsg     // 25 — D16
 >;
 
 // ── Frame ──────────────────────────────────────────────────────────
@@ -490,6 +543,10 @@ constexpr MessageType index_to_type[] = {
     MessageType::Hello,         // 19 — NEW
     MessageType::Gossip,        // 20 — NEW
     MessageType::SessionSearch, // 21 — NEW
+    MessageType::SdpOffer,      // 22 — D15
+    MessageType::SdpAnswer,     // 23 — D15
+    MessageType::DhtFindNode,   // 24 — D16
+    MessageType::DhtFindValue,  // 25 — D16
 };
 static_assert(std::size(index_to_type) == std::variant_size_v<Message>,
               "index_to_type must have one entry per variant alternative");
@@ -589,6 +646,22 @@ void serialize_msg(Serializer& s, const GossipMsg&       m) {
 void serialize_msg(Serializer& s, const SessionSearchMsg& m) {
     s.str_prefixed(m.session_name); s.str_prefixed(m.routing);
     s.u16(m.cols); s.u16(m.rows); s.str_prefixed(m.term);
+}
+void serialize_msg(Serializer& s, const SdpOfferMsg& m) {
+    s.str_prefixed(m.peer_name);
+    s.str_prefixed_u16(m.sdp);
+}
+void serialize_msg(Serializer& s, const SdpAnswerMsg& m) {
+    s.str_prefixed(m.peer_name);
+    s.str_prefixed_u16(m.sdp);
+}
+void serialize_msg(Serializer& s, const DhtFindNodeMsg& m) {
+    s.bytes(m.target_id.data(), 32);
+    s.str_prefixed(m.sender_name);
+}
+void serialize_msg(Serializer& s, const DhtFindValueMsg& m) {
+    s.bytes(m.key.data(), 32);
+    s.str_prefixed(m.sender_name);
 }
 
 // ── Zstd ──────────────────────────────────────────────────────
@@ -839,6 +912,32 @@ Message decode(std::span<const uint8_t> raw) {
         m.cols = d.u16();
         m.rows = d.u16();
         m.term = d.str_prefixed();
+        return m;
+    }
+    case 0x18: {
+        SdpOfferMsg m;
+        m.peer_name = d.str_prefixed();
+        m.sdp = d.str_prefixed_u16();
+        return m;
+    }
+    case 0x19: {
+        SdpAnswerMsg m;
+        m.peer_name = d.str_prefixed();
+        m.sdp = d.str_prefixed_u16();
+        return m;
+    }
+    case 0x1A: {
+        DhtFindNodeMsg m;
+        auto target_bytes = d.bytes_size(32);
+        std::copy(target_bytes.begin(), target_bytes.end(), m.target_id.begin());
+        m.sender_name = d.str_prefixed();
+        return m;
+    }
+    case 0x1B: {
+        DhtFindValueMsg m;
+        auto key_bytes = d.bytes_size(32);
+        std::copy(key_bytes.begin(), key_bytes.end(), m.key.begin());
+        m.sender_name = d.str_prefixed();
         return m;
     }
     }
@@ -1704,6 +1803,34 @@ void Session::reset_restart_failures() {
     return std::unexpected(PtyError{"ResizePseudoConsole failed"});
 }
 
+#else // POSIX create_session via fork+execpty
+
+[[nodiscard]] std::expected<Session, PtyError> create_session(
+    const std::string& name, const std::string& command,
+    uint16_t cols, uint16_t rows, const std::string& term)
+{
+    int master_fd = -1;
+    pid_t child = forkpty(&master_fd, nullptr, nullptr, nullptr);
+    if (child < 0)
+        return std::unexpected(PtyError{"forkpty failed"});
+    if (child == 0) {
+        setenv("TERM", term.c_str(), 1);
+        execl("/bin/sh", "sh", "-c", command.c_str(), nullptr);
+        _exit(127);
+    }
+    Session s;
+    s.name = name; s.command = command;
+    s.master_fd = master_fd; s.child_pid = child;
+    s.state = SessionState::Running;
+    return s;
+}
+
+[[nodiscard]] std::expected<void, PtyError> resize_pty(intptr_t handle, uint16_t cols, uint16_t rows) {
+    struct winsize ws = {rows, cols, 0, 0};
+    if (ioctl(static_cast<int>(handle), TIOCSWINSZ, &ws) == 0) return {};
+    return std::unexpected(PtyError{"TIOCSWINSZ failed"});
+}
+
 #endif // _WIN32
 
 // ────────────────────────────────────────────────────────────────────
@@ -1734,6 +1861,15 @@ struct MeshConfig {
     int idle_timeout_hours = 168;
     std::string default_shell;
     std::string terminal = "xterm-256color";
+
+    // D15: WebRTC transport
+    bool webrtc_enabled = false;
+
+    // D16: DHT
+    bool dht_enabled = false;
+
+    // D17: NAT traversal via UPnP
+    bool upnp_enabled = false;
 
     MeshConfig() {
 #ifdef _WIN32
@@ -1910,6 +2046,21 @@ void write_peer_line(std::ostream& os, const std::string& prefix, const PeerEntr
             auto v = parse_int(val);
             if (v.has_value()) cfg.pong_timeout_secs = *v;
         }
+        // ── transport.<key> (D15 WebRTC) ─────────────────────
+        else if (key_str == "transport.webrtc_enabled") {
+            std::string_view t = trim(val);
+            cfg.webrtc_enabled = (t == "true" || t == "1" || t == "yes");
+        }
+        // ── dht.<key> (D16) ───────────────────────────────────
+        else if (key_str == "dht.enabled") {
+            std::string_view t = trim(val);
+            cfg.dht_enabled = (t == "true" || t == "1" || t == "yes");
+        }
+        // ── upnp.<key> (D17) ──────────────────────────────────
+        else if (key_str == "upnp.enabled") {
+            std::string_view t = trim(val);
+            cfg.upnp_enabled = (t == "true" || t == "1" || t == "yes");
+        }
         // ── sessions.<key> ───────────────────────────────────
         else if (key_str == "sessions.scrollback_lines") {
             auto v = parse_int(val);
@@ -2012,6 +2163,9 @@ void write_peer_line(std::ostream& os, const std::string& prefix, const PeerEntr
     f << "mesh.reconnect_backoff_max_secs " << cfg.reconnect_backoff_max_secs << "\n";
     f << "mesh.ping_interval_secs " << cfg.ping_interval_secs << "\n";
     f << "mesh.pong_timeout_secs " << cfg.pong_timeout_secs << "\n";
+    f << "transport.webrtc_enabled " << (cfg.webrtc_enabled ? "true" : "false") << "\n";
+    f << "dht.enabled " << (cfg.dht_enabled ? "true" : "false") << "\n";
+    f << "upnp.enabled " << (cfg.upnp_enabled ? "true" : "false") << "\n";
     f << "\n";
 
     // Seeds
@@ -2550,6 +2704,270 @@ inline std::pair<uint16_t, uint16_t> get_winsize() {
 
 #endif
 
+// ── TLS close_notify helper — clean TLS shutdown before closing socket ──
+inline void ssl_close(SSL* ssl, SOCKET sfd) {
+    if (ssl) {
+        SSL_shutdown(ssl);
+        // drain pending data for 1s
+        fd_set fds; FD_ZERO(&fds); FD_SET(sfd, &fds);
+        timeval tv{1, 0};
+        select(0, &fds, nullptr, nullptr, &tv);
+    }
+    if (sfd != INVALID_SOCKET) CLOSESOCK(sfd);
+}
+
+// ────────────────────────────────────────────────────────────────────
+// D15: WebRTC DataChannel wrapper (behind #ifndef BS_NO_WEBRTC)
+// ────────────────────────────────────────────────────────────────────
+
+#ifndef BS_NO_WEBRTC
+struct WebRtcChannel {
+    std::shared_ptr<rtc::PeerConnection> pc;
+    std::shared_ptr<rtc::DataChannel> dc;
+    bool dc_open = false;
+    std::mutex dc_mutex;
+    std::vector<uint8_t> recv_buf;
+
+    // Create a PeerConnection offering client
+    static std::shared_ptr<rtc::PeerConnection> create_offerer(
+        const std::string& sdp, std::string& out_local_sdp)
+    {
+        rtc::Configuration config;
+        auto pc = std::make_shared<rtc::PeerConnection>(config);
+        pc->setRemoteDescription(rtc::Description(sdp, "offer"));
+        auto desc = pc->createAnswer();
+        pc->setLocalDescription(desc.type());
+        out_local_sdp = std::string(desc);
+        return pc;
+    }
+
+    // Create a PeerConnection answering client
+    static std::shared_ptr<rtc::PeerConnection> create_answerer(
+        const std::string& sdp, std::string& out_local_sdp)
+    {
+        rtc::Configuration config;
+        auto pc = std::make_shared<rtc::PeerConnection>(config);
+        pc->setRemoteDescription(rtc::Description(sdp, "answer"));
+        out_local_sdp = std::string(*pc->localDescription());
+        return pc;
+    }
+};
+#endif // BS_NO_WEBRTC
+
+// ────────────────────────────────────────────────────────────────────
+// D16: Kademlia-style DHT (behind #ifndef BS_NO_DHT)
+// ────────────────────────────────────────────────────────────────────
+
+#ifndef BS_NO_DHT
+
+using NodeId = std::array<uint8_t, 32>;
+
+inline NodeId pubkey_to_node_id(const std::string& pubkey_hex) {
+    std::string sha = bs::mesh::sha256_hex(pubkey_hex);
+    NodeId id{};
+    for (size_t i = 0; i < 32 && i * 2 + 1 < sha.size(); ++i) {
+        char buf[3] = {sha[i*2], sha[i*2+1], 0};
+        id[i] = static_cast<uint8_t>(std::strtoul(buf, nullptr, 16));
+    }
+    return id;
+}
+
+inline unsigned xor_leading_zeros(const NodeId& a, const NodeId& b) {
+    unsigned leading = 0;
+    for (size_t i = 0; i < 32; ++i) {
+        uint8_t diff = a[i] ^ b[i];
+        if (diff == 0) {
+            leading += 8;
+            continue;
+        }
+        // Count leading zeros of this byte
+        for (int j = 7; j >= 0; --j) {
+            if ((diff >> j) & 1) break;
+            ++leading;
+        }
+        break;
+    }
+    return leading;
+}
+
+struct DhtPeer {
+    std::string name;
+    std::string addr;
+    NodeId node_id{};
+    uint64_t last_seen = 0;
+};
+
+class DhtNode {
+    NodeId our_id_;
+    std::string our_name_;
+    std::string our_addr_;
+    static constexpr size_t kBucketSize = 20;
+    static constexpr size_t kNumBuckets = 256;
+    std::vector<std::vector<DhtPeer>> buckets_{kNumBuckets};
+
+    mutable std::shared_mutex mutex_;
+
+    int bucket_index(const NodeId& id) const {
+        unsigned z = xor_leading_zeros(our_id_, id);
+        return std::min<int>(static_cast<int>(z), static_cast<int>(kNumBuckets - 1));
+    }
+
+public:
+    DhtNode() = default;
+
+    void init(const std::string& our_pubkey, const std::string& our_name, const std::string& our_addr) {
+        our_id_ = pubkey_to_node_id(our_pubkey);
+        our_name_ = our_name;
+        our_addr_ = our_addr;
+    }
+
+    void bootstrap(const std::vector<DhtPeer>& seeds) {
+        std::unique_lock lock(mutex_);
+        for (auto& s : seeds) {
+            int idx = bucket_index(s.node_id);
+            auto& bucket = buckets_[static_cast<size_t>(idx)];
+            bool exists = false;
+            for (auto& b : bucket) {
+                if (b.node_id == s.node_id) { exists = true; break; }
+            }
+            if (!exists) {
+                if (bucket.size() >= kBucketSize) bucket.erase(bucket.begin());
+                bucket.push_back(s);
+            }
+        }
+    }
+
+    std::vector<DhtPeer> find_closest(const NodeId& target, int k = 20) const {
+        std::shared_lock lock(mutex_);
+        std::vector<DhtPeer> all;
+        for (auto& bucket : buckets_) {
+            for (auto& p : bucket) {
+                all.push_back(p);
+            }
+        }
+        std::sort(all.begin(), all.end(), [&](const DhtPeer& a, const DhtPeer& b) {
+            // Sort by XOR distance from target
+            for (int i = 31; i >= 0; --i) {
+                uint8_t da = a.node_id[i] ^ target[i];
+                uint8_t db = b.node_id[i] ^ target[i];
+                if (da != db) return da < db;
+            }
+            return false;
+        });
+        if (all.size() > static_cast<size_t>(k)) all.resize(static_cast<size_t>(k));
+        return all;
+    }
+
+    void add_peer(const DhtPeer& peer) {
+        std::unique_lock lock(mutex_);
+        int idx = bucket_index(peer.node_id);
+        auto& bucket = buckets_[static_cast<size_t>(idx)];
+        for (auto& existing : bucket) {
+            if (existing.node_id == peer.node_id) {
+                existing.last_seen = peer.last_seen;
+                existing.addr = peer.addr;
+                return;
+            }
+        }
+        if (bucket.size() >= kBucketSize) {
+            bucket.erase(bucket.begin());
+        }
+        bucket.push_back(peer);
+    }
+
+    const NodeId& our_id() const { return our_id_; }
+};
+
+#endif // BS_NO_DHT
+
+// ────────────────────────────────────────────────────────────────────
+// D17: NAT traversal via UPnP (behind #ifndef BS_NO_NAT)
+// ────────────────────────────────────────────────────────────────────
+
+#ifndef BS_NO_NAT
+
+class UpnpNat {
+    bool initialized_ = false;
+    std::string external_ip_;
+    std::string lan_addr_;
+    struct UPNPUrls urls_;
+    struct IGDdatas data_;
+    std::vector<char> devlist_buf_;
+
+public:
+    UpnpNat() {
+        std::memset(&urls_, 0, sizeof(urls_));
+        std::memset(&data_, 0, sizeof(data_));
+    }
+
+    ~UpnpNat() { cleanup(); }
+
+    bool init() {
+        char lan_addr[64] = {};
+        char wan_addr[64] = {};
+        int error = 0;
+
+        // Discover UPnP devices (timeout 2000ms)
+        struct UPNPDev* devlist = upnpDiscover(
+            2000, nullptr, nullptr, 0, 0, 2, &error);
+
+        if (!devlist) {
+            return false;
+        }
+
+        // Copy devlist for later cleanup
+        struct UPNPDev* cur = devlist;
+        while (cur) {
+            size_t off = devlist_buf_.size();
+            devlist_buf_.resize(off + sizeof(UPNPDev));
+            cur = cur->pNext;
+        }
+
+        // Get valid IGD
+        int ret = UPNP_GetValidIGD(devlist, &urls_, &data_,
+                                    lan_addr, sizeof(lan_addr),
+                                    wan_addr, sizeof(wan_addr));
+        if (ret != 1) {
+            freeUPNPDevlist(devlist);
+            return false;
+        }
+
+        lan_addr_ = lan_addr;
+        external_ip_ = wan_addr;
+        initialized_ = true;
+
+        freeUPNPDevlist(devlist);
+        return true;
+    }
+
+    bool setup_port_mapping(uint16_t port) {
+        if (!initialized_) return false;
+
+        std::string port_str = std::to_string(port);
+        int ret = UPNP_AddPortMapping(
+            urls_.controlURL, data_.first.servicetype,
+            port_str.c_str(), port_str.c_str(),
+            lan_addr_.c_str(),
+            "bridgesessions", "TCP", nullptr, "0");
+
+        return ret == UPNPCOMMAND_SUCCESS;
+    }
+
+    const std::string& external_ip() const { return external_ip_; }
+    bool is_initialized() const { return initialized_; }
+
+    void cleanup() {
+        if (urls_.controlURL) {
+            // Delete port mapping if we set one up
+            // (We don't track the port for cleanup in this simple version)
+            FreeUPNPUrls(&urls_);
+        }
+        initialized_ = false;
+    }
+};
+
+#endif // BS_NO_NAT
+
 class MeshController {
 public:
     struct Conn {
@@ -2560,6 +2978,7 @@ public:
         SOCKET sock_fd = INVALID_SOCKET;
         bool is_outbound = false;
         std::chrono::steady_clock::time_point last_pong;
+        std::chrono::steady_clock::time_point connected_at = std::chrono::steady_clock::now();
         Session* attached_session = nullptr;
         std::string remote_session;
     };
@@ -2597,6 +3016,24 @@ private:
 
     // Listen socket
     SOCKET listen_fd_ = INVALID_SOCKET;
+
+    // D15: WebRTC transport
+#ifndef BS_NO_WEBRTC
+    std::unordered_map<std::string, WebRtcChannel> webrtc_channels_;
+    mutable std::mutex webrtc_mutex_;
+#endif
+
+    // D16: DHT node
+#ifndef BS_NO_DHT
+    DhtNode dht_;
+    bool dht_inited_ = false;
+#endif
+
+    // D17: NAT traversal
+#ifndef BS_NO_NAT
+    UpnpNat upnp_;
+    std::string external_addr_;
+#endif
 
     // ── Internal helpers ───────────────────────────────────────
 
@@ -2665,7 +3102,7 @@ private:
         if (index >= conns_.size()) return;
         auto& c = conns_[index];
         if (c.sock_fd != INVALID_SOCKET) {
-            CLOSESOCK(c.sock_fd);
+            ssl_close(c.ssl.get(), c.sock_fd);
         }
         // Remove backoff for this peer so it can be reconnected
         if (!c.peer_addr.empty()) {
@@ -2807,27 +3244,27 @@ private:
         if (cfd == INVALID_SOCKET) return;
 
         if (conns_.size() >= kMaxConnections) {
-            CLOSESOCK(cfd);
+            ssl_close(nullptr, cfd);
             return;
         }
 
         // TLS handshake (server side)
         auto ssl = SslPtr(SSL_new(tls_listen_.get()));
-        if (!ssl) { CLOSESOCK(cfd); return; }
+        if (!ssl) { ssl_close(nullptr, cfd); return; }
         SSL_set_fd(ssl.get(), static_cast<int>(cfd));
 
         int ret = SSL_accept(ssl.get());
-        if (ret <= 0) { CLOSESOCK(cfd); return; }
+        if (ret <= 0) { ssl_close(ssl.get(), cfd); return; }
 
         // Get peer's pubkey
         std::string peer_pk = peer_public_key_hex(ssl.get());
-        if (peer_pk.empty()) { CLOSESOCK(cfd); return; }
+        if (peer_pk.empty()) { ssl_close(ssl.get(), cfd); return; }
 
         // Read Hello from peer
         try {
             Message msg = read_frame(ssl.get());
             if (!std::holds_alternative<HelloMsg>(msg)) {
-                CLOSESOCK(cfd);
+                ssl_close(ssl.get(), cfd);
                 return;
             }
             auto& hello = std::get<HelloMsg>(msg);
@@ -2854,7 +3291,7 @@ private:
 
             log_event("mesh_peer_connected", hello.node_name + " pubkey=" + peer_pk.substr(0, 16) + "...");
         } catch (...) {
-            CLOSESOCK(cfd);
+            ssl_close(nullptr, cfd);
         }
     }
 
@@ -2871,21 +3308,21 @@ private:
             if (sfd == INVALID_SOCKET) return false;
 
             if (connect(sfd, reinterpret_cast<sockaddr*>(&sa), sizeof(sa)) == SOCKET_ERROR) {
-                CLOSESOCK(sfd);
+                ssl_close(nullptr, sfd);
                 return false;
             }
 
             // TLS handshake (client side)
             auto ssl = SslPtr(SSL_new(tls_connect_.get()));
-            if (!ssl) { CLOSESOCK(sfd); return false; }
+            if (!ssl) { ssl_close(nullptr, sfd); return false; }
             SSL_set_fd(ssl.get(), static_cast<int>(sfd));
 
             int ret = SSL_connect(ssl.get());
-            if (ret <= 0) { CLOSESOCK(sfd); return false; }
+            if (ret <= 0) { ssl_close(ssl.get(), sfd); return false; }
 
             // Get peer's pubkey
             std::string peer_pk = peer_public_key_hex(ssl.get());
-            if (peer_pk.empty()) { CLOSESOCK(sfd); return false; }
+            if (peer_pk.empty()) { ssl_close(ssl.get(), sfd); return false; }
 
             // Send our Hello
             write_frame(ssl.get(), build_hello(), CONTROL_STREAM_ID);
@@ -2893,7 +3330,7 @@ private:
             // Read Hello from peer
             Message msg = read_frame(ssl.get());
             if (!std::holds_alternative<HelloMsg>(msg)) {
-                CLOSESOCK(sfd);
+                ssl_close(ssl.get(), sfd);
                 return false;
             }
             auto& hello = std::get<HelloMsg>(msg);
@@ -2917,11 +3354,39 @@ private:
             backoffs_.erase(addr);
 
             log_event("mesh_peer_connected_outbound", hello.node_name + " addr=" + addr);
+
+#ifndef BS_NO_WEBRTC
+            // D15: After TCP connection, try WebRTC upgrade
+            if (config_.webrtc_enabled) {
+                try_webrtc_upgrade(c);
+            }
+#endif
+
             return true;
         } catch (...) {
             return false;
         }
     }
+
+    // ── D15: WebRTC upgrade attempt ──────────────────────────
+
+#ifndef BS_NO_WEBRTC
+    void try_webrtc_upgrade(Conn& c) {
+        // Send SDP offer over existing TCP gossip channel
+        try {
+            // NOTE: In a full implementation, we'd create a real SDP offer here
+            // using libdatachannel's PeerConnection API.
+            // For now, we send a placeholder to signal WebRTC capability.
+            SdpOfferMsg offer;
+            offer.peer_name = config_.node_name;
+            offer.sdp = "v=0\r\no=- 0 0 IN IP4 0.0.0.0\r\ns=bridgesessions\r\nt=0 0\r\n";
+            write_frame(c.ssl.get(), offer, CONTROL_STREAM_ID);
+            log_event("webrtc_offer_sent", c.peer_name);
+        } catch (...) {
+            log_event("webrtc_offer_send_failed", c.peer_name);
+        }
+    }
+#endif
 
     // ── Build Gossip message ───────────────────────────────────
 
@@ -2946,6 +3411,82 @@ private:
         return g;
     }
 
+    // ── D15: WebRTC SDP handlers ──────────────────────────────
+
+    void handle_sdp_offer(Conn& c, const SdpOfferMsg& offer) {
+#ifndef BS_NO_WEBRTC
+        if (!config_.webrtc_enabled) return;
+        try {
+            std::string answer_sdp;
+            auto pc = WebRtcChannel::create_offerer(offer.sdp, answer_sdp);
+
+            SdpAnswerMsg answer;
+            answer.peer_name = config_.node_name;
+            answer.sdp = answer_sdp;
+            write_frame(c.ssl.get(), answer, CONTROL_STREAM_ID);
+
+            log_event("webrtc_offer_accepted", "from " + offer.peer_name);
+        } catch (...) {
+            log_event("webrtc_offer_failed", "from " + offer.peer_name);
+        }
+#endif
+    }
+
+    void handle_sdp_answer(Conn& c, const SdpAnswerMsg& answer) {
+#ifndef BS_NO_WEBRTC
+        if (!config_.webrtc_enabled) return;
+        try {
+            // TODO: full WebRTC DataChannel setup would complete here
+            log_event("webrtc_answer_received", "from " + answer.peer_name);
+        } catch (...) {}
+#endif
+    }
+
+    // ── D16: DHT message handlers ─────────────────────────────
+
+    void handle_dht_find_node(Conn& c, const DhtFindNodeMsg& query) {
+#ifndef BS_NO_DHT
+        if (!config_.dht_enabled || !dht_inited_) return;
+        // Reply with GossipMsg containing closest peers
+        auto closest = dht_.find_closest(query.target_id, 20);
+        GossipMsg g;
+        for (auto& dp : closest) {
+            PeerInfo pi;
+            pi.name = dp.name;
+            pi.addr = dp.addr;
+            pi.pubkey_hex = ""; // DHT peers may not have pubkeys
+            pi.last_seen = dp.last_seen;
+            g.peers.push_back(std::move(pi));
+        }
+        if (!g.peers.empty()) {
+            try {
+                write_frame(c.ssl.get(), g, CONTROL_STREAM_ID);
+            } catch (...) {}
+        }
+#endif
+    }
+
+    void handle_dht_find_value(Conn& c, const DhtFindValueMsg& query) {
+#ifndef BS_NO_DHT
+        if (!config_.dht_enabled || !dht_inited_) return;
+        // Currently no value storage — reply with closest nodes
+        auto closest = dht_.find_closest(query.key, 20);
+        GossipMsg g;
+        for (auto& dp : closest) {
+            PeerInfo pi;
+            pi.name = dp.name;
+            pi.addr = dp.addr;
+            pi.last_seen = dp.last_seen;
+            g.peers.push_back(std::move(pi));
+        }
+        if (!g.peers.empty()) {
+            try {
+                write_frame(c.ssl.get(), g, CONTROL_STREAM_ID);
+            } catch (...) {}
+        }
+#endif
+    }
+
     // ── Dispatch a received message ────────────────────────────
 
     void dispatch_message(int conn_idx, Message& msg) {
@@ -2968,6 +3509,18 @@ private:
         else if (std::holds_alternative<GossipMsg>(msg)) {
             auto& g = std::get<GossipMsg>(msg);
             merge_peers(g.peers);
+        }
+        else if (std::holds_alternative<SdpOfferMsg>(msg)) {
+            handle_sdp_offer(c, std::get<SdpOfferMsg>(msg));
+        }
+        else if (std::holds_alternative<SdpAnswerMsg>(msg)) {
+            handle_sdp_answer(c, std::get<SdpAnswerMsg>(msg));
+        }
+        else if (std::holds_alternative<DhtFindNodeMsg>(msg)) {
+            handle_dht_find_node(c, std::get<DhtFindNodeMsg>(msg));
+        }
+        else if (std::holds_alternative<DhtFindValueMsg>(msg)) {
+            handle_dht_find_value(c, std::get<DhtFindValueMsg>(msg));
         }
         else {
             // Route everything else through session / common handlers
@@ -3115,10 +3668,11 @@ public:
                 }
 #else
                 if (conn.attached_session->child_pid > 0) {
-                    int sig = (sig.signal == SignalMsg::SignalType::CtrlC) ? SIGINT :
-                              (sig.signal == SignalMsg::SignalType::CtrlZ) ? SIGTSTP :
-                              SIGQUIT;
-                    kill(conn.attached_session->child_pid, sig);
+                    auto& sm = std::get<SignalMsg>(msg);
+                    int s = (sm.signal == SignalMsg::SignalType::CtrlC) ? SIGINT :
+                            (sm.signal == SignalMsg::SignalType::CtrlZ) ? SIGTSTP :
+                            SIGQUIT;
+                    kill(conn.attached_session->child_pid, s);
                 }
 #endif
             }
@@ -3442,7 +3996,7 @@ private:
             if (c.sock_fd == INVALID_SOCKET) continue;
             if (now - c.last_pong > timeout) {
                 log_event("mesh_pong_timeout", c.peer_name + " " + c.peer_addr);
-                CLOSESOCK(c.sock_fd);
+                ssl_close(c.ssl.get(), c.sock_fd);
                 c.sock_fd = INVALID_SOCKET;
             }
         }
@@ -3520,15 +4074,42 @@ public:
 
         // Set persistence path for sessions
         sessions_.set_persistence_path(expand_home(config_.persistence_path));
+
+        // D16: Initialize DHT if enabled
+#ifndef BS_NO_DHT
+        if (config_.dht_enabled) {
+            std::string our_addr = config_.listen_addr + ":" + std::to_string(config_.listen_port);
+            dht_.init(our_pubkey_, config_.node_name, our_addr);
+            dht_inited_ = true;
+        }
+#endif
+
+        // D17: Initialize UPnP if enabled
+#ifndef BS_NO_NAT
+        if (config_.upnp_enabled) {
+            if (upnp_.init()) {
+                upnp_.setup_port_mapping(config_.listen_port);
+                external_addr_ = upnp_.external_ip();
+                if (!external_addr_.empty()) {
+                    log_event("upnp_ready", "external ip: " + external_addr_);
+                }
+            }
+        }
+#endif
     }
 
     // ── Destructor ────────────────────────────────────────────
 
     ~MeshController() {
         running_ = false;
+#ifndef BS_NO_NAT
+        if (config_.upnp_enabled) {
+            upnp_.cleanup();
+        }
+#endif
         for (auto& c : conns_) {
             if (c.sock_fd != INVALID_SOCKET) {
-                CLOSESOCK(c.sock_fd);
+                ssl_close(c.ssl.get(), c.sock_fd);
             }
         }
         conns_.clear();
@@ -3704,6 +4285,11 @@ public:
         if (mdns_fd_ == INVALID_SOCKET) return;
         nlohmann::json j;
         j["name"] = config_.node_name; j["port"] = config_.listen_port; j["pubkey"] = our_pubkey_;
+#ifndef BS_NO_NAT
+        if (!external_addr_.empty()) {
+            j["wan"] = external_addr_;
+        }
+#endif
         std::string payload = j.dump();
         sockaddr_in dest{};
         dest.sin_family = AF_INET; dest.sin_addr.s_addr = inet_addr(kMdnsGroup); dest.sin_port = htons(kMdnsPort);
@@ -3750,14 +4336,14 @@ public:
         sockaddr_in sa = resolve_addr(addr);
         SOCKET sfd = socket(AF_INET, SOCK_STREAM, 0);
         if (sfd == INVALID_SOCKET) return {};
-        if (connect(sfd, (sockaddr*)&sa, sizeof(sa)) == SOCKET_ERROR) { CLOSESOCK(sfd); return {}; }
+        if (connect(sfd, (sockaddr*)&sa, sizeof(sa)) == SOCKET_ERROR) { ssl_close(nullptr, sfd); return {}; }
         auto ssl = SslPtr(SSL_new(tls_connect_.get()));
-        if (!ssl) { CLOSESOCK(sfd); return {}; }
+        if (!ssl) { ssl_close(nullptr, sfd); return {}; }
         SSL_set_fd(ssl.get(), (int)sfd);
-        if (SSL_connect(ssl.get()) <= 0) { CLOSESOCK(sfd); return {}; }
+        if (SSL_connect(ssl.get()) <= 0) { ssl_close(ssl.get(), sfd); return {}; }
         write_frame(ssl.get(), build_hello(), CONTROL_STREAM_ID);
         Message msg = read_frame(ssl.get());
-        if (!std::holds_alternative<HelloMsg>(msg)) { CLOSESOCK(sfd); return {}; }
+        if (!std::holds_alternative<HelloMsg>(msg)) { ssl_close(ssl.get(), sfd); return {}; }
         return {std::move(ssl), sfd, std::get<HelloMsg>(msg)};
     }
 
@@ -3904,6 +4490,21 @@ public:
             std::cout << "\n";
         }
         std::cout << "sessions: " << sessions_.list().size() << "\n";
+    }
+
+    // ── CLI: show_peers_detail — live connection status ──────────
+    void show_peers_detail(const std::string& peer_name = "") {
+        auto now = std::chrono::steady_clock::now();
+        for (auto& c : conns_) {
+            if (c.sock_fd == INVALID_SOCKET) continue;
+            if (!peer_name.empty() && c.peer_name != peer_name) continue;
+            auto latency = std::chrono::duration_cast<std::chrono::milliseconds>(now - c.last_pong).count();
+            auto uptime = std::chrono::duration_cast<std::chrono::seconds>(now - c.connected_at).count();
+            std::cout << c.peer_name << " " << c.peer_addr << " "
+                      << (c.is_outbound ? "outbound" : "inbound")  << " "
+                      << "latency=" << latency << "ms "
+                      << "uptime=" << uptime << "s" << std::endl;
+        }
     }
 
     // ── Accessors (for tests) ──────────────────────────────────
@@ -4441,8 +5042,13 @@ int main(int argc, char** argv) {
     }
     if (peers_list->parsed()) {
         bs::mesh::MeshConfig cfg = bs::mesh::load_config(config_path);
-        for (auto& p : cfg.seeds) std::cout << p.name << " " << p.addr << std::endl;
-        for (auto& p : cfg.discovered) std::cout << "[d] " << p.name << " " << p.addr << std::endl;
+        // Show known peers from config
+        std::cout << "=== Known peers ===\n";
+        for (auto& p : cfg.seeds) std::cout << "  [seed] " << p.name << " " << p.addr << std::endl;
+        for (auto& p : cfg.discovered) std::cout << "  [discovered] " << p.name << " " << p.addr << std::endl;
+        // Show live connection status if daemon is running
+        bs::mesh::MeshController mc(cfg);
+        mc.show_peers_detail();
         return 0;
     }
     if (peers_add->parsed()) {

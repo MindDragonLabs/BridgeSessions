@@ -7,7 +7,7 @@ $Env:LIB = "$msvc\lib\x64;$sdk\Lib\10.0.28000.0\ucrt\x64;$sdk\Lib\10.0.28000.0\u
 $Env:PATH = "$msvc\bin\Hostx64\x64;$vcpkg\bin;$Env:PATH"
 Set-Location C:\Users\Shadow\bridgesessions
 Write-Host "Building bridgesessions.exe ..."
-& cl /std:c++latest /EHsc /MD /utf-8 /I $vcpkg\include bridgesessions.cpp /Fe:bridgesessions.exe /link /LIBPATH:$vcpkg\lib libssl.lib libcrypto.lib zstd.lib ws2_32.lib fmt.lib user32.lib shell32.lib CLI11.lib 2>&1
+& cl /std:c++latest /EHsc /MD /utf-8 /I $vcpkg\include bridgesessions.cpp /Fe:bridgesessions.exe /link /LIBPATH:$vcpkg\lib libssl.lib libcrypto.lib zstd.lib ws2_32.lib fmt.lib user32.lib shell32.lib CLI11.lib miniupnpc.lib datachannel.lib 2>&1
 if ($LASTEXITCODE -eq 0) {
     Write-Host "BUILD OK"
     & .\bridgesessions.exe --version
