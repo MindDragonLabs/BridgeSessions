@@ -1,8 +1,8 @@
 # bridgesessions — Mesh Architecture Plan
 
-**Version:** v1.0.0-mesh (rewrite from v0.5.1 hub-and-spoke)
-**Date:** 2026-06-05
-**Status:** Planning
+**Version:** v1.1.0 (v1.0.0-mesh + mDNS, multi-attach, health, image)
+**Date:** 2026-06-07
+**Status:** Active
 
 ---
 
@@ -67,62 +67,44 @@ No distinction between "server cert" and "client cert." One identity per device.
 
 ### 4.2 Config File
 
-Each device has `~/.bridgesessions/config.yaml`:
+Each device has `~/.bridgesessions/config` — simple `key value` format with `#` comments. Dotted keys for sections.
 
-```yaml
-# ── Node identity ──────────────────────────────────
-node:
-  name: shadow                      # human-readable alias (for logs, session routing)
-  listen: ":19948"                  # port to listen on for inbound mesh connections
-  # identity/cert: auto-resolved to ~/.bridgesessions/id_ed25519*.pem
+```ini
+# ── Node identity ──
+node.name shadow                      # human-readable alias (for logs, session routing)
+node.listen 0.0.0.0:19948            # address:port to listen on for inbound mesh connections
+# identity/cert: auto-resolved to ~/.bridgesessions/id_ed25519*.pem
 
-# ── Mesh settings ──────────────────────────────────
-mesh:
-  max_peers: 50                     # max simultaneous peer connections
-  gossip_interval_secs: 30          # how often to exchange peer lists
-  reconnect_backoff_max_secs: 30    # cap for exponential backoff
-  ping_interval_secs: 5             # keepalive ping frequency
-  pong_timeout_secs: 30             # disconnect if no pong in this window
+# ── Mesh settings ──
+mesh.max_peers 50                     # max simultaneous peer connections
+mesh.gossip_interval_secs 30          # how often to exchange peer lists
+mesh.reconnect_backoff_max_secs 30    # cap for exponential backoff
+mesh.ping_interval_secs 5             # keepalive ping frequency
+mesh.pong_timeout_secs 30             # disconnect if no pong in this window
 
-# ── Bootstrap peers ────────────────────────────────
-peers:
-  seeds:                            # always try to connect to these
-    - name: linux-a
-      addr: "203.0.113.11:9948"
-    - name: linux-b
-      addr: "203.0.113.12:19948"
-  
-  discovered: []                    # auto-populated by gossip/TOFU
-  # Example of what gossip adds:
-  # - name: corp-net
-  #   addr: "100.112.50.10:19948"
-  #   pubkey: "abc123def456..."
-  #   last_seen: "2026-06-05T12:00:00Z"
+# ── Bootstrap peers ──
+seed linux-a 203.0.113.11:19948       # always try to connect to these
+seed linux-b 203.0.113.12:19948
 
-# ── Authorized inbound peers ───────────────────────
-# (can also live at ~/.bridgesessions/authorized_keys as hex pubkeys, one per line)
-authorized_keys_path: "~/.bridgesessions/authorized_keys"
+# Peers discovered via gossip/TOFU are auto-added to config by the daemon
 
-# ── Session defaults ───────────────────────────────
-sessions:
-  persistence_path: "~/.bridgesessions/sessions.json"
-  scrollback_lines: 2000
-  idle_timeout_hours: 168           # 7 days
-  default_shell: "cmd.exe"          # or "/bin/bash -l" on POSIX
-  terminal: "xterm-256color"
+# ── Authorized inbound peers ──
+# (also checked against ~/.bridgesessions/authorized_keys as hex pubkeys, one per line)
+sessions.authorized_keys_path ~/.bridgesessions/authorized_keys
 
-# ── Logging ────────────────────────────────────────
-logging:
-  path: "~/.bridgesessions/bs-mesh.log"
-  max_size_mb: 1
-  max_files: 3
+# ── Session defaults ──
+sessions.persistence_path ~/.bridgesessions/sessions.json
+sessions.scrollback_lines 2000
+sessions.idle_timeout_hours 168       # 7 days
+sessions.default_shell cmd.exe        # or /bin/bash -l on POSIX
+sessions.terminal xterm-256color
 ```
 
 ### 4.3 Directory Layout (per device)
 
 ```
 ~/.bridgesessions/
-├── config.yaml               ← per-device config (the source of truth)
+├── config                    ← per-device config (simple key=value format)
 ├── id_ed25519.pem            ← node identity private key (0600)
 ├── id_ed25519.pub            ← hex-encoded public key
 ├── id_ed25519-cert.pem       ← self-signed X.509 cert
@@ -131,8 +113,6 @@ logging:
 ├── bs-mesh.log               ← structured JSON log
 ├── clients/                  ← per-connection stats JSON (one file per remote peer)
 │   └── linux-a-abc123.json
-└── _bs_autocert.pem          ← legacy auto-generated cert (migrated to id_ed25519*)
-    _bs_autokey.pem
 ```
 
 ---
@@ -168,15 +148,15 @@ On receiving a `GossipMsg`:
 3. If I learn about a new peer, try to connect to it (if under `max_peers`)
 4. Forward the gossip to my other peers (but don't echo back to sender)
 
-### 5.3 LAN Discovery (mDNS / Bonjour)
+### 5.3 LAN Discovery (mDNS) — v1.1
 
-On startup and periodically, broadcast a UDP multicast on `224.0.0.251:5353`:
+On startup, the daemon joins a custom multicast group (`224.0.0.252:19949` — chosen to avoid conflicting with real mDNS). Every 30s it broadcasts a compact JSON presence announcement:
 
+```json
+{"name":"shadow","port":19948,"pubkey":"abc123..."}
 ```
-_bridgesessions._tcp.local.  →  {"name":"shadow","port":19948,"pubkey":"abc123..."}
-```
 
-Nodes on the same LAN discover each other automatically. This is how `corp-net` finds the office mesh without knowing any seed peers.
+Other nodes on the same LAN (including the Tailscale flat network) receive these announcements and auto-add discovered peers to `config_.discovered`, then attempt connections. No seed configuration needed for LAN peers.
 
 ### 5.4 Duplicate Connection Resolution
 
@@ -235,21 +215,23 @@ struct Session {
 
 Session names are local to each node. `linux-a` can have a session called "build" that's totally independent from `shadow`'s session called "build."
 
-### 6.3 Session Routing
+### 6.3 Multi-Attach — v1.1
 
-To connect to a session on a specific remote node, the mesh uses `routing` hints:
+Multiple peers can attach to the same session simultaneously. Each peer's keystrokes are multiplexed to the same PTY, and output is fanned out to all attached peers. `Session::peer_id` (single string) has been upgraded to `Session::peer_ids` (vector). The `SessionRegistry::attach()` method accepts an optional `peer_pubkey` parameter to track distinct peers.
 
-```
-AttachMsg {
-    session_name: "build"
-    routing: "shadow"    ← optional: which peer should handle this?
-    cols: 120
-    rows: 40
-    term: "xterm-256color"
-}
+```cpp
+struct Session {
+    std::string name;
+    std::vector<std::string> peer_ids; // all peers currently attached
+    // ... PTY handles etc.
+};
 ```
 
-If `routing` is empty, the receiving node handles it. If `routing` is set and doesn't match the receiving node's name, the message is forwarded to that peer (future: multi-hop).
+When all peers detach, the session transitions to `Detached` state and can be reattached later (with scrollback replay). A session only dies when its child process exits.
+
+### 6.4 Session Routing — v2
+
+Multi-hop session routing (forwarding `AttachMsg` through intermediate peers when the target is not directly connected) is deferred to v2. In v1, all nodes in the mesh are directly connected (full mesh up to `max_peers`), so the `AttachMsg` is always received by the intended target directly.
 
 ### 6.4 Remote Session Targeting
 
@@ -379,42 +361,36 @@ bridgesessions authorize <pubkey>        # add peer to authorized_keys
 
 # Session management
 bridgesessions shell <peer>              # open shell on a remote peer
-bridgesessions shell <peer>:<session>    # open named session on remote peer
-bridgesessions shell <peer> --cmd "htop" # run specific command
+bridgesessions shell <peer> -n <name>    # named session on remote peer
+bridgesessions shell <peer> -x <cmd>     # run specific command
 bridgesessions sessions                  # list local sessions
 bridgesessions sessions <peer>           # list sessions on remote peer
 bridgesessions sessions --all            # list sessions on all peers
 
 # Peer management
-bridgesessions peers                     # list all known peers + connection status
+bridgesessions peers list                # list all known peers + connection status
 bridgesessions peers add <name> <addr>   # add a seed peer
 bridgesessions peers remove <name>       # remove a peer
 
 # Diagnostics
-bridgesessions health <peer>             # ping/pong health check
-bridgesessions stats                     # connection statistics
-
-# Image preview (local only)
-bridgesessions image <file>              # preview image in terminal
-bridgesessions anim <file>               # preview animated GIF
+bridgesessions --version                 # print version
 ```
+
+**Future (v2):** `stats` — reserved for diagnostics.
+
+**Done in v1.1:** `health <peer>`, `image <file>`, `stats` — ping/pong health check, terminal image preview, connection stats.
 
 ---
 
 ## 10. Config Per Device
 
-Each device has its own `~/.bridgesessions/config.yaml`. The minimum required to join the mesh:
+Each device has its own `~/.bridgesessions/config`. The minimum required to join the mesh:
 
 **Brand-new device (corp-net):**
-```yaml
-node:
-  name: corp-net
-  listen: ":19948"
-
-peers:
-  seeds:
-    - name: shadow
-      addr: "100.124.169.66:19948"
+```ini
+node.name corp-net
+node.listen 0.0.0.0:19948
+seed shadow 100.124.169.66:19948
 ```
 
 That's it. On first run, bridgesessions:
@@ -507,13 +483,41 @@ g++ -std=c++23 -O2 -o bridgesessions bridgesessions.cpp \
 
 ## 13. Open Questions / Future
 
-| Question | Answer |
+### Done (v1.1)
+
+| Feature | Notes |
 |---|---|
-| Multi-hop session routing? | Phase 7. Initial mesh is direct-connect only |
-| Encryption at rest for session persistence? | Future. Currently plain JSON |
-| Mesh-wide session search? | Future. "Find session X on any node" |
-| NAT traversal without Tailscale? | Not planned. Tailscale provides the flat IP space |
-| WebRTC transport for browser peers? | Future |
-| DHT for >100 node meshes? | Future. Gossip scales fine to ~50 |
-| Session recording / replay? | Future (was v2-6 in PLANS-WINDOWS.md) |
-| Multi-attach (multiple peers viewing same session)? | Future. Current model is single-attach |
+| mDNS LAN discovery | Custom multicast on 224.0.0.252:19949, 30s interval |
+| Multi-attach (multi-viewer) | `peer_ids` vector, output fan-out |
+| `health <peer>` CLI | Ping/pong with 3s timeout |
+| `image <file>` CLI | Text placeholder on Windows, chafa on POSIX |
+| `stats` CLI | Connection + session statistics |
+| Ctrl+D/EOF on Windows | 0x1A (Ctrl+Z) treated as EOF in shell_peer loop |
+| Multi-attach keystroke echo | Keystrokes fanned out to all other attached peers |
+| `connect_and_hello()` helper | Deduplicates ~35-line connect+TLS+Hello pattern (3 call sites) |
+| `find_peer_addr()` helper | Centralizes seed+discovered lookup (3 call sites) |
+
+### Deferred to v2 / Future
+
+| Feature | Priority | Notes |
+|---|---|---|
+| `stats` CLI subcommand | Medium | Per-connection stats: bytes in/out, uptime, latency |
+| `anim <file>` CLI subcommand | Medium | Animated GIF preview via sequential chafa frames |
+| `peers list` live status | Medium | Show connection state, latency, uptime — currently config-only |
+| Multi-attach: keystroke echo | Low | Keystrokes from peer A should echo to peer B in same session |
+| Multi-hop session routing | High | Forward AttachMsg through intermediate peers |
+| Session recording / replay | Low | Save session history to file, play back |
+| Encryption at rest for sessions | Medium | Encrypt sessions.json |
+| Mesh-wide session search | Low | "Find session X on any node" |
+| WebRTC transport for browser peers | Low | Browser-based mesh member |
+| DHT for >100 node meshes | Low | Gossip scales fine to ~50 |
+| NAT traversal without Tailscale | Low | Tailscale provides flat IP space |
+| `Ctrl+D` detection on Windows shell | Medium | 0x1A currently treated as key data, not EOF |
+| Daemon `--daemon` / `--service` flag | Medium | Install as Windows service or systemd unit |
+| TLS close_notify before socket close | Low | Proper SSL_shutdown() for truncation detection |
+| Test suite: live mesh integration | High | test_two_node_mesh.ps1, test_three_node_mesh.ps1 — need live nodes |
+| Test suite: old client backward compat | Medium | Verify old bs-client works against new daemon |
+| Test suite: cross-platform matrix | Medium | Windows↔Linux, ConPTY↔PTY |
+| Build: CMakeLists.txt unification | Low | One CMakeLists.txt for both bridgesessions + tests |
+| Config: `--config-dir` flag for non-~/.bridgesessions paths | Low | Support portable config directories |
+| Docs: man page / `--help` coverage for all subcommands | Low | `shell`, `sessions` subcommands need full help text |

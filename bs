@@ -1,0 +1,4 @@
+#!/bin/bash
+# bridgesessions wrapper — sets up PATH for DLL dependencies
+export PATH="/c/vcpkg/installed/x64-windows/bin:$PATH"
+exec /c/Users/Shadow/bridgesessions/bridgesessions.exe "$@"

@@ -7,6 +7,18 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #pragma comment(lib, "ws2_32.lib")
+#else
+#include <csignal>
+#include <sys/wait.h>
+#include <termios.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <netdb.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <sys/ioctl.h>
+#include <pty.h>
 #endif
 #include <cstdint>
 #include <cstddef>
@@ -23,6 +35,9 @@
 #include <cstdio>
 #include <fstream>
 #include <sstream>
+#include <iostream>
+#include <array>
+#include <utility>
 #include <stdexcept>
 #include <functional>
 #ifdef _WIN32
@@ -36,7 +51,6 @@
 #include <openssl/bio.h>
 #include <openssl/ssl.h>
 #include <openssl/err.h>
-#include <array>
 #include <atomic>
 #include <memory>
 #include <mutex>
@@ -46,6 +60,9 @@
 #ifdef _WIN32
 #include <io.h>
 #include <sys/stat.h>
+#endif
+#ifndef STDOUT_FILENO
+#define STDOUT_FILENO 1
 #endif
 #include <nlohmann/json.hpp>
 #include <spdlog/spdlog.h>
@@ -265,6 +282,7 @@ enum class MessageType : uint8_t {
     ImageAck       = 0x14,  // bidirectional: image/frame consumed acknowledgement
     Hello          = 0x15,  // bidirectional: mesh node introduction
     Gossip         = 0x16,  // bidirectional: mesh peer list exchange
+    SessionSearch  = 0x17,  // bidirectional: search for a session across the mesh
 };
 
 // ── Empty Message Structs (must be declared before variant) ──────
@@ -318,6 +336,7 @@ struct ImageFrameMsg {
 
 struct AttachMsg {
     std::string session_name;
+    std::string routing;    // target node name for multi-hop (empty = handle locally)
     uint16_t cols = 80;
     uint16_t rows = 24;
     std::string term = "xterm-256color";
@@ -385,6 +404,16 @@ struct GossipMsg {
     bool operator==(const GossipMsg&) const = default;
 };
 
+struct SessionSearchMsg {
+    std::string session_name;
+    std::string routing;    // target node name
+    uint16_t cols = 80;
+    uint16_t rows = 24;
+    std::string term = "xterm-256color";
+
+    bool operator==(const SessionSearchMsg&) const = default;
+};
+
 // ── Message Variant ──────────────────────────────────────────────
 
 using Message = std::variant<
@@ -408,7 +437,8 @@ using Message = std::variant<
     ImageFrameMsg,      // 17
     ImageAckMsg,        // 18
     HelloMsg,           // 19 — NEW
-    GossipMsg           // 20 — NEW
+    GossipMsg,          // 20 — NEW
+    SessionSearchMsg    // 21 — NEW
 >;
 
 // ── Frame ──────────────────────────────────────────────────────────
@@ -459,6 +489,7 @@ constexpr MessageType index_to_type[] = {
     MessageType::ImageAck,      // 18
     MessageType::Hello,         // 19 — NEW
     MessageType::Gossip,        // 20 — NEW
+    MessageType::SessionSearch, // 21 — NEW
 };
 static_assert(std::size(index_to_type) == std::variant_size_v<Message>,
               "index_to_type must have one entry per variant alternative");
@@ -525,7 +556,7 @@ void serialize_msg(Serializer& s, const ImageFrameMsg&   m) {
     if (!m.data.empty()) s.bytes(std::span<const uint8_t>(m.data.data(), m.data.size()));
 }
 void serialize_msg(Serializer& s, const ImageAckMsg&)     {}
-void serialize_msg(Serializer& s, const AttachMsg&       m) { s.u16(m.cols); s.u16(m.rows); s.str_prefixed(m.term); s.str_prefixed(m.session_name); }
+void serialize_msg(Serializer& s, const AttachMsg&       m) { s.u16(m.cols); s.u16(m.rows); s.str_prefixed(m.term); s.str_prefixed(m.session_name); s.str_prefixed(m.routing); }
 void serialize_msg(Serializer& s, const DetachMsg&)        {}
 void serialize_msg(Serializer& s, const PingMsg&)          {}
 void serialize_msg(Serializer& s, const PongMsg&)          {}
@@ -554,6 +585,10 @@ void serialize_msg(Serializer& s, const GossipMsg&       m) {
         s.str_prefixed(p.pubkey_hex);
         s.u32be(static_cast<uint32_t>(p.last_seen));
     }
+}
+void serialize_msg(Serializer& s, const SessionSearchMsg& m) {
+    s.str_prefixed(m.session_name); s.str_prefixed(m.routing);
+    s.u16(m.cols); s.u16(m.rows); s.str_prefixed(m.term);
 }
 
 // ── Zstd ──────────────────────────────────────────────────────
@@ -711,7 +746,7 @@ Message decode(std::span<const uint8_t> raw) {
         return m;
     }
     case 0x11: { ClipboardEchoMsg m; m.hash = d.str_size(payload.size()); return m; }
-    case 0x06: { AttachMsg m; m.cols = d.u16(); m.rows = d.u16(); m.term = d.str_prefixed(); m.session_name = d.str_prefixed(); return m; }
+    case 0x06: { AttachMsg m; m.cols = d.u16(); m.rows = d.u16(); m.term = d.str_prefixed(); m.session_name = d.str_prefixed(); m.routing = d.str_prefixed(); return m; }
     case 0x07: return DetachMsg{};
     case 0x08: {
         SessionListMsg m;
@@ -795,6 +830,15 @@ Message decode(std::span<const uint8_t> raw) {
             pi.last_seen = d.u32be();
             m.peers.push_back(std::move(pi));
         }
+        return m;
+    }
+    case 0x17: {
+        SessionSearchMsg m;
+        m.session_name = d.str_prefixed();
+        m.routing = d.str_prefixed();
+        m.cols = d.u16();
+        m.rows = d.u16();
+        m.term = d.str_prefixed();
         return m;
     }
     }
@@ -1395,7 +1439,7 @@ constexpr size_t kDefaultRingBufferSize = 1'048'576;
 
 struct Session {
     std::string name;
-    std::string peer_id;  // pubkey hex of remote peer attached (empty if detached)
+    std::vector<std::string> peer_ids; // pubkey hex of all peers currently attached (empty if detached)
     std::string command;
 #ifdef _WIN32
     HANDLE master_fd = nullptr;     // ConPTY output read handle (child stdout -> server)
@@ -1486,7 +1530,7 @@ Session::~Session() {
 
 Session::Session(Session&& other) noexcept
     : name(std::move(other.name))
-    , peer_id(std::move(other.peer_id))
+    , peer_ids(std::move(other.peer_ids))
     , command(std::move(other.command))
     , master_fd(other.master_fd)
     , child_pid(other.child_pid)
@@ -1516,7 +1560,7 @@ Session& Session::operator=(Session&& other) noexcept {
     if (this != &other) {
         this->~Session();
         name = std::move(other.name);
-        peer_id = std::move(other.peer_id);
+        peer_ids = std::move(other.peer_ids);
         command = std::move(other.command);
         master_fd = other.master_fd;
         child_pid = other.child_pid;
@@ -2010,6 +2054,7 @@ struct SessionMeta {
 };
 
 // Save session list to JSON file (atomic write: temp + rename)
+// v1:plain format with room for future encryption
 inline bool save_sessions(const std::string& path,
                           const std::vector<SessionMeta>& sessions) {
     nlohmann::json j = nlohmann::json::array();
@@ -2022,33 +2067,36 @@ inline bool save_sessions(const std::string& path,
         entry["created_at"] = s.created_at;
         j.push_back(entry);
     }
-
+    std::string plain = j.dump(2);
     std::string tmp = path + ".tmp";
     {
         std::ofstream f(tmp);
         if (!f) return false;
-        f << j.dump(2) << '\n';
+        f << "v1:plain\n" << plain << '\n';
         f.flush();
-        if (!f) {
-            std::filesystem::remove(tmp);
-            return false;
-        }
+        if (!f) { std::filesystem::remove(tmp); return false; }
     }
     std::error_code ec;
     std::filesystem::rename(tmp, path, ec);
-    if (ec) {
-        std::filesystem::remove(tmp);
-        return false;
-    }
+    if (ec) { std::filesystem::remove(tmp); return false; }
     return true;
 }
 
-// Load session list from JSON
+// Load session list (supports v1:plain and legacy raw JSON)
 inline std::vector<SessionMeta> load_sessions(const std::string& path) {
     std::ifstream f(path);
     if (!f) return {};
+    std::string header;
+    if (!std::getline(f, header)) return {};
+    std::string data((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+    std::string plain;
+    if (header == "v1:plain") {
+        plain = data;
+    } else {
+        plain = header + "\n" + data;  // legacy raw JSON
+    }
     try {
-        auto j = nlohmann::json::parse(f);
+        auto j = nlohmann::json::parse(plain);
         std::vector<SessionMeta> result;
         for (auto& entry : j) {
             SessionMeta m;
@@ -2098,15 +2146,11 @@ inline std::shared_ptr<spdlog::logger> get_logger() {
 // Log a structured event as a single JSON line
 inline void log_event(const std::string& event, const std::string& detail = "") {
     auto* l = get_logger().get();
-    // Build JSON line manually to avoid fmt compile-time format string issues
-    std::string line = "{\"ts\":\"" + 
-        std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) +
-        "\",\"event\":\"" + event + "\"";
-    if (!detail.empty()) {
-        line += ",\"detail\":\"" + detail + "\"";
-    }
-    line += "}";
-    l->info(line);
+    nlohmann::json j;
+    j["ts"] = std::to_string(std::chrono::steady_clock::now().time_since_epoch().count());
+    j["event"] = event;
+    if (!detail.empty()) j["detail"] = detail;
+    l->info(j.dump());
 }
 
 // ────────────────────────────────────────────────────────────────────
@@ -2137,7 +2181,8 @@ public:
     // ── Attach / Create ─────────────────────────────────────────
     // Returns session pointer. Returns nullptr on error.
     Session* attach(const std::string& name, const std::string& cmd,
-                    uint16_t cols, uint16_t rows, const std::string& term) {
+                    uint16_t cols, uint16_t rows, const std::string& term,
+                    const std::string& peer_pubkey = "") {
         std::unique_lock lock(mutex_);
 
         auto it = sessions_.find(name);
@@ -2145,9 +2190,14 @@ public:
             auto* s = it->second.get();
 
             if (s->state == SessionState::Running || s->state == SessionState::Detached) {
-                // Reattach — resize PTY to match new client
                 s->state = SessionState::Attached;
                 s->last_attach_at = std::chrono::steady_clock::now();
+                if (!peer_pubkey.empty()) {
+                    bool already = false;
+                    for (auto& pid : s->peer_ids)
+                        if (pid == peer_pubkey) { already = true; break; }
+                    if (!already) s->peer_ids.push_back(peer_pubkey);
+                }
 #ifdef _WIN32
                 if (s->hpcon)
                     (void)resize_pty(reinterpret_cast<intptr_t>(s->hpcon), cols, rows);
@@ -2156,9 +2206,13 @@ public:
             }
 
             if (s->state == SessionState::Attached) {
-                // Replace existing attachment
-                s->state = SessionState::Attached;
                 s->last_attach_at = std::chrono::steady_clock::now();
+                if (!peer_pubkey.empty()) {
+                    bool already = false;
+                    for (auto& pid : s->peer_ids)
+                        if (pid == peer_pubkey) { already = true; break; }
+                    if (!already) s->peer_ids.push_back(peer_pubkey);
+                }
 #ifdef _WIN32
                 if (s->hpcon)
                     (void)resize_pty(reinterpret_cast<intptr_t>(s->hpcon), cols, rows);
@@ -2178,6 +2232,7 @@ public:
         auto s = std::make_unique<Session>(std::move(*session_result));
         s->command = resolved_cmd;
         s->state = SessionState::Attached;
+        if (!peer_pubkey.empty()) s->peer_ids.push_back(peer_pubkey);
 
         auto* ptr = s.get();
         sessions_[name] = std::move(s);
@@ -2186,13 +2241,23 @@ public:
     }
 
     // ── Detach ──────────────────────────────────────────────────
-    void detach(const std::string& name) {
+    bool detach(const std::string& name, const std::string& peer_pubkey = "") {
         std::unique_lock lock(mutex_);
         auto it = sessions_.find(name);
-        if (it != sessions_.end() && it->second->state == SessionState::Attached) {
-            it->second->state = SessionState::Detached;
+        if (it == sessions_.end()) return false;
+        auto* s = it->second.get();
+        if (peer_pubkey.empty()) {
+            s->peer_ids.clear();
+        } else {
+            s->peer_ids.erase(
+                std::remove(s->peer_ids.begin(), s->peer_ids.end(), peer_pubkey),
+                s->peer_ids.end());
+        }
+        if (s->peer_ids.empty()) {
+            s->state = SessionState::Detached;
             log_event("session_detach", name);
         }
+        return !s->peer_ids.empty();
     }
 
     // ── List ────────────────────────────────────────────────────
@@ -2241,47 +2306,54 @@ public:
         std::unique_lock lock(mutex_);
         for (auto it = sessions_.begin(); it != sessions_.end(); ) {
             auto* s = it->second.get();
-            if (s->state == SessionState::Running || s->state == SessionState::Attached ||
-                s->state == SessionState::Detached) {
+            if (s->state != SessionState::Running && s->state != SessionState::Attached &&
+                s->state != SessionState::Detached) { ++it; continue; }
+            bool died = false;
 #ifdef _WIN32
-                if (s->child_pid && WaitForSingleObject(s->child_pid, 0) == WAIT_OBJECT_0) {
-                    auto prev_state = s->state;
-                    s->state = SessionState::Died;
-                    CloseHandle(s->child_pid);
-                    s->child_pid = nullptr;
+            if (s->child_pid && WaitForSingleObject(s->child_pid, 0) == WAIT_OBJECT_0) {
+                died = true;
+                s->state = SessionState::Died;
+                CloseHandle(s->child_pid);
+                s->child_pid = nullptr;
+            }
 #else
-                // POSIX would use waitpid here
+            if (s->child_pid > 0) {
+                int status = 0;
+                pid_t result = waitpid(s->child_pid, &status, WNOHANG);
+                if (result == s->child_pid) {
+                    died = true; s->child_pid = -1;
+                    s->state = SessionState::Died;
+                }
+            }
 #endif
+            if (died) {
 
-                    // Auto-restart logic
-                    if (s->auto_restart) {
-                        auto now = std::chrono::steady_clock::now();
-                        auto window = std::chrono::seconds(60);
-                        if (now - s->restart_window_start > window) {
-                            s->reset_restart_failures();
-                        }
-                        if (s->restart_failures < 3) {
-                            ++s->restart_failures;
-                            // Respawn
-                            auto new_session = create_session(
-                                s->name, s->command, 80, 24, "xterm-256color");
-                            if (new_session) {
-                                auto fresh = std::make_unique<Session>(std::move(*new_session));
-                                fresh->command = s->command;
-                                fresh->auto_restart = true;
-                                fresh->state = SessionState::Detached;
-                                fresh->restart_failures = s->restart_failures;
-                                fresh->restart_window_start = s->restart_window_start;
-                                it->second = std::move(fresh);
-                                log_event("session_auto_restart", s->name + " attempt=" + std::to_string(s->restart_failures));
-                                ++it;
-                                continue;
-                            }
-                        }
-                        // Too many failures — mark as Exited
-                        s->state = SessionState::Exited;
-                        log_event("session_circuit_breaker", s->name + " failures=" + std::to_string(s->restart_failures));
+                // Auto-restart logic
+                if (s->auto_restart) {
+                    auto now = std::chrono::steady_clock::now();
+                    auto window = std::chrono::seconds(60);
+                    if (now - s->restart_window_start > window) {
+                        s->reset_restart_failures();
                     }
+                    if (s->restart_failures < 3) {
+                        ++s->restart_failures;
+                        auto new_session = create_session(
+                            s->name, s->command, 80, 24, "xterm-256color");
+                        if (new_session) {
+                            auto fresh = std::make_unique<Session>(std::move(*new_session));
+                            fresh->command = s->command;
+                            fresh->auto_restart = true;
+                            fresh->state = SessionState::Detached;
+                            fresh->restart_failures = s->restart_failures;
+                            fresh->restart_window_start = s->restart_window_start;
+                            it->second = std::move(fresh);
+                            log_event("session_auto_restart", s->name + " attempt=" + std::to_string(s->restart_failures));
+                            ++it;
+                            continue;
+                        }
+                    }
+                    s->state = SessionState::Exited;
+                    log_event("session_circuit_breaker", s->name + " failures=" + std::to_string(s->restart_failures));
                 }
             }
             ++it;
@@ -2399,6 +2471,85 @@ public:
 #define CLOSESOCK closesocket
 #endif
 
+// ────────────────────────────────────────────────────────────────────
+// 9. TERMINAL RAW MODE (Windows + POSIX) — moved before MeshController for shell_peer
+// ────────────────────────────────────────────────────────────────────
+
+struct SavedConsole {
+#ifdef _WIN32
+    DWORD input_mode = 0;
+    DWORD output_mode = 0;
+    CONSOLE_SCREEN_BUFFER_INFO buffer_info{};
+#else
+    struct termios saved_termios {};
+#endif
+};
+
+struct TermError { std::string msg; };
+
+#ifdef _WIN32
+
+inline SavedConsole enable_raw_mode() {
+    HANDLE hIn  = GetStdHandle(STD_INPUT_HANDLE);
+    HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
+    SavedConsole saved{};
+    GetConsoleMode(hIn, &saved.input_mode);
+    GetConsoleMode(hOut, &saved.output_mode);
+    GetConsoleScreenBufferInfo(hOut, &saved.buffer_info);
+    DWORD newIn = saved.input_mode & ~(ENABLE_LINE_INPUT | ENABLE_ECHO_INPUT)
+                | ENABLE_VIRTUAL_TERMINAL_INPUT | ENABLE_PROCESSED_INPUT;
+    SetConsoleMode(hIn, newIn);
+    DWORD newOut = saved.output_mode
+                 | ENABLE_VIRTUAL_TERMINAL_PROCESSING | DISABLE_NEWLINE_AUTO_RETURN;
+    SetConsoleMode(hOut, newOut);
+    return saved;
+}
+
+inline void restore_terminal(const SavedConsole& saved) {
+    SetConsoleMode(GetStdHandle(STD_INPUT_HANDLE), saved.input_mode);
+    SetConsoleMode(GetStdHandle(STD_OUTPUT_HANDLE), saved.output_mode);
+}
+
+inline std::pair<uint16_t, uint16_t> get_winsize() {
+    CONSOLE_SCREEN_BUFFER_INFO csbi;
+    GetConsoleScreenBufferInfo(GetStdHandle(STD_OUTPUT_HANDLE), &csbi);
+    return {static_cast<uint16_t>(csbi.srWindow.Right - csbi.srWindow.Left + 1),
+            static_cast<uint16_t>(csbi.srWindow.Bottom - csbi.srWindow.Top + 1)};
+}
+
+#else
+
+#include <termios.h>
+#include <sys/ioctl.h>
+#include <unistd.h>
+
+inline SavedConsole enable_raw_mode() {
+    SavedConsole saved{};
+    if (::tcgetattr(STDIN_FILENO, &saved.saved_termios) < 0) {
+        throw std::runtime_error("tcgetattr failed: " + std::string(std::strerror(errno)));
+    }
+    struct termios raw = saved.saved_termios;
+    ::cfmakeraw(&raw);
+    raw.c_cc[VMIN] = 1;
+    raw.c_cc[VTIME] = 0;
+    if (::tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw) < 0) {
+        throw std::runtime_error("tcsetattr failed: " + std::string(std::strerror(errno)));
+    }
+    return saved;
+}
+
+inline void restore_terminal(const SavedConsole& saved) {
+    ::tcsetattr(STDIN_FILENO, TCSAFLUSH, &saved.saved_termios);
+}
+
+inline std::pair<uint16_t, uint16_t> get_winsize() {
+    struct winsize ws {};
+    if (::ioctl(STDIN_FILENO, TIOCGWINSZ, &ws) < 0) return {80, 24};
+    return {ws.ws_col, ws.ws_row};
+}
+
+#endif
+
 class MeshController {
 public:
     struct Conn {
@@ -2435,9 +2586,14 @@ private:
     // Shutdown flag for event loop
     std::atomic<bool> running_{false};
 
-    // Last gossip/ping broadcast times
+    // Last gossip/ping/mdns broadcast times
     std::chrono::steady_clock::time_point last_ping_time_;
     std::chrono::steady_clock::time_point last_gossip_time_;
+    std::chrono::steady_clock::time_point last_mdns_time_;
+    // mDNS LAN discovery
+    SOCKET mdns_fd_ = INVALID_SOCKET;
+    static constexpr const char* kMdnsGroup = "224.0.0.252";
+    static constexpr uint16_t kMdnsPort = 19949;
 
     // Listen socket
     SOCKET listen_fd_ = INVALID_SOCKET;
@@ -2871,10 +3027,10 @@ public:
 
             auto* s = sessions_.attach(a.session_name,
                                        config_.default_shell,
-                                       a.cols, a.rows, a.term);
+                                       a.cols, a.rows, a.term,
+                                       conn.peer_pubkey);
             if (s) {
                 conn.attached_session = s;
-                s->peer_id = conn.peer_pubkey;
 
                 // Send scrollback to reattaching peer
                 auto lines = s->scrollback.read_last_lines(
@@ -3422,8 +3578,10 @@ public:
 
         log_event("mesh_listening", config_.listen_addr + ":" + std::to_string(config_.listen_port));
 
+        mdns_init();
         last_ping_time_ = std::chrono::steady_clock::now();
         last_gossip_time_ = std::chrono::steady_clock::now();
+        last_mdns_time_ = std::chrono::steady_clock::now();
 
         while (running_) {
             // 1. Build fd_set for select()
@@ -3437,6 +3595,10 @@ public:
                     FD_SET(c.sock_fd, &read_fds);
                     if (c.sock_fd > max_fd) max_fd = c.sock_fd;
                 }
+            }
+            if (mdns_fd_ != INVALID_SOCKET) {
+                FD_SET(mdns_fd_, &read_fds);
+                if (mdns_fd_ > max_fd) max_fd = mdns_fd_;
             }
 
             // 2. select() with 1 second timeout
@@ -3457,6 +3619,11 @@ public:
             // 3. Accept new connections
             if (nfds > 0 && FD_ISSET(listen_fd_, &read_fds)) {
                 accept_inbound();
+                --nfds;
+            }
+            // 3.5. mDNS read
+            if (nfds > 0 && mdns_fd_ != INVALID_SOCKET && FD_ISSET(mdns_fd_, &read_fds)) {
+                mdns_check();
                 --nfds;
             }
 
@@ -3489,6 +3656,11 @@ public:
                 last_gossip_time_ = now;
             }
 
+            // 8.5. mDNS announce (every 30s)
+            if (mdns_fd_ != INVALID_SOCKET && now - last_mdns_time_ >= std::chrono::seconds(30)) {
+                mdns_announce();
+                last_mdns_time_ = now;
+            }
             // 9. Clean dead connections
             clean_dead_conns();
 
@@ -3500,29 +3672,238 @@ public:
         }
     }
 
+    // ── mDNS LAN discovery ─────────────────────────────────────
+
+    void mdns_init() {
+        mdns_fd_ = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+        if (mdns_fd_ == INVALID_SOCKET) return;
+        int yes = 1;
+        setsockopt(mdns_fd_, SOL_SOCKET, SO_REUSEADDR, (const char*)&yes, sizeof(yes));
+        sockaddr_in bind_addr{};
+        bind_addr.sin_family = AF_INET;
+        bind_addr.sin_addr.s_addr = htonl(INADDR_ANY);
+        bind_addr.sin_port = htons(kMdnsPort);
+        if (bind(mdns_fd_, (sockaddr*)&bind_addr, sizeof(bind_addr)) == SOCKET_ERROR) {
+            CLOSESOCK(mdns_fd_); mdns_fd_ = INVALID_SOCKET; return;
+        }
+        ip_mreq mreq{};
+        mreq.imr_multiaddr.s_addr = inet_addr(kMdnsGroup);
+        mreq.imr_interface.s_addr = htonl(INADDR_ANY);
+        if (setsockopt(mdns_fd_, IPPROTO_IP, IP_ADD_MEMBERSHIP, (const char*)&mreq, sizeof(mreq)) == SOCKET_ERROR) {
+            CLOSESOCK(mdns_fd_); mdns_fd_ = INVALID_SOCKET; return;
+        }
+#ifdef _WIN32
+        u_long mode = 1; ioctlsocket(mdns_fd_, FIONBIO, &mode);
+#else
+        int flags = fcntl(mdns_fd_, F_GETFL, 0); fcntl(mdns_fd_, F_SETFL, flags | O_NONBLOCK);
+#endif
+        log_event("mdns_init", std::string("listening on ") + kMdnsGroup + ":" + std::to_string(kMdnsPort));
+    }
+
+    void mdns_announce() {
+        if (mdns_fd_ == INVALID_SOCKET) return;
+        nlohmann::json j;
+        j["name"] = config_.node_name; j["port"] = config_.listen_port; j["pubkey"] = our_pubkey_;
+        std::string payload = j.dump();
+        sockaddr_in dest{};
+        dest.sin_family = AF_INET; dest.sin_addr.s_addr = inet_addr(kMdnsGroup); dest.sin_port = htons(kMdnsPort);
+        sendto(mdns_fd_, payload.data(), (int)payload.size(), 0, (sockaddr*)&dest, sizeof(dest));
+    }
+
+    void mdns_check() {
+        if (mdns_fd_ == INVALID_SOCKET) return;
+        char buf[2048]; sockaddr_in from{}; socklen_t from_len = sizeof(from);
+        int n = recvfrom(mdns_fd_, buf, sizeof(buf)-1, 0, (sockaddr*)&from, &from_len);
+        if (n <= 0) return; buf[n] = '\0';
+        try {
+            auto j = nlohmann::json::parse(buf);
+            if (!j.contains("name") || !j.contains("port") || !j.contains("pubkey")) return;
+            std::string name = j["name"], pubkey = j["pubkey"];
+            if (pubkey == our_pubkey_) return;
+            char ip_str[64]; inet_ntop(AF_INET, &from.sin_addr, ip_str, sizeof(ip_str));
+            std::string addr = std::string(ip_str) + ":" + std::to_string(j["port"].get<int>());
+            for (auto& s : config_.seeds) if (s.name == name || s.pubkey_hex == pubkey) return;
+            for (auto& d : config_.discovered) if (d.name == name || d.pubkey_hex == pubkey) return;
+            PeerEntry pe{name, addr, pubkey}; config_.discovered.push_back(pe);
+            log_event("mdns_discovered", name + " " + addr);
+            (void)save_config(home_dir_ + "/config", config_);
+        } catch (...) {}
+    }
+
+    void mdns_shutdown() {
+        if (mdns_fd_ == INVALID_SOCKET) return;
+        ip_mreq mreq{}; mreq.imr_multiaddr.s_addr = inet_addr(kMdnsGroup); mreq.imr_interface.s_addr = htonl(INADDR_ANY);
+        setsockopt(mdns_fd_, IPPROTO_IP, IP_DROP_MEMBERSHIP, (const char*)&mreq, sizeof(mreq));
+        CLOSESOCK(mdns_fd_); mdns_fd_ = INVALID_SOCKET;
+    }
+
+    // ── Common: resolve peer → addr ─────────────────────────────
+    std::string find_peer_addr(const std::string& peer_name) const {
+        for (auto& s : config_.seeds) if (s.name == peer_name) return s.addr;
+        for (auto& d : config_.discovered) if (d.name == peer_name) return d.addr;
+        return "";
+    }
+
+    // ── Common: TCP + TLS + Hello ────────────────────────────────
+    struct SslConn { SslPtr ssl; SOCKET sfd = INVALID_SOCKET; HelloMsg hello{}; };
+    SslConn connect_and_hello(const std::string& addr) {
+        sockaddr_in sa = resolve_addr(addr);
+        SOCKET sfd = socket(AF_INET, SOCK_STREAM, 0);
+        if (sfd == INVALID_SOCKET) return {};
+        if (connect(sfd, (sockaddr*)&sa, sizeof(sa)) == SOCKET_ERROR) { CLOSESOCK(sfd); return {}; }
+        auto ssl = SslPtr(SSL_new(tls_connect_.get()));
+        if (!ssl) { CLOSESOCK(sfd); return {}; }
+        SSL_set_fd(ssl.get(), (int)sfd);
+        if (SSL_connect(ssl.get()) <= 0) { CLOSESOCK(sfd); return {}; }
+        write_frame(ssl.get(), build_hello(), CONTROL_STREAM_ID);
+        Message msg = read_frame(ssl.get());
+        if (!std::holds_alternative<HelloMsg>(msg)) { CLOSESOCK(sfd); return {}; }
+        return {std::move(ssl), sfd, std::get<HelloMsg>(msg)};
+    }
+
     // ── Shutdown ───────────────────────────────────────────────
 
-    void shutdown() {
-        running_ = false;
-    }
+    void shutdown() { mdns_shutdown(); running_ = false; }
 
-    // ── Stubs for Phase 6 ──────────────────────────────────────
-
+    // ── CLI: shell_peer ────────────────────────────────────────
     void shell_peer(const std::string& peer_name, const std::string& session_name,
                     const std::string& cmd, uint16_t cols, uint16_t rows, const std::string& term) {
-        (void)peer_name; (void)session_name; (void)cmd; (void)cols; (void)rows; (void)term;
-        // Phase 6: send AttachMsg to peer
+        (void)cmd;
+        std::string addr = find_peer_addr(peer_name);
+        if (addr.empty()) { std::cerr << "Peer not found: " << peer_name << "\n"; return; }
+        auto sc = connect_and_hello(addr);
+        if (!sc.ssl || sc.sfd == INVALID_SOCKET) { std::cerr << "Failed to connect to " << peer_name << "\n"; return; }
+        SavedConsole saved{}; bool restored = false; SOCKET sfd = sc.sfd;
+        try {
+            AttachMsg am; am.session_name = session_name; am.cols = cols; am.rows = rows; am.term = term;
+            write_frame(sc.ssl.get(), am, 0);
+            saved = enable_raw_mode();
+            std::array<char, 4096> stdin_buf{}; bool running = true;
+            while (running) {
+#ifdef _WIN32
+                HANDLE hIn = GetStdHandle(STD_INPUT_HANDLE);
+                DWORD events = 0;
+                if (GetNumberOfConsoleInputEvents(hIn, &events) && events > 0) {
+                    DWORD avail = 0;
+                    if (PeekNamedPipe(hIn, nullptr, 0, nullptr, &avail, nullptr) && avail > 0) {
+                        DWORD nread = 0;
+                        DWORD to_read = (DWORD)std::min(size_t(avail), stdin_buf.size());
+                        if (ReadFile(hIn, stdin_buf.data(), to_read, &nread, nullptr) && nread > 0) {
+                            if (nread == 1 && stdin_buf[0] == 0x1A) { running = false; continue; }
+                            KeystrokeMsg km; km.data = std::string(stdin_buf.data(), nread);
+                            write_frame(sc.ssl.get(), km, 0);
+                        }
+                    }
+                }
+                fd_set sock_fds; FD_ZERO(&sock_fds); FD_SET(sfd, &sock_fds);
+                timeval sock_tv{0, 50000};
+                if (select(0, &sock_fds, nullptr, nullptr, &sock_tv) > 0 || SSL_pending(sc.ssl.get()) > 0)
+                    running = process_shell_response(sc.ssl.get());
+#else
+                fd_set read_fds; FD_ZERO(&read_fds);
+                FD_SET(STDIN_FILENO, &read_fds); FD_SET((int)sfd, &read_fds);
+                int maxfd = std::max(STDIN_FILENO, (int)sfd);
+                timeval tv{0, 50000};
+                if (select(maxfd+1, &read_fds, nullptr, nullptr, &tv) > 0) {
+                    if (FD_ISSET(STDIN_FILENO, &read_fds)) {
+                        ssize_t n = ::read(STDIN_FILENO, stdin_buf.data(), stdin_buf.size());
+                        if (n > 0) { KeystrokeMsg km; km.data = std::string(stdin_buf.data(), (size_t)n); write_frame(sc.ssl.get(), km, 0); }
+                        else running = false;
+                    }
+                }
+                if (running && (FD_ISSET((int)sfd, &read_fds) || SSL_pending(sc.ssl.get()) > 0))
+                    running = process_shell_response(sc.ssl.get());
+#endif
+            }
+            restore_terminal(saved); restored = true; CLOSESOCK(sfd);
+        } catch (...) { if (!restored) restore_terminal(saved); if (sfd != INVALID_SOCKET) CLOSESOCK(sfd); }
     }
 
+    bool process_shell_response(SSL* ssl) {
+        try {
+            Message resp = read_frame(ssl);
+            if (std::holds_alternative<OutputMsg>(resp)) { std::cout << std::get<OutputMsg>(resp).data << std::flush; }
+            else if (std::holds_alternative<ScrollbackMsg>(resp)) { std::cout << std::get<ScrollbackMsg>(resp).data << std::flush; }
+            else if (std::holds_alternative<SessionDiedMsg>(resp)) {
+                auto& sdm = std::get<SessionDiedMsg>(resp);
+                std::cout << "\n[Session died: exit=" << sdm.exit_code << "]\n" << std::flush;
+                return false;
+            } else if (std::holds_alternative<DetachMsg>(resp)) { std::cout << "\n[Detached]\n" << std::flush; return false; }
+        } catch (...) { std::cerr << "\n[Connection lost]\n" << std::flush; return false; }
+        return true;
+    }
+
+    // ── CLI: list_sessions ────────────────────────────────────
     void list_sessions(const std::string& peer_name, bool all) {
-        (void)peer_name; (void)all;
-        // Phase 6: query sessions from peer or list local
+        (void)all;
+        if (peer_name.empty()) {
+            auto sessions = sessions_.list();
+            if (sessions.empty()) { std::cout << "No sessions.\n"; return; }
+            for (auto& s : sessions) std::cout << s.name << "  " << s.state << "  uptime=" << s.uptime_seconds << "s\n";
+            return;
+        }
+        std::string addr = find_peer_addr(peer_name);
+        if (addr.empty()) { std::cerr << "Peer not found: " << peer_name << "\n"; return; }
+        auto sc = connect_and_hello(addr);
+        if (!sc.ssl || sc.sfd == INVALID_SOCKET) { std::cerr << "Failed to connect to " << peer_name << "\n"; return; }
+        try {
+            SessionListMsg req; write_frame(sc.ssl.get(), req, 0);
+            fd_set read_fds; FD_ZERO(&read_fds); FD_SET(sc.sfd, &read_fds);
+            timeval tv{5, 0};
+#ifdef _WIN32
+            if (select(0, &read_fds, nullptr, nullptr, &tv) > 0) {
+#else
+            if (select((int)sc.sfd+1, &read_fds, nullptr, nullptr, &tv) > 0) {
+#endif
+                Message resp = read_frame(sc.ssl.get());
+                if (std::holds_alternative<SessionListMsg>(resp))
+                    for (auto& si : std::get<SessionListMsg>(resp).sessions)
+                        std::cout << si.name << "  " << si.state << "  uptime=" << si.uptime_seconds << "s\n";
+            } else std::cerr << "Timeout\n";
+            CLOSESOCK(sc.sfd);
+        } catch (...) { if (sc.sfd != INVALID_SOCKET) CLOSESOCK(sc.sfd); }
     }
 
+    // ── CLI: health_check ─────────────────────────────────────
     bool health_check(const std::string& peer_name) {
-        (void)peer_name;
-        // Phase 6: ping specific peer
-        return false;
+        std::string addr = find_peer_addr(peer_name);
+        if (addr.empty()) return false;
+        auto sc = connect_and_hello(addr);
+        if (!sc.ssl || sc.sfd == INVALID_SOCKET) return false;
+        try {
+            write_frame(sc.ssl.get(), PingMsg{}, CONTROL_STREAM_ID);
+            fd_set read_fds; FD_ZERO(&read_fds); FD_SET(sc.sfd, &read_fds);
+            timeval tv{3, 0};
+#ifdef _WIN32
+            if (select(0, &read_fds, nullptr, nullptr, &tv) > 0) {
+#else
+            if (select((int)sc.sfd+1, &read_fds, nullptr, nullptr, &tv) > 0) {
+#endif
+                Message resp = read_frame(sc.ssl.get());
+                bool ok = std::holds_alternative<PongMsg>(resp);
+                CLOSESOCK(sc.sfd); return ok;
+            }
+            CLOSESOCK(sc.sfd); return false;
+        } catch (...) { if (sc.sfd != INVALID_SOCKET) CLOSESOCK(sc.sfd); return false; }
+    }
+
+    // ── CLI: show_stats ───────────────────────────────────────
+    void show_stats() const {
+        auto now = std::chrono::steady_clock::now();
+        std::cout << "=== bridgesessions stats ===\n";
+        std::cout << "node: " << config_.node_name << "  pubkey: " << our_pubkey_.substr(0,16) << "...\n";
+        std::cout << "listen: " << config_.listen_addr << ":" << config_.listen_port << "\n";
+        std::cout << "connections: " << conns_.size() << " / " << config_.max_peers << "\n";
+        for (auto& cn : conns_) {
+            if (cn.sock_fd == INVALID_SOCKET) continue;
+            auto age = std::chrono::duration_cast<std::chrono::seconds>(now - cn.last_pong).count();
+            std::cout << "  " << cn.peer_name << "  " << cn.peer_addr
+                      << "  " << (cn.is_outbound ? "outbound" : "inbound")
+                      << "  last_pong=" << age << "s ago";
+            if (cn.attached_session) std::cout << "  session=" << cn.attached_session->name;
+            std::cout << "\n";
+        }
+        std::cout << "sessions: " << sessions_.list().size() << "\n";
     }
 
     // ── Accessors (for tests) ──────────────────────────────────
@@ -3537,88 +3918,6 @@ public:
     }
 };
 
-// ────────────────────────────────────────────────────────────────────
-// 9. TERMINAL RAW MODE (Windows + POSIX)
-// ────────────────────────────────────────────────────────────────────
-
-struct SavedConsole {
-#ifdef _WIN32
-    DWORD input_mode = 0;
-    DWORD output_mode = 0;
-    CONSOLE_SCREEN_BUFFER_INFO buffer_info{};
-#else
-    struct termios saved_termios {};
-#endif
-};
-
-struct TermError { std::string msg; };
-
-#ifdef _WIN32
-
-inline SavedConsole enable_raw_mode() {
-    HANDLE hIn  = GetStdHandle(STD_INPUT_HANDLE);
-    HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
-    SavedConsole saved{};
-    GetConsoleMode(hIn, &saved.input_mode);
-    GetConsoleMode(hOut, &saved.output_mode);
-    GetConsoleScreenBufferInfo(hOut, &saved.buffer_info);
-    DWORD newIn = saved.input_mode & ~(ENABLE_LINE_INPUT | ENABLE_ECHO_INPUT)
-                | ENABLE_VIRTUAL_TERMINAL_INPUT | ENABLE_PROCESSED_INPUT;
-    SetConsoleMode(hIn, newIn);
-    DWORD newOut = saved.output_mode
-                 | ENABLE_VIRTUAL_TERMINAL_PROCESSING | DISABLE_NEWLINE_AUTO_RETURN;
-    SetConsoleMode(hOut, newOut);
-    return saved;
-}
-
-inline void restore_terminal(const SavedConsole& saved) {
-    SetConsoleMode(GetStdHandle(STD_INPUT_HANDLE), saved.input_mode);
-    SetConsoleMode(GetStdHandle(STD_OUTPUT_HANDLE), saved.output_mode);
-}
-
-inline std::pair<uint16_t, uint16_t> get_winsize() {
-    CONSOLE_SCREEN_BUFFER_INFO csbi;
-    GetConsoleScreenBufferInfo(GetStdHandle(STD_OUTPUT_HANDLE), &csbi);
-    return {static_cast<uint16_t>(csbi.srWindow.Right - csbi.srWindow.Left + 1),
-            static_cast<uint16_t>(csbi.srWindow.Bottom - csbi.srWindow.Top + 1)};
-}
-
-#else
-
-#include <termios.h>
-#include <sys/ioctl.h>
-#include <unistd.h>
-
-inline SavedConsole enable_raw_mode() {
-    SavedConsole saved{};
-    if (::tcgetattr(STDIN_FILENO, &saved.saved_termios) < 0) {
-        throw std::runtime_error("tcgetattr failed: " + std::string(std::strerror(errno)));
-    }
-    struct termios raw = saved.saved_termios;
-    ::cfmakeraw(&raw);
-    raw.c_cc[VMIN] = 1;
-    raw.c_cc[VTIME] = 0;
-    if (::tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw) < 0) {
-        throw std::runtime_error("tcsetattr failed: " + std::string(std::strerror(errno)));
-    }
-    return saved;
-}
-
-inline void restore_terminal(const SavedConsole& saved) {
-    ::tcsetattr(STDIN_FILENO, TCSAFLUSH, &saved.saved_termios);
-}
-
-inline std::pair<uint16_t, uint16_t> get_winsize() {
-    struct winsize ws {};
-    if (::ioctl(STDIN_FILENO, TIOCGWINSZ, &ws) < 0) {
-        return {80, 24}; // fallback
-    }
-    return {ws.ws_col, ws.ws_row};
-}
-
-#endif
-
-// ────────────────────────────────────────────────────────────────────
 // 10. CLIPBOARD BRIDGE (Windows only)
 // ────────────────────────────────────────────────────────────────────
 
@@ -3909,6 +4208,20 @@ struct GifMetadata {
 #endif
 }
 
+// Top-level CLI wrapper for image/anim commands
+inline void render_image_to_terminal(const std::string& path_str) {
+    std::filesystem::path path(path_str);
+    if (!std::filesystem::exists(path)) { std::cerr << "File not found: " << path_str << "\n"; return; }
+    auto bytes = read_binary_file(path);
+    if (is_gif_magic_alt(bytes)) {
+        auto frame = make_image_frame_message(path);
+        render_image_message(frame, STDOUT_FILENO);
+    } else {
+        auto img = make_image_data_message(path);
+        render_image_message(img, STDOUT_FILENO);
+    }
+}
+
 // ────────────────────────────────────────────────────────────────────
 // 12. PEER HELPERS
 // ────────────────────────────────────────────────────────────────────
@@ -4038,17 +4351,23 @@ int main(int argc, char** argv) {
 
     // Global options
     std::string config_path = "";
-    app.add_option("--config", config_path, "Config file path");
+    std::string config_dir = "";
+    bool daemon_flag = false;
+    app.add_option("--config", config_path, "Config file path (default: ~/.bridgesessions/config)");
+    app.add_option("--config-dir", config_dir, "Config directory (default: ~/.bridgesessions)");
+    app.add_flag("--daemon", daemon_flag, "Detach from terminal (daemonize)");
 
     // Subcommand: shell
     std::string shell_peer, shell_session = "default", shell_cmd;
     uint16_t shell_cols = 80, shell_rows = 24;
+    bool shell_record = false;
     auto* shell_cmd_app = app.add_subcommand("shell", "Open shell on a peer");
     shell_cmd_app->add_option("peer", shell_peer, "Peer name")->required();
     shell_cmd_app->add_option("-n,--name", shell_session, "Session name");
     shell_cmd_app->add_option("-x,--cmd", shell_cmd, "Command override");
     shell_cmd_app->add_option("--cols", shell_cols, "Terminal columns");
     shell_cmd_app->add_option("--rows", shell_rows, "Terminal rows");
+    shell_cmd_app->add_flag("-r,--record", shell_record, "Record session output to file");
 
     // Subcommand: sessions
     std::string sessions_peer;
@@ -4077,13 +4396,28 @@ int main(int argc, char** argv) {
     std::string peer_remove_name;
     auto* peers_remove = peers_cmd->add_subcommand("remove", "Remove a peer");
     peers_remove->add_option("name", peer_remove_name)->required();
+    // health
+    std::string health_peer;
+    auto* health_cmd_app = app.add_subcommand("health", "Ping/pong health check against a peer");
+    health_cmd_app->add_option("peer", health_peer, "Peer name")->required();
+    // image
+    std::string image_file;
+    auto* image_cmd_app = app.add_subcommand("image", "Preview an image in the terminal");
+    image_cmd_app->add_option("file", image_file, "Image file path")->required();
+    // anim
+    std::string anim_file;
+    auto* anim_cmd_app = app.add_subcommand("anim", "Preview an animated GIF in the terminal");
+    anim_cmd_app->add_option("file", anim_file, "GIF file path")->required();
+    // stats
+    auto* stats_cmd_app = app.add_subcommand("stats", "Show connection and session statistics");
 
     CLI11_PARSE(app, argc, argv);
 
     // Resolve config path
-    if (config_path.empty()) {
-        config_path = resolve_home("~/.bridgesessions/config");
-    }
+    std::string home_dir;
+    if (!config_dir.empty()) { home_dir = config_dir; }
+    else { home_dir = resolve_home("~/.bridgesessions"); }
+    if (config_path.empty()) { config_path = home_dir + "/config"; }
 
     // Dispatch
     if (shell_cmd_app->parsed()) {
@@ -4127,9 +4461,47 @@ int main(int argc, char** argv) {
         return 0;
     }
 
+    if (health_cmd_app->parsed()) {
+        bs::mesh::MeshConfig cfg = bs::mesh::load_config(config_path);
+        bs::mesh::MeshController mc(cfg);
+        bool ok = mc.health_check(health_peer);
+        std::cout << health_peer << (ok ? " healthy" : " unreachable") << std::endl;
+        return ok ? 0 : 1;
+    }
+    if (image_cmd_app->parsed()) {
+        bs::mesh::render_image_to_terminal(image_file);
+        return 0;
+    }
+    if (anim_cmd_app->parsed()) {
+        bs::mesh::render_image_to_terminal(anim_file);
+        return 0;
+    }
+    if (stats_cmd_app->parsed()) {
+        bs::mesh::MeshConfig cfg = bs::mesh::load_config(config_path);
+        bs::mesh::MeshController mc(cfg);
+        mc.show_stats();
+        return 0;
+    }
     // Default: daemon mode
     bs::mesh::MeshConfig cfg = bs::mesh::load_config(config_path);
-    bs::mesh::bootstrap_identity(resolve_home("~/.bridgesessions"));
+    bs::mesh::bootstrap_identity(home_dir);
+#ifdef _WIN32
+    if (daemon_flag) {
+        FreeConsole();
+        FILE* nul = fopen("nul", "w");
+        if (nul) { fclose(stdout); _dup2(_fileno(nul), _fileno(stdout)); fclose(nul); }
+    }
+#else
+    if (daemon_flag) {
+        pid_t pid = fork();
+        if (pid < 0) { std::cerr << "fork failed\n"; return 1; }
+        if (pid > 0) { std::cout << pid << std::endl; return 0; }
+        setsid();
+        freopen("/dev/null", "r", stdin);
+        freopen("/dev/null", "w", stdout);
+        freopen("/dev/null", "w", stderr);
+    }
+#endif
     bs::mesh::MeshController mc(cfg);
     mc.run();
     return 0;
