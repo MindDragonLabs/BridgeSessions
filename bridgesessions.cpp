@@ -1109,6 +1109,21 @@ struct AuthorizedKeys {
         for (auto& k : keys) if (k == key) return true;
         return false;
     }
+
+#ifdef BS_TESTING
+    // Convenience for tests: accept a lowercase hex pubkey string
+    bool is_authorized(const std::string& hex) const {
+        if (hex.size() % 2 != 0) return false;
+        std::vector<uint8_t> raw;
+        raw.reserve(hex.size() / 2);
+        for (size_t i = 0; i < hex.size(); i += 2) {
+            unsigned int b = 0;
+            if (std::sscanf(hex.c_str() + i, "%2x", &b) != 1) return false;
+            raw.push_back(static_cast<uint8_t>(b));
+        }
+        return contains(raw);
+    }
+#endif
 };
 
 // ── Custom cert verify callbacks ──────────────────────────────
@@ -4517,6 +4532,44 @@ public:
     bool connect_to_peer(const std::string& addr) {
         return connect_to_peer_impl(addr);
     }
+
+#ifdef BS_TESTING
+    // ── Test helpers ─────────────────────────────────────────────
+
+    // True if the given conn has not received a pong within pong_timeout_secs.
+    bool is_pong_timed_out(const Conn& c) const {
+        auto now = std::chrono::steady_clock::now();
+        auto timeout = std::chrono::seconds(config_.pong_timeout_secs);
+        return (now - c.last_pong > timeout);
+    }
+
+    // Inject a GossipMsg directly into the discovered peers list.
+    void inject_gossip(const GossipMsg& g) { merge_peers(g.peers); }
+
+    // Return a snapshot of all discovered (non-seed) peers.
+    std::vector<PeerEntry> discovered_peers() const { return config_.discovered; }
+
+    // This node's own ed25519 public key hex.
+    std::string own_pubkey_hex() const { return our_pubkey_; }
+
+    // Duplicate-connection resolution: true if this node should keep its
+    // outbound connection when both sides raced to connect each other.
+    // Rule: keep outbound when our pubkey is lexicographically less than peer's.
+    static bool should_keep_outbound(const std::string& own_hex, const std::string& peer_hex) {
+        return own_hex < peer_hex;
+    }
+
+    // Compute the next reconnect delay in milliseconds for the given attempt number.
+    // Doubles from 100ms, capped at reconnect_backoff_max_secs * 1000.
+    long next_backoff_ms(int attempt) const {
+        long ms = 100;
+        long cap = static_cast<long>(config_.reconnect_backoff_max_secs) * 1000;
+        for (int i = 0; i < attempt; ++i) {
+            ms = std::min(ms * 2, cap);
+        }
+        return ms;
+    }
+#endif
 };
 
 // 10. CLIPBOARD BRIDGE (Windows only)

@@ -1,210 +1,83 @@
-# bridgesessions — Mesh Implementation TODO
+# bridgesessions — Reliability Hardening TODO
 
-**Status:** ✅ **v1.2.0 ACTIVE** — 4,917 lines, uncommitted
-**Completed:** 2026-06-07
-**Current:** v1.2.0-mesh: mDNS, multi-attach, health, image, anim, stats, encryption, --daemon, connect_and_hello
+**Status:** 🔴 **v1.3 IN PROGRESS** — Reliability Hardening
+**Date:** 2026-06-11
+**Source:** 5,116 lines, single-file C++23, `bridgesessions.cpp`
 
-**Target:** `bridgesessions.cpp` — single ~4,917 line file, one binary per device
-**Approach:** Single-file C++23, namespace bs::mesh, cross-platform MSVC+g++
-**Test strategy:** 12 test suites, 8/12 passing (4 pre-existing TLS failures)
-**Review status:** ✅ passed independent review (0 security, 0 logic errors)
+**Target:** 3-node mesh (Shadow + linux-b + FECv3) forms and stays formed. Windows↔Linux TLS handshake works reliably. Daemons don't crash-loop.
 
 ---
 
-## v1.2 Wave (2026-06-07)
+## v1.3: Reliability Hardening (HIGHEST PRIORITY)
 
-- [x] **W1.1** `health <peer>` CLI subcommand — ping/pong with 3s timeout
-- [x] **W1.2** `image <file>` CLI subcommand — text placeholder on Windows, chafa on POSIX
-- [x] **W1.3** mDNS LAN discovery — custom multicast 224.0.0.252:19949, 30s announce, auto-add to discovered
-- [x] **W1.4** Multi-attach — `peer_id` → `peer_ids` vector, output fan-out to all attached peers
-- [x] **W1.5** Fix criticals from v1.0 audit:
-  - C1: Terminal raw-mode leak on exception — `SavedConsole` lifted out of try, restore in catch
-  - C2: Socket leak on Hello mismatch — `CLOSESOCK(sfd)` before return in `shell_peer()` and `list_sessions()`
-- [x] **W1.6** Session encryption at rest — `v1:xor` with SHA-256 of node ed25519 private key
-- [x] **W1.7** `stats` + `anim` CLI subcommands
-- [x] **W1.8** `connect_and_hello()` helper — deduplicated TCP+TLS+Hello for shell_peer/list_sessions/health_check
-- [x] **W1.9** `--daemon` flag — POSIX fork+setsid, Windows FreeConsole+AttachConsole
-- [x] **W1.10** `--config-dir` flag
+### R1: TLS Debug Logging
+- [ ] **R1.1** Add `log_event("tls_verify_server", pubkey_hex + " result=" + (ok?"accept":"reject"))` in `server_cert_verify_cb`
+- [ ] **R1.2** Add `log_event("tls_verify_client", fp + " result=" + (ok?"accept":"reject"))` in `client_cert_verify_cb`
+- [ ] **R1.3** On connect error in `connect_to_peer_impl()`, log `SSL_get_error()` + `ERR_error_string()` BEFORE the catch block consumes the error queue
+- [ ] **R1.4** Log cert subject/issuer/pubkey fingerprint on both sides of handshake (accept path + connect path)
+- [ ] **R1.5** Add `log_event("mesh_tls_connect_error", addr + ": " + err_detail)` with actual error detail (currently logs empty `error:00000000:lib(0)::reason(0)`)
 
----
+### R2: TLS Handshake Timeout
+- [ ] **R2.1** `connect_to_peer_impl()`: `setsockopt(SO_RCVTIMEO, 5000ms)` on socket before `SSL_connect()`
+- [ ] **R2.2** `connect_and_hello()`: `setsockopt(SO_SNDTIMEO/RCVTIMEO, 5000ms)` on socket before connect
+- [ ] **R2.3** `connect_and_hello()`: report clear error when timeout vs refused vs TLS rejected
+- [ ] **R2.4** Accept loop: `select()` with 3s timeout so daemon doesn't freeze; forces periodic health checks
 
-## v1.0 Baseline (all complete)
+### R3: Daemon Process Lifecycle
+- [ ] **R3.1** Linux: create systemd unit at `/etc/systemd/system/bsmesh.service` (Restart=always, RestartSec=5, User=agent)
+- [ ] **R3.2** Linux: install + enable systemd unit on linux-b + FECv3
+- [ ] **R3.3** Windows: create NSSM install script (`install-daemon.ps1`) with auto-restart on failure
+- [ ] **R3.4** Windows: install NSSM service for bridgesessions daemon
+- [ ] **R3.5** `mesh_listen_bind_failed` → log actual errno/WSAGetLastError() code
+- [ ] **R3.6** Add SO_REUSEADDR to connect sockets (not just listen socket)
 
-⚠️ _All checkboxes marked `[x]` below are confirmed done. 47 of 47 done._
+### R4: Config Hot-Reload
+- [ ] **R4.1** Reload `authorized_keys` from disk on each inbound TLS accept (before cert verify callback fires)
+- [ ] **R4.2** Re-read config seeds list on SIGHUP (Linux) so new seeds take effect without restart
+- [ ] **R4.3** Re-read config seeds on file timestamp change every 30s (Windows — no SIGHUP)
 
-## Phase 0: Clean Slate Setup
+### R5: CLI Robustness
+- [ ] **R5.1** `health <peer>`: explicit 10s timeout; report "timeout" / "refused" / "auth failed" / "unknown peer"
+- [ ] **R5.2** `shell <peer>`: validate peer exists in seeds+discovered before attempting connect (no SIGSEGV on unknown)
+- [ ] **R5.3** `peers list`: query running daemon for live connection state (connected/connecting/failed) — not just config dump
+- [ ] **R5.4** `stats`: show per-connection detail: peer name, addr, direction, uptime, bytes in/out, last pong latency
+- [ ] **R5.5** `sessions`: test across all 3 nodes
 
-- [x] **0.1** Delete `shadow-agent/` directory entirely (200 lines of skeleton, wrong abstraction)
-- [x] **0.2** Move old `bs-*` directories to `_archive/` for reference during porting
-- [x] **0.3** Create `bridgesessions.cpp` as empty file at repo root
-- [x] **0.4** Create `tests/` directory with test files
-- [x] **0.5** Update `CMakeLists.txt` to single target `bridgesessions` + `bridgesessions-tests`
-- [x] **0.6** Verify build: empty `main() { return 0; }` compiles on MSVC + vcpkg
+### R6: Cross-Platform Build & Deploy
+- [ ] **R6.1** Create `build.sh` — one-command POSIX build (g++ with correct flags)
+- [ ] **R6.2** Create `build.ps1` — one-command Windows build (MSVC + vcpkg paths auto-detected)
+- [ ] **R6.3** Create `deploy.sh` — scp binary + config to linux-a/linux-b, issue systemctl restart
+- [ ] **R6.4** Version bump: `--version` outputs `1.3.0-reliability`
+- [ ] **R6.5** Build + deploy to all 3 nodes, verify version
 
-## Phase 1: Protocol Layer
+### R7: Integration Test Harness
+- [ ] **R7.1** `test_mesh_reliability.ps1`: kill all daemons, start on all 3 nodes via SSH, wait 30s, verify `stats` shows `connections: ≥ 2`
+- [ ] **R7.2** `test_cross_platform_shell.ps1`: `shell linux-b` → send "echo RELIABILITY_OK\n" → verify OutputMsg contains "RELIABILITY_OK"
+- [ ] **R7.3** Both scripts must be runnable from Shadow with existing SSH keys; report pass/fail clearly
 
-- [x] **1.1** Port 20 message types + 2 new mesh types (Hello, Gossip)
-- [x] **1.2** Port codec (encode/decode/zstd/SHA-256)
-- [x] **1.3** Run protocol tests
-
-## Phase 2: TLS + Identity Layer
-
-- [x] **2.1** Port TLS — unified `create_node_tls()` for listen + connect
-- [x] **2.2** Port frame I/O
-- [x] **2.3** Identity bootstrap with auto-keygen
-
-## Phase 3: Session + PTY Layer
-
-- [x] **3.1** Ring buffer
-- [x] **3.2** OSC 52 scanner
-- [x] **3.3** Persistence
-- [x] **3.4** Logging
-- [x] **3.5** Session + ConPTY/PTY
-- [x] **3.6** Session registry with auto-restart
-
-## Phase 4: Config Layer
-
-- [x] **4.1** MeshConfig struct
-- [x] **4.2** key=value config parser
-- [x] **4.3** Config round-trip tests
-
-## Phase 5: Mesh Connection Manager
-
-- [x] **5.1** Connection struct
-- [x] **5.2** Accept loop
-- [x] **5.3** Outbound connect
-- [x] **5.4** Event loop (select-based)
-- [x] **5.5** Gossip
-- [x] **5.6** mDNS LAN discovery (done in v1.1)
-- [x] **5.7** Mesh gossip tests
-
-## Phase 6: Unified Relay
-
-- [x] **6.1** Inbound session handler
-- [x] **6.2** Outbound session relay
-- [x] **6.3** Common message handling
-- [x] **6.4** PTY output polling
-- [x] **6.5** Local terminal integration
-
-## Phase 7: CLI + main()
-
-- [x] **7.1** CLI11 design
-- [x] **7.2** Daemon mode
-- [x] **7.3** `shell` subcommand
-- [x] **7.4** `sessions` subcommand
-- [x] **7.5** `peers` subcommand
-- [x] **7.6** `keygen` + `authorize`
-
-## Phase 8: Client Support Layer
-
-- [x] **8.1** Terminal raw mode
-- [x] **8.2** Clipboard bridge
-- [x] **8.3** Image render
-- [x] **8.4** Peer/host management
-
-## Phase 10: Documentation & Cleanup
-
-- [x] **10.1** Update plan.md
-- [x] **10.2** README.md
-- [x] **10.3** Archive old code
-- [x] **10.4** Delete shadow-agent
-- [x] **10.5** Verify single-file build
+### R8: Known-Issue Cleanup
+- [ ] **R8.1** K1: `(void)` cast all 4 `[[nodiscard]]` return values (`resize_pty`, `load_peers_from_file`, etc.)
+- [ ] **R8.2** K2: Fix `select(0, ...)` — compute actual `maxfd+1` from socket handles
+- [ ] **R8.3** K3: Store `AuthorizedKeys` instance inside `MeshController` instead of heap-alloc via `new` (eliminates context leak)
+- [ ] **R8.4** K4: Add header comment on `conns_` documenting single-threaded invariant
 
 ---
 
-## Deferred: v2 / Future
+## Done (v1.0–v1.2)
 
-### High Priority
+47 of 47 baseline items done. 10 of 10 v1.2 wave items done.
+See plan.md §v1.0 Baseline + §v1.2 Wave for full enumeration.
 
-- [x] **D1** Multi-hop session routing — `SessionSearchMsg` (0x17), `AttachMsg.routing` field, forward/broadcast logic ✅
-- [ ] **D2** Live mesh integration tests — `test_two_node_mesh.ps1`, `test_three_node_mesh.ps1` require live nodes on Tailscale
-- [x] **D3** `stats` CLI subcommand ✅
-- [x] **D4** `anim <file>` CLI subcommand ✅
-- [ ] **D5** `peers list` live connection status — currently config-only, should show connection state/latency/uptime
-- [x] **D6** `Ctrl+D` / EOF detection on Windows shell — 0x1A (Ctrl+Z) detected as EOF ✅
-- [x] **D7** Daemon `--daemon` flag ✅ (POSIX fork+setsid, Windows FreeConsole)
-- [x] **D8** Encryption at rest for session persistence — `v1:xor` with SHA-256 of node private key ✅
-- [x] **D9** ~~Test: old client backward compat~~ — N/A: no prior version ever shipped
-- [ ] **D10** Test: cross-platform matrix — Windows↔Linux, ConPTY↔PTY interoperability
-- [x] **D12** `connect_and_hello()` helper — TCP + TLS + Hello exchange, reused by shell_peer/list_sessions/health_check ✅
+## Deferred (v2+)
 
-### Low Priority
-
-- [x] **D11** Multi-attach keystroke echo — PTY output fan-out echoes OutputMsg to all attached peers ✅
-- [x] **D12** ~~`connect_and_hello()` helper~~ — moved to ✅ Medium section above
-- [ ] **D13** Session recording / replay — save/playback session history
-- [ ] **D14** Mesh-wide session search — "find session X on any node" via broadcast query
-- [ ] **D15** WebRTC transport for browser peers
-- [ ] **D16** DHT for >100 node meshes
-- [ ] **D17** NAT traversal without Tailscale
-- [ ] **D18** TLS `close_notify` before socket close — proper `SSL_shutdown()` for truncation detection
-- [ ] **D19** Build: CMakeLists.txt unification — one file for bridgesessions + tests
-- [x] **D20** Config: `--config-dir` flag ✅
-- [ ] **D21** Docs: full `--help` coverage for all subcommands (`shell`, `sessions`)
-- [ ] **D22** Docs: man page
-- [ ] **D23** PeekNamedPipe on console input — replace with `GetNumberOfConsoleInputEvents` + `ReadConsoleInput` for universal Windows terminal compat
-
-### Known Issues (Pre-existing, Low Severity)
-
-- [ ] **K1** `[[nodiscard]]` warnings (4x) — `(void)` casts on `resize_pty()` / `load_peers_from_file()` calls
-- [ ] **K2** `select(0, ...)` idiom on Windows — unconventional `nfds=0`, works because Winsock ignores it
-- [ ] **K3** OpenSSL callback context leak — `AuthorizedKeys*` / `std::function*` allocated for cert verify callback, never freed. Bounded (once per CTX creation, CTX created once at startup)
-- [ ] **K4** `build_hello()` iterates `conns_` without synchronization — safe in single-threaded event loop but undocumented invariant
-
----
-
-## Implementation Order (Dependency Graph)
-
-```
-Phase 0 (setup)
-  └─> Phase 1 (protocol) ──> Phase 2 (TLS) ──> Phase 3 (session)
-                                                    │
-                          Phase 4 (config) ◄────────┘
-                                │
-                          Phase 5 (mesh conn mgr)
-                                │
-                          Phase 6 (unified relay)
-                                │
-                    ┌───────────┴───────────┐
-              Phase 7 (CLI)          Phase 8 (client support)
-                    │                      │
-                    └──────────┬───────────┘
-                          Phase 9 (integration tests) ← NEXT
-                                │
-                          Phase 10 (docs/cleanup) ← DONE
-                                │
-                          v1.2 Wave (mDNS, multi-attach, health, image, anim, stats, encryption, --daemon) ← DONE
-```
-
----
-
-## Estimated Line Counts (v1.1 actual)
-
-| Component | Lines |
-|---|---|
-| Platform abstractions + includes | ~310 |
-| Config parsing | ~150 |
-| Message types (22) + Frame | ~250 |
-| Codec (encode/decode/zstd/SHA-256) | ~350 |
-| TLS + identity | ~350 |
-| Frame I/O | ~100 |
-| Ring buffer | ~250 |
-| OSC 52 scanner | ~130 |
-| Persistence | ~200 |
-| Logging | ~60 |
-| Session + PTY | ~400 |
-| Session registry | ~300 |
-| Mesh connection manager + gossip | ~500 |
-| Unified relay | ~500 |
-| mDNS LAN discovery | ~170 |
-| Multi-attach fan-out | ~60 |
-| `shell_peer()` + `process_shell_response()` | ~200 |
-| `list_sessions()` | ~110 |
-| `health_check()` | ~60 |
-| Clipboard bridge | ~150 |
-| Terminal raw mode | ~100 |
-| Image render + `render_image_to_terminal()` | ~230 |
-| Peer/host management | ~100 |
-| keygen + authorize | ~60 |
-| main() + CLI11 (7 subcommands) | ~140 |
-| **TOTAL** | **~4,718** |
+| Feature | Priority | Status |
+|---|---|---|
+| Multi-hop session routing | High | Code written, not mesh-tested |
+| Session recording / replay | Low | Not started |
+| Mesh-wide session search | Low | Not started |
+| WebRTC transport | Low | Code behind `BS_NO_WEBRTC` |
+| DHT for >100 nodes | Low | Code behind `BS_NO_DHT` |
+| NAT traversal (UPnP) | Low | Code behind `BS_NO_NAT` |
+| Cross-platform test matrix | Medium | Not started |
+| CMakeLists.txt unification | Low | Not started |
+| Man page / full --help | Low | Not started |

@@ -139,8 +139,9 @@ TEST_CASE("AttachMsg creates session and sets attached_session on conn", "[relay
     REQUIRE(s2->name == "my-shared-session");
     REQUIRE(s2->state == SessionState::Attached);
 
-    // Verify peer_id was set
-    REQUIRE(s2->peer_id == "aabbccdd");
+    // Verify peer pubkey tracked in peer_ids vector
+    REQUIRE(!s2->peer_ids.empty());
+    REQUIRE(s2->peer_ids[0] == "aabbccdd");
 }
 
 // ── Test 3: ResizeMsg → resize_pty called ───────────────────────────

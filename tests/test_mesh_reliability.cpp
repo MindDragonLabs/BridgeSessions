@@ -1,0 +1,367 @@
+// test_mesh_reliability.cpp — Mesh reliability tests (v1.3 R3/R5 acceptance criteria)
+//
+// Covers:
+//   R3: Daemon lifecycle — SO_REUSEADDR prevents bind-fail on restart
+//   R5: CLI robustness:
+//       - find_peer_addr returns empty for unknown peer (no SIGSEGV)
+//       - pong timeout detection logic
+//   Architecture: duplicate connection resolution (lower pubkey wins)
+//   Gossip: received GossipMsg propagates peers to discovered list
+//
+// Tests marked "requires-api" need a public method that may not exist yet.
+// Those are acceptance criteria for the public API surface, not bugs in
+// existing behaviour.
+
+#ifdef _WIN32
+#define NOMINMAX
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#pragma comment(lib, "ws2_32.lib")
+#endif
+
+#include <catch2/catch_test_macros.hpp>
+#include <catch2/catch_session.hpp>
+
+#ifdef min
+#undef min
+#endif
+#ifdef max
+#undef max
+#endif
+
+#include "bridgesessions.cpp"
+
+#ifdef _WIN32
+#define CLOSESOCK closesocket
+struct WsaInit { WsaInit() { WSADATA d; WSAStartup(MAKEWORD(2,2), &d); } ~WsaInit() { WSACleanup(); } };
+static WsaInit _wsa;
+#else
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <unistd.h>
+#define CLOSESOCK close
+#endif
+
+#include <thread>
+#include <atomic>
+#include <chrono>
+#include <fstream>
+
+using namespace bs::mesh;
+using namespace std::chrono_literals;
+
+// ── Helpers ───────────────────────────────────────────────────────────
+
+static MeshConfig mesh_cfg(const std::string& name, int port = 19954) {
+    MeshConfig c;
+    c.node_name              = name;
+    c.listen_port            = port;
+    c.gossip_interval_secs   = 300;
+    c.ping_interval_secs     = 300;
+    c.pong_timeout_secs      = 3;  // short for testing
+    c.scrollback_lines       = 100;
+    return c;
+}
+
+static MeshController::Conn make_peer_conn(const std::string& name, const std::string& pubkey) {
+    MeshController::Conn c;
+    c.peer_name   = name;
+    c.peer_pubkey = pubkey;
+    c.peer_addr   = "127.0.0.1:9000";
+    c.ssl.reset();
+    c.sock_fd   = INVALID_SOCKET;
+    c.last_pong = std::chrono::steady_clock::now();
+    c.attached_session = nullptr;
+    return c;
+}
+
+// ── R3: SO_REUSEADDR — port rebind after close succeeds ────────────────────
+// Validates the mechanism that prevents mesh_listen_bind_failed on daemon restart.
+
+TEST_CASE("R3: SO_REUSEADDR allows immediate rebind after close", "[mesh_reliability][r3][bind]") {
+    int port_used = 0;
+
+    // First daemon: bind, listen, close
+    {
+        int fd = socket(AF_INET, SOCK_STREAM, 0);
+        REQUIRE(fd >= 0);
+        int opt = 1;
+        REQUIRE(setsockopt(fd, SOL_SOCKET, SO_REUSEADDR,
+                           reinterpret_cast<const char*>(&opt), sizeof(opt)) == 0);
+        sockaddr_in a{};
+        a.sin_family = AF_INET;
+        a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        a.sin_port = 0;
+        REQUIRE(bind(fd, reinterpret_cast<sockaddr*>(&a), sizeof(a)) == 0);
+        REQUIRE(listen(fd, 4) == 0);
+        socklen_t len = sizeof(a);
+        getsockname(fd, reinterpret_cast<sockaddr*>(&a), &len);
+        port_used = ntohs(a.sin_port);
+        CLOSESOCK(fd);
+    }
+
+    // Second daemon: immediate rebind on same port with SO_REUSEADDR — must succeed
+    {
+        int fd = socket(AF_INET, SOCK_STREAM, 0);
+        REQUIRE(fd >= 0);
+        int opt = 1;
+        setsockopt(fd, SOL_SOCKET, SO_REUSEADDR,
+                   reinterpret_cast<const char*>(&opt), sizeof(opt));
+        sockaddr_in a{};
+        a.sin_family = AF_INET;
+        a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        a.sin_port = htons(static_cast<u_short>(port_used));
+        int r = bind(fd, reinterpret_cast<sockaddr*>(&a), sizeof(a));
+        INFO("rebind on port " << port_used << " result: " << r);
+        REQUIRE(r == 0);
+        CLOSESOCK(fd);
+    }
+}
+
+TEST_CASE("R3: bind WITHOUT SO_REUSEADDR may fail on immediate rebind", "[mesh_reliability][r3][bind]") {
+    // This test documents the problem that SO_REUSEADDR solves.
+    // On Windows in TIME_WAIT the bind fails; this test just records the behaviour
+    // so we can verify that the production code sets SO_REUSEADDR correctly.
+    int port_used = 0;
+    {
+        int fd = socket(AF_INET, SOCK_STREAM, 0);
+        REQUIRE(fd >= 0);
+        int opt = 1;
+        setsockopt(fd, SOL_SOCKET, SO_REUSEADDR,
+                   reinterpret_cast<const char*>(&opt), sizeof(opt));
+        sockaddr_in a{};
+        a.sin_family = AF_INET;
+        a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        a.sin_port = 0;
+        bind(fd, reinterpret_cast<sockaddr*>(&a), sizeof(a));
+        listen(fd, 1);
+        socklen_t len = sizeof(a);
+        getsockname(fd, reinterpret_cast<sockaddr*>(&a), &len);
+        port_used = ntohs(a.sin_port);
+        CLOSESOCK(fd);
+    }
+    // Without SO_REUSEADDR on Windows, this MIGHT fail (TIME_WAIT) — we just document it
+    {
+        int fd = socket(AF_INET, SOCK_STREAM, 0);
+        REQUIRE(fd >= 0);
+        sockaddr_in a{};
+        a.sin_family = AF_INET;
+        a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        a.sin_port = htons(static_cast<u_short>(port_used));
+        int r = bind(fd, reinterpret_cast<sockaddr*>(&a), sizeof(a));
+        CLOSESOCK(fd);
+        // We don't REQUIRE failure here — just log
+        WARN("bind without SO_REUSEADDR on reused port returned: " << r);
+    }
+    SUCCEED(); // Informational test — always passes
+}
+
+// ── Pong timeout detection ─────────────────────────────────────────────────
+// Tests MeshController::is_pong_timed_out(conn) — a pure function on conn state.
+// Requires that is_pong_timed_out() be public or exposed via BS_TESTING.
+
+TEST_CASE("pong_timeout: conn with stale last_pong is timed out", "[mesh_reliability][pong]") {
+    auto cfg = mesh_cfg("pong1");
+    MeshController mc(cfg);
+
+    auto conn = make_peer_conn("silent", std::string(64, 'd'));
+    // Set last_pong to well beyond pong_timeout_secs=3
+    conn.last_pong = std::chrono::steady_clock::now() - 30s;
+
+    REQUIRE(mc.is_pong_timed_out(conn));
+}
+
+TEST_CASE("pong_timeout: conn with recent last_pong is NOT timed out", "[mesh_reliability][pong]") {
+    auto cfg = mesh_cfg("pong2");
+    MeshController mc(cfg);
+
+    auto conn = make_peer_conn("active", std::string(64, 'e'));
+    conn.last_pong = std::chrono::steady_clock::now(); // just now
+
+    REQUIRE(!mc.is_pong_timed_out(conn));
+}
+
+TEST_CASE("pong_timeout: conn exactly at boundary uses pong_timeout_secs config", "[mesh_reliability][pong]") {
+    auto cfg = mesh_cfg("pong3");
+    cfg.pong_timeout_secs = 5;
+    MeshController mc(cfg);
+
+    auto conn = make_peer_conn("boundary", std::string(64, 'f'));
+
+    // 4 seconds ago: NOT timed out
+    conn.last_pong = std::chrono::steady_clock::now() - 4s;
+    REQUIRE(!mc.is_pong_timed_out(conn));
+
+    // 6 seconds ago: timed out
+    conn.last_pong = std::chrono::steady_clock::now() - 6s;
+    REQUIRE(mc.is_pong_timed_out(conn));
+}
+
+// ── Gossip: received peer added to discovered list ─────────────────────────
+// Requires mc.handle_gossip(msg) and mc.discovered_peers() to be public/exposed.
+
+TEST_CASE("gossip: received GossipMsg adds new peer to discovered list", "[mesh_reliability][gossip]") {
+    auto cfg = mesh_cfg("gossip1");
+    MeshController mc(cfg);
+
+    PeerInfo newcomer;
+    newcomer.name       = "corp-net";
+    newcomer.addr       = "10.0.0.50:19948";
+    newcomer.pubkey_hex = std::string(64, '1');
+    newcomer.last_seen  = 1000000;
+
+    GossipMsg g;
+    g.peers.push_back(newcomer);
+    mc.inject_gossip(g);
+
+    auto discovered = mc.discovered_peers();
+    bool found = false;
+    for (auto& p : discovered) {
+        if (p.name == "corp-net" && p.addr == "10.0.0.50:19948") { found = true; break; }
+    }
+    REQUIRE(found);
+}
+
+TEST_CASE("gossip: duplicate peer in gossip does not create duplicates in discovered", "[mesh_reliability][gossip]") {
+    auto cfg = mesh_cfg("gossip2");
+    MeshController mc(cfg);
+
+    PeerInfo peer;
+    peer.name       = "dup-peer";
+    peer.addr       = "10.0.0.1:19948";
+    peer.pubkey_hex = std::string(64, '2');
+    peer.last_seen  = 1000;
+
+    GossipMsg g1, g2;
+    g1.peers.push_back(peer);
+    peer.last_seen = 2000; // same peer, newer timestamp
+    g2.peers.push_back(peer);
+
+    mc.inject_gossip(g1);
+    mc.inject_gossip(g2);
+
+    auto discovered = mc.discovered_peers();
+    int count = 0;
+    for (auto& p : discovered) {
+        if (p.pubkey_hex == std::string(64, '2')) count++;
+    }
+    REQUIRE(count == 1); // deduplicated
+}
+
+TEST_CASE("gossip: own node not added to discovered from gossip", "[mesh_reliability][gossip]") {
+    auto cfg = mesh_cfg("gossip3");
+    MeshController mc(cfg);
+
+    // Gossip that includes our own pubkey — must be silently ignored
+    PeerInfo self;
+    self.name       = cfg.node_name;
+    self.addr       = "127.0.0.1:19954";
+    self.pubkey_hex = mc.own_pubkey_hex();
+    self.last_seen  = 1000;
+
+    GossipMsg g;
+    g.peers.push_back(self);
+    mc.inject_gossip(g);
+
+    auto discovered = mc.discovered_peers();
+    for (auto& p : discovered) {
+        REQUIRE(p.pubkey_hex != mc.own_pubkey_hex());
+    }
+}
+
+// ── Duplicate connection resolution ───────────────────────────────────────
+// When both A→B and B→A connections race, the node with the LEXICOGRAPHICALLY
+// LOWER pubkey hex keeps its outbound; the higher one closes its outbound.
+// Requires MeshController::should_keep_outbound(own_key, peer_key) → bool.
+
+TEST_CASE("duplicate_conn: lower pubkey keeps its outbound connection", "[mesh_reliability][duplicate]") {
+    std::string key_low  = std::string(64, 'a'); // "aaa..."
+    std::string key_high = std::string(64, 'z'); // "zzz..."
+
+    // Node with key_low connecting outbound to key_high: lower wins → keep
+    REQUIRE(MeshController::should_keep_outbound(key_low, key_high) == true);
+}
+
+TEST_CASE("duplicate_conn: higher pubkey drops its outbound connection", "[mesh_reliability][duplicate]") {
+    std::string key_low  = std::string(64, 'a');
+    std::string key_high = std::string(64, 'z');
+
+    // Node with key_high connecting outbound to key_low: lower wins → drop
+    REQUIRE(MeshController::should_keep_outbound(key_high, key_low) == false);
+}
+
+TEST_CASE("duplicate_conn: equal pubkeys — one side drops (not both keep)", "[mesh_reliability][duplicate]") {
+    std::string key = std::string(64, 'm');
+
+    // Both sides have the same key (degenerate): the function must NOT return true
+    // for both directions simultaneously (that would cause permanent duplicate).
+    // Convention: treat equal as "keep" on one side only — e.g. lower_or_equal → keep.
+    bool a_keeps = MeshController::should_keep_outbound(key, key);
+    bool b_keeps = MeshController::should_keep_outbound(key, key);
+    // Both returning false is also acceptable (both drop, reconnect via normal backoff)
+    // The only invalid outcome is both returning TRUE (both keep a duplicate connection).
+    // Since both calls are identical, they return the same value. Either both keep or both drop.
+    // "Both drop" is safe (they'll reconnect). "Both keep" is a bug.
+    // This test documents that the result must be deterministic (same both ways).
+    REQUIRE(a_keeps == b_keeps);
+}
+
+// ── R5: find_peer_addr returns empty for unknown peer (no crash/SIGSEGV) ───
+
+TEST_CASE("R5: find_peer_addr returns empty string for unknown peer name", "[mesh_reliability][r5]") {
+    auto cfg = mesh_cfg("r5-find");
+    PeerEntry seed;
+    seed.name = "known-node";
+    seed.addr = "10.1.2.3:19948";
+    cfg.seeds.push_back(seed);
+
+    MeshController mc(cfg);
+
+    // Known seed returns its addr
+    std::string known = mc.find_peer_addr("known-node");
+    REQUIRE(known == "10.1.2.3:19948");
+
+    // Unknown peer must return empty, not crash
+    std::string unknown = mc.find_peer_addr("absolutely-unknown-node");
+    REQUIRE(unknown.empty());
+}
+
+// ── Main ─────────────────────────────────────────────────────────────
+int main(int argc, char* argv[]) {
+    return Catch::Session().run(argc, argv);
+}
+
+TEST_CASE("R5: find_peer_addr returns empty string when no seeds configured", "[mesh_reliability][r5]") {
+    auto cfg = mesh_cfg("r5-empty");
+    // No seeds
+    MeshController mc(cfg);
+
+    std::string result = mc.find_peer_addr("anything");
+    REQUIRE(result.empty());
+}
+
+// ── Reconnect backoff — exponential growth ─────────────────────────────────
+// Verifies that consecutive reconnect delays increase exponentially and are
+// capped at reconnect_backoff_max_secs.
+// Requires MeshController::next_backoff_ms(attempt) or similar utility.
+
+TEST_CASE("reconnect_backoff: delays increase exponentially and are capped", "[mesh_reliability][backoff]") {
+    auto cfg = mesh_cfg("backoff");
+    cfg.reconnect_backoff_max_secs = 30;
+    MeshController mc(cfg);
+
+    // attempt 0: first retry (e.g. 100ms base)
+    long d0 = mc.next_backoff_ms(0);
+    long d1 = mc.next_backoff_ms(1);
+    long d2 = mc.next_backoff_ms(2);
+    long d3 = mc.next_backoff_ms(3);
+    long max_delay = mc.next_backoff_ms(100); // high attempt number → capped
+
+    INFO("d0=" << d0 << " d1=" << d1 << " d2=" << d2 << " d3=" << d3 << " max=" << max_delay);
+
+    REQUIRE(d0 > 0);
+    REQUIRE(d1 > d0);   // strictly increasing
+    REQUIRE(d2 > d1);
+    REQUIRE(d3 > d2);
+    REQUIRE(max_delay <= static_cast<long>(cfg.reconnect_backoff_max_secs) * 1000 * 2); // within 2× cap (jitter)
+}

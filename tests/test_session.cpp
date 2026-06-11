@@ -135,7 +135,7 @@ TEST_CASE("session move semantics transfer handles correctly", "[session]") {
 
     // Verify metadata moved correctly
     REQUIRE(moved.state == SessionState::Running);
-    REQUIRE(moved.peer_id.empty());
+    REQUIRE(moved.peer_ids.empty());
     REQUIRE(moved.command == "cmd.exe /c timeout /t 3");
 }
 

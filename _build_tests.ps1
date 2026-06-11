@@ -24,7 +24,7 @@ $tests = @(
 
 foreach ($t in $tests) {
     Write-Host -NoNewline "Building $($t.Name)... "
-    & cl /std:c++latest /EHsc /MD /utf-8 /DBS_TESTING /I $vcpkg\include $($t.File) /Fe:$($t.Name).exe /link /LIBPATH:$vcpkg\lib Catch2.lib libssl.lib libcrypto.lib zstd.lib ws2_32.lib fmt.lib 2>&1 | Select-Object -Last 1
+    & cl /std:c++latest /EHsc /MD /utf-8 /DBS_TESTING /DBS_NO_NAT /DBS_NO_WEBRTC /DBS_NO_DHT /I $vcpkg\include $($t.File) /Fe:$($t.Name).exe /link /LIBPATH:$vcpkg\lib Catch2.lib libssl.lib libcrypto.lib zstd.lib ws2_32.lib fmt.lib 2>&1 | Select-Object -Last 1
     if ($LASTEXITCODE -ne 0) {
         Write-Host "BUILD FAILED" -ForegroundColor Red
         exit 1

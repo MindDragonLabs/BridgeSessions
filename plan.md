@@ -497,27 +497,93 @@ g++ -std=c++23 -O2 -o bridgesessions bridgesessions.cpp \
 | `connect_and_hello()` helper | Deduplicates ~35-line connect+TLS+Hello pattern (3 call sites) |
 | `find_peer_addr()` helper | Centralizes seed+discovered lookup (3 call sites) |
 
-### Deferred to v2 / Future
+---
+
+## Current Status (2026-06-11)
+
+**Source:** 5,116 lines, single-file C++23, namespace `bs::mesh`.
+
+**3-node real-network test conducted** (Shadow / linux-b / FECv3 on Tailscale). Findings:
+
+| Test | Result |
+|---|---|
+| linux-b ↔ linux-a (Linux↔Linux) | ✅ Mesh forms. TLS handshake, Hello exchange, gossip all correct |
+| Shadow ↔ linux-b (Windows→Linux outbound) | ❌ TCP established, TLS fails with `error:00000000:lib(0)::reason(0)` |
+| Shadow ↔ FECv3 (Windows→Linux outbound) | ❌ Same TLS failure |
+| linux-b → Shadow (Linux→Windows inbound) | ❌ Shadow daemon instability — crashes/respawns, `mesh_listen_bind_failed` |
+| CLI tools (stats, peers, keygen, etc.) | ✅ All work correctly |
+| Cert/key consistency (Shadow, linux-b) | ✅ Verified via openssl tooling |
+| FECv3 cert/key consistency | ❌ Was mismatched; regenerated |
+| Authorized keys cross-wiring | ✅ All pubkeys present on all nodes |
+
+**Root causes identified:**
+1. **TLS handshake asymmetry** — server-side `server_cert_verify_cb` may reject Shadow's cert silently. No debug logging in the verify callback. The outbound log says "error but no error string" — classic empty-queue-on-disconnect.
+2. **Daemon process lifecycle** — `mesh_listen_bind_failed` on all platforms. Zombie instances keep ports bound; new instances restart-logspiral. No SO_REUSEADDR on the connect side. No systemd/NSSM service wrapping.
+3. **Stale authorized_keys in memory** — daemons load keys at startup only. Disk updates don't propagate without restart.
+4. **CLI health command timeout** — `health <peer>` hangs indefinitely when no daemon is running. `connect_and_hello()` has no timeout on the CLI path.
+
+---
+
+## v1.3: Reliability Hardening (HIGHEST PRIORITY — 2026-06-11)
+
+Goal: 3-node mesh forms and stays formed. Windows↔Linux TLS works. Daemons don't crash-loop.
+
+### R1: TLS Debug Logging
+- Add `log_event("tls_verify", pubkey_hex + " result=" + (ok?"accept":"reject"))` inside `server_cert_verify_cb` and `client_cert_verify_cb`
+- On connect error, log `SSL_get_error()` + `ERR_error_string()` BEFORE catching (current code catches too early — error queue already drained)
+- Log cert subject/issuer/fingerprint on both sides
+
+### R2: TLS Handshake Timeout
+- `connect_to_peer_impl()`: add `SO_RCVTIMEO` / `setsockopt(SO_RCVTIMEO)` with 5s timeout before `SSL_connect()` 
+- `connect_and_hello()`: add connect timeout (currently no timeout — infinite hang)
+- Accept loop: add 3s accept timeout so daemon doesn't freeze on half-open connections
+
+### R3: Daemon Process Lifecycle
+- **Linux**: systemd unit file at `/etc/systemd/system/bsmesh.service` with `Restart=always`, `RestartSec=5`
+- **Windows**: NSSM service (script at `install-daemon.ps1`) with auto-restart
+- `mesh_listen_bind_failed` → log the errno/WSAGetLastError() code explicitly
+- SO_REUSEADDR on connect socket too (not just listen)
+
+### R4: Config Hot-Reload
+- Watch authorized_keys file for changes (or reload on each accept)
+- `authorized_keys` in `AuthorizedKeys::load_from_file()` supports this already — just call it periodically
+- Config file watch: re-read seeds on SIGHUP (Linux) / file change (Windows)
+
+### R5: CLI Robustness
+- `health <peer>`: explicit 10s timeout, report "timeout" vs "refused" vs "auth failed"
+- `shell <peer>`: validate peer exists before connecting (currently SIGSEGV on unknown peer)
+- `peers list`: show connection state (connected/connecting/failed/unknown) by checking `conns_` live — not just config dump
+- `stats`: report per-connection details (bytes in/out, uptime, latency via last pong)
+
+### R6: Cross-Platform Build & Deploy
+- Unified `build.sh` (POSIX) / `build.ps1` (Windows) scripts that work first try
+- `deploy.sh` — scp binary + config to linux-a/linux-b, restart daemon
+- Version bump to `1.3.0-reliability` in `--version` output
+
+### R7: Integration Test Harness
+- `test_mesh_reliability.ps1`: start daemons on all 3 nodes via SSH, wait 30s, verify `stats` shows `connections: ≥ 2`
+- `test_cross_platform_shell.sh`: open shell on remote node, send "echo RELIABILITY_OK\n", verify OutputMsg
+- Both scripts to be runnable from Shadow with existing SSH keys
+
+### R8: Known-Issue Cleanup
+- K1: `(void)` cast all `[[nodiscard]]` return values
+- K2: Fix `select(0, ...)` — use `WSA_MAX_EVENTS` or compute actual maxfd+1
+- K3: Fix OpenSSL callback context leak by storing `AuthorizedKeys*` in `MeshController` instead of heap-alloc
+- K4: Document `conns_` single-thread invariant in header comment
+
+### Deferred to v2 / Future (repopulated post-v1.3)
 
 | Feature | Priority | Notes |
 |---|---|---|
-| `stats` CLI subcommand | Medium | Per-connection stats: bytes in/out, uptime, latency |
-| `anim <file>` CLI subcommand | Medium | Animated GIF preview via sequential chafa frames |
-| `peers list` live status | Medium | Show connection state, latency, uptime — currently config-only |
-| Multi-attach: keystroke echo | Low | Keystrokes from peer A should echo to peer B in same session |
-| Multi-hop session routing | High | Forward AttachMsg through intermediate peers |
-| Session recording / replay | Low | Save session history to file, play back |
-| Encryption at rest for sessions | Medium | Encrypt sessions.json |
-| Mesh-wide session search | Low | "Find session X on any node" |
-| WebRTC transport for browser peers | Low | Browser-based mesh member |
-| DHT for >100 node meshes | Low | Gossip scales fine to ~50 |
-| NAT traversal without Tailscale | Low | Tailscale provides flat IP space |
-| `Ctrl+D` detection on Windows shell | Medium | 0x1A currently treated as key data, not EOF |
-| Daemon `--daemon` / `--service` flag | Medium | Install as Windows service or systemd unit |
-| TLS close_notify before socket close | Low | Proper SSL_shutdown() for truncation detection |
-| Test suite: live mesh integration | High | test_two_node_mesh.ps1, test_three_node_mesh.ps1 — need live nodes |
-| Test suite: old client backward compat | Medium | Verify old bs-client works against new daemon |
-| Test suite: cross-platform matrix | Medium | Windows↔Linux, ConPTY↔PTY |
-| Build: CMakeLists.txt unification | Low | One CMakeLists.txt for both bridgesessions + tests |
-| Config: `--config-dir` flag for non-~/.bridgesessions paths | Low | Support portable config directories |
-| Docs: man page / `--help` coverage for all subcommands | Low | `shell`, `sessions` subcommands need full help text |
+| Multi-hop session routing | High | `SessionSearchMsg` (0x17), code written, needs mesh-verified test |
+| `peers list` live status | Medium | Connection state, latency, uptime per peer |
+| Session recording / replay | Low | Save/playback session history |
+| Mesh-wide session search | Low | Broadcast query for session discovery |
+| WebRTC transport for browser peers | Low | libdatachannel, code written behind `BS_NO_WEBRTC` |
+| DHT for >100 node meshes | Low | Code written behind `BS_NO_DHT` |
+| NAT traversal without Tailscale | Low | miniupnpc code written behind `BS_NO_NAT` |
+| TLS close_notify before socket close | Low | Proper `SSL_shutdown()` for truncation detection |
+| Test suite: cross-platform matrix | Medium | Windows↔Linux, ConPTY↔PTY interoperability |
+| Build: CMakeLists.txt unification | Low | One file for bridgesessions + tests |
+| Docs: man page / full `--help` coverage | Low | All subcommands need complete help text |
+| PeekNamedPipe console input | Low | `ReadConsoleInput` for universal Windows terminal compat |
