@@ -307,19 +307,17 @@ TEST_CASE("SessionRegistry: circuit breaker after repeated failures", "[session_
     s->auto_restart = true;
     s->reset_restart_failures();
 
-    // Kill child and reap 4 times — circuit breaker should stop after 3 restarts
+    // Kill child and reap 4 times — circuit breaker should stop after 3 restarts.
+    // IMPORTANT: do NOT close the handle or null child_pid before reap_dead — the
+    // reaper detects death via WaitForSingleObject and must see a valid handle.
     for (int i = 0; i < 4; ++i) {
-        // Force-kill the child process
         auto* cur = registry.get("test_cb");
         REQUIRE(cur != nullptr);
         if (cur->child_pid) {
             TerminateProcess(cur->child_pid, 1);
-            WaitForSingleObject(cur->child_pid, 5000);
-            CloseHandle(cur->child_pid);
-            cur->child_pid = nullptr;
         }
-        // Small sleep to ensure TerminateProcess is visible
-        std::this_thread::sleep_for(100ms);
+        // Give TerminateProcess time to take effect, then let reap_dead detect + restart
+        std::this_thread::sleep_for(200ms);
         registry.reap_dead();
     }
 

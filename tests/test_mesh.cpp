@@ -574,10 +574,17 @@ TEST_CASE("MeshController: connect_to_peer establishes TLS connection", "[mesh][
     pf2 << real_pubkey;
     pf2.close();
 
-    // Set USERPROFILE for the duration of the test (bootstrap_identity uses this)
+    // Set USERPROFILE for the duration of the test.
+    // Must use _putenv_s (not SetEnvironmentVariableA) — SetEnvironmentVariableA updates
+    // the Win32 environment but NOT the MSVC C runtime's getenv cache, so std::getenv
+    // inside MeshController would still return the real user's home.
 #ifdef _WIN32
-    SetEnvironmentVariableA("USERPROFILE", home_dir.c_str());
+    char old_userprofile[MAX_PATH] = {};
+    GetEnvironmentVariableA("USERPROFILE", old_userprofile, sizeof(old_userprofile));
+    _putenv_s("USERPROFILE", home_dir.c_str());
 #else
+    const char* old_home = getenv("HOME");
+    std::string old_home_str = old_home ? old_home : "";
     setenv("HOME", home_dir.c_str(), 1);
 #endif
 
@@ -668,6 +675,14 @@ TEST_CASE("MeshController: connect_to_peer establishes TLS connection", "[mesh][
     REQUIRE(server_got_hello);
     REQUIRE(server_peer_name == "test-node");
     REQUIRE(mc.conn_count() == 1);
+
+    // Restore environment variable
+#ifdef _WIN32
+    _putenv_s("USERPROFILE", old_userprofile);
+#else
+    if (old_home_str.empty()) unsetenv("HOME");
+    else setenv("HOME", old_home_str.c_str(), 1);
+#endif
 
     // Clean up
     std::remove((bs_dir + "/server-cert.pem").c_str());
