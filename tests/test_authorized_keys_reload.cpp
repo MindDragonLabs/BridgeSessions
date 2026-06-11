@@ -106,9 +106,12 @@ static bool try_connect(int port, const std::string& cert, const std::string& ke
     SSL_set_fd(ssl.get(), static_cast<int>(fd));
     int ret = SSL_connect(ssl.get());
     if (ret > 0) {
+        // TLS 1.3: server rejection arrives as an alert on the first read.
+        // Server writes "y" on accept success; rejection closes without writing.
         char dummy[1];
         SSL_write(ssl.get(), "x", 1);
-        SSL_read(ssl.get(), dummy, 1);
+        int rr = SSL_read(ssl.get(), dummy, 1);
+        if (rr <= 0) ret = -1;  // server rejected us post-handshake
     }
     CLOSESOCK(fd);
     return ret > 0;

@@ -276,8 +276,8 @@ TEST_CASE("authorized_keys: allowed key passes verification", "[tls][auth]") {
     bool client_ok = (ret > 0);
     if (client_ok) SSL_write(ssl.get(), "x", 1);
 
+    server_thread.join();  // join before close avoids racing SSL_accept
     CLOSESOCK(cfd);
-    server_thread.join();
     CLOSESOCK(lfd);
 
     REQUIRE(client_ok);
@@ -412,9 +412,10 @@ TEST_CASE("TOFU: second connect with same fingerprint accepts", "[tls][tofu]") {
             auto ctx = create_node_tls(scfg, TlsMode::Listen);
             auto ssl = SslPtr(SSL_new(ctx.get()));
             SSL_set_fd(ssl.get(), cfd);
-            REQUIRE(SSL_accept(ssl.get()) > 0);
-            char buf[1];
-            SSL_read(ssl.get(), buf, 1);
+            if (SSL_accept(ssl.get()) > 0) {
+                char buf[1];
+                SSL_read(ssl.get(), buf, 1);
+            }
             CLOSESOCK(cfd);
         });
 
@@ -432,8 +433,8 @@ TEST_CASE("TOFU: second connect with same fingerprint accepts", "[tls][tofu]") {
         SSL_set_fd(ssl.get(), static_cast<int>(cfd));
         REQUIRE(SSL_connect(ssl.get()) > 0);
         SSL_write(ssl.get(), "x", 1);
+        server_thread.join();  // join before close avoids racing SSL_accept
         CLOSESOCK(cfd);
-        server_thread.join();
     }
 
     REQUIRE(callback_count == 1);

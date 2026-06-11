@@ -391,6 +391,15 @@ TEST_CASE("R2: unauthorized client rejected fast (no hang)", "[tls_reliability][
     ERR_clear_error();
     auto t0 = std::chrono::steady_clock::now();
     int ret = SSL_connect(ssl.get());
+
+    // In TLS 1.3, SSL_connect returns 1 after the client finishes its handshake messages,
+    // BEFORE the server has verified the client cert.  The server's rejection arrives as
+    // a TLS alert on the first subsequent SSL operation.  Drive that alert out now.
+    if (ret > 0) {
+        char dummy[1];
+        ret = SSL_read(ssl.get(), dummy, 1);
+    }
+
     auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::steady_clock::now() - t0).count();
 
@@ -405,8 +414,8 @@ TEST_CASE("R2: unauthorized client rejected fast (no hang)", "[tls_reliability][
     srv.join();
     CLOSESOCK(lfd);
 
-    INFO("SSL_connect ret: " << ret << ", elapsed: " << elapsed_ms << "ms, error: " << err_str);
-    REQUIRE(ret <= 0);           // must be rejected
+    INFO("final ret: " << ret << ", elapsed: " << elapsed_ms << "ms, error: " << err_str);
+    REQUIRE(ret <= 0);           // must be rejected (connect or first read fails)
     REQUIRE(elapsed_ms < 5000);  // must not hang past timeout
     if (!err_str.empty()) {
         REQUIRE(err_str != "error:00000000:lib(0)::reason(0)");

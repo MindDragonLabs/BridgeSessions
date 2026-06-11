@@ -1086,8 +1086,11 @@ std::vector<uint8_t> hex_decode(const std::string& hex) {
 
 struct AuthorizedKeys {
     std::vector<std::vector<uint8_t>> keys;
+    std::string file_path;  // stored for R4.1 hot-reload
 
     void load_from_file(const std::string& path) {
+        file_path = path;
+        keys.clear();
         if (path.empty()) return;
         std::ifstream f(path);
         if (!f.is_open()) return;
@@ -1104,6 +1107,9 @@ struct AuthorizedKeys {
             }
         }
     }
+
+    // R4.1: reload from disk — called per-accept so revocations take effect immediately
+    void reload() { if (!file_path.empty()) load_from_file(file_path); }
 
     bool contains(const std::vector<uint8_t>& key) const {
         for (auto& k : keys) if (k == key) return true;
@@ -1128,9 +1134,10 @@ struct AuthorizedKeys {
 
 // ── Custom cert verify callbacks ──────────────────────────────
 
-// Server: verifies client's ed25519 raw public key against authorized_keys
+// Server: verifies client's ed25519 raw public key against authorized_keys (R4.1: reloads per-accept)
 int server_cert_verify_cb(X509_STORE_CTX* ctx, void* arg) {
     auto* auth = static_cast<AuthorizedKeys*>(arg);
+    auth->reload();  // R4.1: pick up key additions/revocations without restart
     X509* cert = X509_STORE_CTX_get0_cert(ctx);
     if (!cert) return 0;
     EVP_PKEY* pk = X509_get0_pubkey(cert);
@@ -3269,7 +3276,18 @@ private:
         SSL_set_fd(ssl.get(), static_cast<int>(cfd));
 
         int ret = SSL_accept(ssl.get());
-        if (ret <= 0) { ssl_close(ssl.get(), cfd); return; }
+        if (ret <= 0) {
+            // R1: capture error before ssl_close drains the queue
+            int ssl_err = SSL_get_error(ssl.get(), ret);
+            char errbuf[256] = {};
+            unsigned long e = ERR_get_error();
+            if (e) ERR_error_string_n(e, errbuf, sizeof(errbuf));
+            log_event("tls_accept_failed",
+                      "ssl_err=" + std::to_string(ssl_err) +
+                      (errbuf[0] ? std::string(" ") + errbuf : ""));
+            ssl_close(ssl.get(), cfd);
+            return;
+        }
 
         // Get peer's pubkey
         std::string peer_pk = peer_public_key_hex(ssl.get());
@@ -3333,7 +3351,18 @@ private:
             SSL_set_fd(ssl.get(), static_cast<int>(sfd));
 
             int ret = SSL_connect(ssl.get());
-            if (ret <= 0) { ssl_close(ssl.get(), sfd); return false; }
+            if (ret <= 0) {
+                // R1: capture error before ssl_close drains the queue
+                int ssl_err = SSL_get_error(ssl.get(), ret);
+                char errbuf[256] = {};
+                unsigned long e = ERR_get_error();
+                if (e) ERR_error_string_n(e, errbuf, sizeof(errbuf));
+                log_event("tls_connect_failed",
+                          "ssl_err=" + std::to_string(ssl_err) +
+                          (errbuf[0] ? std::string(" ") + errbuf : ""));
+                ssl_close(ssl.get(), sfd);
+                return false;
+            }
 
             // Get peer's pubkey
             std::string peer_pk = peer_public_key_hex(ssl.get());
@@ -3656,7 +3685,7 @@ public:
         // DetachMsg — peer wants to detach from session
         if (std::holds_alternative<DetachMsg>(msg)) {
             if (conn.attached_session) {
-                sessions_.detach(conn.attached_session->name);
+                sessions_.detach(conn.attached_session->name, conn.peer_pubkey);
                 conn.attached_session = nullptr;
                 log_event("session_detached", "from " + conn.peer_name);
             }
@@ -4355,7 +4384,20 @@ public:
         auto ssl = SslPtr(SSL_new(tls_connect_.get()));
         if (!ssl) { ssl_close(nullptr, sfd); return {}; }
         SSL_set_fd(ssl.get(), (int)sfd);
-        if (SSL_connect(ssl.get()) <= 0) { ssl_close(ssl.get(), sfd); return {}; }
+        {
+            int rc = SSL_connect(ssl.get());
+            if (rc <= 0) {
+                int ssl_err = SSL_get_error(ssl.get(), rc);
+                char errbuf[256] = {};
+                unsigned long e = ERR_get_error();
+                if (e) ERR_error_string_n(e, errbuf, sizeof(errbuf));
+                log_event("tls_connect_and_hello_failed",
+                          "ssl_err=" + std::to_string(ssl_err) +
+                          (errbuf[0] ? std::string(" ") + errbuf : ""));
+                ssl_close(ssl.get(), sfd);
+                return {};
+            }
+        }
         write_frame(ssl.get(), build_hello(), CONTROL_STREAM_ID);
         Message msg = read_frame(ssl.get());
         if (!std::holds_alternative<HelloMsg>(msg)) { ssl_close(ssl.get(), sfd); return {}; }

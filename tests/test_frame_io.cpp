@@ -108,24 +108,26 @@ TEST_CASE("read_frame/write_frame: KeystrokeMsg round-trip over TLS", "[frame_io
     int port = get_port(lfd);
 
     KeystrokeMsg received;
+    std::atomic<bool> srv_ok{false};
 
     std::thread server_thread([&] {
         int cfd = accept(lfd, nullptr, nullptr);
-        REQUIRE(cfd >= 0);
+        if (cfd < 0) return;
         NodeTlsConfig scfg;
         scfg.cert_file = server_ck.cert_file.path;
         scfg.key_file = server_ck.key_file.path;
         scfg.authorized_keys_file = ak.path;
         auto ctx = create_node_tls(scfg, TlsMode::Listen);
-        REQUIRE(ctx != nullptr);
+        if (!ctx) { CLOSESOCK(cfd); return; }
         auto ssl = SslPtr(SSL_new(ctx.get()));
         SSL_set_fd(ssl.get(), cfd);
-        REQUIRE(SSL_accept(ssl.get()) > 0);
-
-        auto msg = read_frame(ssl.get());
-        REQUIRE(std::holds_alternative<KeystrokeMsg>(msg));
-        received = std::get<KeystrokeMsg>(msg);
-
+        if (SSL_accept(ssl.get()) <= 0) { CLOSESOCK(cfd); return; }
+        srv_ok = true;
+        try {
+            auto msg = read_frame(ssl.get());
+            if (std::holds_alternative<KeystrokeMsg>(msg))
+                received = std::get<KeystrokeMsg>(msg);
+        } catch (...) {}
         CLOSESOCK(cfd);
     });
 
@@ -144,10 +146,11 @@ TEST_CASE("read_frame/write_frame: KeystrokeMsg round-trip over TLS", "[frame_io
     ks.data = "hello world keystroke test";
     write_frame(ssl.get(), ks, CONTROL_STREAM_ID);
 
+    server_thread.join();  // join before close avoids racing SSL_accept
     CLOSESOCK(cfd);
-    server_thread.join();
     CLOSESOCK(lfd);
 
+    REQUIRE(srv_ok);
     REQUIRE(received.data == "hello world keystroke test");
 }
 
@@ -163,24 +166,26 @@ TEST_CASE("read_frame/write_frame: ResizeMsg round-trip over TLS", "[frame_io]")
     int port = get_port(lfd);
 
     ResizeMsg received;
+    std::atomic<bool> srv_ok{false};
 
     std::thread server_thread([&] {
         int cfd = accept(lfd, nullptr, nullptr);
-        REQUIRE(cfd >= 0);
+        if (cfd < 0) return;
         NodeTlsConfig scfg;
         scfg.cert_file = server_ck.cert_file.path;
         scfg.key_file = server_ck.key_file.path;
         scfg.authorized_keys_file = ak.path;
         auto ctx = create_node_tls(scfg, TlsMode::Listen);
-        REQUIRE(ctx != nullptr);
+        if (!ctx) { CLOSESOCK(cfd); return; }
         auto ssl = SslPtr(SSL_new(ctx.get()));
         SSL_set_fd(ssl.get(), cfd);
-        REQUIRE(SSL_accept(ssl.get()) > 0);
-
-        auto msg = read_frame(ssl.get());
-        REQUIRE(std::holds_alternative<ResizeMsg>(msg));
-        received = std::get<ResizeMsg>(msg);
-
+        if (SSL_accept(ssl.get()) <= 0) { CLOSESOCK(cfd); return; }
+        srv_ok = true;
+        try {
+            auto msg = read_frame(ssl.get());
+            if (std::holds_alternative<ResizeMsg>(msg))
+                received = std::get<ResizeMsg>(msg);
+        } catch (...) {}
         CLOSESOCK(cfd);
     });
 
@@ -200,10 +205,11 @@ TEST_CASE("read_frame/write_frame: ResizeMsg round-trip over TLS", "[frame_io]")
     rs.rows = 43;
     write_frame(ssl.get(), rs, CONTROL_STREAM_ID);
 
-    CLOSESOCK(cfd);
     server_thread.join();
+    CLOSESOCK(cfd);
     CLOSESOCK(lfd);
 
+    REQUIRE(srv_ok);
     REQUIRE(received.cols == 132);
     REQUIRE(received.rows == 43);
 }
@@ -221,23 +227,26 @@ TEST_CASE("read_frame/write_frame: FLAG_COMPRESSED OutputMsg round-trip", "[fram
 
     OutputMsg received;
 
+    std::atomic<bool> srv_ok{false};
+
     std::thread server_thread([&] {
         int cfd = accept(lfd, nullptr, nullptr);
-        REQUIRE(cfd >= 0);
+        if (cfd < 0) return;
         NodeTlsConfig scfg;
         scfg.cert_file = server_ck.cert_file.path;
         scfg.key_file = server_ck.key_file.path;
         scfg.authorized_keys_file = ak.path;
         auto ctx = create_node_tls(scfg, TlsMode::Listen);
-        REQUIRE(ctx != nullptr);
+        if (!ctx) { CLOSESOCK(cfd); return; }
         auto ssl = SslPtr(SSL_new(ctx.get()));
         SSL_set_fd(ssl.get(), cfd);
-        REQUIRE(SSL_accept(ssl.get()) > 0);
-
-        auto msg = read_frame(ssl.get());
-        REQUIRE(std::holds_alternative<OutputMsg>(msg));
-        received = std::get<OutputMsg>(msg);
-
+        if (SSL_accept(ssl.get()) <= 0) { CLOSESOCK(cfd); return; }
+        srv_ok = true;
+        try {
+            auto msg = read_frame(ssl.get());
+            if (std::holds_alternative<OutputMsg>(msg))
+                received = std::get<OutputMsg>(msg);
+        } catch (...) {}
         CLOSESOCK(cfd);
     });
 
@@ -255,19 +264,17 @@ TEST_CASE("read_frame/write_frame: FLAG_COMPRESSED OutputMsg round-trip", "[fram
     // Build a payload > COMPRESSION_THRESHOLD (256 bytes) to trigger zstd
     OutputMsg out;
     std::string payload;
-    // Generate ~500 bytes so it exceeds the 256 threshold
-    for (int i = 0; i < 50; ++i) {
-        payload += "ABCDEFGHIJ";  // 10 bytes per iteration → 500 bytes total
-    }
+    for (int i = 0; i < 50; ++i) payload += "ABCDEFGHIJ";  // 500 bytes
     REQUIRE(payload.size() > COMPRESSION_THRESHOLD);
     out.data = payload;
 
     write_frame(ssl.get(), out, CONTROL_STREAM_ID);
 
-    CLOSESOCK(cfd);
     server_thread.join();
+    CLOSESOCK(cfd);
     CLOSESOCK(lfd);
 
+    REQUIRE(srv_ok);
     REQUIRE(received.data == payload);
     REQUIRE(received.data.size() == 500);
 }
@@ -287,34 +294,32 @@ TEST_CASE("read_frame/write_frame: multiple messages in sequence", "[frame_io]")
     ResizeMsg     rs_received;
     OutputMsg     out_received;
 
+    std::atomic<bool> srv_ok{false};
+
     std::thread server_thread([&] {
         int cfd = accept(lfd, nullptr, nullptr);
-        REQUIRE(cfd >= 0);
+        if (cfd < 0) return;
         NodeTlsConfig scfg;
         scfg.cert_file = server_ck.cert_file.path;
         scfg.key_file = server_ck.key_file.path;
         scfg.authorized_keys_file = ak.path;
         auto ctx = create_node_tls(scfg, TlsMode::Listen);
-        REQUIRE(ctx != nullptr);
+        if (!ctx) { CLOSESOCK(cfd); return; }
         auto ssl = SslPtr(SSL_new(ctx.get()));
         SSL_set_fd(ssl.get(), cfd);
-        REQUIRE(SSL_accept(ssl.get()) > 0);
-
-        // Read msg 1
-        auto m1 = read_frame(ssl.get());
-        REQUIRE(std::holds_alternative<KeystrokeMsg>(m1));
-        ks_received = std::get<KeystrokeMsg>(m1);
-
-        // Read msg 2
-        auto m2 = read_frame(ssl.get());
-        REQUIRE(std::holds_alternative<ResizeMsg>(m2));
-        rs_received = std::get<ResizeMsg>(m2);
-
-        // Read msg 3 (compressed Output)
-        auto m3 = read_frame(ssl.get());
-        REQUIRE(std::holds_alternative<OutputMsg>(m3));
-        out_received = std::get<OutputMsg>(m3);
-
+        if (SSL_accept(ssl.get()) <= 0) { CLOSESOCK(cfd); return; }
+        srv_ok = true;
+        try {
+            auto m1 = read_frame(ssl.get());
+            if (std::holds_alternative<KeystrokeMsg>(m1))
+                ks_received = std::get<KeystrokeMsg>(m1);
+            auto m2 = read_frame(ssl.get());
+            if (std::holds_alternative<ResizeMsg>(m2))
+                rs_received = std::get<ResizeMsg>(m2);
+            auto m3 = read_frame(ssl.get());
+            if (std::holds_alternative<OutputMsg>(m3))
+                out_received = std::get<OutputMsg>(m3);
+        } catch (...) {}
         CLOSESOCK(cfd);
     });
 
@@ -344,10 +349,11 @@ TEST_CASE("read_frame/write_frame: multiple messages in sequence", "[frame_io]")
     out.data = big;
     write_frame(ssl.get(), out, CONTROL_STREAM_ID);
 
-    CLOSESOCK(cfd);
     server_thread.join();
+    CLOSESOCK(cfd);
     CLOSESOCK(lfd);
 
+    REQUIRE(srv_ok);
     REQUIRE(ks_received.data == "msg1");
     REQUIRE(rs_received.cols == 80);
     REQUIRE(rs_received.rows == 24);
