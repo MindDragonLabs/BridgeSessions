@@ -21,6 +21,7 @@ $msvc  = "C:\Program Files\Microsoft Visual Studio\18\Enterprise\VC\Tools\MSVC\1
 $sdk   = "C:\Program Files (x86)\Windows Kits\10"
 $vcpkg = "C:\vcpkg\installed\x64-windows"
 $proj  = "C:\Users\Shadow\bridgesessions"
+$testHome = Join-Path $env:TEMP "bridgesessions-test-home-$(Get-Random)"
 
 $Env:INCLUDE = "$msvc\include;$sdk\Include\10.0.28000.0\ucrt;$sdk\Include\10.0.28000.0\um;$sdk\Include\10.0.28000.0\shared;$vcpkg\include;$proj"
 $Env:LIB     = "$msvc\lib\x64;$sdk\Lib\10.0.28000.0\ucrt\x64;$sdk\Lib\10.0.28000.0\um\x64;$vcpkg\lib"
@@ -71,6 +72,13 @@ $buildFail  = 0
 $suiteFail  = 0
 $totalPass  = 0
 $totalFail  = 0
+
+$prevUserProfile = $env:USERPROFILE
+$prevHome = $env:HOME
+New-Item -ItemType Directory -Force -Path $testHome | Out-Null
+New-Item -ItemType Directory -Force -Path (Join-Path $testHome ".bridgesessions") | Out-Null
+$env:USERPROFILE = $testHome
+$env:HOME = $testHome
 
 foreach ($t in $tests) {
     $exe = "$proj\$($t.Name).exe"
@@ -131,7 +139,13 @@ foreach ($t in $tests) {
     $results.Add([PSCustomObject]@{ Name=$t.Name; Layer=$t.Layer; Tags=$t.Tags; Build="ok"; Pass=$pass; Fail=$fail; Status=$status })
 }
 
-if ($BuildOnly) { Write-Host ""; Write-Host "  Build-only complete." -ForegroundColor Yellow; if ($buildFail -gt 0) { exit 1 } else { exit 0 } }
+if ($BuildOnly) {
+    Write-Host ""; Write-Host "  Build-only complete." -ForegroundColor Yellow
+    $env:USERPROFILE = $prevUserProfile
+    if ($prevHome) { $env:HOME = $prevHome } else { Remove-Item Env:HOME -ErrorAction SilentlyContinue }
+    Remove-Item -Recurse -Force $testHome -ErrorAction SilentlyContinue
+    if ($buildFail -gt 0) { exit 1 } else { exit 0 }
+}
 
 # ── Summary ────────────────────────────────────────────────────────────
 Write-Host ""
@@ -146,7 +160,15 @@ Write-Host "  Suites     : $($results.Count) run, $suiteFail failed, $buildFail 
 Write-Host ""
 
 if ($buildFail -eq 0 -and $suiteFail -eq 0) {
-    Write-Host "  ALL PASS" -ForegroundColor Green; exit 0
+    Write-Host "  ALL PASS" -ForegroundColor Green
+    $env:USERPROFILE = $prevUserProfile
+    if ($prevHome) { $env:HOME = $prevHome } else { Remove-Item Env:HOME -ErrorAction SilentlyContinue }
+    Remove-Item -Recurse -Force $testHome -ErrorAction SilentlyContinue
+    exit 0
 } else {
-    Write-Host "  FAILED" -ForegroundColor Red; exit 1
+    Write-Host "  FAILED" -ForegroundColor Red
+    $env:USERPROFILE = $prevUserProfile
+    if ($prevHome) { $env:HOME = $prevHome } else { Remove-Item Env:HOME -ErrorAction SilentlyContinue }
+    Remove-Item -Recurse -Force $testHome -ErrorAction SilentlyContinue
+    exit 1
 }
