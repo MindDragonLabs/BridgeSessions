@@ -2730,6 +2730,8 @@ inline void set_socket_timeouts(SOCKET fd, int ms) {
 
 // Default handshake/connect timeout for outbound mesh + CLI paths (R2).
 constexpr int kConnectTimeoutMs = 15000;
+constexpr int kHealthConnectTimeoutMs = 45000;
+constexpr uint16_t kMeshCliPort = 19980;
 
 inline int tls_last_syscall_errno() {
 #ifdef _WIN32
@@ -3198,6 +3200,9 @@ private:
     std::filesystem::file_time_type config_mtime_{};
     bool config_mtime_set_ = false;
 
+    int outbound_connect_timeout_ms_ = kConnectTimeoutMs;
+    SOCKET cli_listen_fd_ = INVALID_SOCKET;
+
     // D15: WebRTC transport
 #ifndef BS_NO_WEBRTC
     std::unordered_map<std::string, WebRtcChannel> webrtc_channels_;
@@ -3540,7 +3545,7 @@ private:
             auto sa = resolve_addr(addr);
             SOCKET sfd = socket(AF_INET, SOCK_STREAM, 0);
             if (sfd == INVALID_SOCKET) return false;
-            set_socket_timeouts(sfd, kConnectTimeoutMs);  // R2.1: bound TLS handshake / Hello read
+            set_socket_timeouts(sfd, outbound_connect_timeout_ms_);
             { int o = 1; setsockopt(sfd, SOL_SOCKET, SO_REUSEADDR, (const char*)&o, sizeof(o)); }  // R3.6
 
             if (connect(sfd, reinterpret_cast<sockaddr*>(&sa), sizeof(sa)) == SOCKET_ERROR) {
@@ -4369,6 +4374,112 @@ public:
             CLOSESOCK(listen_fd_);
             listen_fd_ = INVALID_SOCKET;
         }
+        cli_ipc_shutdown();
+    }
+
+    bool cli_ipc_init() {
+        cli_listen_fd_ = socket(AF_INET, SOCK_STREAM, 0);
+        if (cli_listen_fd_ == INVALID_SOCKET) return false;
+        int opt = 1;
+        setsockopt(cli_listen_fd_, SOL_SOCKET, SO_REUSEADDR, (const char*)&opt, sizeof(opt));
+        sockaddr_in sa{};
+        sa.sin_family = AF_INET;
+        sa.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        sa.sin_port = htons(kMeshCliPort);
+        if (bind(cli_listen_fd_, (sockaddr*)&sa, sizeof(sa)) == SOCKET_ERROR) {
+            CLOSESOCK(cli_listen_fd_); cli_listen_fd_ = INVALID_SOCKET; return false;
+        }
+        if (listen(cli_listen_fd_, 8) == SOCKET_ERROR) {
+            CLOSESOCK(cli_listen_fd_); cli_listen_fd_ = INVALID_SOCKET; return false;
+        }
+#ifdef _WIN32
+        u_long nb = 1;
+        ioctlsocket(cli_listen_fd_, FIONBIO, &nb);
+#else
+        int fl = fcntl(cli_listen_fd_, F_GETFL, 0);
+        fcntl(cli_listen_fd_, F_SETFL, fl | O_NONBLOCK);
+#endif
+        log_event("mesh_cli_ipc_listen", std::to_string(kMeshCliPort));
+        return true;
+    }
+
+    void cli_ipc_shutdown() {
+        if (cli_listen_fd_ != INVALID_SOCKET) {
+            CLOSESOCK(cli_listen_fd_);
+            cli_listen_fd_ = INVALID_SOCKET;
+        }
+    }
+
+    void cli_ipc_accept_one() {
+        if (cli_listen_fd_ == INVALID_SOCKET) return;
+        sockaddr_in peer{};
+        socklen_t plen = sizeof(peer);
+        SOCKET cfd = accept(cli_listen_fd_, (sockaddr*)&peer, &plen);
+        if (cfd == INVALID_SOCKET) return;
+        char buf[256] = {};
+        int n = recv(cfd, buf, sizeof(buf) - 1, 0);
+        std::string response = "ERROR bad request\n";
+        if (n > 0) {
+            buf[n] = '\0';
+            std::string line(buf);
+            while (!line.empty() && (line.back() == '\r' || line.back() == '\n'))
+                line.pop_back();
+            if (line.rfind("HEALTH ", 0) == 0) {
+                std::string peer_name = line.substr(7);
+                bool found = false, ok = false;
+                for (auto& c : conns_) {
+                    if (c.sock_fd == INVALID_SOCKET) continue;
+                    if (!peer_name_eq(c.peer_name, peer_name)) continue;
+                    found = true;
+                    try {
+                        write_frame(c.ssl.get(), PingMsg{}, CONTROL_STREAM_ID);
+                        auto dl = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+                        ok = wait_for_pong(c.ssl.get(), c.sock_fd, dl);
+                    } catch (...) { ok = false; }
+                    break;
+                }
+                response = found ? (peer_name + (ok ? " healthy\n" : " no pong\n"))
+                                   : (peer_name + " not connected\n");
+            }
+        }
+        send(cfd, response.data(), (int)response.size(), 0);
+        CLOSESOCK(cfd);
+    }
+
+    std::string daemon_health_via_ipc(const std::string& peer_name, int wait_ms) {
+#ifdef _WIN32
+        SOCKET sfd = socket(AF_INET, SOCK_STREAM, 0);
+        if (sfd == INVALID_SOCKET) return "";
+        sockaddr_in sa{};
+        sa.sin_family = AF_INET;
+        sa.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        sa.sin_port = htons(kMeshCliPort);
+        if (connect(sfd, (sockaddr*)&sa, sizeof(sa)) == SOCKET_ERROR) {
+            CLOSESOCK(sfd); return "";
+        }
+        std::string req = "HEALTH " + peer_name + "\n";
+        send(sfd, req.data(), (int)req.size(), 0);
+        char buf[256] = {};
+        int total = 0;
+        auto dl = std::chrono::steady_clock::now() + std::chrono::milliseconds(wait_ms);
+        while (std::chrono::steady_clock::now() < dl && total < (int)sizeof(buf) - 1) {
+            int n = recv(sfd, buf + total, (int)sizeof(buf) - 1 - total, 0);
+            if (n > 0) {
+                total += n; buf[total] = '\0';
+                if (strchr(buf, '\n')) break;
+            } else {
+                std::this_thread::sleep_for(std::chrono::milliseconds(50));
+            }
+        }
+        CLOSESOCK(sfd);
+        if (total <= 0) return "";
+        std::string line(buf);
+        while (!line.empty() && (line.back() == '\r' || line.back() == '\n'))
+            line.pop_back();
+        return line;
+#else
+        (void)peer_name; (void)wait_ms; return "";
+#endif
     }
 
     // ── Main event loop ───────────────────────────────────────
@@ -4424,6 +4535,8 @@ public:
 
         log_event("mesh_listening", config_.listen_addr + ":" + std::to_string(config_.listen_port));
 
+        (void)cli_ipc_init();
+
         mdns_init();
         last_ping_time_ = std::chrono::steady_clock::now();
         last_gossip_time_ = std::chrono::steady_clock::now();
@@ -4466,6 +4579,8 @@ public:
             if (g_config_reload_requested.exchange(false))
                 reload_seeds_from_disk();
 #endif
+
+            cli_ipc_accept_one();
 
             // 3. Accept new connections
             if (nfds > 0 && FD_ISSET(listen_fd_, &read_fds)) {
@@ -4669,7 +4784,7 @@ public:
             out.fail_detail = "socket() failed";
             return out;
         }
-        set_socket_timeouts(sfd, kConnectTimeoutMs);  // R2.2
+        set_socket_timeouts(sfd, outbound_connect_timeout_ms_);
         { int o = 1; setsockopt(sfd, SOL_SOCKET, SO_REUSEADDR, (const char*)&o, sizeof(o)); }  // R3.6
         if (connect(sfd, (sockaddr*)&sa, sizeof(sa)) == SOCKET_ERROR) {
             int err =
@@ -4835,6 +4950,20 @@ public:
 
     // ── CLI: health_check ─────────────────────────────────────
     bool health_check(const std::string& peer_name, std::string* status_out = nullptr) {
+#ifdef _WIN32
+        std::string ipc = daemon_health_via_ipc(peer_name, 10000);
+        if (!ipc.empty()) {
+            if (status_out) {
+                auto sp = ipc.find(' ');
+                *status_out = (sp == std::string::npos) ? ipc : ipc.substr(sp + 1);
+            }
+            return ipc.find(" healthy") != std::string::npos;
+        }
+#endif
+        int prev = outbound_connect_timeout_ms_;
+        outbound_connect_timeout_ms_ = kHealthConnectTimeoutMs;
+        struct TimeoutRestore { int& ref; int val; ~TimeoutRestore() { ref = val; } } restore{outbound_connect_timeout_ms_, prev};
+
         std::string addr = find_peer_addr(peer_name);
         if (addr.empty()) {
             if (status_out) *status_out = "unknown peer";

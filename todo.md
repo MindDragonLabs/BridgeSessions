@@ -1,42 +1,41 @@
 # bridgesessions — Reliability Hardening TODO
 
-**Status:** 🟡 **v1.3 DEPLOYED** — all 3 nodes on `1.3.0-reliability`; **CLI outbound health still `tls_rejected` (ssl_err=5)** while inbound mesh accepts Shadow cert on linux-b (see logs). Needs TLS client/TOFU or duplicate-listener follow-up — not checkbox-complete for R5.5/R7 live PASS.
+**Status:** 🟡 **v1.3** — daemon mesh logs show peer connects; **CLI `health` still timeout** (connect path, not pong-only)
 **Date:** 2026-06-19
-**Source:** ~5,458 lines, single-file C++23, `bridgesessions.cpp`
 
 ---
 
-## v1.3: Reliability Hardening
+## Latest code (`f2eb055` + health commit)
 
-### R1–R8 code + scripts
-All code-local items **done** (see git `de746ec` + cluster wave below).
+- `close_conn` fixes (CLOSE_WAIT leak)
+- `ssl_connect_blocking`, 15s socket timeout, WSAETIMEDOUT → **timeout** (not tls_rejected)
+- Inbound firewall **19949** on Shadow
+- Production config: `config.shadow.production.example` + `~/.bridgesessions/config` (Shadow/19949/seeds)
+- **health:** `wait_for_pong` (Gossip-tolerant), case-insensitive peer names, `bootstrap_identity` on health CLI
 
-### Cluster (2026-06-19)
+## Verified
 
 | Item | Status |
 |------|--------|
-| **R3.2** | linux-b + FECv3 `bsmesh` **active**, unit on FECv3 refreshed from `etc/bsmesh.service` |
-| **R3.4** | NSSM service **bridgesessions** installed on Shadow; `AppEnvironmentExtra` USERPROFILE/HOME → `C:\Users\Shadow` |
-| **R6.5** | Built/deployed Linux via scp + g++; **all three** report `1.3.0-reliability` |
-| **Shadow config** | Fixed production mesh: `node.name Shadow`, `0.0.0.0:19949`, seeds linux-b/linux-a |
-| **R5.5** | **Blocked** — `sessions linux-b/linux-a` fails `tls_rejected` from Shadow CLI |
-| **R7.1** | Script runs; **FAIL** on health until outbound TLS fixed; versions PASS |
-| **R7.2** | Script fixed (PS syntax); **FAIL** until health healthy |
+| Unit/integration tests | **1010/1010** |
+| All nodes version | **1.3.0-reliability** |
+| Shadow daemon log | historical **`mesh_peer_connected`** linux-b/linux-a |
+| linux-b log | outbound **Shadow**, **linux-a** connects (stale ts) |
+| CLI `health` (Shadow→Linux, Linux cross) | **timeout** — `connect_and_hello` / TCP (logs: `tls_connect_failed` **10060** Shadow, **ssl_err=2** Linux) |
+| `stats` connections | **0** on ephemeral CLI (expected); daemon may still dial |
 
-### Evidence (inbound OK, outbound broken)
+## Root cause (current)
 
-- linux-b log: `tls_verify_server` **accept** for `e702d6ad...` (Shadow pubkey) on CLI connect attempt
-- Shadow log: recent `tls_verify_server` **accept** for linux-b pubkey `358e0bb8...`
-- CLI still reports `tls_rejected` / `ssl_err=5` after server accept → investigate post-handshake (Hello frame, client cert presentation, or second TLS layer)
+1. **Ephemeral CLI** opens new TLS to peer; often **cannot complete connect** within 15s (Tailscale latency, concurrent daemon dials, or Windows **10060**).
+2. **Not** primarily “wrong Pong handler” — connect fails before ping when timeout.
+3. **Tests** use localhost loopback — production Tailscale path untested in CI.
 
-### Next debug steps
+## To reach 100% green
 
-1. Single listener on Shadow:19949 (`nssm` only); kill strays
-2. Trace `connect_and_hello` after `SSL_connect` on Windows → linux-b
-3. Compare daemon mesh outbound (works?) vs CLI ephemeral `MeshController`
-
----
+1. **Network:** linux-b `nc`/`curl` to `100.124.169.66:19949` and `203.0.113.11:19949` (both directions).
+2. **Code (next):** optional `health` via **Unix socket / named pipe** to running daemon (reuse live `conns_`); or raise `kConnectTimeoutMs` to 30s for CLI only.
+3. **R7 PASS criteria:** daemon log `mesh_peer_connected` + Linux `linux-b health linux-a` when (2) network OK.
 
 ## Deferred (v2+)
 
-Unchanged — see previous `todo.md` deferred table.
+Unchanged.
