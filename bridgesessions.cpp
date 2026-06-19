@@ -975,6 +975,10 @@ struct NodeTlsConfig {
 
 // ── Internal helpers ────────────────────────────────────────────
 
+// Forward decl at bs::mesh scope so the TLS verify callbacks (in the anonymous
+// namespace below) can emit R1.1/R1.2 accept/reject logs. Defined ~line 2350.
+inline void log_event(const std::string& event, const std::string& detail);
+
 namespace {
 
 // ── BIO helpers ──────────────────────────────────────────────
@@ -1134,6 +1138,15 @@ struct AuthorizedKeys {
 
 // ── Custom cert verify callbacks ──────────────────────────────
 
+// Local bytes->hex for verify-callback logging (avoids depending on later helpers).
+inline std::string verify_bytes_hex(const std::vector<uint8_t>& b) {
+    static const char* d = "0123456789abcdef";
+    std::string s;
+    s.reserve(b.size() * 2);
+    for (uint8_t c : b) { s.push_back(d[c >> 4]); s.push_back(d[c & 0xF]); }
+    return s;
+}
+
 // Server: verifies client's ed25519 raw public key against authorized_keys (R4.1: reloads per-accept)
 int server_cert_verify_cb(X509_STORE_CTX* ctx, void* arg) {
     auto* auth = static_cast<AuthorizedKeys*>(arg);
@@ -1144,10 +1157,13 @@ int server_cert_verify_cb(X509_STORE_CTX* ctx, void* arg) {
     if (!pk) return 0;
     auto raw = extract_raw_pubkey(pk);
     if (raw.empty()) return 0;
+    std::string pk_hex = verify_bytes_hex(raw);
     if (auth->contains(raw)) {
+        log_event("tls_verify_server", pk_hex + " result=accept");  // R1.1
         X509_STORE_CTX_set_error(ctx, X509_V_OK);
         return 1;
     }
+    log_event("tls_verify_server", pk_hex + " result=reject");  // R1.1
     return 0;
 }
 
@@ -1166,9 +1182,11 @@ int client_cert_verify_cb(X509_STORE_CTX* ctx, void* arg) {
         fp += h;
     }
     if ((*cb)(fp)) {
+        log_event("tls_verify_client", fp + " result=accept");  // R1.2
         X509_STORE_CTX_set_error(ctx, X509_V_OK);
         return 1;
     }
+    log_event("tls_verify_client", fp + " result=reject");  // R1.2
     return 0;
 }
 
@@ -1288,8 +1306,17 @@ void bootstrap_identity(const std::string& home_dir) {
 }
 
 // ── Public: unified create_node_tls ──────────────────────────────
+//
+// auth_storage / tofu_storage: optional caller-owned storage for the
+// cert-verify callback context. When supplied, the context is written there
+// and NOT heap-allocated, so the caller controls its lifetime (must outlive the
+// returned SSL_CTX). When null (e.g. short-lived test contexts), the context is
+// heap-allocated and intentionally leaked for the life of the process — fine for
+// tests, not for the long-running daemon (R8.3).
 
-SslCtxPtr create_node_tls(const NodeTlsConfig& cfg, TlsMode mode) {
+SslCtxPtr create_node_tls(const NodeTlsConfig& cfg, TlsMode mode,
+                          AuthorizedKeys* auth_storage = nullptr,
+                          std::function<bool(const std::string&)>* tofu_storage = nullptr) {
     SslCtxPtr ctx;
 
     if (mode == TlsMode::Listen) {
@@ -1322,7 +1349,8 @@ SslCtxPtr create_node_tls(const NodeTlsConfig& cfg, TlsMode mode) {
                            SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT,
                            nullptr);
 
-        auto* auth = new AuthorizedKeys{};
+        AuthorizedKeys* auth = auth_storage;
+        if (!auth) auth = new AuthorizedKeys{};  // test/standalone: leaked for process lifetime
         if (!cfg.authorized_keys_file.empty())
             auth->load_from_file(cfg.authorized_keys_file);
         SSL_CTX_set_cert_verify_callback(ctx.get(), server_cert_verify_cb, auth);
@@ -1334,7 +1362,9 @@ SslCtxPtr create_node_tls(const NodeTlsConfig& cfg, TlsMode mode) {
         // Client: verify server cert via TOFU
         SSL_CTX_set_verify(ctx.get(), SSL_VERIFY_PEER, nullptr);
 
-        auto* cb = new std::function<bool(const std::string&)>(cfg.tofu_cb);
+        std::function<bool(const std::string&)>* cb = tofu_storage;
+        if (cb) *cb = cfg.tofu_cb;
+        else cb = new std::function<bool(const std::string&)>(cfg.tofu_cb);  // test/standalone: leaked
         SSL_CTX_set_cert_verify_callback(ctx.get(), client_cert_verify_cb, cb);
     }
 
@@ -1583,6 +1613,12 @@ struct Session {
     int restart_failures = 0;
     std::chrono::steady_clock::time_point restart_window_start;
 
+    // Monotonic spawn generation. Bumped every time a child process is spawned
+    // (initial create + each auto-restart/resurrect). Unlike child_pid/HANDLE,
+    // this never repeats, so callers/tests can reliably detect a respawn even
+    // when the OS recycles the freed PID or HANDLE-table slot.
+    uint64_t generation = 0;
+
     Session();
     ~Session();
 
@@ -1601,6 +1637,11 @@ struct Session {
 };
 
 // ── Session implementation ────────────────────────────────────────
+
+// Process-wide monotonic spawn counter. Every successful child spawn gets a
+// unique value, so a respawn is detectable even when the OS recycles the freed
+// PID/HANDLE. Starts at 1 so 0 reliably means "never spawned".
+static std::atomic<uint64_t> g_session_generation{0};
 
 Session::Session()
     : created_at(std::chrono::steady_clock::now())
@@ -1663,6 +1704,7 @@ Session::Session(Session&& other) noexcept
     , auto_restart(other.auto_restart)
     , restart_failures(other.restart_failures)
     , restart_window_start(other.restart_window_start)
+    , generation(other.generation)
 {
 #ifdef _WIN32
     write_handle = other.write_handle;
@@ -1693,6 +1735,7 @@ Session& Session::operator=(Session&& other) noexcept {
         auto_restart = other.auto_restart;
         restart_failures = other.restart_failures;
         restart_window_start = other.restart_window_start;
+        generation = other.generation;
 #ifdef _WIN32
         write_handle = other.write_handle;
         hpcon = other.hpcon;
@@ -1813,6 +1856,7 @@ void Session::reset_restart_failures() {
     s.write_handle = hPipeInWrite;  // write: server -> child stdin
     s.child_pid = pi.hProcess;      // process handle
     s.hpcon = hPC;                  // for ResizePseudoConsole
+    s.generation = ++g_session_generation;
     s.state = SessionState::Running;
     return s;
 }
@@ -1843,6 +1887,7 @@ void Session::reset_restart_failures() {
     Session s;
     s.name = name; s.command = command;
     s.master_fd = master_fd; s.child_pid = child;
+    s.generation = ++g_session_generation;
     s.state = SessionState::Running;
     return s;
 }
@@ -2647,6 +2692,31 @@ public:
 #define CLOSESOCK closesocket
 #endif
 
+// R2: bound blocking connect/handshake/read time on a socket so a dead or
+// silent peer can't hang the daemon or a CLI command indefinitely. Sets both
+// SO_RCVTIMEO and SO_SNDTIMEO. Best-effort: failures are ignored (the prior
+// behaviour was no timeout at all, so we never make things worse). Defined here,
+// after the POSIX SOCKET/timeval definitions above, so it compiles on both
+// platforms.
+inline void set_socket_timeouts(SOCKET fd, int ms) {
+    if (fd == INVALID_SOCKET) return;
+#ifdef _WIN32
+    DWORD tv = static_cast<DWORD>(ms);
+    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof(tv));
+    setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, (const char*)&tv, sizeof(tv));
+#else
+    struct timeval tv;
+    tv.tv_sec = ms / 1000;
+    tv.tv_usec = (ms % 1000) * 1000;
+    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+#endif
+}
+
+// Default handshake/connect timeout for outbound mesh + CLI paths (R2).
+constexpr int kConnectTimeoutMs = 5000;
+
+
 // ────────────────────────────────────────────────────────────────────
 // 9. TERMINAL RAW MODE (Windows + POSIX) — moved before MeshController for shell_peer
 // ────────────────────────────────────────────────────────────────────
@@ -2733,7 +2803,11 @@ inline void ssl_close(SSL* ssl, SOCKET sfd) {
         // drain pending data for 1s
         fd_set fds; FD_ZERO(&fds); FD_SET(sfd, &fds);
         timeval tv{1, 0};
-        select(0, &fds, nullptr, nullptr, &tv);
+#ifdef _WIN32
+        select(0, &fds, nullptr, nullptr, &tv);  // Winsock ignores nfds
+#else
+        select((int)sfd + 1, &fds, nullptr, nullptr, &tv);  // R8.2: POSIX needs maxfd+1
+#endif
     }
     if (sfd != INVALID_SOCKET) CLOSESOCK(sfd);
 }
@@ -3008,6 +3082,13 @@ public:
 private:
     MeshConfig config_;
     SessionRegistry sessions_;
+    // R8.3: own the TLS cert-verify callback contexts so they are freed with the
+    // controller instead of leaking via `new`. MUST be declared BEFORE the
+    // SSL_CTX pointers below — members destruct in reverse declaration order, so
+    // declaring these first means they are destroyed AFTER tls_listen_/tls_connect_,
+    // guaranteeing the SSL_CTX never references freed callback storage.
+    AuthorizedKeys authorized_keys_;
+    std::function<bool(const std::string&)> tofu_cb_;
     SslCtxPtr tls_listen_;
     SslCtxPtr tls_connect_;
     std::string our_pubkey_;
@@ -3339,6 +3420,8 @@ private:
             auto sa = resolve_addr(addr);
             SOCKET sfd = socket(AF_INET, SOCK_STREAM, 0);
             if (sfd == INVALID_SOCKET) return false;
+            set_socket_timeouts(sfd, kConnectTimeoutMs);  // R2.1: bound TLS handshake / Hello read
+            { int o = 1; setsockopt(sfd, SOL_SOCKET, SO_REUSEADDR, (const char*)&o, sizeof(o)); }  // R3.6
 
             if (connect(sfd, reinterpret_cast<sockaddr*>(&sa), sizeof(sa)) == SOCKET_ERROR) {
                 ssl_close(nullptr, sfd);
@@ -4107,14 +4190,14 @@ public:
         listen_cfg.cert_file = cert_path;
         listen_cfg.key_file = key_path;
         listen_cfg.authorized_keys_file = expand_home(config_.authorized_keys_path);
-        tls_listen_ = create_node_tls(listen_cfg, TlsMode::Listen);
+        tls_listen_ = create_node_tls(listen_cfg, TlsMode::Listen, &authorized_keys_);
 
         // Create connect TLS context with TOFU callback
         NodeTlsConfig connect_cfg;
         connect_cfg.cert_file = cert_path;
         connect_cfg.key_file = key_path;
         connect_cfg.tofu_cb = [](const std::string&) { return true; }; // Accept all for now
-        tls_connect_ = create_node_tls(connect_cfg, TlsMode::Connect);
+        tls_connect_ = create_node_tls(connect_cfg, TlsMode::Connect, nullptr, &tofu_cb_);
 
         // Set persistence path for sessions
         sessions_.set_persistence_path(expand_home(config_.persistence_path));
@@ -4188,7 +4271,13 @@ public:
         sa.sin_port = htons(config_.listen_port);
 
         if (bind(listen_fd_, reinterpret_cast<sockaddr*>(&sa), sizeof(sa)) == SOCKET_ERROR) {
-            log_event("mesh_listen_bind_failed");
+            int err =
+#ifdef _WIN32
+                WSAGetLastError();
+#else
+                errno;
+#endif
+            log_event("mesh_listen_bind_failed", "errno=" + std::to_string(err));  // R3.5
             CLOSESOCK(listen_fd_);
             listen_fd_ = INVALID_SOCKET;
             return;
@@ -4380,6 +4469,8 @@ public:
         sockaddr_in sa = resolve_addr(addr);
         SOCKET sfd = socket(AF_INET, SOCK_STREAM, 0);
         if (sfd == INVALID_SOCKET) return {};
+        set_socket_timeouts(sfd, kConnectTimeoutMs);  // R2.2: bound TLS handshake / Hello read
+        { int o = 1; setsockopt(sfd, SOL_SOCKET, SO_REUSEADDR, (const char*)&o, sizeof(o)); }  // R3.6
         if (connect(sfd, (sockaddr*)&sa, sizeof(sa)) == SOCKET_ERROR) { ssl_close(nullptr, sfd); return {}; }
         auto ssl = SslPtr(SSL_new(tls_connect_.get()));
         if (!ssl) { ssl_close(nullptr, sfd); return {}; }
@@ -5043,7 +5134,7 @@ int main(int argc, char** argv) {
 #endif
 
     CLI::App app{"bridgesessions — mesh terminal relay"};
-    app.set_version_flag("--version,-V", "1.0.0-mesh");
+    app.set_version_flag("--version,-V", "1.3.0-reliability");
 
     // Global options
     std::string config_path = "";

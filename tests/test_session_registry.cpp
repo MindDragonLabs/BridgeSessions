@@ -277,7 +277,7 @@ TEST_CASE("SessionRegistry: auto_restart respawns died child", "[session_registr
     s->reset_restart_failures();
 
 #ifdef _WIN32
-    auto old_pid = s->child_pid;
+    auto old_generation = s->generation;
 #endif
 
     // Wait for process to exit
@@ -290,8 +290,10 @@ TEST_CASE("SessionRegistry: auto_restart respawns died child", "[session_registr
     REQUIRE(s2 != nullptr);
     REQUIRE(s2->auto_restart == true);
 #ifdef _WIN32
-    // New child should have a different handle
-    REQUIRE(s2->child_pid != old_pid);
+    // Respawn must yield a fresh spawn generation. (child_pid/HANDLE can be
+    // recycled by the OS, so it is NOT a reliable respawn signal — generation is.)
+    REQUIRE(s2->generation != old_generation);
+    REQUIRE(s2->generation > old_generation);
 #endif
 
     kill_child_process(*s2);

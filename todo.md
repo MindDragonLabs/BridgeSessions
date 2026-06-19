@@ -11,15 +11,15 @@
 ## v1.3: Reliability Hardening (HIGHEST PRIORITY)
 
 ### R1: TLS Debug Logging
-- [ ] **R1.1** Add `log_event("tls_verify_server", pubkey_hex + " result=" + (ok?"accept":"reject"))` in `server_cert_verify_cb`
-- [ ] **R1.2** Add `log_event("tls_verify_client", fp + " result=" + (ok?"accept":"reject"))` in `client_cert_verify_cb`
-- [ ] **R1.3** On connect error in `connect_to_peer_impl()`, log `SSL_get_error()` + `ERR_error_string()` BEFORE the catch block consumes the error queue
+- [x] **R1.1** Add `log_event("tls_verify_server", pubkey_hex + " result=" + (ok?"accept":"reject"))` in `server_cert_verify_cb`
+- [x] **R1.2** Add `log_event("tls_verify_client", fp + " result=" + (ok?"accept":"reject"))` in `client_cert_verify_cb`
+- [x] **R1.3** On connect error in `connect_to_peer_impl()`, log `SSL_get_error()` + `ERR_error_string()` BEFORE the catch block consumes the error queue
 - [ ] **R1.4** Log cert subject/issuer/pubkey fingerprint on both sides of handshake (accept path + connect path)
-- [ ] **R1.5** Add `log_event("mesh_tls_connect_error", addr + ": " + err_detail)` with actual error detail (currently logs empty `error:00000000:lib(0)::reason(0)`)
+- [x] **R1.5** Add `log_event("mesh_tls_connect_error", addr + ": " + err_detail)` with actual error detail (currently logs empty `error:00000000:lib(0)::reason(0)`)
 
 ### R2: TLS Handshake Timeout
-- [ ] **R2.1** `connect_to_peer_impl()`: `setsockopt(SO_RCVTIMEO, 5000ms)` on socket before `SSL_connect()`
-- [ ] **R2.2** `connect_and_hello()`: `setsockopt(SO_SNDTIMEO/RCVTIMEO, 5000ms)` on socket before connect
+- [x] **R2.1** `connect_to_peer_impl()`: `setsockopt(SO_RCVTIMEO, 5000ms)` on socket before `SSL_connect()`
+- [x] **R2.2** `connect_and_hello()`: `setsockopt(SO_SNDTIMEO/RCVTIMEO, 5000ms)` on socket before connect
 - [ ] **R2.3** `connect_and_hello()`: report clear error when timeout vs refused vs TLS rejected
 - [ ] **R2.4** Accept loop: `select()` with 3s timeout so daemon doesn't freeze; forces periodic health checks
 
@@ -28,11 +28,11 @@
 - [ ] **R3.2** Linux: install + enable systemd unit on linux-b + FECv3
 - [ ] **R3.3** Windows: create NSSM install script (`install-daemon.ps1`) with auto-restart on failure
 - [ ] **R3.4** Windows: install NSSM service for bridgesessions daemon
-- [ ] **R3.5** `mesh_listen_bind_failed` → log actual errno/WSAGetLastError() code
-- [ ] **R3.6** Add SO_REUSEADDR to connect sockets (not just listen socket)
+- [x] **R3.5** `mesh_listen_bind_failed` → log actual errno/WSAGetLastError() code
+- [x] **R3.6** Add SO_REUSEADDR to connect sockets (not just listen socket)
 
 ### R4: Config Hot-Reload
-- [ ] **R4.1** Reload `authorized_keys` from disk on each inbound TLS accept (before cert verify callback fires)
+- [x] **R4.1** Reload `authorized_keys` from disk on each inbound TLS accept (before cert verify callback fires)
 - [ ] **R4.2** Re-read config seeds list on SIGHUP (Linux) so new seeds take effect without restart
 - [ ] **R4.3** Re-read config seeds on file timestamp change every 30s (Windows — no SIGHUP)
 
@@ -47,7 +47,7 @@
 - [ ] **R6.1** Create `build.sh` — one-command POSIX build (g++ with correct flags)
 - [ ] **R6.2** Create `build.ps1` — one-command Windows build (MSVC + vcpkg paths auto-detected)
 - [ ] **R6.3** Create `deploy.sh` — scp binary + config to linux-a/linux-b, issue systemctl restart
-- [ ] **R6.4** Version bump: `--version` outputs `1.3.0-reliability`
+- [x] **R6.4** Version bump: `--version` outputs `1.3.0-reliability`
 - [ ] **R6.5** Build + deploy to all 3 nodes, verify version
 
 ### R7: Integration Test Harness
@@ -57,8 +57,8 @@
 
 ### R8: Known-Issue Cleanup
 - [ ] **R8.1** K1: `(void)` cast all 4 `[[nodiscard]]` return values (`resize_pty`, `load_peers_from_file`, etc.)
-- [ ] **R8.2** K2: Fix `select(0, ...)` — compute actual `maxfd+1` from socket handles
-- [ ] **R8.3** K3: Store `AuthorizedKeys` instance inside `MeshController` instead of heap-alloc via `new` (eliminates context leak)
+- [x] **R8.2** K2: Fix `select(0, ...)` — compute actual `maxfd+1` from socket handles
+- [x] **R8.3** K3: Store `AuthorizedKeys` instance inside `MeshController` instead of heap-alloc via `new` (eliminates context leak)
 - [ ] **R8.4** K4: Add header comment on `conns_` documenting single-threaded invariant
 
 ---
