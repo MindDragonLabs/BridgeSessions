@@ -3,9 +3,10 @@ param(
     [string]$Binary = "C:\Users\Shadow\bridgesessions\bridgesessions.exe",
     [string]$Config = "C:\Users\Shadow\.bridgesessions\config",
     [string]$ServiceName = "bridgesessions",
-    [string]$LogDir = "C:\Users\Shadow"
+    [string]$LogDir = "C:\Users\Shadow",
+    [string]$ProfileDir = "C:\Users\Shadow"
 )
-$ErrorActionPreference = "Stop"
+$ErrorActionPreference = "Continue"
 $nssm = Get-Command nssm -ErrorAction SilentlyContinue
 if (-not $nssm) {
     Write-Error "nssm not in PATH. Install: winget install NSSM.NSSM (or choco install nssm)"
@@ -23,6 +24,7 @@ set PATH=$vcpkgBin;%PATH%
 & nssm install $ServiceName "cmd.exe" "/c" $wrapper
 & nssm set $ServiceName AppStdout "$LogDir\bridgesessions-nssm-stdout.log"
 & nssm set $ServiceName AppStderr "$LogDir\bridgesessions-nssm-stderr.log"
+& nssm set $ServiceName AppEnvironmentExtra "USERPROFILE=$ProfileDir" "HOME=$ProfileDir"
 & nssm set $ServiceName AppExit Default Restart
 & nssm set $ServiceName AppRestartDelay 5000
 & nssm start $ServiceName

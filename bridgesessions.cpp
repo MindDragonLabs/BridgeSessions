@@ -4336,15 +4336,15 @@ public:
         setsockopt(listen_fd_, SOL_SOCKET, SO_REUSEADDR,
                    reinterpret_cast<const char*>(&opt), sizeof(opt));
 
-        sockaddr_in sa{};
-        sa.sin_family = AF_INET;
-        sa.sin_addr.s_addr = inet_addr(config_.listen_addr.c_str());
-        if (sa.sin_addr.s_addr == INADDR_NONE) {
-            sa.sin_addr.s_addr = htonl(INADDR_ANY);
+        sockaddr_in listen_sa{};
+        listen_sa.sin_family = AF_INET;
+        listen_sa.sin_addr.s_addr = inet_addr(config_.listen_addr.c_str());
+        if (listen_sa.sin_addr.s_addr == INADDR_NONE) {
+            listen_sa.sin_addr.s_addr = htonl(INADDR_ANY);
         }
-        sa.sin_port = htons(config_.listen_port);
+        listen_sa.sin_port = htons(config_.listen_port);
 
-        if (bind(listen_fd_, reinterpret_cast<sockaddr*>(&sa), sizeof(sa)) == SOCKET_ERROR) {
+        if (bind(listen_fd_, reinterpret_cast<sockaddr*>(&listen_sa), sizeof(listen_sa)) == SOCKET_ERROR) {
             int err =
 #ifdef _WIN32
                 WSAGetLastError();
