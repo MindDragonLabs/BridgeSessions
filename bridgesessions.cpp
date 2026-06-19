@@ -4596,10 +4596,51 @@ public:
     }
 
     // ── Common: resolve peer → addr ─────────────────────────────
+    static bool peer_name_eq(const std::string& a, const std::string& b) {
+        if (a.size() != b.size()) return false;
+        for (size_t i = 0; i < a.size(); ++i) {
+            char ca = a[i], cb = b[i];
+            if (ca >= 'A' && ca <= 'Z') ca += 32;
+            if (cb >= 'A' && cb <= 'Z') cb += 32;
+            if (ca != cb) return false;
+        }
+        return true;
+    }
+
     std::string find_peer_addr(const std::string& peer_name) const {
-        for (auto& s : config_.seeds) if (s.name == peer_name) return s.addr;
-        for (auto& d : config_.discovered) if (d.name == peer_name) return d.addr;
+        for (auto& s : config_.seeds) if (peer_name_eq(s.name, peer_name)) return s.addr;
+        for (auto& d : config_.discovered) if (peer_name_eq(d.name, peer_name)) return d.addr;
         return "";
+    }
+
+    // Read frames until Pong or deadline (handles Gossip/Hello interleaved on mesh link).
+    bool wait_for_pong(SSL* ssl, SOCKET sfd, std::chrono::steady_clock::time_point deadline) {
+        while (std::chrono::steady_clock::now() < deadline) {
+            auto remain = std::chrono::duration_cast<std::chrono::milliseconds>(
+                deadline - std::chrono::steady_clock::now());
+            if (remain.count() <= 0) break;
+            int ms = static_cast<int>(std::min<int64_t>(remain.count(), 2000));
+            fd_set read_fds;
+            FD_ZERO(&read_fds);
+            FD_SET(sfd, &read_fds);
+            timeval tv{};
+            tv.tv_sec = ms / 1000;
+            tv.tv_usec = (ms % 1000) * 1000;
+#ifdef _WIN32
+            int sel = select(0, &read_fds, nullptr, nullptr, &tv);
+#else
+            int sel = select(static_cast<int>(sfd) + 1, &read_fds, nullptr, nullptr, &tv);
+#endif
+            if (sel > 0 || SSL_pending(ssl) > 0) {
+                try {
+                    Message resp = read_frame(ssl);
+                    if (std::holds_alternative<PongMsg>(resp)) return true;
+                } catch (...) {
+                    return false;
+                }
+            }
+        }
+        return false;
     }
 
     // ── Common: TCP + TLS + Hello ────────────────────────────────
@@ -4811,20 +4852,11 @@ public:
         }
         try {
             write_frame(sc.ssl.get(), PingMsg{}, CONTROL_STREAM_ID);
-            fd_set read_fds; FD_ZERO(&read_fds); FD_SET(sc.sfd, &read_fds);
-            timeval tv{10, 0};  // R5.1: 10s health timeout
-#ifdef _WIN32
-            if (select(0, &read_fds, nullptr, nullptr, &tv) > 0) {
-#else
-            if (select((int)sc.sfd+1, &read_fds, nullptr, nullptr, &tv) > 0) {
-#endif
-                Message resp = read_frame(sc.ssl.get());
-                bool ok = std::holds_alternative<PongMsg>(resp);
-                if (status_out) *status_out = ok ? "healthy" : "auth failed";
-                CLOSESOCK(sc.sfd); return ok;
-            }
-            if (status_out) *status_out = "timeout";
-            CLOSESOCK(sc.sfd); return false;
+            auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+            bool ok = wait_for_pong(sc.ssl.get(), sc.sfd, deadline);
+            if (status_out) *status_out = ok ? "healthy" : "no pong";
+            CLOSESOCK(sc.sfd);
+            return ok;
         } catch (...) {
             if (status_out) *status_out = "error";
             if (sc.sfd != INVALID_SOCKET) CLOSESOCK(sc.sfd);
@@ -5469,6 +5501,7 @@ int main(int argc, char** argv) {
 
     if (health_cmd_app->parsed()) {
         bs::mesh::MeshConfig cfg = bs::mesh::load_config(config_path);
+        bs::mesh::bootstrap_identity(home_dir);
         bs::mesh::MeshController mc(cfg);
         std::string status;
         bool ok = mc.health_check(health_peer, &status);
