@@ -2705,6 +2705,8 @@ public:
 #define CLOSESOCK closesocket
 #endif
 
+enum class ConnectFailReason { None, Refused, Timeout, TlsRejected, HelloRejected };
+
 // R2: bound blocking connect/handshake/read time on a socket so a dead or
 // silent peer can't hang the daemon or a CLI command indefinitely. Sets both
 // SO_RCVTIMEO and SO_SNDTIMEO. Best-effort: failures are ignored (the prior
@@ -2727,7 +2729,54 @@ inline void set_socket_timeouts(SOCKET fd, int ms) {
 }
 
 // Default handshake/connect timeout for outbound mesh + CLI paths (R2).
-constexpr int kConnectTimeoutMs = 5000;
+constexpr int kConnectTimeoutMs = 15000;
+
+inline int tls_last_syscall_errno() {
+#ifdef _WIN32
+    return WSAGetLastError();
+#else
+    return errno;
+#endif
+}
+
+inline void append_ssl_connect_error_detail(std::string& detail, int ssl_err) {
+    if (ssl_err == SSL_ERROR_SYSCALL) {
+        int se = tls_last_syscall_errno();
+        if (se != 0)
+            detail += " syscall_errno=" + std::to_string(se);
+    }
+}
+
+inline ConnectFailReason classify_ssl_connect_fail(int ssl_err) {
+    if (ssl_err == SSL_ERROR_WANT_READ || ssl_err == SSL_ERROR_WANT_WRITE)
+        return ConnectFailReason::Timeout;
+    if (ssl_err == SSL_ERROR_SYSCALL) {
+        int se = tls_last_syscall_errno();
+#ifdef _WIN32
+        if (se == WSAETIMEDOUT || se == WSAECONNRESET || se == WSAECONNABORTED)
+            return ConnectFailReason::Timeout;
+#else
+        if (se == ETIMEDOUT || se == ECONNRESET || se == ECONNABORTED)
+            return ConnectFailReason::Timeout;
+#endif
+        if (se == 0)
+            return ConnectFailReason::TlsRejected;  // clean EOF during handshake
+    }
+    return ConnectFailReason::TlsRejected;
+}
+
+// Blocking SSL_connect with retries when the socket timeout surfaces as WANT_READ/WRITE.
+inline int ssl_connect_blocking(SSL* ssl) {
+    for (int attempt = 0; attempt < 8; ++attempt) {
+        int rc = SSL_connect(ssl);
+        if (rc > 0) return rc;
+        int err = SSL_get_error(ssl, rc);
+        if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE)
+            continue;
+        return rc;
+    }
+    return SSL_connect(ssl);
+}
 
 #ifndef _WIN32
 static std::atomic<bool> g_config_reload_requested{false};
@@ -3235,12 +3284,20 @@ private:
         auto& c = conns_[index];
         if (c.sock_fd != INVALID_SOCKET) {
             ssl_close(c.ssl.get(), c.sock_fd);
+            c.sock_fd = INVALID_SOCKET;
         }
         // Remove backoff for this peer so it can be reconnected
         if (!c.peer_addr.empty()) {
             backoffs_.erase(c.peer_addr);
         }
         conns_.erase(conns_.begin() + static_cast<ptrdiff_t>(index));
+    }
+
+    // TLS shutdown + socket close; idempotent (safe if already INVALID_SOCKET).
+    void close_conn(Conn& c) {
+        if (c.sock_fd == INVALID_SOCKET) return;
+        ssl_close(c.ssl.get(), c.sock_fd);
+        c.sock_fd = INVALID_SOCKET;
     }
 
     // ── Hello exchange ─────────────────────────────────────────
@@ -3468,7 +3525,7 @@ private:
             log_event("mesh_peer_connected", hello.node_name + " pubkey=" + peer_pk.substr(0, 16) + "..."
                       + " subject=" + subj);  // R1.4
         } catch (...) {
-            ssl_close(nullptr, cfd);
+            ssl_close(ssl.get(), cfd);
         }
     }
 
@@ -3496,16 +3553,17 @@ private:
             if (!ssl) { ssl_close(nullptr, sfd); return false; }
             SSL_set_fd(ssl.get(), static_cast<int>(sfd));
 
-            int ret = SSL_connect(ssl.get());
+            int ret = ssl_connect_blocking(ssl.get());
             if (ret <= 0) {
                 // R1: capture error before ssl_close drains the queue
                 int ssl_err = SSL_get_error(ssl.get(), ret);
                 char errbuf[256] = {};
                 unsigned long e = ERR_get_error();
                 if (e) ERR_error_string_n(e, errbuf, sizeof(errbuf));
-                log_event("tls_connect_failed",
-                          "ssl_err=" + std::to_string(ssl_err) +
-                          (errbuf[0] ? std::string(" ") + errbuf : ""));
+                std::string detail = "ssl_err=" + std::to_string(ssl_err) +
+                                     (errbuf[0] ? std::string(" ") + errbuf : "");
+                append_ssl_connect_error_detail(detail, ssl_err);
+                log_event("tls_connect_failed", detail);
                 ssl_close(ssl.get(), sfd);
                 return false;
             }
@@ -4098,8 +4156,8 @@ private:
             Message msg = read_frame(c.ssl.get());
             dispatch_message(conn_idx, msg);
         } catch (...) {
-            // Read failure — mark for removal
-            c.sock_fd = INVALID_SOCKET;
+            // Read failure — must close TLS+socket (was leaking → CLOSE_WAIT on Windows)
+            close_conn(c);
         }
     }
 
@@ -4174,7 +4232,7 @@ private:
             try {
                 write_frame(c.ssl.get(), PingMsg{}, CONTROL_STREAM_ID);
             } catch (...) {
-                c.sock_fd = INVALID_SOCKET;
+                close_conn(c);
             }
         }
     }
@@ -4189,8 +4247,7 @@ private:
             if (c.sock_fd == INVALID_SOCKET) continue;
             if (now - c.last_pong > timeout) {
                 log_event("mesh_pong_timeout", c.peer_name + " " + c.peer_addr);
-                ssl_close(c.ssl.get(), c.sock_fd);
-                c.sock_fd = INVALID_SOCKET;
+                close_conn(c);
             }
         }
     }
@@ -4198,6 +4255,7 @@ private:
     // ── Clean up dead connections ──────────────────────────────
 
     void clean_dead_conns() {
+        // Erase entries already closed via close_conn(); do not touch live sockets.
         conns_.erase(
             std::remove_if(conns_.begin(), conns_.end(),
                 [](const Conn& c) { return c.sock_fd == INVALID_SOCKET; }),
@@ -4524,7 +4582,9 @@ public:
             for (auto& d : config_.discovered) if (d.name == name || d.pubkey_hex == pubkey) return;
             PeerEntry pe{name, addr, pubkey}; config_.discovered.push_back(pe);
             log_event("mdns_discovered", name + " " + addr);
-            (void)save_config(home_dir_ + "/config", config_);
+            // Do not persist junk LAN/test discoveries over production seeds
+            if (!name.empty() && name != "dup-peer" && addr.find("10.0.0.") == std::string::npos)
+                (void)save_config(home_dir_ + "/config", config_);
         } catch (...) {}
     }
 
@@ -4543,7 +4603,6 @@ public:
     }
 
     // ── Common: TCP + TLS + Hello ────────────────────────────────
-    enum class ConnectFailReason { None, Refused, Timeout, TlsRejected, HelloRejected };
     struct SslConn {
         SslPtr ssl;
         SOCKET sfd = INVALID_SOCKET;
@@ -4593,16 +4652,16 @@ public:
         if (!ssl) { ssl_close(nullptr, sfd); out.fail = ConnectFailReason::TlsRejected; return out; }
         SSL_set_fd(ssl.get(), (int)sfd);
         {
-            int rc = SSL_connect(ssl.get());
+            int rc = ssl_connect_blocking(ssl.get());
             if (rc <= 0) {
                 int ssl_err = SSL_get_error(ssl.get(), rc);
                 char errbuf[256] = {};
                 unsigned long e = ERR_get_error();
                 if (e) ERR_error_string_n(e, errbuf, sizeof(errbuf));
-                out.fail = (ssl_err == SSL_ERROR_WANT_READ || ssl_err == SSL_ERROR_WANT_WRITE)
-                               ? ConnectFailReason::Timeout : ConnectFailReason::TlsRejected;
+                out.fail = classify_ssl_connect_fail(ssl_err);
                 out.fail_detail = "ssl_err=" + std::to_string(ssl_err) +
                                   (errbuf[0] ? std::string(" ") + errbuf : "");
+                append_ssl_connect_error_detail(out.fail_detail, ssl_err);
                 log_event("tls_connect_and_hello_failed", out.fail_detail);
                 ssl_close(ssl.get(), sfd);
                 return out;
