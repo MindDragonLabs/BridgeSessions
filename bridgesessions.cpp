@@ -3401,9 +3401,11 @@ private:
             }
         }
         if (changed) {
+#ifndef BS_TESTING
             const std::string& path = config_file_path_.empty()
                 ? (home_dir_ + "/.bridgesessions/config") : config_file_path_;
             (void)save_config(path, config_);
+#endif
         }
     }
 
@@ -4426,10 +4428,13 @@ public:
                 line.pop_back();
             if (line.rfind("HEALTH ", 0) == 0) {
                 std::string peer_name = line.substr(7);
+                std::string want_addr = find_peer_addr(peer_name);
                 bool found = false, ok = false;
                 for (auto& c : conns_) {
                     if (c.sock_fd == INVALID_SOCKET) continue;
-                    if (!peer_name_eq(c.peer_name, peer_name)) continue;
+                    bool name_match = peer_name_eq(c.peer_name, peer_name);
+                    bool addr_match = !want_addr.empty() && c.peer_addr == want_addr;
+                    if (!name_match && !addr_match) continue;
                     found = true;
                     try {
                         write_frame(c.ssl.get(), PingMsg{}, CONTROL_STREAM_ID);
@@ -4699,7 +4704,9 @@ public:
             log_event("mdns_discovered", name + " " + addr);
             // Do not persist junk LAN/test discoveries over production seeds
             if (!name.empty() && name != "dup-peer" && addr.find("10.0.0.") == std::string::npos)
+#ifndef BS_TESTING
                 (void)save_config(home_dir_ + "/config", config_);
+#endif
         } catch (...) {}
     }
 

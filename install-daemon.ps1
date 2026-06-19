@@ -7,6 +7,19 @@ param(
     [string]$ProfileDir = "C:\Users\Shadow"
 )
 $ErrorActionPreference = "Continue"
+$prodExample = Join-Path (Split-Path $Binary) "config.shadow.production.example"
+if (Test-Path $prodExample) {
+    $need = $false
+    if (-not (Test-Path $Config)) { $need = $true }
+    else {
+        $first = Get-Content $Config -TotalCount 8 -ErrorAction SilentlyContinue
+        if ($first -match 'gossip|19954') { $need = $true }
+    }
+    if ($need) {
+        Copy-Item $prodExample $Config -Force
+        Write-Host "Restored production config from config.shadow.production.example"
+    }
+}
 $nssm = Get-Command nssm -ErrorAction SilentlyContinue
 if (-not $nssm) {
     Write-Error "nssm not in PATH. Install: winget install NSSM.NSSM (or choco install nssm)"

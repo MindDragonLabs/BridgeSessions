@@ -1,6 +1,4 @@
-# Example production config for Shadow — copy to ~/.bridgesessions/config
-# Tests must NOT overwrite this file (use temp dirs in test_config.cpp).
-
+# Shadow production — install-daemon copies this if config missing or node.name starts with gossip
 node.name Shadow
 node.listen 0.0.0.0:19949
 
