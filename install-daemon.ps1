@@ -1,11 +1,29 @@
-$exe = "C:\Users\Shadow\bridgesessions\bridgesessions.exe"
-$cfg = "C:\Users\Shadow\.bridgesessions\config"
-$action = New-ScheduledTaskAction -Execute $exe -Argument "--config $cfg"
-$trigger = New-ScheduledTaskTrigger -AtStartup
-$principal = New-ScheduledTaskPrincipal -UserId "Shadow" -LogonType Interactive -RunLevel Highest
-Register-ScheduledTask -TaskName "bridgesessions-daemon" -Action $action -Trigger $trigger -Principal $principal -Force
-Write-Host "Task installed"
-Start-ScheduledTask -TaskName "bridgesessions-daemon"
-Write-Host "Daemon started"
-Start-Sleep -Seconds 4
-Get-ScheduledTask -TaskName "bridgesessions-daemon" | Select-Object TaskName,State
+# R3.3/R3.4 — install bridgesessions as Windows service via NSSM (auto-restart)
+param(
+    [string]$Binary = "C:\Users\Shadow\bridgesessions\bridgesessions.exe",
+    [string]$Config = "C:\Users\Shadow\.bridgesessions\config",
+    [string]$ServiceName = "bridgesessions",
+    [string]$LogDir = "C:\Users\Shadow"
+)
+$ErrorActionPreference = "Stop"
+$nssm = Get-Command nssm -ErrorAction SilentlyContinue
+if (-not $nssm) {
+    Write-Error "nssm not in PATH. Install: winget install NSSM.NSSM (or choco install nssm)"
+}
+$vcpkgBin = "C:\vcpkg\installed\x64-windows\bin"
+$wrapper = Join-Path $LogDir "bridgesessions-service.cmd"
+@"
+@echo off
+set PATH=$vcpkgBin;%PATH%
+"$Binary" --config "$Config" >> "$LogDir\bridgesessions-daemon.log" 2>&1
+"@ | Set-Content -Encoding ASCII $wrapper
+
+& nssm stop $ServiceName 2>$null
+& nssm remove $ServiceName confirm 2>$null
+& nssm install $ServiceName "cmd.exe" "/c" $wrapper
+& nssm set $ServiceName AppStdout "$LogDir\bridgesessions-nssm-stdout.log"
+& nssm set $ServiceName AppStderr "$LogDir\bridgesessions-nssm-stderr.log"
+& nssm set $ServiceName AppExit Default Restart
+& nssm set $ServiceName AppRestartDelay 5000
+& nssm start $ServiceName
+Write-Host "Service $ServiceName installed and started"

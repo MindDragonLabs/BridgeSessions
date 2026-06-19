@@ -1225,6 +1225,18 @@ std::string peer_public_key_hex(SSL* ssl) {
     return hex;
 }
 
+// R1.4: one-line cert subject for handshake observability logs
+std::string peer_cert_subject_oneline(SSL* ssl) {
+    if (!ssl) return "";
+    X509* cert = SSL_get1_peer_certificate(ssl);
+    if (!cert) return "";
+    char* subj = X509_NAME_oneline(X509_get_subject_name(cert), nullptr, 0);
+    std::string s = subj ? subj : "";
+    OPENSSL_free(subj);
+    X509_free(cert);
+    return s;
+}
+
 // ── Public: bootstrap_identity ───────────────────────────────────
 // Auto-generate ed25519 keypair on first run into ~/.bridgesessions/
 
@@ -2683,6 +2695,7 @@ public:
 #include <unistd.h>
 #include <fcntl.h>
 #include <poll.h>
+#include <csignal>
 #define SOCKET int
 #define INVALID_SOCKET (-1)
 #define SOCKET_ERROR (-1)
@@ -2715,6 +2728,11 @@ inline void set_socket_timeouts(SOCKET fd, int ms) {
 
 // Default handshake/connect timeout for outbound mesh + CLI paths (R2).
 constexpr int kConnectTimeoutMs = 5000;
+
+#ifndef _WIN32
+static std::atomic<bool> g_config_reload_requested{false};
+static void sighup_reload_handler(int) { g_config_reload_requested.store(true); }
+#endif
 
 
 // ────────────────────────────────────────────────────────────────────
@@ -3075,6 +3093,8 @@ public:
         bool is_outbound = false;
         std::chrono::steady_clock::time_point last_pong;
         std::chrono::steady_clock::time_point connected_at = std::chrono::steady_clock::now();
+        uint64_t bytes_in = 0;
+        uint64_t bytes_out = 0;
         Session* attached_session = nullptr;
         std::string remote_session;
     };
@@ -3094,6 +3114,10 @@ private:
     std::string our_pubkey_;
     std::string home_dir_;
 
+    // R8.4: `conns_` is touched only from MeshController::run()'s single-threaded
+    // event loop and from CLI methods that run before/after the loop — never
+    // concurrently from multiple threads. Do not read/write from worker threads
+    // without adding a mutex.
     std::vector<Conn> conns_;
     static constexpr size_t kMaxConnections = 64;
 
@@ -3119,6 +3143,11 @@ private:
 
     // Listen socket
     SOCKET listen_fd_ = INVALID_SOCKET;
+
+    std::string config_file_path_;
+    std::chrono::steady_clock::time_point last_config_reload_check_{};
+    std::filesystem::file_time_type config_mtime_{};
+    bool config_mtime_set_ = false;
 
     // D15: WebRTC transport
 #ifndef BS_NO_WEBRTC
@@ -3310,7 +3339,39 @@ private:
             }
         }
         if (changed) {
-            save_config(home_dir_ + "/.bridgesessions/config", config_);
+            const std::string& path = config_file_path_.empty()
+                ? (home_dir_ + "/.bridgesessions/config") : config_file_path_;
+            (void)save_config(path, config_);
+        }
+    }
+
+    // R4.2/R4.3: reload seed/discovered lists when config file changes on disk
+    void reload_seeds_from_disk() {
+        if (config_file_path_.empty()) return;
+        MeshConfig fresh = load_config(config_file_path_);
+        config_.seeds = std::move(fresh.seeds);
+        config_.discovered = std::move(fresh.discovered);
+        log_event("config_reload", config_file_path_);
+    }
+
+    void maybe_reload_config_seeds() {
+        auto now = std::chrono::steady_clock::now();
+        if (now - last_config_reload_check_ < std::chrono::seconds(30)) return;
+        last_config_reload_check_ = now;
+        if (config_file_path_.empty()) return;
+        namespace fs = std::filesystem;
+        std::error_code ec;
+        if (!fs::exists(config_file_path_, ec)) return;
+        auto mtime = fs::last_write_time(config_file_path_, ec);
+        if (ec) return;
+        if (!config_mtime_set_) {
+            config_mtime_ = mtime;
+            config_mtime_set_ = true;
+            return;
+        }
+        if (mtime != config_mtime_) {
+            config_mtime_ = mtime;
+            reload_seeds_from_disk();
         }
     }
 
@@ -3388,6 +3449,7 @@ private:
             c.peer_pubkey = peer_pk;
             c.peer_addr = std::string(inet_ntoa(peer_addr.sin_addr)) + ":" +
                           std::to_string(ntohs(peer_addr.sin_port));
+            std::string subj = peer_cert_subject_oneline(ssl.get());  // R1.4 before move
             c.ssl = std::move(ssl);
             c.sock_fd = cfd;
             c.is_outbound = false;
@@ -3403,7 +3465,8 @@ private:
             conns_.push_back(std::move(c));
             resolve_duplicates();
 
-            log_event("mesh_peer_connected", hello.node_name + " pubkey=" + peer_pk.substr(0, 16) + "...");
+            log_event("mesh_peer_connected", hello.node_name + " pubkey=" + peer_pk.substr(0, 16) + "..."
+                      + " subject=" + subj);  // R1.4
         } catch (...) {
             ssl_close(nullptr, cfd);
         }
@@ -3466,6 +3529,7 @@ private:
             c.peer_name = hello.node_name;
             c.peer_pubkey = peer_pk;
             c.peer_addr = addr;
+            std::string subj_out = peer_cert_subject_oneline(ssl.get());  // R1.4 before move
             c.ssl = std::move(ssl);
             c.sock_fd = sfd;
             c.is_outbound = true;
@@ -3480,7 +3544,9 @@ private:
             // Reset backoff on success
             backoffs_.erase(addr);
 
-            log_event("mesh_peer_connected_outbound", hello.node_name + " addr=" + addr);
+            log_event("mesh_peer_connected_outbound", hello.node_name + " addr=" + addr
+                      + " pubkey=" + peer_pk.substr(0, 16) + "..."
+                      + " subject=" + subj_out);  // R1.4
 
 #ifndef BS_NO_WEBRTC
             // D15: After TCP connection, try WebRTC upgrade
@@ -3755,7 +3821,7 @@ public:
             if (conn.attached_session && conn.attached_session->is_valid()) {
 #ifdef _WIN32
                 if (conn.attached_session->hpcon) {
-                    resize_pty(reinterpret_cast<intptr_t>(conn.attached_session->hpcon),
+                    (void)resize_pty(reinterpret_cast<intptr_t>(conn.attached_session->hpcon),
                                r.cols, r.rows);
                 }
 #else
@@ -4201,6 +4267,7 @@ public:
 
         // Set persistence path for sessions
         sessions_.set_persistence_path(expand_home(config_.persistence_path));
+        config_file_path_ = home_dir_ + "/.bridgesessions/config";
 
         // D16: Initialize DHT if enabled
 #ifndef BS_NO_DHT
@@ -4250,6 +4317,13 @@ public:
 
     void run() {
         running_ = true;
+#ifndef _WIN32
+        struct sigaction sa{};
+        sa.sa_handler = sighup_reload_handler;
+        sigemptyset(&sa.sa_mask);
+        sa.sa_flags = 0;
+        sigaction(SIGHUP, &sa, nullptr);  // R4.2
+#endif
 
         // Create listen socket
         listen_fd_ = socket(AF_INET, SOCK_STREAM, 0);
@@ -4315,8 +4389,8 @@ public:
                 if (mdns_fd_ > max_fd) max_fd = mdns_fd_;
             }
 
-            // 2. select() with 1 second timeout
-            timeval tv{1, 0}; // 1 second
+            // 2. select() with 3 second timeout (R2.4)
+            timeval tv{3, 0};
             int nfds = select(static_cast<int>(max_fd) + 1, &read_fds, nullptr, nullptr, &tv);
 
             if (nfds < 0) {
@@ -4329,6 +4403,11 @@ public:
             }
 
             auto now = std::chrono::steady_clock::now();
+            maybe_reload_config_seeds();
+#ifndef _WIN32
+            if (g_config_reload_requested.exchange(false))
+                reload_seeds_from_disk();
+#endif
 
             // 3. Accept new connections
             if (nfds > 0 && FD_ISSET(listen_fd_, &read_fds)) {
@@ -4464,16 +4543,54 @@ public:
     }
 
     // ── Common: TCP + TLS + Hello ────────────────────────────────
-    struct SslConn { SslPtr ssl; SOCKET sfd = INVALID_SOCKET; HelloMsg hello{}; };
+    enum class ConnectFailReason { None, Refused, Timeout, TlsRejected, HelloRejected };
+    struct SslConn {
+        SslPtr ssl;
+        SOCKET sfd = INVALID_SOCKET;
+        HelloMsg hello{};
+        ConnectFailReason fail = ConnectFailReason::None;
+        std::string fail_detail;
+    };
+    static std::string connect_fail_string(ConnectFailReason r) {
+        switch (r) {
+        case ConnectFailReason::Refused: return "refused";
+        case ConnectFailReason::Timeout: return "timeout";
+        case ConnectFailReason::TlsRejected: return "tls_rejected";
+        case ConnectFailReason::HelloRejected: return "hello_rejected";
+        default: return "unknown";
+        }
+    }
     SslConn connect_and_hello(const std::string& addr) {
+        SslConn out;
         sockaddr_in sa = resolve_addr(addr);
         SOCKET sfd = socket(AF_INET, SOCK_STREAM, 0);
-        if (sfd == INVALID_SOCKET) return {};
-        set_socket_timeouts(sfd, kConnectTimeoutMs);  // R2.2: bound TLS handshake / Hello read
+        if (sfd == INVALID_SOCKET) {
+            out.fail = ConnectFailReason::Refused;
+            out.fail_detail = "socket() failed";
+            return out;
+        }
+        set_socket_timeouts(sfd, kConnectTimeoutMs);  // R2.2
         { int o = 1; setsockopt(sfd, SOL_SOCKET, SO_REUSEADDR, (const char*)&o, sizeof(o)); }  // R3.6
-        if (connect(sfd, (sockaddr*)&sa, sizeof(sa)) == SOCKET_ERROR) { ssl_close(nullptr, sfd); return {}; }
+        if (connect(sfd, (sockaddr*)&sa, sizeof(sa)) == SOCKET_ERROR) {
+            int err =
+#ifdef _WIN32
+                WSAGetLastError();
+#else
+                errno;
+#endif
+            out.fail =
+#ifdef _WIN32
+                (err == WSAETIMEDOUT) ? ConnectFailReason::Timeout :
+#else
+                (err == ETIMEDOUT) ? ConnectFailReason::Timeout :
+#endif
+                ConnectFailReason::Refused;
+            out.fail_detail = "connect errno=" + std::to_string(err);
+            ssl_close(nullptr, sfd);
+            return out;
+        }
         auto ssl = SslPtr(SSL_new(tls_connect_.get()));
-        if (!ssl) { ssl_close(nullptr, sfd); return {}; }
+        if (!ssl) { ssl_close(nullptr, sfd); out.fail = ConnectFailReason::TlsRejected; return out; }
         SSL_set_fd(ssl.get(), (int)sfd);
         {
             int rc = SSL_connect(ssl.get());
@@ -4482,22 +4599,40 @@ public:
                 char errbuf[256] = {};
                 unsigned long e = ERR_get_error();
                 if (e) ERR_error_string_n(e, errbuf, sizeof(errbuf));
-                log_event("tls_connect_and_hello_failed",
-                          "ssl_err=" + std::to_string(ssl_err) +
-                          (errbuf[0] ? std::string(" ") + errbuf : ""));
+                out.fail = (ssl_err == SSL_ERROR_WANT_READ || ssl_err == SSL_ERROR_WANT_WRITE)
+                               ? ConnectFailReason::Timeout : ConnectFailReason::TlsRejected;
+                out.fail_detail = "ssl_err=" + std::to_string(ssl_err) +
+                                  (errbuf[0] ? std::string(" ") + errbuf : "");
+                log_event("tls_connect_and_hello_failed", out.fail_detail);
                 ssl_close(ssl.get(), sfd);
-                return {};
+                return out;
             }
         }
         write_frame(ssl.get(), build_hello(), CONTROL_STREAM_ID);
         Message msg = read_frame(ssl.get());
-        if (!std::holds_alternative<HelloMsg>(msg)) { ssl_close(ssl.get(), sfd); return {}; }
-        return {std::move(ssl), sfd, std::get<HelloMsg>(msg)};
+        if (!std::holds_alternative<HelloMsg>(msg)) {
+            ssl_close(ssl.get(), sfd);
+            out.fail = ConnectFailReason::HelloRejected;
+            out.fail_detail = "expected HelloMsg";
+            return out;
+        }
+        out.ssl = std::move(ssl);
+        out.sfd = sfd;
+        out.hello = std::get<HelloMsg>(msg);
+        return out;
     }
 
     // ── Shutdown ───────────────────────────────────────────────
 
     void shutdown() { mdns_shutdown(); running_ = false; }
+
+    void print_connect_failure(const std::string& peer_name, const SslConn& sc) const {
+        if (sc.fail != ConnectFailReason::None)
+            std::cerr << "Failed to connect to " << peer_name << ": " << connect_fail_string(sc.fail)
+                      << (sc.fail_detail.empty() ? "" : " (" + sc.fail_detail + ")") << "\n";
+        else
+            std::cerr << "Failed to connect to " << peer_name << "\n";
+    }
 
     // ── CLI: shell_peer ────────────────────────────────────────
     void shell_peer(const std::string& peer_name, const std::string& session_name,
@@ -4506,7 +4641,7 @@ public:
         std::string addr = find_peer_addr(peer_name);
         if (addr.empty()) { std::cerr << "Peer not found: " << peer_name << "\n"; return; }
         auto sc = connect_and_hello(addr);
-        if (!sc.ssl || sc.sfd == INVALID_SOCKET) { std::cerr << "Failed to connect to " << peer_name << "\n"; return; }
+        if (!sc.ssl || sc.sfd == INVALID_SOCKET) { print_connect_failure(peer_name, sc); return; }
         SavedConsole saved{}; bool restored = false; SOCKET sfd = sc.sfd;
         try {
             AttachMsg am; am.session_name = session_name; am.cols = cols; am.rows = rows; am.term = term;
@@ -4579,7 +4714,7 @@ public:
         std::string addr = find_peer_addr(peer_name);
         if (addr.empty()) { std::cerr << "Peer not found: " << peer_name << "\n"; return; }
         auto sc = connect_and_hello(addr);
-        if (!sc.ssl || sc.sfd == INVALID_SOCKET) { std::cerr << "Failed to connect to " << peer_name << "\n"; return; }
+        if (!sc.ssl || sc.sfd == INVALID_SOCKET) { print_connect_failure(peer_name, sc); return; }
         try {
             SessionListMsg req; write_frame(sc.ssl.get(), req, 0);
             fd_set read_fds; FD_ZERO(&read_fds); FD_SET(sc.sfd, &read_fds);
@@ -4599,15 +4734,26 @@ public:
     }
 
     // ── CLI: health_check ─────────────────────────────────────
-    bool health_check(const std::string& peer_name) {
+    bool health_check(const std::string& peer_name, std::string* status_out = nullptr) {
         std::string addr = find_peer_addr(peer_name);
-        if (addr.empty()) return false;
+        if (addr.empty()) {
+            if (status_out) *status_out = "unknown peer";
+            return false;
+        }
         auto sc = connect_and_hello(addr);
-        if (!sc.ssl || sc.sfd == INVALID_SOCKET) return false;
+        if (!sc.ssl || sc.sfd == INVALID_SOCKET) {
+            if (status_out) {
+                if (sc.fail != ConnectFailReason::None)
+                    *status_out = connect_fail_string(sc.fail);
+                else
+                    *status_out = "unreachable";
+            }
+            return false;
+        }
         try {
             write_frame(sc.ssl.get(), PingMsg{}, CONTROL_STREAM_ID);
             fd_set read_fds; FD_ZERO(&read_fds); FD_SET(sc.sfd, &read_fds);
-            timeval tv{3, 0};
+            timeval tv{10, 0};  // R5.1: 10s health timeout
 #ifdef _WIN32
             if (select(0, &read_fds, nullptr, nullptr, &tv) > 0) {
 #else
@@ -4615,10 +4761,16 @@ public:
 #endif
                 Message resp = read_frame(sc.ssl.get());
                 bool ok = std::holds_alternative<PongMsg>(resp);
+                if (status_out) *status_out = ok ? "healthy" : "auth failed";
                 CLOSESOCK(sc.sfd); return ok;
             }
+            if (status_out) *status_out = "timeout";
             CLOSESOCK(sc.sfd); return false;
-        } catch (...) { if (sc.sfd != INVALID_SOCKET) CLOSESOCK(sc.sfd); return false; }
+        } catch (...) {
+            if (status_out) *status_out = "error";
+            if (sc.sfd != INVALID_SOCKET) CLOSESOCK(sc.sfd);
+            return false;
+        }
     }
 
     // ── CLI: show_stats ───────────────────────────────────────
@@ -4630,10 +4782,13 @@ public:
         std::cout << "connections: " << conns_.size() << " / " << config_.max_peers << "\n";
         for (auto& cn : conns_) {
             if (cn.sock_fd == INVALID_SOCKET) continue;
-            auto age = std::chrono::duration_cast<std::chrono::seconds>(now - cn.last_pong).count();
+            auto pong_age = std::chrono::duration_cast<std::chrono::seconds>(now - cn.last_pong).count();
+            auto uptime = std::chrono::duration_cast<std::chrono::seconds>(now - cn.connected_at).count();
             std::cout << "  " << cn.peer_name << "  " << cn.peer_addr
                       << "  " << (cn.is_outbound ? "outbound" : "inbound")
-                      << "  last_pong=" << age << "s ago";
+                      << "  uptime=" << uptime << "s"
+                      << "  last_pong=" << pong_age << "s ago"
+                      << "  bytes_in=" << cn.bytes_in << "  bytes_out=" << cn.bytes_out;
             if (cn.attached_session) std::cout << "  session=" << cn.attached_session->name;
             std::cout << "\n";
         }
@@ -5240,7 +5395,7 @@ int main(int argc, char** argv) {
     if (peers_add->parsed()) {
         bs::mesh::MeshConfig cfg = bs::mesh::load_config(config_path);
         cfg.seeds.push_back({peer_add_name, peer_add_addr});
-        bs::mesh::save_config(config_path, cfg);
+        (void)bs::mesh::save_config(config_path, cfg);
         std::cout << "added seed " << peer_add_name << " -> " << peer_add_addr << std::endl;
         return 0;
     }
@@ -5248,7 +5403,7 @@ int main(int argc, char** argv) {
         bs::mesh::MeshConfig cfg = bs::mesh::load_config(config_path);
         cfg.seeds.erase(std::remove_if(cfg.seeds.begin(), cfg.seeds.end(),
             [&](auto& p){ return p.name == peer_remove_name; }), cfg.seeds.end());
-        bs::mesh::save_config(config_path, cfg);
+        (void)bs::mesh::save_config(config_path, cfg);
         std::cout << "removed seed " << peer_remove_name << std::endl;
         return 0;
     }
@@ -5256,8 +5411,9 @@ int main(int argc, char** argv) {
     if (health_cmd_app->parsed()) {
         bs::mesh::MeshConfig cfg = bs::mesh::load_config(config_path);
         bs::mesh::MeshController mc(cfg);
-        bool ok = mc.health_check(health_peer);
-        std::cout << health_peer << (ok ? " healthy" : " unreachable") << std::endl;
+        std::string status;
+        bool ok = mc.health_check(health_peer, &status);
+        std::cout << health_peer << " " << status << std::endl;
         return ok ? 0 : 1;
     }
     if (image_cmd_app->parsed()) {
