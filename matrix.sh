@@ -20,7 +20,7 @@ analyze FECV4 ssh -i /c/Users/Shadow/.ssh/id_ed25519_shadow_to_linux agent@203.0
 analyze MAC ssh macos-peer 'tail -400 ~/.bridgesessions/bs-mesh.log'
 echo "=== HEALTH MATRIX (IPC, timeouts guarded) ==="
 echo "-- Shadow --"
-for p in linux-a linux-b macos-peer; do printf "shadow->%s: " $p; powershell.exe -NoProfile -Command "& C:\\Users\\Shadow\\bridgesessions\\bridgesessions.live.exe --config \$env:USERPROFILE\\.bridgesessions\\config health $p" 2>/dev/null; done
+for p in linux-a linux-b macos-peer; do printf "shadow->%s: " $p; powershell.exe -NoProfile -Command "& C:\\Users\\Shadow\\bridgesessions\\bridgesessions.exe --config \$env:USERPROFILE\\.bridgesessions\\config health $p" 2>/dev/null; done
 echo "-- linux-a --"
 ssh -i /c/Users/Shadow/.ssh/id_ed25519_shadow_to_linux agent@203.0.113.11 'cd ~/bridgesessions; for p in shadow linux-b macos-peer; do printf "linux-a->%s: " $p; timeout 12 ./bsmesh --config ~/.bridgesessions/config health $p || echo "(hang)"; done'
 echo "-- linux-b --"
