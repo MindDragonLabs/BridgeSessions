@@ -308,6 +308,7 @@ enum class MessageType : uint8_t {
     FileMeta       = 0x1C,  // bidirectional: file metadata (name, size, checksum, total_chunks)
     FileChunk      = 0x1D,  // bidirectional: file data chunk (chunk_index, data)
     FileAck        = 0x1E,  // bidirectional: file chunk acknowledgement / next chunk request
+    FileRequest    = 0x1F,  // client → server: request file transfer (path)
 };
 
 // ── Empty Message Structs (must be declared before variant) ──────
@@ -464,6 +465,11 @@ struct FileAckMsg {
     bool operator==(const FileAckMsg&) const = default;
 };
 
+struct FileRequestMsg {
+    std::string path;            // file path on the remote peer
+    bool operator==(const FileRequestMsg&) const = default;
+};
+
 // ── WebRTC SDP Exchange Message Structs (D15) ───────────────────
 
 struct SdpOfferMsg {
@@ -527,7 +533,8 @@ using Message = std::variant<
     DhtFindValueMsg,    // 25 — D16
     FileMetaMsg,        // 26 — P1 file transfer
     FileChunkMsg,       // 27 — P1 file transfer
-    FileAckMsg          // 28 — P1 file transfer
+    FileAckMsg,         // 28 — P1 file transfer
+    FileRequestMsg      // 29 — P1 file transfer
 >;
 
 // ── Frame ──────────────────────────────────────────────────────────
@@ -586,7 +593,9 @@ constexpr MessageType index_to_type[] = {
     MessageType::FileMeta,      // 26 — P1
     MessageType::FileChunk,     // 27 — P1
     MessageType::FileAck,       // 28 — P1
+    MessageType::FileRequest,   // 29 — P1
 };
+
 static_assert(std::size(index_to_type) == std::variant_size_v<Message>,
               "index_to_type must have one entry per variant alternative");
 } // anonymous namespace
@@ -716,6 +725,9 @@ void serialize_msg(Serializer& s, const FileChunkMsg& m) {
         throw std::runtime_error("file chunk payload exceeds MAX_FRAME_SIZE");
     s.u32be(static_cast<uint32_t>(m.data.size()));
     if (!m.data.empty()) s.bytes(std::span<const uint8_t>(m.data.data(), m.data.size()));
+}
+void serialize_msg(Serializer& s, const FileRequestMsg& m) {
+    s.str_prefixed_u16(m.path);
 }
 void serialize_msg(Serializer& s, const FileAckMsg& m) {
     s.u32be(m.chunk_index);
@@ -3274,6 +3286,17 @@ public:
         std::string remote_session;
     };
 
+    // Incoming file transfer tracking (v1.5, P1)
+    struct FileReceiveState {
+        std::string filename;
+        std::string path;          // full output path
+        std::string checksum;       // expected SHA-256
+        uint32_t total_chunks = 0;
+        uint32_t received_chunks = 0;
+        std::ofstream file;
+        bool active = false;
+    };
+
 private:
     MeshConfig config_;
     SessionRegistry sessions_;
@@ -3288,6 +3311,7 @@ private:
     SslCtxPtr tls_connect_;
     std::string our_pubkey_;
     std::string home_dir_;
+    std::string receive_dir_ = "~/.bridgesessions/received";
 
     // R8.4: `conns_` is touched only from MeshController::run()'s single-threaded
     // event loop and from CLI methods that run before/after the loop — never
@@ -3304,6 +3328,9 @@ private:
         std::chrono::steady_clock::time_point next_attempt{};
     };
     std::unordered_map<std::string, Backoff> backoffs_;
+
+    // Active incoming file transfer (v1.5, P1)
+    FileReceiveState file_recv_state_;
 
     // Shutdown flag for event loop
     std::atomic<bool> running_{false};
@@ -3883,6 +3910,228 @@ private:
 #endif
     }
 
+    // ── P1: File transfer handlers ──────────────────────────────
+
+    void handle_file_meta(Conn& c, const FileMetaMsg& m) {
+        // Prepare receive path
+        namespace fs = std::filesystem;
+        fs::create_directories(receive_dir_);
+        std::string out_path = receive_dir_ + "/" + m.filename;
+        int suffix = 1;
+        while (fs::exists(out_path)) {
+            std::string alt = receive_dir_ + "/" + m.filename + "." + std::to_string(suffix);
+            out_path = alt;
+            ++suffix;
+        }
+        file_recv_state_ = FileReceiveState{};
+        file_recv_state_.filename = m.filename;
+        file_recv_state_.path = out_path;
+        file_recv_state_.checksum = m.checksum;
+        file_recv_state_.total_chunks = m.total_chunks;
+        file_recv_state_.received_chunks = 0;
+        file_recv_state_.file.open(out_path + ".part", std::ios::binary);
+        file_recv_state_.active = file_recv_state_.file.is_open();
+        if (!file_recv_state_.active) {
+            std::string err = "cannot open " + out_path + ".part";
+            log_event("file_recv_failed", err);
+            try { write_frame(c.ssl.get(), FileAckMsg{0, 0, true, err}, CONTROL_STREAM_ID); } catch (...) {}
+            return;
+        }
+        log_event("file_recv_start", m.filename + " -> " + out_path);
+        // Acknowledge chunk index 0 to start streaming
+        try { write_frame(c.ssl.get(), FileAckMsg{0, 0, false, ""}, CONTROL_STREAM_ID); } catch (...) {}
+    }
+
+    void handle_file_chunk(Conn& c, const FileChunkMsg& m) {
+        if (!file_recv_state_.active) {
+            log_event("file_chunk_orphan", "no active receive for chunk " + std::to_string(m.chunk_index));
+            return;
+        }
+        if (m.chunk_index != file_recv_state_.received_chunks) {
+            std::string err = "expected chunk " + std::to_string(file_recv_state_.received_chunks)
+                            + " but got " + std::to_string(m.chunk_index);
+            log_event("file_chunk_mismatch", err);
+            try { write_frame(c.ssl.get(), FileAckMsg{file_recv_state_.received_chunks, file_recv_state_.received_chunks, true, err}, CONTROL_STREAM_ID); } catch (...) {}
+            return;
+        }
+        // Decompress chunk data (zstd)
+        std::vector<uint8_t> decompressed;
+        if (!m.data.empty()) {
+            decompressed = zstd_decompress(std::span<const uint8_t>(m.data.data(), m.data.size()));
+        }
+        if (!decompressed.empty()) {
+            file_recv_state_.file.write(reinterpret_cast<const char*>(decompressed.data()),
+                                        static_cast<std::streamsize>(decompressed.size()));
+        }
+        file_recv_state_.received_chunks = m.chunk_index + 1;
+        if (file_recv_state_.received_chunks >= file_recv_state_.total_chunks) {
+            file_recv_state_.file.close();
+            // Rename .part → final name
+            namespace fs = std::filesystem;
+            std::string final_path = file_recv_state_.path;
+            std::string part_path = final_path + ".part";
+            try { fs::rename(part_path, final_path); } catch (...) {
+                log_event("file_recv_rename_failed", part_path + " -> " + final_path);
+                std::error_code ec;
+                fs::rename(part_path, final_path, ec);
+            }
+            // Verify checksum
+            bool checksum_ok = true;
+            try {
+                std::ifstream verify_file(final_path, std::ios::binary);
+                if (verify_file) {
+                    std::string content((std::istreambuf_iterator<char>(verify_file)),
+                                        std::istreambuf_iterator<char>());
+                    std::string actual = sha256_hex(content);
+                    checksum_ok = (actual == file_recv_state_.checksum);
+                }
+            } catch (...) { checksum_ok = false; }
+            log_event("file_recv_complete", file_recv_state_.filename
+                       + " " + std::to_string(file_recv_state_.received_chunks) + " chunks"
+                       + (checksum_ok ? " checksum_ok" : " CHECKSUM_MISMATCH"));
+            file_recv_state_.active = false;
+            // Send final ack
+            try { write_frame(c.ssl.get(), FileAckMsg{m.chunk_index, m.total_chunks, !checksum_ok, checksum_ok ? "" : "checksum mismatch"}, CONTROL_STREAM_ID); } catch (...) {}
+        } else {
+            // Request next chunk
+            try { write_frame(c.ssl.get(), FileAckMsg{m.chunk_index, m.chunk_index + 1, false, ""}, CONTROL_STREAM_ID); } catch (...) {}
+        }
+    }
+
+    // ── Daemon file_send (runs inside event loop, reuses existing mesh conn) ──
+    bool daemon_file_send(const std::string& peer_name, const std::string& local_path) {
+        namespace fs = std::filesystem;
+        if (!fs::exists(local_path) || fs::is_directory(local_path)) {
+            log_event("file_send_error", "not found or is dir: " + local_path);
+            return false;
+        }
+        // Find the connection
+        Conn* target = nullptr;
+        for (auto& c : conns_) {
+            if (c.sock_fd == INVALID_SOCKET) continue;
+            if (peer_name_eq(c.peer_name, peer_name)) { target = &c; break; }
+        }
+        if (!target) {
+            log_event("file_send_error", "no conn to " + peer_name);
+            return false;
+        }
+
+        uint64_t filesize = static_cast<uint64_t>(fs::file_size(local_path));
+        std::string filename = fs::path(local_path).filename().string();
+        std::ifstream infile(local_path, std::ios::binary);
+        if (!infile) { log_event("file_send_error", "cannot open " + local_path); return false; }
+        std::string content((std::istreambuf_iterator<char>(infile)),
+                             std::istreambuf_iterator<char>());
+        std::string checksum = sha256_hex(content);
+
+        const size_t kChunkRawSize = 48 * 1024;
+        size_t total = content.size();
+        uint32_t total_chunks = static_cast<uint32_t>((total + kChunkRawSize - 1) / kChunkRawSize);
+        if (total_chunks == 0) total_chunks = 1;
+
+        FileMetaMsg meta;
+        meta.filename = filename; meta.filesize = filesize;
+        meta.checksum = checksum; meta.total_chunks = total_chunks;
+        write_frame(target->ssl.get(), meta, CONTROL_STREAM_ID);
+        log_event("file_send_start", filename + " -> " + peer_name);
+        std::cout << "sending " << filename << " (" << filesize << " bytes, "
+                  << total_chunks << " chunk(s), sha256:" << checksum.substr(0, 12) << "...)\n";
+
+        // Fire all chunks without per-chunk ACK wait (must not block inside event loop).
+        for (uint32_t ci = 0; ci < total_chunks; ++ci) {
+            size_t offset = static_cast<size_t>(ci) * kChunkRawSize;
+            size_t chunk_sz = std::min(kChunkRawSize, total - offset);
+            std::string raw_chunk = content.substr(offset, chunk_sz);
+            std::vector<uint8_t> compressed;
+            if (!raw_chunk.empty()) {
+                compressed = zstd_compress(
+                    std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(raw_chunk.data()),
+                                             raw_chunk.size()));
+            }
+            FileChunkMsg chunk;
+            chunk.chunk_index = ci; chunk.total_chunks = total_chunks;
+            chunk.data = std::move(compressed);
+            try { write_frame(target->ssl.get(), chunk, CONTROL_STREAM_ID); } catch (...) { return false; }
+        }
+        log_event("file_send_complete", filename + " " + std::to_string(filesize) + " bytes " + std::to_string(total_chunks) + " chunks");
+        std::cout << "sent " << filename << " (" << filesize << " bytes, " << total_chunks << " chunks, sha256:" << checksum.substr(0, 12) << "...)\n";
+        return true;
+    }
+
+    // ── Daemon file request handler: peer asks us to send them a file ──
+    void handle_file_request(Conn& c, const FileRequestMsg& m) {
+        log_event("file_request_received", m.path + " from " + c.peer_name);
+        namespace fs = std::filesystem;
+        if (!fs::exists(m.path) || fs::is_directory(m.path)) {
+            log_event("file_request_error", "not found: " + m.path);
+            try { write_frame(c.ssl.get(), FileAckMsg{0, 0, true, "file not found: " + m.path}, CONTROL_STREAM_ID); } catch (...) {}
+            return;
+        }
+        uint64_t filesize = static_cast<uint64_t>(fs::file_size(m.path));
+        std::string filename = fs::path(m.path).filename().string();
+        std::ifstream infile(m.path, std::ios::binary);
+        if (!infile) { log_event("file_request_error", "cannot open " + m.path); return; }
+        std::string content((std::istreambuf_iterator<char>(infile)),
+                             std::istreambuf_iterator<char>());
+        std::string checksum = sha256_hex(content);
+
+        const size_t kChunkRawSize = 48 * 1024;
+        size_t total = content.size();
+        uint32_t total_chunks = static_cast<uint32_t>((total + kChunkRawSize - 1) / kChunkRawSize);
+        if (total_chunks == 0) total_chunks = 1;
+
+        FileMetaMsg meta;
+        meta.filename = filename; meta.filesize = filesize;
+        meta.checksum = checksum; meta.total_chunks = total_chunks;
+        try { write_frame(c.ssl.get(), meta, CONTROL_STREAM_ID); } catch (...) { return; }
+        log_event("file_request_sending", filename + " to " + c.peer_name + " " + std::to_string(total_chunks) + " chunks");
+
+        // Fire all chunks without ACK wait (must not block inside event loop).
+        for (uint32_t ci = 0; ci < total_chunks; ++ci) {
+            size_t offset = static_cast<size_t>(ci) * kChunkRawSize;
+            size_t chunk_sz = std::min(kChunkRawSize, total - offset);
+            std::string raw_chunk = content.substr(offset, chunk_sz);
+            std::vector<uint8_t> compressed;
+            if (!raw_chunk.empty()) {
+                compressed = zstd_compress(
+                    std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(raw_chunk.data()), raw_chunk.size()));
+            }
+            FileChunkMsg chunk;
+            chunk.chunk_index = ci; chunk.total_chunks = total_chunks;
+            chunk.data = std::move(compressed);
+            try { write_frame(c.ssl.get(), chunk, CONTROL_STREAM_ID); } catch (...) { return; }
+        }
+        log_event("file_request_complete", filename + " " + std::to_string(filesize) + " bytes");
+    }
+
+    // ── Daemon file recv: send FileRequest to peer (non-blocking, returns immediately)
+    std::string daemon_file_recv(const std::string& peer_name, const std::string& remote_path) {
+        log_event("file_recv_request", remote_path + " from " + peer_name);
+        Conn* target = nullptr;
+        for (auto& c : conns_) {
+            if (c.sock_fd == INVALID_SOCKET) continue;
+            if (peer_name_eq(c.peer_name, peer_name)) { target = &c; break; }
+        }
+        if (!target) return "ERROR no conn to " + peer_name;
+
+        FileRequestMsg req;
+        req.path = remote_path;
+        try { write_frame(target->ssl.get(), req, CONTROL_STREAM_ID); }
+        catch (const std::exception& e) { return "ERROR send request: " + std::string(e.what()); }
+
+        log_event("file_recv_request_sent", remote_path + " -> " + peer_name + " (async)");
+        return "request sent to " + peer_name + " for " + remote_path + " (arrives async in " + receive_dir_ + ")";
+    }
+
+    void handle_file_ack(Conn& c, const FileAckMsg& m) {
+        if (m.error) {
+            log_event("file_send_failed", m.error_msg);
+            return;
+        }
+        log_event("file_chunk_acked", "chunk " + std::to_string(m.chunk_index)
+                   + " next=" + std::to_string(m.next_requested));
+    }
+
     void handle_dht_find_value(Conn& c, const DhtFindValueMsg& query) {
 #ifndef BS_NO_DHT
         if (!config_.dht_enabled || !dht_inited_) return;
@@ -3938,6 +4187,18 @@ private:
         }
         else if (std::holds_alternative<DhtFindValueMsg>(msg)) {
             handle_dht_find_value(c, std::get<DhtFindValueMsg>(msg));
+        }
+        else if (std::holds_alternative<FileMetaMsg>(msg)) {
+            handle_file_meta(c, std::get<FileMetaMsg>(msg));
+        }
+        else if (std::holds_alternative<FileChunkMsg>(msg)) {
+            handle_file_chunk(c, std::get<FileChunkMsg>(msg));
+        }
+        else if (std::holds_alternative<FileAckMsg>(msg)) {
+            handle_file_ack(c, std::get<FileAckMsg>(msg));
+        }
+        else if (std::holds_alternative<FileRequestMsg>(msg)) {
+            handle_file_request(c, std::get<FileRequestMsg>(msg));
         }
         else {
             // Route everything else through session / common handlers
@@ -4487,6 +4748,9 @@ public:
 #endif
         if (home) home_dir_ = home;
 
+        // Default receive directory
+        receive_dir_ = home_dir_ + "/.bridgesessions/received";
+
         // Bootstrap identity if needed
         std::string bs_dir = home_dir_ + "/.bridgesessions";
         bootstrap_identity(bs_dir);
@@ -4612,7 +4876,7 @@ public:
         // the whole mesh collapses. A 2s recv timeout makes the IPC handler
         // self-limiting and keeps the loop responsive.
         set_socket_timeouts(cfd, 2000);
-        char buf[256] = {};
+        char buf[1024] = {};
         int n = recv(cfd, buf, sizeof(buf) - 1, 0);
         std::string response = "ERROR bad request\n";
         if (n > 0) {
@@ -4643,6 +4907,34 @@ public:
                 }
                 response = found ? (peer_name + (ok ? " healthy\n" : " no pong\n"))
                                    : (peer_name + " not connected\n");
+            }
+            else if (line.rfind("FILE_SEND ", 0) == 0) {
+                // FILE_SEND <peer> <local-path>
+                auto rest = line.substr(10);
+                auto sp = rest.find(' ');
+                if (sp == std::string::npos) {
+                    response = "ERROR usage: FILE_SEND <peer> <path>\n";
+                } else {
+                    std::string peer_name = rest.substr(0, sp);
+                    std::string path = rest.substr(sp + 1);
+                    // Send the file over the existing mesh connection to this peer
+                    bool ok = daemon_file_send(peer_name, path);
+                    response = ok ? ("OK sent to " + peer_name + "\n")
+                                  : ("ERROR failed to send to " + peer_name + "\n");
+                }
+            }
+            else if (line.rfind("FILE_RECV ", 0) == 0) {
+                // FILE_RECV <peer> <remote-path>
+                auto rest = line.substr(10);
+                auto sp = rest.find(' ');
+                if (sp == std::string::npos) {
+                    response = "ERROR usage: FILE_RECV <peer> <remote-path>\n";
+                } else {
+                    std::string peer_name = rest.substr(0, sp);
+                    std::string path = rest.substr(sp + 1);
+                    std::string result = daemon_file_recv(peer_name, path);
+                    response = result + "\n";
+                }
             }
         }
         send(cfd, response.data(), (int)response.size(), 0);
@@ -4683,6 +4975,62 @@ public:
         std::string line(buf);
         while (!line.empty() && (line.back() == '\r' || line.back() == '\n'))
             line.pop_back();
+        return line;
+    }
+
+    // CLI-side: send a file via daemon IPC (reads local file, sends FILE_SEND command,
+    // blocks for response with longer wait_ms to cover transfer time).
+    std::string daemon_send_via_ipc(const std::string& peer_name, const std::string& path, int wait_ms) {
+        SOCKET sfd = socket(AF_INET, SOCK_STREAM, 0);
+        if (sfd == INVALID_SOCKET) return "";
+        sockaddr_in sa{};
+        sa.sin_family = AF_INET;
+        sa.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        sa.sin_port = htons(kMeshCliPort);
+        set_socket_timeouts(sfd, wait_ms > 0 ? wait_ms : 120000);
+        if (connect(sfd, (sockaddr*)&sa, sizeof(sa)) == SOCKET_ERROR) {
+            CLOSESOCK(sfd); return "";
+        }
+        std::string cmd = "FILE_SEND " + peer_name + " " + path + "\n";
+        send(sfd, cmd.data(), (int)cmd.size(), 0);
+        // Read response
+        char buf[256] = {};
+        int total = 0;
+        while (total < (int)sizeof(buf) - 1) {
+            int n = recv(sfd, buf + total, (int)sizeof(buf) - 1 - total, 0);
+            if (n > 0) { total += n; buf[total] = '\0'; if (strchr(buf, '\n')) break; }
+            else break;
+        }
+        CLOSESOCK(sfd);
+        std::string line(buf);
+        while (!line.empty() && (line.back() == '\r' || line.back() == '\n')) line.pop_back();
+        return line;
+    }
+
+    // CLI-side: request a file from a peer via daemon IPC.
+    std::string daemon_recv_via_ipc(const std::string& peer_name, const std::string& path, int wait_ms) {
+        SOCKET sfd = socket(AF_INET, SOCK_STREAM, 0);
+        if (sfd == INVALID_SOCKET) return "";
+        sockaddr_in sa{};
+        sa.sin_family = AF_INET;
+        sa.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        sa.sin_port = htons(kMeshCliPort);
+        set_socket_timeouts(sfd, wait_ms > 0 ? wait_ms : 120000);
+        if (connect(sfd, (sockaddr*)&sa, sizeof(sa)) == SOCKET_ERROR) {
+            CLOSESOCK(sfd); return "";
+        }
+        std::string cmd = "FILE_RECV " + peer_name + " " + path + "\n";
+        send(sfd, cmd.data(), (int)cmd.size(), 0);
+        char buf[1024] = {};
+        int total = 0;
+        while (total < (int)sizeof(buf) - 1) {
+            int n = recv(sfd, buf + total, (int)sizeof(buf) - 1 - total, 0);
+            if (n > 0) { total += n; buf[total] = '\0'; if (strchr(buf, '\n')) break; }
+            else break;
+        }
+        CLOSESOCK(sfd);
+        std::string line(buf);
+        while (!line.empty() && (line.back() == '\r' || line.back() == '\n')) line.pop_back();
         return line;
     }
 
@@ -5255,6 +5603,34 @@ public:
             if (sc.sfd != INVALID_SOCKET) CLOSESOCK(sc.sfd);
             return false;
         }
+    }
+
+    // ── CLI: file_send ──────────────────────────────────────────
+    void file_send(const std::string& peer_name, const std::string& local_path,
+                   const std::string& remote_dir) {
+        (void)remote_dir;
+        namespace fs = std::filesystem;
+        if (!fs::exists(local_path) || fs::is_directory(local_path)) {
+            std::cerr << "file not found or is a directory: " << local_path << "\n";
+            return;
+        }
+        // Try daemon IPC first (reuses existing mesh conns)
+        std::string ipc = daemon_send_via_ipc(peer_name, local_path, 120000);
+        if (!ipc.empty()) {
+            std::cout << ipc << "\n";
+            return;
+        }
+        std::cerr << "no daemon running — cannot send without daemon mesh connection\n";
+    }
+
+    // ── CLI: file_recv ──────────────────────────────────────────
+    std::string file_recv(const std::string& peer_name, const std::string& remote_path,
+                          const std::string& local_dir) {
+        (void)local_dir;
+        // Try daemon IPC first
+        std::string ipc = daemon_recv_via_ipc(peer_name, remote_path, 120000);
+        if (!ipc.empty()) return ipc;
+        return "ERROR no daemon running";
     }
 
     // ── CLI: show_stats ───────────────────────────────────────
@@ -5837,6 +6213,20 @@ int main(int argc, char** argv) {
     // stats
     auto* stats_cmd_app = app.add_subcommand("stats", "Show connection and session statistics");
 
+    // file
+    auto* file_cmd = app.add_subcommand("file", "File transfer operations");
+    file_cmd->require_subcommand(1);
+    std::string file_send_peer, file_send_path, file_send_remote_dir;
+    auto* file_send_app = file_cmd->add_subcommand("send", "Send file to a peer");
+    file_send_app->add_option("peer", file_send_peer, "Peer name")->required();
+    file_send_app->add_option("local", file_send_path, "Local file path")->required();
+    file_send_app->add_option("remote", file_send_remote_dir, "Remote directory (default: ~/.bridgesessions/received/)");
+    std::string file_recv_peer, file_recv_remote, file_recv_local;
+    auto* file_recv_app = file_cmd->add_subcommand("recv", "Receive file from a peer (run on target node)");
+    file_recv_app->add_option("peer", file_recv_peer, "Peer name")->required();
+    file_recv_app->add_option("remote", file_recv_remote, "Remote file path")->required();
+    file_recv_app->add_option("local", file_recv_local, "Local directory (default: .)");
+
     CLI11_PARSE(app, argc, argv);
 
     // Resolve config path
@@ -5914,6 +6304,21 @@ int main(int argc, char** argv) {
         bs::mesh::MeshController mc(cfg);
         mc.show_stats();
         return 0;
+    }
+    if (file_send_app->parsed()) {
+        bs::mesh::MeshConfig cfg = bs::mesh::load_config(config_path);
+        bs::mesh::bootstrap_identity(home_dir);
+        bs::mesh::MeshController mc(cfg);
+        mc.file_send(file_send_peer, file_send_path, file_send_remote_dir);
+        return 0;
+    }
+    if (file_recv_app->parsed()) {
+        bs::mesh::MeshConfig cfg = bs::mesh::load_config(config_path);
+        bs::mesh::bootstrap_identity(home_dir);
+        bs::mesh::MeshController mc(cfg);
+        std::string result = mc.file_recv(file_recv_peer, file_recv_remote, file_recv_local);
+        std::cout << result << "\n";
+        return result.find("ERROR") == std::string::npos ? 0 : 1;
     }
     // Default: daemon mode
     bs::mesh::MeshConfig cfg = bs::mesh::load_config(config_path);
