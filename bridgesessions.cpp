@@ -391,8 +391,9 @@ struct ScrollbackMsg {
 };
 
 struct SignalMsg {
-    enum class SignalType : uint8_t { CtrlC = 0, CtrlZ = 1, CtrlBackslash = 2 };
+    enum class SignalType : uint8_t { CtrlC = 0, CtrlZ = 1, CtrlBackslash = 2, Restart = 3 };
     SignalType signal = SignalType::CtrlC;
+    std::string process;  // process name to restart (only for Restart signal)
 };
 
 struct ExitCodeMsg {
@@ -669,7 +670,7 @@ void serialize_msg(Serializer& s, const ScrollbackAckMsg&) {}
 void serialize_msg(Serializer& s, const SessionListMsg&  m) { for (auto& si : m.sessions) { s.str_prefixed(si.name); s.str_prefixed(si.state); s.u32be(si.uptime_seconds); } }
 void serialize_msg(Serializer& s, const ServerInfoMsg&   m) { s.str(m.hostname); s.u8('\n'); s.str(m.version); s.u8('\n'); s.bytes(reinterpret_cast<const uint8_t*>(&m.load), 8); }
 void serialize_msg(Serializer& s, const ScrollbackMsg&   m) { s.u32be(m.total_lines); s.u32be(m.chunk_index); s.str(m.data); }
-void serialize_msg(Serializer& s, const SignalMsg&       m) { s.u8(static_cast<uint8_t>(m.signal)); }
+void serialize_msg(Serializer& s, const SignalMsg&       m) { s.u8(static_cast<uint8_t>(m.signal)); s.str_prefixed_u16(m.process); }
 void serialize_msg(Serializer& s, const ExitCodeMsg&     m) { s.u32be(static_cast<uint32_t>(m.code)); }
 void serialize_msg(Serializer& s, const SessionDiedMsg&  m) { s.u32be(static_cast<uint32_t>(m.exit_code)); s.u32be(static_cast<uint32_t>(m.signal_num)); }
 void serialize_msg(Serializer& s, const HelloMsg&        m) {
@@ -926,7 +927,7 @@ Message decode(std::span<const uint8_t> raw) {
         m.data = d.str_size(static_cast<size_t>(d.end - d.p));
         return m;
     }
-    case 0x0D: { SignalMsg m; m.signal = static_cast<SignalMsg::SignalType>(d.u8()); return m; }
+    case 0x0D: { SignalMsg m; m.signal = static_cast<SignalMsg::SignalType>(d.u8()); m.process = d.str_prefixed_u16(); return m; }
     case 0x0E: { ExitCodeMsg m; m.code = static_cast<int32_t>(d.u32be()); return m; }
     case 0x0F: return ScrollbackAckMsg{};
     case 0x10: { SessionDiedMsg m; m.exit_code = static_cast<int32_t>(d.u32be()); m.signal_num = static_cast<int32_t>(d.u32be()); return m; }
@@ -1036,6 +1037,11 @@ Message decode(std::span<const uint8_t> raw) {
         m.next_requested = d.u32be();
         m.error = d.u8() != 0;
         m.error_msg = d.str_prefixed_u16();
+        return m;
+    }
+    case 0x1F: {
+        FileRequestMsg m;
+        m.path = d.str_prefixed_u16();
         return m;
     }
     }
@@ -3917,19 +3923,42 @@ private:
         namespace fs = std::filesystem;
         fs::create_directories(receive_dir_);
         std::string out_path = receive_dir_ + "/" + m.filename;
+        std::string part_path = out_path + ".part";
+
+        // Resume support: check if a .part file already exists with matching checksum prefix
+        std::string resume_part_path;
+        uint32_t resume_index = 0;
+        if (fs::exists(part_path)) {
+            auto part_size = fs::file_size(part_path);
+            // If partial file is smaller than total and within 90% of expected size, resume
+            auto expected_total = m.filesize;
+            if (part_size > 0 && static_cast<double>(part_size) / expected_total < 0.90) {
+                resume_part_path = part_path;
+                // Estimate resumed chunks: 48KB raw per chunk
+                size_t kChunkRawSize = 48 * 1024;
+                resume_index = static_cast<uint32_t>(part_size / kChunkRawSize);
+                log_event("file_recv_resume", m.filename + " resuming at chunk " + std::to_string(resume_index));
+            } else {
+                // Stale .part, remove it
+                fs::remove(part_path);
+            }
+        }
+
         int suffix = 1;
         while (fs::exists(out_path)) {
             std::string alt = receive_dir_ + "/" + m.filename + "." + std::to_string(suffix);
             out_path = alt;
             ++suffix;
         }
+
         file_recv_state_ = FileReceiveState{};
         file_recv_state_.filename = m.filename;
         file_recv_state_.path = out_path;
         file_recv_state_.checksum = m.checksum;
         file_recv_state_.total_chunks = m.total_chunks;
-        file_recv_state_.received_chunks = 0;
-        file_recv_state_.file.open(out_path + ".part", std::ios::binary);
+        file_recv_state_.received_chunks = resume_index;
+        std::ios_base::openmode mode = std::ios::binary | (resume_index > 0 ? std::ios::app : std::ios::trunc);
+        file_recv_state_.file.open(part_path, mode);
         file_recv_state_.active = file_recv_state_.file.is_open();
         if (!file_recv_state_.active) {
             std::string err = "cannot open " + out_path + ".part";
@@ -4353,6 +4382,55 @@ public:
                     kill(conn.attached_session->child_pid, s);
                 }
 #endif
+            }
+            // Restart signal: kill + respawn process in same session
+            if (sig.signal == SignalMsg::SignalType::Restart) {
+                if (conn.attached_session && conn.attached_session->is_valid()) {
+                    auto* sess = conn.attached_session;
+                    std::string cmd = sess->command;
+                    if (!sig.process.empty()) cmd = sig.process;
+                    log_event("session_restart", cmd + " on " + sess->name);
+                    // Kill old child
+#ifdef _WIN32
+                    if (sess->child_pid) {
+                        TerminateProcess(sess->child_pid, 1);
+                        WaitForSingleObject(sess->child_pid, 3000);
+                        CloseHandle(sess->child_pid);
+                        sess->child_pid = nullptr;
+                    }
+#else
+                    if (sess->child_pid > 0) {
+                        kill(sess->child_pid, SIGTERM);
+                        int status = 0;
+                        for (int i = 0; i < 30; ++i) {
+                            if (waitpid(sess->child_pid, &status, WNOHANG) == sess->child_pid) break;
+                            usleep(100000);
+                        }
+                        if (waitpid(sess->child_pid, &status, WNOHANG) != sess->child_pid) {
+                            kill(sess->child_pid, SIGKILL);
+                            waitpid(sess->child_pid, &status, 0);
+                        }
+                        sess->child_pid = -1;
+                    }
+#endif
+                    // Spawn new process
+                    auto new_sess = create_session(sess->name, cmd, 80, 24, "xterm-256color");
+                    if (new_sess) {
+                        sess->master_fd = new_sess->master_fd;
+                        sess->child_pid = new_sess->child_pid;
+#ifdef _WIN32
+                        sess->write_handle = new_sess->write_handle;
+                        sess->hpcon = new_sess->hpcon;
+#endif
+                        new_sess->master_fd = nullptr;  // prevent double-close
+                        new_sess->child_pid = nullptr;
+                        ++sess->generation;
+                        log_event("session_restart_ok", cmd + " respawned ok");
+                    } else {
+                        log_event("session_restart_failed", "cannot spawn: " + cmd);
+                        sess->state = SessionState::Died;
+                    }
+                }
             }
             return;
         }

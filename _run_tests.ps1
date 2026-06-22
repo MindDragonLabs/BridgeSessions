@@ -51,14 +51,16 @@ $allTests = @(
     [PSCustomObject]@{ Name="test_multi_attach";          File="tests/test_multi_attach.cpp";          Layer="integration"; Tags="multi_attach peer_ids v1.1" },
     # mesh — integration
     [PSCustomObject]@{ Name="test_mesh";                  File="tests/test_mesh.cpp";                  Layer="integration"; Tags="mesh hello gossip connect" },
-    [PSCustomObject]@{ Name="test_mesh_reliability";      File="tests/test_mesh_reliability.cpp";      Layer="integration"; Tags="mesh pong gossip duplicate reuseaddr r3 r5" }
+    [PSCustomObject]@{ Name="test_mesh_reliability";      File="tests/test_mesh_reliability.cpp";      Layer="integration"; Tags="mesh pong gossip duplicate reuseaddr r3 r5" },
+    # file transfer — new
+    [PSCustomObject]@{ Name="test_file_transfer";         File="tests/test_file_transfer.cpp";         Layer="integration"; Tags="file transfer protocol" }
 )
 
 $tests = if ($Suite) { $allTests | Where-Object { $_.Name -eq $Suite } } else { $allTests }
 if ($Suite -and !$tests) { Write-Host "ERROR: no suite named '$Suite'" -ForegroundColor Red; exit 1 }
 
 $clFlags = "/std:c++latest /EHsc /MD /utf-8 /DBS_TESTING /DBS_NO_NAT /DBS_NO_WEBRTC /DBS_NO_DHT /I $vcpkg\include"
-$clLibs  = "Catch2.lib libssl.lib libcrypto.lib zstd.lib ws2_32.lib fmt.lib"
+$clLibs  = "Catch2.lib libssl.lib libcrypto.lib zstd.lib ws2_32.lib fmt.lib spdlog.lib user32.lib shell32.lib"
 
 # ── Header ─────────────────────────────────────────────────────────────
 Write-Host ""

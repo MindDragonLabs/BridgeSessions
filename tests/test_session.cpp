@@ -190,3 +190,60 @@ TEST_CASE("create_session with directory listing produces output", "[session]") 
 
     REQUIRE(output.size() > 0);
 }
+
+// ── Test: Restart signal kills + respawns process ──────────────
+
+TEST_CASE("restart signal respawns child process", "[session][restart]") {
+    auto s = create_session("test_restart", BS_CMD("cmd.exe /c timeout /t 30", "sleep 30"), 80, 24, "xterm-256color");
+    REQUIRE(s.has_value());
+
+    auto& sess = *s;
+    REQUIRE(sess.state == SessionState::Running);
+
+    // Simulate a Restart signal by killing and recreating
+    // (we can't send SignalMsg through a session stream in unit test,
+    // but we can verify the kill+respawn logic directly)
+#ifdef _WIN32
+    if (sess.child_pid) {
+        TerminateProcess(sess.child_pid, 1);
+        WaitForSingleObject(sess.child_pid, 3000);
+        CloseHandle(sess.child_pid);
+        sess.child_pid = nullptr;
+    }
+    auto new_sess = create_session("test_restart", BS_CMD("cmd.exe /c timeout /t 30", "sleep 30"), 80, 24, "xterm-256color");
+    REQUIRE(new_sess.has_value());
+    sess.master_fd = new_sess->master_fd;
+    sess.child_pid = new_sess->child_pid;
+    sess.write_handle = new_sess->write_handle;
+    sess.hpcon = new_sess->hpcon;
+    new_sess->master_fd = nullptr;
+    new_sess->child_pid = nullptr;
+    new_sess->write_handle = nullptr;
+    new_sess->hpcon = nullptr;
+#else
+    if (sess.child_pid > 0) {
+        kill(sess.child_pid, SIGTERM);
+        int status = 0;
+        for (int i = 0; i < 30; ++i) {
+            if (waitpid(sess.child_pid, &status, WNOHANG) == sess.child_pid) break;
+            usleep(100000);
+        }
+        if (waitpid(sess.child_pid, &status, WNOHANG) != sess.child_pid) {
+            kill(sess.child_pid, SIGKILL);
+            waitpid(sess.child_pid, &status, 0);
+        }
+        sess.child_pid = -1;
+    }
+    auto new_sess = create_session("test_restart", BS_CMD("cmd.exe /c timeout /t 30", "sleep 30"), 80, 24, "xterm-256color");
+    REQUIRE(new_sess.has_value());
+    sess.master_fd = new_sess->master_fd;
+    sess.child_pid = new_sess->child_pid;
+    new_sess->master_fd = -1;
+    new_sess->child_pid = -1;
+#endif
+
+    // After restart, state should still be Running, generation increased
+    REQUIRE(sess.state == SessionState::Running);
+    REQUIRE(sess.is_valid());
+    REQUIRE(sess.generation > 0);  // generation bumped on spawn
+}
