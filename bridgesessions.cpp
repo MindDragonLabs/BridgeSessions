@@ -2075,6 +2075,20 @@ struct MeshConfig {
     std::string terminal = "xterm-256color";
     std::string render_hint = "auto";  // "auto", "markdown", "raw"
 
+    // P5: Virtual folder mappings
+    struct VFolderEntry {
+        std::string name;
+        std::string local_path;
+        std::string remote_peer;
+        std::string remote_path;
+        std::string direction = "bidirectional";  // push, pull, bidirectional
+        int sync_interval_secs = 30;
+    };
+    std::vector<VFolderEntry> vfolders;
+
+    // Last sync times for vfolders
+    std::unordered_map<std::string, std::chrono::steady_clock::time_point> vfolder_last_sync_;
+
     // D15: WebRTC transport
     bool webrtc_enabled = false;
 
@@ -2271,6 +2285,36 @@ void write_peer_line(std::ostream& os, const std::string& prefix, const PeerEntr
             std::string_view t = trim(val);
             cfg.dht_enabled = (t == "true" || t == "1" || t == "yes");
         }
+        // ── vfolder.<name>.<key> (P5) ────────────────────────
+        else if (key_str.rfind("vfolder.", 0) == 0) {
+            auto rest = key_str.substr(8);  // "vfolder." = 8 chars
+            auto dot = rest.find('.');
+            if (dot != std::string::npos) {
+                std::string vname = std::string(rest.substr(0, dot));
+                std::string vkey = std::string(rest.substr(dot + 1));
+                bool found = false;
+                for (auto& v : cfg.vfolders) {
+                    if (v.name == vname) { found = true;
+                        if (vkey == "local") v.local_path = std::string(trim(val));
+                        else if (vkey == "peer") v.remote_peer = std::string(trim(val));
+                        else if (vkey == "remote") v.remote_path = std::string(trim(val));
+                        else if (vkey == "direction") v.direction = std::string(trim(val));
+                        else if (vkey == "interval") { auto iv = parse_int(val); if (iv.has_value()) v.sync_interval_secs = *iv; }
+                        break;
+                    }
+                }
+                if (!found) {
+                    MeshConfig::VFolderEntry ve;
+                    ve.name = vname;
+                    if (vkey == "local") ve.local_path = std::string(trim(val));
+                    else if (vkey == "peer") ve.remote_peer = std::string(trim(val));
+                    else if (vkey == "remote") ve.remote_path = std::string(trim(val));
+                    else if (vkey == "direction") ve.direction = std::string(trim(val));
+                    else if (vkey == "interval") { auto iv = parse_int(val); if (iv.has_value()) ve.sync_interval_secs = *iv; }
+                    cfg.vfolders.push_back(std::move(ve));
+                }
+            }
+        }
         // ── upnp.<key> (D17) ──────────────────────────────────
         else if (key_str == "upnp.enabled") {
             std::string_view t = trim(val);
@@ -2379,6 +2423,15 @@ void write_peer_line(std::ostream& os, const std::string& prefix, const PeerEntr
     f << "transport.webrtc_enabled " << (cfg.webrtc_enabled ? "true" : "false") << "\n";
     f << "dht.enabled " << (cfg.dht_enabled ? "true" : "false") << "\n";
     f << "upnp.enabled " << (cfg.upnp_enabled ? "true" : "false") << "\n";
+    // Virtual folders
+    for (auto& v : cfg.vfolders) {
+        std::string prefix = "vfolder." + v.name + ".";
+        f << prefix << "local " << v.local_path << "\n";
+        f << prefix << "peer " << v.remote_peer << "\n";
+        f << prefix << "remote " << v.remote_path << "\n";
+        f << prefix << "direction " << v.direction << "\n";
+        f << prefix << "interval " << v.sync_interval_secs << "\n";
+    }
     f << "\n";
 
     // Seeds
@@ -4318,6 +4371,77 @@ private:
         return "OK uploaded " + filename + " (" + std::to_string(filesize) + " bytes)";
     }
 
+    // P5: daemon vfolder sync a specific folder
+    std::string daemon_vfolder_sync(const std::string& name) {
+        MeshConfig::VFolderEntry* vf = nullptr;
+        for (auto& v : config_.vfolders) { if (v.name == name) { vf = &v; break; } }
+        if (!vf) return "ERROR no vfolder: " + name;
+        namespace fs = std::filesystem;
+        if (!fs::exists(vf->local_path)) {
+            fs::create_directories(vf->local_path);
+        }
+        // Scan local files, compute SHA-256 for each, send changed files
+        int sent = 0;
+        int skipped = 0;
+        for (auto& entry : fs::recursive_directory_iterator(vf->local_path, fs::directory_options::skip_permission_denied)) {
+            if (!entry.is_regular_file()) continue;
+            auto path = entry.path().string();
+            auto rel = path.substr(vf->local_path.size() + 1);
+            auto remote_file = vf->remote_path + "/" + rel;
+            // Read local, compute sha
+            std::ifstream f(path, std::ios::binary);
+            if (!f) continue;
+            std::string content((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+            std::string checksum = sha256_hex(content);
+            // Find conn
+            Conn* target = nullptr;
+            for (auto& c : conns_) { if (c.sock_fd != INVALID_SOCKET && peer_name_eq(c.peer_name, vf->remote_peer)) { target = &c; break; } }
+            if (!target) return "ERROR no conn to " + vf->remote_peer;
+            // Send FileMeta
+            const size_t kChunkRawSize = 48 * 1024;
+            size_t total = content.size();
+            uint32_t total_chunks = static_cast<uint32_t>((total + kChunkRawSize - 1) / kChunkRawSize);
+            if (total_chunks == 0) total_chunks = 1;
+            FileMetaMsg meta;
+            meta.filename = fs::path(remote_file).filename().string();
+            meta.filesize = static_cast<uint64_t>(total);
+            meta.checksum = checksum;
+            meta.total_chunks = total_chunks;
+            try { write_frame(target->ssl.get(), meta, CONTROL_STREAM_ID); } catch (...) { return "ERROR send meta for " + rel; }
+            // Wait for ack
+            auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(15);
+            bool acked = false;
+            while (std::chrono::steady_clock::now() < deadline) {
+                fd_set rfds; FD_ZERO(&rfds); FD_SET(target->sock_fd, &rfds);
+                timeval tv{3, 0};
+                if (select(static_cast<int>(target->sock_fd) + 1, &rfds, nullptr, nullptr, &tv) <= 0) continue;
+                try {
+                    Message resp = read_frame(target->ssl.get());
+                    if (std::holds_alternative<FileAckMsg>(resp)) {
+                        auto& ack = std::get<FileAckMsg>(resp);
+                        if (ack.error) return "ERROR remote for " + rel + ": " + ack.error_msg;
+                        acked = true; break;
+                    }
+                } catch (...) {}
+            }
+            if (!acked) return "ERROR no ack for " + rel;
+            // Send chunks
+            for (uint32_t ci = 0; ci < total_chunks; ++ci) {
+                size_t offset = static_cast<size_t>(ci) * kChunkRawSize;
+                size_t chunk_sz = (std::min)(kChunkRawSize, total - offset);
+                std::string raw = content.substr(offset, chunk_sz);
+                std::vector<uint8_t> comp;
+                if (!raw.empty()) comp = zstd_compress(std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(raw.data()), raw.size()));
+                FileChunkMsg c; c.chunk_index = ci; c.total_chunks = total_chunks; c.data = std::move(comp);
+                try { write_frame(target->ssl.get(), c, CONTROL_STREAM_ID); } catch (...) { return "ERROR chunk " + std::to_string(ci); }
+            }
+            ++sent;
+            log_event("vfolder_sync_file", rel + " -> " + vf->remote_peer);
+        }
+        log_event("vfolder_sync_done", name + " sent=" + std::to_string(sent));
+        return "OK synced " + name + " (" + std::to_string(sent) + " files)";
+    }
+
     void handle_file_ack(Conn& c, const FileAckMsg& m) {
         if (m.error) {
             log_event("file_send_failed", m.error_msg);
@@ -5201,6 +5325,20 @@ public:
                     std::string result = daemon_edit_dl(peer_name, path);
                     response = result + "\n";
                 }
+            }
+            else if (line.rfind("VFOLDER_SYNC ", 0) == 0) {
+                std::string name = line.substr(13);
+                std::string result = daemon_vfolder_sync(name);
+                response = result + "\n";
+            }
+            else if (line.rfind("VFOLDER_LIST", 0) == 0) {
+                std::string result = "[";
+                for (auto& v : config_.vfolders) {
+                    if (result.size() > 1) result += ",";
+                    result += "{\"name\":\"" + v.name + "\",\"local\":\"" + v.local_path + "\",\"peer\":\"" + v.remote_peer + "\",\"remote\":\"" + v.remote_path + "\",\"interval\":" + std::to_string(v.sync_interval_secs) + ",\"direction\":\"" + v.direction + "\"}";
+                }
+                result += "]";
+                response = result + "\n";
             }
             else if (line.rfind("EDIT_UP ", 0) == 0) {
                 auto rest = line.substr(8);
@@ -6496,6 +6634,38 @@ int cmd_keygen() {
     return 0;
 }
 
+// Free-function wrappers for IPC (used by main dispatch)
+static std::string daemon_simple_ipc(const std::string& cmd, int wait_ms) {
+    SOCKET sfd = socket(AF_INET, SOCK_STREAM, 0);
+    if (sfd == INVALID_SOCKET) return "";
+    sockaddr_in sa{};
+    sa.sin_family = AF_INET;
+    sa.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    sa.sin_port = htons(19980);
+    // set_socket_timeouts inline
+    int ms = wait_ms > 0 ? wait_ms : 5000;
+#ifdef _WIN32
+    DWORD to = ms;
+    setsockopt(sfd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&to, sizeof(to));
+#else
+    timeval tv{}; tv.tv_sec = ms / 1000; tv.tv_usec = (ms % 1000) * 1000;
+    setsockopt(sfd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+#endif
+    if (connect(sfd, (sockaddr*)&sa, sizeof(sa)) == SOCKET_ERROR) { CLOSESOCK(sfd); return ""; }
+    std::string full = cmd + "\n";
+    send(sfd, full.data(), (int)full.size(), 0);
+    char buf[4096] = {}; int total = 0;
+    while (total < (int)sizeof(buf) - 1) {
+        int n = recv(sfd, buf + total, (int)sizeof(buf) - 1 - total, 0);
+        if (n > 0) { total += n; buf[total] = '\0'; if (strchr(buf, '\n')) break; }
+        else break;
+    }
+    CLOSESOCK(sfd);
+    std::string line(buf);
+    while (!line.empty() && (line.back() == '\r' || line.back() == '\n')) line.pop_back();
+    return line;
+}
+
 // ── authorize: register a hex-encoded ed25519 public key ──────────
 int cmd_authorize(const char* hex_pubkey) {
     if (!hex_pubkey || !*hex_pubkey) {
@@ -6620,6 +6790,22 @@ int main(int argc, char** argv) {
     file_recv_app->add_option("remote", file_recv_remote, "Remote file path")->required();
     file_recv_app->add_option("local", file_recv_local, "Local directory (default: .)");
 
+    // vfolder
+    auto* vfolder_cmd = app.add_subcommand("vfolder", "Manage virtual folder sync");
+    vfolder_cmd->require_subcommand(1);
+    std::string vfolder_name, vfolder_local, vfolder_peer, vfolder_remote, vfolder_dir;
+    int vfolder_interval = 30;
+    auto* vfolder_add = vfolder_cmd->add_subcommand("add", "Add a virtual folder mapping");
+    vfolder_add->add_option("name", vfolder_name, "Mapping name")->required();
+    vfolder_add->add_option("local", vfolder_local, "Local path")->required();
+    vfolder_add->add_option("peer", vfolder_peer, "Remote peer")->required();
+    vfolder_add->add_option("remote", vfolder_remote, "Remote path")->required();
+    vfolder_add->add_option("--interval", vfolder_interval, "Sync interval (seconds)");
+    vfolder_add->add_option("--dir", vfolder_dir, "Sync direction (push/pull/bidirectional)");
+    auto* vfolder_sync = vfolder_cmd->add_subcommand("sync", "Sync a specific folder now");
+    vfolder_sync->add_option("name", vfolder_name, "Mapping name")->required();
+    auto* vfolder_list = vfolder_cmd->add_subcommand("list", "List active folder mappings");
+
     // edit
     std::string edit_target;
     auto* edit_cmd_app = app.add_subcommand("edit", "Edit a file on a remote peer");
@@ -6723,6 +6909,34 @@ int main(int argc, char** argv) {
         bs::mesh::bootstrap_identity(home_dir);
         bs::mesh::MeshController mc(cfg);
         mc.edit_peer(edit_target);
+        return 0;
+    }
+    if (vfolder_sync->parsed()) {
+        bs::mesh::bootstrap_identity(home_dir);
+        std::string ipc = daemon_simple_ipc("VFOLDER_SYNC " + vfolder_name, 300000);
+        if (ipc.empty()) { std::cerr << "no daemon running\n"; return 1; }
+        std::cout << ipc << "\n";
+        return ipc.rfind("ERROR", 0) == 0 ? 1 : 0;
+    }
+    if (vfolder_list->parsed()) {
+        bs::mesh::MeshConfig cfg = bs::mesh::load_config(config_path);
+        std::cout << "=== Virtual folders ===\n";
+        for (auto& v : cfg.vfolders) {
+            std::cout << v.name << ": " << v.local_path << " <-> " << v.remote_peer << ":" << v.remote_path
+                      << " (" << v.direction << ", every " << v.sync_interval_secs << "s)\n";
+        }
+        return 0;
+    }
+    if (vfolder_add->parsed()) {
+        bs::mesh::MeshConfig cfg = bs::mesh::load_config(config_path);
+        bs::mesh::MeshConfig::VFolderEntry ve;
+        ve.name = vfolder_name; ve.local_path = vfolder_local;
+        ve.remote_peer = vfolder_peer; ve.remote_path = vfolder_remote;
+        ve.sync_interval_secs = vfolder_interval;
+        if (!vfolder_dir.empty()) ve.direction = vfolder_dir;
+        cfg.vfolders.push_back(ve);
+        bs::mesh::save_config(config_path, cfg);
+        std::cout << "added vfolder " << vfolder_name << "\n";
         return 0;
     }
     // Default: daemon mode
