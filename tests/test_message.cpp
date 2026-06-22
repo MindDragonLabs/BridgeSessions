@@ -398,3 +398,59 @@ TEST_CASE("message_type maps file types to correct enums", "[message][file]") {
     REQUIRE(message_type(FileChunkMsg{}) == MessageType::FileChunk);
     REQUIRE(message_type(FileAckMsg{})   == MessageType::FileAck);
 }
+
+// ── Render Hint Tests (P3) ────────────────────────────────────
+
+TEST_CASE("OutputMsg render_markdown defaults", "[message][render]") {
+    OutputMsg m;
+    REQUIRE(m.data.empty());
+    REQUIRE(m.render_markdown == false);
+}
+
+TEST_CASE("OutputMsg render_markdown serialize/deserialize", "[message][render][codec]") {
+    OutputMsg original;
+    original.data = "# Hello\n\nThis is **markdown**\n";
+    original.render_markdown = true;
+
+    auto frame = encode(Message(original), 0);
+    auto decoded = decode(frame);
+    REQUIRE(std::holds_alternative<OutputMsg>(decoded));
+    auto& m = std::get<OutputMsg>(decoded);
+    REQUIRE(m.data == original.data);
+    REQUIRE(m.render_markdown == true);
+}
+
+TEST_CASE("OutputMsg render_markdown false roundtrip", "[message][render][codec]") {
+    OutputMsg original;
+    original.data = "ls -la\ntotal 42\n";
+    original.render_markdown = false;
+
+    auto frame = encode(Message(original), 0);
+    auto decoded = decode(frame);
+    REQUIRE(std::holds_alternative<OutputMsg>(decoded));
+    auto& m = std::get<OutputMsg>(decoded);
+    REQUIRE(m.data == original.data);
+    REQUIRE(m.render_markdown == false);
+}
+
+TEST_CASE("looks_like_markdown heuristic detects markdown", "[message][render]") {
+    // Markdown text with headers, lists
+    std::string md_text = "# Title\n\n## Subtitle\n\n- item 1\n- item 2\n\n```\ncode block\n```";
+    REQUIRE(looks_like_markdown(md_text) == true);
+
+    // Plain terminal output
+    std::string plain_text = "total 42\ndrwxr-xr-x 2 user user 4096 Jun 22 10:54 .\n-rw-r--r-- 1 user user 49 Jun 22 10:54 file.txt\n";
+    REQUIRE(looks_like_markdown(plain_text) == false);
+
+    // Empty
+    REQUIRE(looks_like_markdown("") == false);
+}
+
+TEST_CASE("looks_like_markdown table detection", "[message][render]") {
+    std::string table = "| Name | Value |\n|------|-------|\n| x    | 1     |\n| y    | 2     |";
+    REQUIRE(looks_like_markdown(table) == true);
+}
+
+TEST_CASE("FLAG_RENDER_MARKDOWN constant", "[message][render]") {
+    REQUIRE(FLAG_RENDER_MARKDOWN == 0x04);
+}

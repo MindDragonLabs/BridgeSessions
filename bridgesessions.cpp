@@ -327,7 +327,34 @@ struct KeystrokeMsg {
 
 struct OutputMsg {
     std::string data;  // PTY stdout (already rendered)
+    bool render_markdown = false;  // hint: GUI should render as markdown HTML
 };
+
+// Heuristic: does text look like markdown?
+inline bool looks_like_markdown(const std::string& text, size_t max_check = 200) {
+    size_t end = (std::min)(text.size(), max_check);
+    if (end == 0) return false;
+    std::string_view sv(text.data(), end);
+    int md_lines = 0;
+    size_t line_count = 0;
+    size_t pos = 0;
+    while (pos < sv.size() && line_count < 20) {
+        size_t nl = sv.find('\n', pos);
+        std::string_view line = sv.substr(pos, nl - pos);
+        while (!line.empty() && (line[0] == ' ' || line[0] == '	')) line.remove_prefix(1);
+        if (line.empty()) { pos = (nl == sv.npos) ? sv.size() : nl + 1; ++line_count; continue; }
+        bool is_md = false;
+        if ((line.size() >= 2 && line[0] == '#' && line[1] == ' ') ||
+            (line.size() >= 3 && line[0] == '#' && line[1] == '#' && line[2] == ' ') ||
+            (line.size() >= 2 && line[0] == '-' && line[1] == ' ') ||
+            (line.size() >= 3 && line[0] == '`' && line[1] == '`' && line[2] == '`') ||
+            (line.size() >= 2 && line[0] == '|' && line.find('|', 1) != sv.npos))
+            ++md_lines;
+        pos = (nl == sv.npos) ? sv.size() : nl + 1;
+        ++line_count;
+    }
+    return md_lines >= 2;
+}
 
 struct ResizeMsg {
     uint16_t cols = 0;
@@ -549,8 +576,9 @@ constexpr uint16_t COMPRESSION_THRESHOLD = 256;
 constexpr size_t    MAX_IMAGE_BYTES    = 50ull * 1024ull * 1024ull;
 
 enum FrameFlags : uint8_t {
-    FLAG_COMPRESSED = 0x01,
-    FLAG_CONTROL    = 0x02,
+    FLAG_COMPRESSED      = 0x01,
+    FLAG_CONTROL         = 0x02,
+    FLAG_RENDER_MARKDOWN = 0x04,
 };
 
 struct Frame {
@@ -642,7 +670,7 @@ struct Serializer {
 };
 
 void serialize_msg(Serializer& s, const KeystrokeMsg&    m) { s.str(m.data); }
-void serialize_msg(Serializer& s, const OutputMsg&       m) { s.str(m.data); }
+void serialize_msg(Serializer& s, const OutputMsg&       m) { s.u8(m.render_markdown ? 1 : 0); s.str(m.data); }
 void serialize_msg(Serializer& s, const ResizeMsg&       m) { s.u16(m.cols); s.u16(m.rows); }
 void serialize_msg(Serializer& s, const ClipboardMsg&    m) { s.str(m.hash); s.u8('\n'); s.str(m.text); }
 void serialize_msg(Serializer& s, const ClipboardEchoMsg& m) { s.str(m.hash); }
@@ -879,7 +907,7 @@ Message decode(std::span<const uint8_t> raw) {
 
     switch (type_byte) {
     case 0x01: { KeystrokeMsg m; m.data = d.str_size(payload.size()); return m; }
-    case 0x02: { OutputMsg    m; m.data = d.str_size(payload.size()); return m; }
+    case 0x02: { OutputMsg m; m.render_markdown = d.u8() != 0; m.data = d.str_size(static_cast<size_t>(d.end - d.p)); return m; }
     case 0x03: { ResizeMsg    m; m.cols = d.u16(); m.rows = d.u16(); return m; }
     case 0x04: // ClipboardGet — fall through
     case 0x05: { // ClipboardPut
@@ -2045,6 +2073,7 @@ struct MeshConfig {
     int idle_timeout_hours = 168;
     std::string default_shell;
     std::string terminal = "xterm-256color";
+    std::string render_hint = "auto";  // "auto", "markdown", "raw"
 
     // D15: WebRTC transport
     bool webrtc_enabled = false;
@@ -4422,8 +4451,15 @@ public:
                         sess->write_handle = new_sess->write_handle;
                         sess->hpcon = new_sess->hpcon;
 #endif
+#ifdef _WIN32
                         new_sess->master_fd = nullptr;  // prevent double-close
                         new_sess->child_pid = nullptr;
+                        new_sess->write_handle = nullptr;
+                        new_sess->hpcon = nullptr;
+#else
+                        new_sess->master_fd = -1;
+                        new_sess->child_pid = -1;
+#endif
                         ++sess->generation;
                         log_event("session_restart_ok", cmd + " respawned ok");
                     } else {
@@ -4608,6 +4644,10 @@ public:
             if (!osc.cleaned_text.empty()) {
                 OutputMsg om;
                 om.data = std::move(osc.cleaned_text);
+                // Set render_markdown flag based on heuristic or config override
+                if (config_.render_hint == "markdown") om.render_markdown = true;
+                else if (config_.render_hint != "raw")
+                    om.render_markdown = looks_like_markdown(om.data);
                 try {
                     write_frame(conn.ssl.get(), om, 0);
                 } catch (...) {}
