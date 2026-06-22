@@ -4181,6 +4181,143 @@ private:
         return "request sent to " + peer_name + " for " + remote_path + " (arrives async in " + receive_dir_ + ")";
     }
 
+    // ── Daemon edit download: request file, receive to temp, return path+checksum ──
+    std::string daemon_edit_dl(const std::string& peer_name, const std::string& remote_path) {
+        namespace fs = std::filesystem;
+        // Create temp dir
+        std::string tmp_dir;
+#ifdef _WIN32
+        char tp[MAX_PATH+1]={}, tb[MAX_PATH+1]={};
+        GetTempPathA(sizeof(tp), tp);
+        GetTempFileNameA(tp, "bsed", 0, tb);
+        DeleteFileA(tb); CreateDirectoryA(tb, nullptr);
+        tmp_dir = tb;
+#else
+        char tmpl[] = "/tmp/bsedit-XXXXXX";
+        char* d = mkdtemp(tmpl);
+        tmp_dir = d ? d : "/tmp/bsedit";
+#endif
+        // Find conn
+        Conn* target = nullptr;
+        for (auto& c : conns_) { if (c.sock_fd != INVALID_SOCKET && peer_name_eq(c.peer_name, peer_name)) { target = &c; break; } }
+        if (!target) return "ERROR no conn to " + peer_name;
+
+        FileRequestMsg req; req.path = remote_path;
+        try { write_frame(target->ssl.get(), req, CONTROL_STREAM_ID); }
+        catch (const std::exception& e) { return "ERROR send request: " + std::string(e.what()); }
+
+        // Wait for FileMeta
+        std::string filename, checksum;
+        uint32_t total_chunks = 0;
+        auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(15);
+        while (std::chrono::steady_clock::now() < deadline) {
+            fd_set rfds; FD_ZERO(&rfds); FD_SET(target->sock_fd, &rfds);
+            timeval tv{3, 0};
+            if (select(static_cast<int>(target->sock_fd) + 1, &rfds, nullptr, nullptr, &tv) <= 0) continue;
+            try {
+                Message resp = read_frame(target->ssl.get());
+                if (std::holds_alternative<FileMetaMsg>(resp)) {
+                    auto& m = std::get<FileMetaMsg>(resp);
+                    filename = m.filename; checksum = m.checksum; total_chunks = m.total_chunks;
+                    break;
+                }
+                if (std::holds_alternative<FileAckMsg>(resp)) {
+                    auto& ack = std::get<FileAckMsg>(resp);
+                    if (ack.error) return "ERROR remote: " + ack.error_msg;
+                }
+            } catch (...) {}
+        }
+        if (filename.empty()) return "ERROR no FileMeta from " + peer_name;
+
+        std::string local_path = tmp_dir + "/" + filename;
+        std::string part_path = local_path + ".part";
+        {
+            std::ofstream out_file(part_path, std::ios::binary);
+            if (!out_file) return "ERROR cannot open " + part_path;
+            uint32_t chunks_recv = 0;
+            deadline = std::chrono::steady_clock::now() + std::chrono::seconds(120);
+            while (chunks_recv < total_chunks && std::chrono::steady_clock::now() < deadline) {
+                fd_set rfds; FD_ZERO(&rfds); FD_SET(target->sock_fd, &rfds);
+                timeval tv{5, 0};
+                if (select(static_cast<int>(target->sock_fd) + 1, &rfds, nullptr, nullptr, &tv) <= 0) continue;
+                try {
+                    Message resp = read_frame(target->ssl.get());
+                    if (std::holds_alternative<FileChunkMsg>(resp)) {
+                        auto& chunk = std::get<FileChunkMsg>(resp);
+                        if (chunk.chunk_index == chunks_recv) {
+                            std::vector<uint8_t> d;
+                            if (!chunk.data.empty()) d = zstd_decompress(std::span<const uint8_t>(chunk.data.data(), chunk.data.size()));
+                            if (!d.empty()) out_file.write(reinterpret_cast<const char*>(d.data()), d.size());
+                            ++chunks_recv;
+                            try { write_frame(target->ssl.get(), FileAckMsg{chunk.chunk_index, chunks_recv, false, ""}, CONTROL_STREAM_ID); } catch (...) {}
+                        }
+                    }
+                } catch (...) {}
+            }
+            out_file.close();
+            if (chunks_recv < total_chunks) return "ERROR incomplete " + std::to_string(chunks_recv) + "/" + std::to_string(total_chunks);
+        }
+        fs::rename(part_path, local_path);
+        log_event("edit_dl_complete", filename + " -> " + local_path);
+        return "OK " + local_path + " " + checksum;
+    }
+
+    // ── Daemon edit upload: read local file, upload via handle_file_meta/handle_file_chunk ──
+    std::string daemon_edit_up(const std::string& peer_name, const std::string& remote_path, const std::string& local_path) {
+        namespace fs = std::filesystem;
+        if (!fs::exists(local_path)) return "ERROR file not found: " + local_path;
+
+        Conn* target = nullptr;
+        for (auto& c : conns_) { if (c.sock_fd != INVALID_SOCKET && peer_name_eq(c.peer_name, peer_name)) { target = &c; break; } }
+        if (!target) return "ERROR no conn to " + peer_name;
+
+        uint64_t filesize = static_cast<uint64_t>(fs::file_size(local_path));
+        std::string filename = fs::path(local_path).filename().string();
+        std::ifstream infile(local_path, std::ios::binary);
+        if (!infile) return "ERROR cannot open " + local_path;
+        std::string content((std::istreambuf_iterator<char>(infile)), std::istreambuf_iterator<char>());
+        std::string checksum = sha256_hex(content);
+
+        const size_t kChunkRawSize = 48 * 1024;
+        size_t total = content.size();
+        uint32_t total_chunks = static_cast<uint32_t>((total + kChunkRawSize - 1) / kChunkRawSize);
+        if (total_chunks == 0) total_chunks = 1;
+
+        FileMetaMsg meta;
+        meta.filename = filename; meta.filesize = filesize; meta.checksum = checksum; meta.total_chunks = total_chunks;
+        try { write_frame(target->ssl.get(), meta, CONTROL_STREAM_ID); } catch (...) { return "ERROR upload: send meta failed"; }
+
+        // Wait for ACK
+        auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(15);
+        bool got_ack = false;
+        while (std::chrono::steady_clock::now() < deadline) {
+            fd_set rfds; FD_ZERO(&rfds); FD_SET(target->sock_fd, &rfds);
+            timeval tv{3, 0};
+            if (select(static_cast<int>(target->sock_fd) + 1, &rfds, nullptr, nullptr, &tv) <= 0) continue;
+            try {
+                Message resp = read_frame(target->ssl.get());
+                if (std::holds_alternative<FileAckMsg>(resp)) {
+                    auto& ack = std::get<FileAckMsg>(resp);
+                    if (ack.error) return "ERROR remote: " + ack.error_msg;
+                    got_ack = true; break;
+                }
+            } catch (...) {}
+        }
+        if (!got_ack) return "ERROR upload: no ack";
+
+        for (uint32_t ci = 0; ci < total_chunks; ++ci) {
+            size_t off = static_cast<size_t>(ci) * kChunkRawSize;
+            size_t sz = (std::min)(kChunkRawSize, total - off);
+            std::string raw = content.substr(off, sz);
+            std::vector<uint8_t> comp;
+            if (!raw.empty()) comp = zstd_compress(std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(raw.data()), raw.size()));
+            FileChunkMsg c; c.chunk_index = ci; c.total_chunks = total_chunks; c.data = std::move(comp);
+            try { write_frame(target->ssl.get(), c, CONTROL_STREAM_ID); } catch (...) { return "ERROR upload: chunk " + std::to_string(ci); }
+        }
+        log_event("edit_up_complete", filename + " to " + peer_name);
+        return "OK uploaded " + filename + " (" + std::to_string(filesize) + " bytes)";
+    }
+
     void handle_file_ack(Conn& c, const FileAckMsg& m) {
         if (m.error) {
             log_event("file_send_failed", m.error_msg);
@@ -5042,7 +5179,6 @@ public:
                 }
             }
             else if (line.rfind("FILE_RECV ", 0) == 0) {
-                // FILE_RECV <peer> <remote-path>
                 auto rest = line.substr(10);
                 auto sp = rest.find(' ');
                 if (sp == std::string::npos) {
@@ -5052,6 +5188,34 @@ public:
                     std::string path = rest.substr(sp + 1);
                     std::string result = daemon_file_recv(peer_name, path);
                     response = result + "\n";
+                }
+            }
+            else if (line.rfind("EDIT_DL ", 0) == 0) {
+                auto rest = line.substr(8);
+                auto sp = rest.find(' ');
+                if (sp == std::string::npos) {
+                    response = "ERROR usage: EDIT_DL <peer> <remote-path>\n";
+                } else {
+                    std::string peer_name = rest.substr(0, sp);
+                    std::string path = rest.substr(sp + 1);
+                    std::string result = daemon_edit_dl(peer_name, path);
+                    response = result + "\n";
+                }
+            }
+            else if (line.rfind("EDIT_UP ", 0) == 0) {
+                auto rest = line.substr(8);
+                auto sp1 = rest.find(' ');
+                if (sp1 == std::string::npos) { response = "ERROR usage\n"; }
+                else {
+                    auto sp2 = rest.find(' ', sp1 + 1);
+                    if (sp2 == std::string::npos) { response = "ERROR usage\n"; }
+                    else {
+                        std::string peer_name = rest.substr(0, sp1);
+                        std::string remote_path = rest.substr(sp1 + 1, sp2 - sp1 - 1);
+                        std::string local_path = rest.substr(sp2 + 1);
+                        std::string result = daemon_edit_up(peer_name, remote_path, local_path);
+                        response = result + "\n";
+                    }
                 }
             }
         }
@@ -5126,6 +5290,54 @@ public:
     }
 
     // CLI-side: request a file from a peer via daemon IPC.
+    // CLI-side: edit download via daemon IPC
+    std::string daemon_edit_dl_via_ipc(const std::string& peer_name, const std::string& path, int wait_ms) {
+        SOCKET sfd = socket(AF_INET, SOCK_STREAM, 0);
+        if (sfd == INVALID_SOCKET) return "";
+        sockaddr_in sa{};
+        sa.sin_family = AF_INET;
+        sa.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        sa.sin_port = htons(kMeshCliPort);
+        set_socket_timeouts(sfd, wait_ms > 0 ? wait_ms : 120000);
+        if (connect(sfd, (sockaddr*)&sa, sizeof(sa)) == SOCKET_ERROR) { CLOSESOCK(sfd); return ""; }
+        std::string cmd = "EDIT_DL " + peer_name + " " + path + "\n";
+        send(sfd, cmd.data(), (int)cmd.size(), 0);
+        char buf[4096] = {}; int total = 0;
+        while (total < (int)sizeof(buf) - 1) {
+            int n = recv(sfd, buf + total, (int)sizeof(buf) - 1 - total, 0);
+            if (n > 0) { total += n; buf[total] = '\0'; if (strchr(buf, '\n')) break; }
+            else break;
+        }
+        CLOSESOCK(sfd);
+        std::string line(buf);
+        while (!line.empty() && (line.back() == '\r' || line.back() == '\n')) line.pop_back();
+        return line;
+    }
+
+    // CLI-side: edit upload via daemon IPC
+    std::string daemon_edit_up_via_ipc(const std::string& peer_name, const std::string& remote_path, const std::string& local_path, int wait_ms) {
+        SOCKET sfd = socket(AF_INET, SOCK_STREAM, 0);
+        if (sfd == INVALID_SOCKET) return "ERROR socket";
+        sockaddr_in sa{};
+        sa.sin_family = AF_INET;
+        sa.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        sa.sin_port = htons(kMeshCliPort);
+        set_socket_timeouts(sfd, wait_ms > 0 ? wait_ms : 120000);
+        if (connect(sfd, (sockaddr*)&sa, sizeof(sa)) == SOCKET_ERROR) { CLOSESOCK(sfd); return "ERROR no daemon"; }
+        std::string cmd = "EDIT_UP " + peer_name + " " + remote_path + " " + local_path + "\n";
+        send(sfd, cmd.data(), (int)cmd.size(), 0);
+        char buf[4096] = {}; int total = 0;
+        while (total < (int)sizeof(buf) - 1) {
+            int n = recv(sfd, buf + total, (int)sizeof(buf) - 1 - total, 0);
+            if (n > 0) { total += n; buf[total] = '\0'; if (strchr(buf, '\n')) break; }
+            else break;
+        }
+        CLOSESOCK(sfd);
+        std::string line(buf);
+        while (!line.empty() && (line.back() == '\r' || line.back() == '\n')) line.pop_back();
+        return line;
+    }
+
     std::string daemon_recv_via_ipc(const std::string& peer_name, const std::string& path, int wait_ms) {
         SOCKET sfd = socket(AF_INET, SOCK_STREAM, 0);
         if (sfd == INVALID_SOCKET) return "";
@@ -5753,7 +5965,6 @@ public:
 
     // ── CLI: edit_peer ──────────────────────────────────────────
     void edit_peer(const std::string& target) {
-        // Parse "peer:/path" or "peer:path"
         auto colon = target.find(':');
         if (colon == std::string::npos || colon == 0 || colon == target.size() - 1) {
             std::cerr << "usage: bridgesessions edit <peer>:<path> (e.g. linux-b:/etc/nginx.conf)\n";
@@ -5762,101 +5973,32 @@ public:
         std::string peer_name = target.substr(0, colon);
         std::string remote_path = target.substr(colon + 1);
 
-        // Connect to peer
-        std::string addr = find_peer_addr(peer_name);
-        if (addr.empty()) { std::cerr << "peer not found: " << peer_name << "\n"; return; }
-        auto sc = connect_and_hello(addr);
-        if (!sc.ssl || sc.sfd == INVALID_SOCKET) {
-            std::cerr << "cannot connect to " << peer_name << "\n"; return;
+        // Download via daemon IPC
+        std::string dl_result = daemon_edit_dl_via_ipc(peer_name, remote_path, 120000);
+        if (dl_result.empty()) {
+            std::cerr << "no daemon running — edit requires running daemon\n";
+            return;
         }
-
-        // Request the remote file
-        FileRequestMsg req;
-        req.path = remote_path;
-        try { write_frame(sc.ssl.get(), req, CONTROL_STREAM_ID); }
-        catch (...) { std::cerr << "failed to request file\n"; CLOSESOCK(sc.sfd); return; }
-
-        // Wait for FileMeta
-        std::string filename, checksum;
-        uint32_t total_chunks = 0;
-        auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(15);
-        while (std::chrono::steady_clock::now() < deadline) {
-            fd_set rfds; FD_ZERO(&rfds); FD_SET(sc.sfd, &rfds);
-            timeval tv{3, 0};
-            if (select(static_cast<int>(sc.sfd) + 1, &rfds, nullptr, nullptr, &tv) <= 0) continue;
-            try {
-                Message resp = read_frame(sc.ssl.get());
-                if (std::holds_alternative<FileMetaMsg>(resp)) {
-                    auto& m = std::get<FileMetaMsg>(resp);
-                    filename = m.filename; checksum = m.checksum; total_chunks = m.total_chunks;
-                    break;
-                }
-                if (std::holds_alternative<FileAckMsg>(resp)) {
-                    auto& ack = std::get<FileAckMsg>(resp);
-                    if (ack.error) { std::cerr << "remote error: " << ack.error_msg << "\n"; CLOSESOCK(sc.sfd); return; }
-                }
-            } catch (...) {}
+        if (dl_result.rfind("ERROR", 0) == 0) {
+            std::cerr << dl_result << "\n";
+            return;
         }
-        if (filename.empty()) { std::cerr << "no file metadata from " << peer_name << "\n"; CLOSESOCK(sc.sfd); return; }
+        std::cout << dl_result << "\n";
+        // dl_result format: "OK <local-path> <checksum>"
+        // Parse local path and checksum from response
+        auto sp1 = dl_result.find(' ');
+        if (sp1 == std::string::npos) return;
+        std::string local_path = dl_result.substr(sp1 + 1);
+        auto sp2 = local_path.rfind(' ');
+        if (sp2 == std::string::npos) return;
+        std::string checksum = local_path.substr(sp2 + 1);
+        local_path = local_path.substr(0, sp2);
 
-        // Create temp dir
-        std::string tmp_dir;
-#ifdef _WIN32
-        char tmp_path[MAX_PATH + 1] = {};
-        GetTempPathA(sizeof(tmp_path), tmp_path);
-        char tmp_dir_buf[MAX_PATH + 1] = {};
-        GetTempFileNameA(tmp_path, "bsed", 0, tmp_dir_buf);
-        DeleteFileA(tmp_dir_buf);
-        CreateDirectoryA(tmp_dir_buf, nullptr);
-        tmp_dir = tmp_dir_buf;
-#else
-        char tmpl[] = "/tmp/bsedit-XXXXXX";
-        char* d = mkdtemp(tmpl);
-        tmp_dir = d ? d : "/tmp/bsedit";
-#endif
-
-        std::string local_path = tmp_dir + "/" + filename;
-        std::string part_path = local_path + ".part";
-        {
-            std::ofstream out_file(part_path, std::ios::binary);
-            if (!out_file) { std::cerr << "cannot create " << part_path << "\n"; CLOSESOCK(sc.sfd); return; }
-
-            uint32_t chunks_recv = 0;
-            deadline = std::chrono::steady_clock::now() + std::chrono::seconds(120);
-            while (chunks_recv < total_chunks && std::chrono::steady_clock::now() < deadline) {
-                fd_set rfds; FD_ZERO(&rfds); FD_SET(sc.sfd, &rfds);
-                timeval tv{5, 0};
-                if (select(static_cast<int>(sc.sfd) + 1, &rfds, nullptr, nullptr, &tv) <= 0) continue;
-                try {
-                    Message resp = read_frame(sc.ssl.get());
-                    if (std::holds_alternative<FileChunkMsg>(resp)) {
-                        auto& chunk = std::get<FileChunkMsg>(resp);
-                        if (chunk.chunk_index == chunks_recv) {
-                            std::vector<uint8_t> decompressed;
-                            if (!chunk.data.empty())
-                                decompressed = zstd_decompress(std::span<const uint8_t>(chunk.data.data(), chunk.data.size()));
-                            if (!decompressed.empty())
-                                out_file.write(reinterpret_cast<const char*>(decompressed.data()), decompressed.size());
-                            ++chunks_recv;
-                            try { write_frame(sc.ssl.get(), FileAckMsg{chunk.chunk_index, chunks_recv, false, ""}, CONTROL_STREAM_ID); } catch (...) {}
-                        }
-                    }
-                } catch (...) {}
-            }
-            out_file.close();
-            if (chunks_recv < total_chunks) {
-                std::cerr << "incomplete download: " << chunks_recv << "/" << total_chunks << "\n";
-                CLOSESOCK(sc.sfd); return;
-            }
-        }
-        // Rename .part → local
-        std::filesystem::rename(part_path, local_path);
-
-        std::cout << "downloaded " << filename << " (" << checksum.substr(0, 12) << "...) to " << local_path << "\n";
+        std::cout << "downloaded to " << local_path << "\n";
 
         // Open editor
 #ifdef _WIN32
-        std::string editor = "notepad++";
+        std::string editor = "notepad";
         const char* env_editor = std::getenv("EDITOR");
         if (env_editor && *env_editor) editor = env_editor;
         std::string edit_cmd = editor + " \"" + local_path + "\"";
@@ -5867,75 +6009,21 @@ public:
         if (env_editor && *env_editor) editor = env_editor;
         std::string edit_cmd = editor + " " + local_path;
         int ret = system(edit_cmd.c_str());
-        if (ret != 0) {
-            std::cerr << "editor exited with code " << ret << "\n";
-        }
+        if (ret != 0) { std::cerr << "editor exited with code " << ret << "\n"; }
 #endif
 
-        // Read back and check for changes
+        // Check for changes and upload
         std::ifstream infile(local_path, std::ios::binary);
         std::string new_content((std::istreambuf_iterator<char>(infile)), std::istreambuf_iterator<char>());
         std::string new_checksum = sha256_hex(new_content);
-        SOCKET sfd = sc.sfd;
 
         if (new_checksum == checksum) {
-            std::cout << "no changes to " << filename << "\n";
-            CLOSESOCK(sfd);
+            std::cout << "no changes\n";
             return;
         }
-
-        std::cout << "file changed, uploading...\n";
-
-        // Upload modified file using same connection
-        // First close old conn state — the remote will drop after upload completes
-        const size_t kChunkRawSize = 48 * 1024;
-        size_t total = new_content.size();
-        uint32_t total_chunks_up = static_cast<uint32_t>((total + kChunkRawSize - 1) / kChunkRawSize);
-        if (total_chunks_up == 0) total_chunks_up = 1;
-
-        FileMetaMsg meta;
-        meta.filename = filename; meta.filesize = static_cast<uint64_t>(total);
-        meta.checksum = new_checksum; meta.total_chunks = total_chunks_up;
-        try { write_frame(sc.ssl.get(), meta, CONTROL_STREAM_ID); }
-        catch (...) { std::cerr << "upload: send meta failed\n"; CLOSESOCK(sfd); return; }
-
-        // Wait for initial ACK
-        deadline = std::chrono::steady_clock::now() + std::chrono::seconds(15);
-        bool got_ack = false;
-        while (std::chrono::steady_clock::now() < deadline) {
-            fd_set rfds; FD_ZERO(&rfds); FD_SET(sfd, &rfds);
-            timeval tv{3, 0};
-            if (select(static_cast<int>(sfd) + 1, &rfds, nullptr, nullptr, &tv) <= 0) continue;
-            try {
-                Message resp = read_frame(sc.ssl.get());
-                if (std::holds_alternative<FileAckMsg>(resp)) {
-                    auto& ack = std::get<FileAckMsg>(resp);
-                    if (ack.error) { std::cerr << "remote error: " << ack.error_msg << "\n"; CLOSESOCK(sfd); return; }
-                    got_ack = true; break;
-                }
-            } catch (...) {}
-        }
-        if (!got_ack) { std::cerr << "upload: no ack from remote\n"; CLOSESOCK(sfd); return; }
-
-        // Send chunks
-        for (uint32_t ci = 0; ci < total_chunks_up; ++ci) {
-            size_t offset = static_cast<size_t>(ci) * kChunkRawSize;
-            size_t chunk_sz = (std::min)(kChunkRawSize, total - offset);
-            std::string raw_chunk = new_content.substr(offset, chunk_sz);
-            std::vector<uint8_t> compressed;
-            if (!raw_chunk.empty()) {
-                compressed = zstd_compress(
-                    std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(raw_chunk.data()), raw_chunk.size()));
-            }
-            FileChunkMsg chunk;
-            chunk.chunk_index = ci; chunk.total_chunks = total_chunks_up;
-            chunk.data = std::move(compressed);
-            try { write_frame(sc.ssl.get(), chunk, CONTROL_STREAM_ID); }
-            catch (...) { std::cerr << "upload: send chunk " << ci << " failed\n"; CLOSESOCK(sfd); return; }
-        }
-
-        std::cout << "uploaded " << filename << " (" << total << " bytes, " << total_chunks_up << " chunks, sha256:" << new_checksum.substr(0, 12) << "...)\n";
-        CLOSESOCK(sfd);
+        std::cout << "file changed, uploading via daemon...\n";
+        std::string up_result = daemon_edit_up_via_ipc(peer_name, remote_path, local_path, 120000);
+        std::cout << up_result << "\n";
     }
 
     // ── CLI: show_stats ───────────────────────────────────────
