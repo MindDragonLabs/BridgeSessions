@@ -1,162 +1,162 @@
 # bridgesessions — Architecture Decision Record (SPEC)
 
 **Replace:** `mosh → ssh → zellij → hermes --tui`
-**With:** `bs-client ⚡ bs-server → hermes --tui`
+**With:** bridgemind.ai GUI ⚡ mesh peers → any shell, any AI agent, anywhere
 
-One protocol. Two binaries. No SSH. No mosh. No zellij.
+One binary, one config, one keypair per device. Every node is a peer. No SSH, mosh, or zellij in the mesh path.
 
-**Language:** C++23 (gcc 14+ / clang 18+)
+**Language:** C++23 (gcc 14+ / clang 18+ / MSVC 2026)
 **Transport:** TLS 1.3 over TCP (v1), QUIC via msquic (v2)
 **Compression:** zstd per-frame
 **Auth:** ed25519 mutual TLS + TOFU
-**Build:** CMake 3.25+
+**Build:** Single-file `/std:c++latest` / `g++ -std=c++23` / `clang++ -std=c++2b`
 
 ---
 
 ## 1. Architecture Overview
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│  macOS — BridgeSpace.app (terminal emulator & pane manager)      │
+┌──────────────────────────────────────────────────────────────────┐
+│  bridgemind.ai GUI (operator console, mesh peer)                  │
 │                                                                   │
-│   ┌─ Pane A ───────────────────────────┐  ┌─ Pane B ───────────┐│
-│   │ bs-client --server=dev --name=hms  │  │ bs-client --srv=dev ││
-│   │ stdin/stdout relay                │  │ --name=work         ││
-│   │ clipboard bridge ↔ pbcopy/pbpaste │  │                     ││
-│   └──────────────┬─────────────────────┘  └──────────┬──────────┘│
-│                  │ bs:// over TLS 1.3/TCP (port 9948)│ bs://     │
-└──────────────────┼──────────────────────────────────┼───────────┘
-                   │                                  │
-          ┌────────┴──────────┐               ┌───────┴──────────────┐
-          │    INTERNET       │               │                      │
-          └────────┬──────────┘               └───────┬──────────────┘
-                   │                                  │
-┌──────────────────┼──────────────────────────────────┼─────────────┐
-│  Linux Server     │                                  │              │
-│                   ▼                                  ▼              │
-│  bs-server (systemd user service, TCP port 9948)                  │
-│    ┌──────────────────────────────────────────────────────┐        │
-│    │  Session Multiplexer (replaces zellij)               │        │
-│    │  ┌─ session: hms ──────────────────────────────────┐ │        │
-│    │  │  PTY → hermes --tui                             │ │        │
-│    │  │  Output buffer (zstd-compressed, last 16K lines)│ │        │
-│    │  ├─ session: work ─────────────────────────────────┤ │        │
-│    │  │  PTY → bash -l                                  │ │        │
-│    │  ├─ session: logs ─────────────────────────────────┤ │        │
-│    │  │  PTY → journalctl -f                            │ │        │
-│    │  └─────────────────────────────────────────────────┘ │        │
-│    │  Clipboard relay (OSC 52 capture → protocol message) │        │
-│    └──────────────────────────────────────────────────────┘        │
-└────────────────────────────────────────────────────────────────────┘
+│  ┌─ Pane 1 ──────────────────┐  ┌─ Pane 2 ───────────────────┐  │
+│  │ hermes on linux-b           │  │ bash on macos-peer            │  │
+│  │ (browser-rendered MD)     │  │ (raw terminal output)      │  │
+│  └──────────┬───────────────┘  └──────────┬──────────────────┘  │
+│             │ mesh link (TLS 1.3 :19949)  │ mesh link             │
+│             ▼                              ▼                      │
+│  ┌─ Pane 3 ──────────────────┐  ┌─ Pane 4 ───────────────────┐  │
+│  │ codex on linux-a            │  │ hermes --tui on Shadow     │  │
+│  └──────────┬───────────────┘  └──────────┬──────────────────┘  │
+└─────────────┼─────────────────────────────┼──────────────────────┘
+              │                             │
+              ▼                             ▼
+    ┌──────────────────┐    ┌──────────────────────┐
+    │  Shadow (Windows) │◄──►│  linux-b (Linux)       │
+    │  NSSM daemon      │    │  systemd daemon      │
+    │  100.124.169.66   │    │  203.0.113.12        │
+    └────────┬─────────┘    └──────────┬───────────┘
+             │                        │
+             ▼                        ▼
+    ┌──────────────────┐    ┌──────────────────────┐
+    │  linux-a (Linux)   │◄──►│  macos-peer (macOS)     │
+    │  systemd daemon  │    │  LaunchAgent daemon  │
+    │  203.0.113.11   │    │  203.0.113.16     │
+    └──────────────────┘    └──────────────────────┘
 ```
 
-**bs-client is a relay, not a terminal emulator.** BridgeSpace is the emulator. bs-client sits between BridgeSpace's PTY and the network, translating stdin/stdout ↔ bs:// protocol messages.
+**Every node runs the same binary.** The bridgemind.ai GUI is itself a mesh peer (it has the same keypair, TLS stack, and protocol). Each pane in the GUI is a separate mesh session — not an SSH connection, not a terminal emulator pipe. It attaches directly to the remote node's daemon over the mesh link. No tunnel, no gateway, no central server.
 
-### ADR-001: One TLS connection per bs-client process (not per pane)
+### ADR-001: One TLS connection per pane-session attachment
 
-v1: Each bs-client process opens its own TLS 1.3 TCP connection. Eight panes to the same server = eight TCP connections. Simple and correct.
+Each GUI pane opens its own TLS connection to its target node. Eight panes to different nodes = eight connections to different destinations. Simple, independently reconnectable, independently authenticated.
 
-v2 (future optimization): A single bs-client process per server muxes all sessions over one QUIC connection (msquic). Reduces handshake overhead and keepalive traffic. Not needed for v1.
+v2 optimization: QUIC connection-per-server muxes all pane streams to one node over one connection. Not needed for v1.
 
-**Rationale:** Connection-per-pane means each pane is independently reconnectable, independently authenticated. Sharing a connection across processes would require IPC — not worth it for v1.
+### ADR-002: IPv4 with Tailscale overlay
 
-### ADR-002: IPv6-first, IPv4 compatible
+Nodes address each other by Tailscale IPv4 (`100.x.x.x`). IPv6 dual-stack is the default on Linux hosts but mesh binds `0.0.0.0:19949`. All current nodes are on Tailscale — the mesh relies on Tailscale's WireGuard overlay for NAT traversal, not mesh-native NAT punching.
 
-bs-server binds `[::]:9948` (dual-stack by default on Linux). Clients resolve `--server` via DNS A/AAAA. SRV record discovery is v2.
+### ADR-003: Peer mesh, not client-server
+
+Every node is simultaneously a server (accepts connections on `:19949`) and a client (dials seed peers and discovered peers). There is no "bs-server" vs "bs-client" binary — one binary, one role: **peer.** The operator console is a peer; the remote Linux servers are peers. Any node can attach a session to any other node.
+
+This enables:
+- The GUI opens panes to multiple nodes simultaneously
+- Nodes exchange sessions with each other without GUI involvement
+- File transfer between any two nodes without a middleman
+- Swarm operations: dispatch sub-agents from any node to any other
 
 ---
 
-## 2. The Protocol: bs://
+## 2. The Protocol: bs:// (mesh wire)
 
 ### 2.1 Design Principles
 
 | Principle | Implementation |
 |-----------|---------------|
-| **Reliable** | TLS 1.3 over TCP — the most proven transport stack in existence |
+| **Reliable** | TLS 1.3 over TCP — most proven transport stack |
 | **Secure** | TLS 1.3, ed25519 mutual auth, forward secrecy (X25519) |
 | **Compressed** | zstd frame compression per stream (2-8x on terminal output) |
-| **Low-latency** | TCP_CORK disabled, TCP_NODELAY enabled — keystrokes sent immediately |
-| **Firewall-friendly** | TCP port 9948 traverses all networks. No UDP blocking issues. |
-| **Multiplexed** | One TCP connection, app-level stream IDs for session multiplexing |
-| **No server state for encryption** | TLS session tickets are ephemeral; server restart forces full re-handshake |
+| **Low-latency** | TCP_NODELAY enabled — keystrokes sent immediately |
+| **Firewall-friendly** | TCP port 19949 traverses all networks |
+| **Multiplexed** | App-level stream IDs for session routing per connection |
+| **Peer-to-peer** | Single binary, every node talks to any other node directly |
 
-### 2.2 Message Types
+### 2.2 Message Types (22 total)
 
-```
-┌──────────────────┬──────────────────┬──────────────────────────────────────┐
-│ Direction        │ Type             │ Semantics                            │
-├──────────────────┼──────────────────┼──────────────────────────────────────┤
-│ client → server  │ Keystroke        │ Raw key bytes (or bracketed-paste)    │
-│ server → client  │ Output           │ PTY stdout (already rendered)         │
-│ client → server  │ Resize           │ Terminal size changed {cols, rows}    │
-│ server → client  │ ClipboardGet     │ OSC 52 captured → client clipboard    │
-│ client → server  │ ClipboardPut     │ User pasted → inject into session     │
-│ client → server  │ Attach           │ {session_name, cols, rows, term}      │
-│ client → server  │ Detach           │ Preserve session, close stream        │
-│ server → client  │ SessionList      │ [{name, state, uptime}]               │
-│ server → client  │ ServerInfo       │ {hostname, version, load}             │
-│ both             │ Ping/Pong        │ Keepalive (every 5s)                  │
-│ server → client  │ Scrollback       │ Last N lines on attach (chunked)      │
-│ client → server  │ Signal           │ ^C, ^Z, ^\ → forward to foreground    │
-│ server → client  │ ExitCode         │ Foreground process exited {code}      │
-│ server → client  │ ScrollbackAck    │ Client ready for next scrollback chunk│
-│ server → client  │ SessionDied      │ PTY exited unexpectedly (crash, OOM)  │
-│ server → client  │ ClipboardEcho    │ Server already has this clipboard hash│
-└──────────────────┴──────────────────┴──────────────────────────────────────┘
-```
-
-**ADR-003: Three additional message types**
-
-`ScrollbackAck` — Client ACKs each scrollback chunk to pace replay. Default chunk: 500 lines.
-`SessionDied` — PTY death notification with exit_code and signal.
-`ClipboardEcho` — Hash-based clipboard race prevention (see ADR-005).
+| Direction | Type | Hex | Description |
+|-----------|------|-----|-------------|
+| client → server | Keystroke | 0x01 | Raw key bytes or bracketed paste |
+| server → client | Output | 0x02 | PTY stdout |
+| client → server | Resize | 0x03 | Terminal dimension change |
+| server → client | ClipboardGet | 0x04 | OSC 52 clipboard capture |
+| client → server | ClipboardPut | 0x05 | User paste |
+| client → server | Attach | 0x06 | Open/navigate to session |
+| client → server | Detach | 0x07 | Leave session running |
+| server → client | SessionList | 0x08 | Session inventory |
+| server → client | ServerInfo | 0x09 | Host metadata |
+| both | Ping | 0x0A | Keepalive |
+| both | Pong | 0x0B | Keepalive response |
+| server → client | Scrollback | 0x0C | History replay chunk |
+| client → server | Signal | 0x0D | ^C, ^Z, ^\\, Restart |
+| server → client | ProcExited | 0x0E | Foreground process exit |
+| client → server | ScrollbackAck | 0x0F | Ready for next chunk |
+| server → client | SessionDied | 0x10 | PTY crash notification |
+| server → client | ClipboardEcho | 0x11 | Hash confirmation |
+| both | ImageData | 0x12 | Static image (PNG/JPEG) |
+| both | ImageFrame | 0x13 | Animated frame (GIF) |
+| both | ImageAck | 0x14 | Frame consumed |
+| both | Hello | 0x15 | Mesh node introduction |
+| both | Gossip | 0x16 | Peer list exchange |
+| both | SessionSearch | 0x17 | Multi-hop routing query |
 
 ### 2.3 Application-Level Stream Multiplexing
 
-**ADR-004: Stream = session attachment, not session lifetime**
+**ADR-004: Stream = session attachment, not session lifetime.**
 
-One TCP connection carries multiple independent streams via app-level stream IDs.
+One TLS connection carries multiple independent streams via app-level stream IDs.
 
 ```
 Frame: [stream_id: u16] [type: u8] [flags: u8] [length: u16] [data]
 flags: bit 0 = compressed (zstd), bit 1 = control frame
 ```
 
-- **Stream ID 0:** Control channel (Attach, Detach, SessionList, Ping/Pong)
-- **Stream ID 1–65535:** Session channels (Keystroke, Output, Clipboard, Signal)
+- **Stream ID 0 (CONTROL_STREAM_ID = 0xFFFF):** Control channel (Attach, Detach, Hello, Gossip, Ping, Pong, SessionSearch, SessionList)
+- **Stream ID 1–65534:** Session channels (Keystroke, Output, Clipboard, Signal, Image)
 
 | Event | Stream Action |
 |-------|--------------|
 | Client sends `Attach{session_name}` | Server allocates a stream ID for this attachment |
 | Client sends `Detach` | Server sends remaining buffered output, then closes the stream |
-| Client disconnects (TCP connection lost) | All streams implicitly closed. Session state preserved on server. |
-| Client reconnects + re-attaches | New TCP connection, new stream ID allocated for the attachment. |
+| Client disconnects (TCP/TLS lost) | All streams implicitly closed. Session state survives on the peer node |
+| Client reconnects + reattaches | New TLS connection, new stream ID for the attachment |
 
-Sessions live 7 days. Stream IDs are scoped to a single TCP connection (65535 max). At 100 attachments/day, this is decades of headroom.
+Sessions live 7 days by default (configurable `idle_timeout_hours`). Stream IDs are scoped to one TLS connection (65535 max).
 
-### 2.4 Clipboard — Two-Way, Guaranteed
+### 2.4 Clipboard — First-class Mesh Primitive
+
+Clipboard is a protocol message, not an escape-sequence passthrough. Works across any mesh links, not just GUI→server.
 
 ```
-MACOS → SERVER (paste into session):
-  1. User presses Cmd+V in BridgeSpace
-  2. macOS delivers paste text via PTY (bracketed-paste)
-  3. bs-client polls NSPasteboard every 500ms, hashes content
-  4. If hash differs from last sent: send ClipboardPut{text, hash, timestamp}
-  5. Server injects text into session PTY (bracketed-paste)
-  6. Server sends ClipboardEcho{hash} to confirm receipt
-  7. Client records last-acked hash — won't re-send this content
+GUI → PEER (paste into remote session):
+  1. User copies text on GUI
+  2. GUI sends ClipboardPut{text, hash, timestamp} over the mesh link
+  3. Peer extracts text, injects into target session's PTY via bracketed-paste
+  4. Peer sends ClipboardEcho{hash} to confirm receipt
+  5. GUI records last-acked hash — won't re-send same content
 
-SERVER → MACOS (copy from session):
-  1. hermes --tui emits OSC 52 sequence
-  2. bs-server captures OSC 52 from PTY output
-  3. bs-server strips it from terminal stream (never rendered)
-  4. bs-server sends ClipboardGet{text, hash} as protocol message
-  5. bs-client calls pbcopy — text lands in macOS clipboard
-  6. bs-client records this hash as last-acked (won't re-send back)
+PEER → GUI (copy from remote session):
+  1. Process inside session emits OSC 52 sequence
+  2. Peer daemon captures OSC 52 from PTY output
+  3. Peer strips it from terminal stream (never rendered)
+  4. Peer sends ClipboardGet{text, hash}
+  5. GUI lands it in local clipboard
+  6. GUI hashes it — won't re-send back to that peer
 ```
 
-**ADR-005: Clipboard race prevention via hash echo**
-**ADR-006: Clipboard compression enabled** (zstd level 3 for payloads >256 bytes)
+**ADR-005: Clipboard race prevention via hash echo.**
+**ADR-006: Clipboard compression enabled (zstd level 3) for payloads >256 bytes.**
 
 ### 2.5 Wire Format
 
@@ -166,47 +166,21 @@ SERVER → MACOS (copy from session):
 │        [data: length bytes]                               │
 │                                                           │
 │ flags: bit 0 = compressed (zstd)                          │
-│        bit 1 = control frame (stream 0 only)              │
+│        bit 1 = control frame                              │
 └──────────────────────────────────────────────────────────┘
 ```
 
 - Binary framing (not newline-delimited JSON)
 - zstd compression on frames >256 bytes (Output, Clipboard, Scrollback)
-- Never compressed: Keystroke, Ping/Pong (too small)
-- Max frame size: 65535 bytes (u16). Larger payloads use chunking (Scrollback chunks, v2 ClipboardChunk)
+- Never compressed: Keystroke, Ping/Pong (too small to benefit)
+- Max frame size: 65,535 bytes (u16). Image/Clipboard frames >64KB use chunking
+- Max image payload: 50 MB (separate cap for ImageData/ImageFrame)
 
 ---
 
-## 3. bs-server (Remote Linux Daemon)
+## 3. Session & PTY Lifecycle
 
-### 3.1 Startup & Auto-Spawn
-
-```
-User connects:       bs-client --server=dev.example.com --name=hms
-                       │
-                       ▼
-bs-server receives:  Attach{session_name: "hms"}
-                       │
-                       ▼
-Session "hms" exists? ──No──► Auto-spawn: hermes --tui
-                       │
-                      Yes
-                       │
-                       ▼
-                    Attach client to existing PTY
-                    Send scrollback buffer (chunked, client-ACK'd)
-                    Send ClipboardGet for latest clipboard
-```
-
-**ADR-007: Command resolution order**
-1. Client `--cmd` flag (always wins)
-2. Server `config.yaml` per-session `command`
-3. Server `config.yaml` `default_command`
-4. Hardcoded default: `hermes --tui`
-
-If no `--name` provided: attach to `default_session` from server config. If no default configured, list sessions and wait for client choice.
-
-### 3.2 Session Lifecycle
+### 3.1 Session States
 
 ```
 CREATED ──► RUNNING ──► DETACHED (client gone, PTY alive)
@@ -214,7 +188,7 @@ CREATED ──► RUNNING ──► DETACHED (client gone, PTY alive)
     │            │              ├── ATTACHED (client reconnected)
     │            │              │
     │            ▼              ▼
-    │         DIED          KILLED (explicit, or idle timeout)
+    │         DIED           KILLED (explicit, or idle timeout)
     │       (PTY crash)         │
     │            │              │
     │     auto_restart?         │
@@ -224,117 +198,75 @@ CREATED ──► RUNNING ──► DETACHED (client gone, PTY alive)
     └───────────────────────────┘
 ```
 
-**ADR-008: PTY death handling**
+**ADR-008: PTY death handling.** When PTY exits unexpectedly: send `SessionDied{exit_code, signal}` to attached client(s). If `auto_restart: true`: respawn after `restart_delay_secs`. 3 failures in 60s → EXITED (circuit breaker).
 
-When PTY exits unexpectedly: send `SessionDied{exit_code, signal}` to attached client. If `auto_restart: true`: respawn after `restart_delay_secs`. 3 failures in 60s → EXITED.
-
-**Other rules:**
-- Sessions survive client disconnects indefinitely
+**Lifecycle rules:**
+- Sessions survive client disconnects indefinitely (DETACHED state)
 - Idle timeout: 7 days default, resets on any PTY output
-- Output buffer: zstd-compressed circular buffer, last 16K lines (~8 MB, 1 MB default)
+- Output buffer: zstd-compressed circular buffer, last 16K lines (~8 MB default)
 - On reattach: replay last 2K lines in 500-line chunks, each chunk ACK'd
 
-### 3.3 Multi-Client Per Session
+### 3.2 Multi-Attach
 
-v1: **Single attached client per authorized-client session namespace.** Session
-names are user-facing labels scoped by the authenticated client public key
-(`owner_id = peer ed25519 pubkey hex`). This means:
+`Session::peer_ids` is a `vector<string>` — multiple peers can attach to the same session simultaneously. PTY output fanned out to all attached peers. Keystrokes echoed as `OutputMsg` to other peers. `detach()` is per-peer; session only transitions to DETACHED when all peers leave.
 
-- user1/keyA can attach to `agent`
-- user2/keyB can attach to `blah`
-- user3/keyC can attach to `okay`
-- user4/keyD can also attach to `agent`
+### 3.3 Multi-Hop Routing
 
-Those two `agent` sessions do not collide because their namespace key differs.
-Reusing the same client key intentionally reattaches to that key's same logical
-session name. v2 fan-out mode can add read-only spectators inside one namespace.
+`AttachMsg` has a `routing` field. When a node receives an AttachMsg where `routing != its own node_name`, it forwards to the target peer if directly connected, or broadcasts a `SessionSearchMsg` (0x17) to all peers. The target node converts `SessionSearchMsg` to a local `AttachMsg` and handles it normally. This enables shell access to peers not directly connected.
 
-### 3.4 Signal Handling
+### 3.4 Quick Process Restart (v1.5)
+
+`SignalMsg` (0x0D) extended with `Restart` variant. A peer sends `Signal{Restart, process="hermes"}` over the session stream. The daemon:
+1. Kills the target process
+2. Spawns a fresh one (same cmd, same PTY)
+3. Continues the session — terminal reattaches seamlessly
+
+No SSH, no systemctl, no hoop-jumping. Supported: `bash`, `hermes`, `codex`, `claude`, or any arbitrary command.
+
+### 3.5 Signal Handling
 
 | Client sends | Server does |
 |-------------|------------|
-| Signal{CtrlC} | Send SIGINT to foreground process group |
+| Signal{CtrlC} | Send SIGINT/SIGTERM to foreground process group |
 | Signal{CtrlZ} | Send SIGTSTP to foreground process group |
-| Signal{CtrlBackslash} | Send SIGQUIT to foreground process group |
-| Client disconnects | Session → DETACHED (NOT killed) |
-| bs-server shutdown | Graceful: SIGTERM → wait 5s → SIGKILL all sessions |
+| Signal{CtrlBackslash} | Send SIGQUIT |
+| Signal{Restart, process} | Kill + respawn process in same PTY |
+| Client disconnect | Session → DETACHED (NOT killed) |
+| Daemon shutdown (SIGTERM) | Graceful: wait 5s, SIGKILL all sessions |
+
+### 3.6 Markdown Render Hint (v1.5)
+
+OutputMsg gains a `render_hint` flag (single bit in frame flags). When set, the bridgemind.ai GUI knows this output is markdown and renders it as HTML (headings, code blocks, tables, images) via its browser engine. When clear, output displays as raw terminal text. This makes `hermes agent` output (heavily markdown) beautiful inline.
 
 ---
 
-## 4. bs-client (macOS Relay Agent)
+## 4. Peer Discovery & Mesh Formation
 
-### 4.1 Startup Flow
+### 4.1 Seed Peers
 
+Static config entries in `~/.bridgesessions/config`:
 ```
-BridgeSpace opens a new pane
-         │
-         ▼
-bs-client --server=dev.example.com --name=hms
-         │
-         ├── 1. Load keypair from ~/.bridgesessions/id_ed25519.pem
-         ├── 2. Resolve --server via DNS A/AAAA
-         ├── 3. TCP dial to <resolved>:9948
-         ├── 4. TLS 1.3 handshake (mutual auth via ed25519)
-         ├── 5. Send Attach{session_name: "hms", cols, rows, term: "xterm-kitty"}
-         ├── 6. Receive scrollback buffer in chunks → write each chunk to stdout
-         │      After each chunk: send ScrollbackAck
-         └── 7. Enter relay loop:
-                stdin  → Keystroke → server
-                server → Output    → stdout
-                server → ClipboardGet → pbcopy
-                server → ClipboardEcho → update last_acked_hash
-                server → SessionDied → notify user
-                NSPasteboard change → ClipboardPut → server
-                SIGWINCH → Resize{cols, rows} → server
+seed linux-b 203.0.113.12:19949 pubkey=358e0bb8b4e3bc24...
 ```
 
-### 4.2 Clipboard Bridge
+On startup, daemon dials all seeds with TLS 1.3 + Hello exchange. Backoff: 100ms initial, doubles to 30s max, scheduled per-addr to avoid event-loop starvation. One failed dial per loop iteration.
 
-C++ implementation via Objective-C++ bridge:
+### 4.2 mDNS LAN Discovery
 
-```cpp
-// clipboard_bridge.mm
-#import <AppKit/NSPasteboard.h>
-#include <string>
-#include <string_view>
-#include <atomic>
+Custom multicast on `224.0.0.252:19949` (NOT standard mDNS `224.0.0.251:5353`). JSON presence announcements every 30s. Auto-adds discovered peers to runtime `config_.discovered` list. **Not persisted** to config file (prevents config_reload churn loop).
 
-class ClipboardBridge {
-    NSPasteboard* pb_ = [NSPasteboard generalPasteboard];
-    std::atomic<std::string> last_acked_hash_;
-public:
-    std::string read();   // [pb_ stringForType:NSPasteboardTypeString]
-    void write(std::string_view text);  // [pb_ setString:forType:]
-    void ack(std::string_view hash) { last_acked_hash_ = hash; }
-    bool should_send(std::string_view hash) const {
-        return last_acked_hash_.load() != hash;
-    }
-};
-```
+### 4.3 Gossip Protocol
 
-**ADR-009: Clipboard ownership is in bs-client, not BridgeSpace**
+Every `gossip_interval_secs` (default 30s), each node sends a `GossipMsg` (0x16) containing its known peers (seeds + discovered) with pubkeys. Recipients merge into their own `discovered` list. Only peers with non-empty pubkeys are gossiped (prevents Hello incompatibility from 8-bit pubkey field overflow).
 
-### 4.3 Reconnection
+### 4.4 Duplicate Connection Resolution
 
-```
-Network blip
-    │
-    ▼
-TCP connection lost (all streams implicitly closed)
-    │
-    ▼
-bs-client retries (exponential backoff: 100ms → 200ms → 400ms → ... max 5s)
-    │
-    ▼
-Reconnected within 30s?
-    ├── Yes: Attach{session_name} → resume where you left off
-    │         (server has buffered output during disconnection)
-    └── No:  Exit with message:
-              "Session 'hms' survived — reattach with:
-               bs-client --server=dev --name=hms"
-```
+When both A and B dial each other simultaneously, two TCP connections form for the same peer pair. Deterministic tie-break:
 
-**ADR-010: Server restart = full TLS handshake.** TLS session tickets are ephemeral. Server restart → full handshake (same as SSH reconnect).
+- Smaller pubkey node → keeps OUTBOUND connection (it initiated)
+- Larger pubkey node → keeps INBOUND connection (peer initiated)
+
+Both endpoints independently apply the same rule from the same pubkey pair, converging on the same surviving physical connection. The loser is closed gracefully after the winner is established.
 
 ---
 
@@ -343,115 +275,131 @@ Reconnected within 30s?
 ### 5.1 Key Model
 
 ```
-┌─────────────────────────────────────────────────────┐
-│  Keypair: ed25519 (OpenSSL EVP_PKEY_ED25519)         │
-│  Stored in: ~/.bridgesessions/id_ed25519.pem        │
-│  Public key registered on server:                    │
-│    ~/.bridgesessions/authorized_keys                 │
-│    (one ed25519 public key per line, hex-encoded)    │
+┌────────────────────────────────────────────────────┐
+│  Keypair: ed25519 (OpenSSL EVP_PKEY_ED25519)        │
+│  Stored in: ~/.bridgesessions/                     │
+│    id_ed25519.pem        — private key              │
+│    id_ed25519-cert.pem   — self-signed X.509 cert   │
+│    id_ed25519.pub        — hex pubkey (64 chars)    │
 │                                                      │
-│  bs-client loads keypair at startup:                 │
-│    1. --key flag (explicit path)                     │
-│    2. ~/.bridgesessions/id_ed25519.pem               │
-└─────────────────────────────────────────────────────┘
+│  authorized_keys (one hex pubkey per line):          │
+│    Controls who can connect to *this* node           │
+│    TOFU: first keypair auto-generates on daemon      │
+│          first start, no prompt needed               │
+└────────────────────────────────────────────────────┘
 ```
 
-### 5.2 Server Registration (One-Time)
+### 5.2 Bootstrap (First Run)
 
-```bash
-# On macOS — generate keypair
-bs-client keygen
-# → ed25519 keypair written to ~/.bridgesessions/id_ed25519.pem
+1. Daemon starts, `bootstrap_identity("~/.bridgesessions")` checks for existing keypair
+2. If none: generate ed25519 keypair, write `.pem` + `.cert.pem` + `.pub`
+3. Legacy migration: if `_bs_autocert.pem` + `_bs_autokey.pem` exist (old format), copy → new names, derive `.pub` hex
+4. `create_node_tls()` loads cert+key, configures TLS 1.2+ (not 1.3-only — cross-platform edge compatibility)
+5. Accept loop verifies peer certs against `authorized_keys`; unknown → `tls_rejected`
 
-# On server — register the key
-bs-server authorize <hex-pubkey>
-# → appends to ~/.bridgesessions/authorized_keys
+### 5.3 Authorization
 
-# Or, automated pairing:
-bs-client pair --server=dev.example.com --bootstrap-token=<one-time-code>
+```
+bridgesessions authorize <hex-pubkey>   # append to authorized_keys
 ```
 
-### 5.3 Connection
+One hex pubkey per line, 64 hex chars. No whitespace, no comments. Reloaded from disk on SIGHUP / config mtime change.
 
-```bash
-bs-client --server=dev.example.com                    # connect
-bs-client --server=dev.example.com --name=hms          # specific session
-bs-client --server=dev.example.com --name=logs \
-          --cmd="journalctl -f"                        # custom command
-bs-client --server=dev.example.com --list              # list sessions
-bs-client --server=dev.example.com --name=hms --kill   # kill session
-```
+### 5.4 mTLS Handshake
 
-### 5.4 Health Check
+1. Client dial, TCP established
+2. TLS 1.2+ handshake with client + server certificates (ed25519)
+3. Custom verify callback checks peer pubkey against `authorized_keys`
+4. On success: exchange Hello (node name, pubkey, version, known peers)
+5. On failure: close TLS, log `tls_connect_failed` / `tls_accept_failed` with pubkey snippet for debugging
 
-```bash
-bs-server health          # Exit 0 if healthy
-bs-server status --json   # Structured output
-```
+**Bounded handshake:** Both `SSL_connect` and `SSL_accept` are wrapped with `ssl_handshake_blocking()` — uses `select()` + deadline instead of spinning on `SSL_ERROR_WANT_READ/WRITE`. Inbound timeout 2s, outbound timeout 3s.
 
 ---
 
-## 6. BridgeSpace Integration
+## 6. Mesh Controller (Daemon Architecture)
 
-### 6.1 Pane ↔ Session Mapping
+### 6.1 Event Loop
+
+Single-threaded `select()`-based event loop in `MeshController::run()`:
 
 ```
-BridgeSpace window
-├── Pane: "dev:hms"     ← bs-client --server=dev --name=hms
-├── Pane: "dev:work"    ← bs-client --server=dev --name=work
-├── Pane: "prod:hms"    ← bs-client --server=prod --name=hms
-└── Pane: "dev:logs"    ← bs-client --server=dev --name=logs --cmd="journalctl -f"
+while (running_):
+  1. Rebuild fd_set: listen_fd + cli_ipc_listen_fd + all conn sockets
+  2. select() (with ping_interval_secs timeout)
+  3. [SIGHUP check on POSIX]: reload_seeds_from_disk()
+  4. [IPC readable]: cli_ipc_accept_one() — event-driven, not polled
+  5. [listen_fd readable]: accept new peer, begin TLS + Hello
+  6. [conn socket readable]: check_conn_read → drain buffered frames
+  7. [conn socket writable]: flush write buffer
+  8. try_dial_seeds() — one bounded dial per loop per addr
+  9. Ping check: send PingMsg to each conn
+  10. Pong timeout: close conns where now - last_pong > pong_timeout_secs
+  11. build_gossip() every gossip_interval_secs
+  12. mDNS announcement every 30s
 ```
 
-**ADR-011: v1 BridgeSpace integration is minimal**
-1. BridgeSpace spawns bs-client as child process with correct args
-2. Splitting a pane copies the server context
-3. Closing a pane sends SIGTERM to bs-client (which sends Detach gracefully)
+**Key property:** The event loop is the entire daemon. No thread pool, no async. Every I/O path (accept, connect, read, write, IPC, mDNS) goes through `select()` on sockets. This guarantees no concurrency bugs in session state.
 
-Everything else (servers.json, session list UI, key management) is v2.
+### 6.2 CLI IPC Port
+
+Loopback `127.0.0.1:19980` (kMeshCliPort). Plain-text protocol:
+
+```
+>> HEALTH linux-b\n
+<< linux-b healthy\n
+```
+
+This is the **daemon's own operational API** — not a mesh link. CLI subcommands (`health`, `stats`) query IPC first, then fall back to direct dial only if no daemon answers. IPC response uses `conns_` `last_pong` freshness, NOT a synchronous ping (which the event loop would consume).
+
+### 6.3 Single-Instance Guard
+
+On `run()` start: probe `127.0.0.1:19980` with 1.5s timeout. If a daemon answers, log `mesh_already_running` and refuse to start. Without this guard, `SO_REUSEADDR` lets a second daemon co-bind both ports and split-brain the mesh.
+
+### 6.4 Steady-State Recv Timeout
+
+Established peer sockets get a 10s `SO_RCVTIMEO` (`kPeerRecvTimeoutMs`). This bounds the `check_conn_read` drain loop: `SSL_pending()` only guarantees ≥1 buffered byte (not a full frame), so a frame split across TLS records could block `read_frame` indefinitely. The timeout degrades that to `close_conn` + reconnect via backoff.
 
 ---
 
 ## 7. Deployment & Operations
 
-### 7.1 Server Install
+### 7.1 Cluster (current)
+
+| Node | OS | Daemon | Binary | Config path |
+|------|----|--------|--------|-------------|
+| Shadow | Windows 11 | NSSM service | bridgesessions.exe | `C:\Users\Shadow\.bridgesessions\config` |
+| linux-b | Linux | systemd bsmesh.service | bsmesh | `~/.bridgesessions/config` |
+| linux-a | Linux | systemd bsmesh.service | bsmesh | `~/.bridgesessions/config` |
+| macos-peer | macOS | LaunchAgent | bridgesessions | `~/.bridgesessions/config` |
+
+Mesh port: **19949** (TCP, all nodes). CLI IPC port: **19980** (loopback, all nodes). mDNS port: **19949** (UDP, same port).
+
+### 7.2 Firewall
+
+```
+Windows: configure-firewall.ps1 — 19949/TCP, 19980/TCP, 19949/UDP
+Linux:   ufw allow 19949/tcp (if enabled)
+macOS:   no config needed (launchd)
+```
+
+### 7.3 Health Matrix
 
 ```bash
-# Install binary (CMake-built, static-linked)
-scp bs-server user@host:~/.local/bin/
-
-# Bootstrap
-mkdir -p ~/.bridgesessions
-echo "<hex-pubkey>" >> ~/.bridgesessions/authorized_keys
-
-# systemd user service
-bs-server install --user
-systemctl --user enable --now bs-server
+bash matrix.sh   # → 12-direction health check across all 4 nodes
 ```
 
-### 7.2 Client Install
+Each node runs `bridgesessions health <peer>` — queries local daemon IPC for live conn `last_pong` freshness. Cross-node checks from Linux nodes use `timeout 12 ./bsmesh health <peer>`.
 
-```bash
-# macOS
-cp bs-client /usr/local/bin/
-# Or build from source: cmake --build build/release
-```
+### 7.4 Logs
 
-### 7.3 Firewall
+| Node | Path | Format |
+|------|------|--------|
+| Shadow | `C:\Users\Shadow\.bridgesessions\bs-mesh.log` | JSON, spdlog rotating file sink |
+| linux-b/linux-a | `~/.bridgesessions/bs-mesh.log` | JSON |
+| macos-peer | `~/.bridgesessions/bs-mesh.log` | JSON |
 
-```
-Server: TCP 9948 (TLS 1.3)
-Client: Ephemeral port
-```
-
-### 7.4 Monitoring
-
-```bash
-bs-server status --json
-# { "hostname": "dev", "version": "1.0.0", "uptime_seconds": 86400,
-#   "sessions": [...], "bytes_in": 1234567, "bytes_out": 9876543,
-#   "compression_ratio": 3.2, "connections": 2 }
-```
+Always truncate logs before diagnosing fresh behavior (`truncate -s0` on POSIX, `Clear-Content` on Windows). Append-only monotonic clock resets per process restart, so tail across cycles mixes state from different binaries.
 
 ---
 
@@ -462,33 +410,32 @@ Application:   bs:// protocol messages
                        │
 Transport:     TLS 1.3 over TCP
                ├── Forward secrecy (X25519 key exchange)
-               ├── TLS session tickets (ephemeral, for session resumption)
-               └── TCP congestion control (OS-managed, battle-tested)
+               ├── TLS session tickets (ephemeral, for resumption)
+               └── TCP congestion control (OS-managed)
                        │
 Compression:   zstd per-frame
                ├── Level 3 (default: balance speed/ratio)
                ├── 2-5x compression on terminal output
                ├── Disabled for Keystroke messages (< 16 bytes)
-               ├── Enabled for Clipboard messages
-               └── Enabled for Scrollback replay chunks
+               └── Enabled for Clipboard, Output, Scrollback
                        │
 Identity:      ed25519 keypair
-               ├── Client: proves identity to server
-               ├── Server: pinned on first connect, verified thereafter
+               ├── Client: proves identity to server (both sides)
+               ├── Peer: pinned on first connect, verified thereafter
                └── No CA infrastructure needed
 ```
 
-**Why TLS over TCP for v1?**
-- Zero firewall issues — TCP 443/9948 traverses everything
-- OpenSSL is the most audited crypto library on the planet
+**Why TLS over TCP for v1:**
+- Zero firewall issues — TCP 19949 traverses everything
+- OpenSSL is the most audited crypto library
 - TCP congestion control is OS-managed and bulletproof
-- Application-level multiplexing is ~200 lines of C++
-- v2 swaps TCP for QUIC via msquic — same protocol codecs, different transport backend
+- App-level multiplexing is ~200 lines of C++
+- v2 swaps TCP for QUIC via msquic — same protocol, different transport
 
-**Why zstd?**
+**Why zstd:**
 - 2-8x compression on ANSI-heavy terminal output
 - Faster than gzip at equivalent ratios
-- Single .so/.dylib link dependency (BSD-licensed)
+- Single link dependency (BSD-licensed)
 - Dictionary training possible for common ANSI patterns (v2)
 
 **ADR-012: Server restart invalidates TLS session tickets.** Clients fall back to full handshake — same as SSH.
@@ -499,128 +446,111 @@ Identity:      ed25519 keypair
 
 | C++23 Strength | Why It Matters Here |
 |---------------|-------------------|
-| Zero-GC latency | No GC pauses in a relay loop that runs for years |
-| `std::expected<T,E>` | Fallible ops return `expected` — no `tl::expected` dependency (ADR C02) |
-| `std::print` | Type-safe formatted output, no iostream or fmt overhead |
-| `std::flat_map` | Cache-friendly sorted session map; better locality than `unordered_map` |
-| `std::mdspan` | Zero-overhead multi-dimensional view for ring buffer spans |
-| `deducing this` | Cleaner CRTP for codec and ring buffer templates |
-| `[[assume(expr)]]` | Optimization hints for hot relay loop paths |
-| OpenSSL native bindings | No CGo overhead, direct EVP_PKEY_ED25519 |
-| Single binary deploy | Static link OpenSSL + zstd → single ~5MB binary |
-| `posix_openpt` / `forkpty` | PTY allocation via libc, zero dependency |
-| Cross-compile | `linux-amd64-release` / `linux-arm64-release` presets with dedicated Linux toolchains + sysroot package roots |
-| Sanitizers | ASan + UBSan + TSan from day one. Fuzzer on decode. |
-| msquic path to v2 | When ready: swap `bs-transport/tcp_tls.cpp` for `bs-transport/quic.cpp`. Same protocol layer. |
-| Deterministic destruction | RAII for fds, TLS contexts, child processes. No finalizer races. |
+| Zero-GC latency | No GC pauses in relay loop that runs for years |
+| `std::expected<T,E>` | Fallible ops without exception overhead |
+| `std::print` | Type-safe formatted output |
+| `std::flat_map` | Cache-friendly session map |
+| `std::mdspan` | Zero-overhead view for ring buffer spans |
+| `deducing this` | Cleaner CRTP for codec/ring buffer templates |
+| `[[assume(expr)]]` | Optimization hints for hot relay loop |
+| OpenSSL native bindings | Direct EVP_PKEY_ED25519, no CGo |
+| Single binary deploy | Static link → ~1.1 MB binary on Windows |
+| RAII everywhere | unique_ptr for fds, custom deleters for SSL_CTX |
+| msquic path to v2 | Library swap, not a rewrite |
 
-**ADR-037: Cross-compilation is explicit and preset-driven.**
-Use `cmake/toolchain-linux-amd64.cmake` and `cmake/toolchain-linux-arm64.cmake` through the matching release presets. If your Linux target packages live in a custom sysroot, pass `-DBRIDGESESSIONS_SYSROOT=/path/to/<triplet>-sysroot`; the toolchain prepends `<sysroot>/usr` and `<sysroot>/usr/local` so OpenSSL, zstd, Catch2, nlohmann_json, CLI11, and spdlog resolve from the Linux target root, not macOS Homebrew.
-
-**Why not Go?** GC pauses are sub-millisecond in modern Go, but a relay that handles terminal I/O at tens of sessions is trivially within C++'s zero-GC profile. The real win: C++ makes the v2 QUIC migration a library swap under the same protocol layer, rather than a full rewrite. C++23's `std::expected` and `std::print` make the code feel modern without pulling in Boost or fmt.
+**Why not Go?** GC pauses sub-millisecond, but the real win: C++ makes v2 QUIC migration a library swap under the same protocol layer, not a full rewrite. C++23's `std::expected` and `std::print` keep the code modern without pulling in Boost or fmt.
 
 ---
 
-## 10. v1 Feature Cut (Shippable MVP)
+## 10. v1.4 Feature Cut (Shipped)
 
-### Must Have (all ✅ as of v0.5.1)
+| Area | Status |
+|------|--------|
+| Single-binary peer-to-peer mesh | ✅ |
+| TLS 1.3 mTLS with ed25519 + TOFU | ✅ |
+| 22 message types (0x00–0x17) | ✅ |
+| Session lifecycle (multi-attach, detach, kill, resurrect) | ✅ |
+| mDNS LAN discovery + gossip peer propagation | ✅ |
+| Config with seeds, pubkeys, CRLF-safe parsing | ✅ |
+| Daemon health IPC :19980 (all platforms) | ✅ |
+| CLI: shell, sessions, peers, keygen, authorize, health, stats, image, anim | ✅ |
+| Session persistence (v1:plain JSON, atomic write) | ✅ |
+| Ring buffer + scrollback replay (chunked, ACK'd) | ✅ |
+| Clipboard: OSC 52 capture + ClipboardPut + hash echo | ✅ |
+| Duplicate-conn resolution (deterministic tie-break) | ✅ |
+| Reconnect backoff with per-addr scheduling | ✅ |
+| Single-instance guard | ✅ |
+| Bounded TLS handshake (select + deadline) | ✅ |
+| Steady-state recv timeout (10s) on peer sockets | ✅ |
+| Cross-platform: Windows MSVC / Linux g++ / macOS clang | ✅ |
+| Tests: 1009 assertions, 16 suites | ✅ |
+| 4-node production validation, 12/12 health green | ✅ |
 
-- [x] bs-server: single-binary daemon, systemd user service
-- [x] bs-client: stdin/stdout relay binary
-- [x] TLS 1.3 over TCP with ed25519 mutual auth
-- [x] zstd compression on Output, Clipboard, and Scrollback frames
-- [x] App-level stream multiplexing (stream IDs for session routing)
-- [x] Session lifecycle: CREATED → RUNNING → DETACHED → ATTACHED → DIED → EXITED
-- [x] PTY death handling: SessionDied message, auto_restart config
-- [x] Two-way clipboard (ClipboardGet + ClipboardPut + ClipboardEcho)
-- [x] Clipboard race prevention via hash echo
-- [x] Reconnection with exponential backoff
-- [x] Scrollback replay in ACK'd chunks
-- [x] Signal forwarding (^C, ^Z, ^\\)
-- [x] Keygen + authorize workflow
-- [x] BridgeSpace: minimal v1 integration
-- [x] Output buffer: zstd-compressed circular, 16K lines, ~8 MB per session
-- [x] Health check endpoint
+## v1.5 — In Progress
 
-### Won't Do (v2+)
+| Feature | Wire change | Status |
+|---------|-------------|--------|
+| `file send` / `file recv` — mesh-native peer-to-peer transfer | New FileTransfer/FileChunk types | `[ ]` |
+| `restart` signal — kill+respawn process over mesh | Extend SignalMsg with Restart | `[ ]` |
+| `render_hint` flag on OutputMsg — markdown vs raw terminal | Flag bit in frame header | `[ ]` |
+| `edit <peer>:<path>` — open remote file, save delta patch | Reuses transfer infrastructure | `[ ]` |
+| Virtual folder mapping — local↔remote live sync | New daemon filesystem-watch thread | `[ ]` |
+| `stats` IPC parity — daemon conns/sessions over :19980 | Parse in cli_ipc_accept_one | `[ ]` |
 
-- [ ] Native QUIC via msquic (connection migration, 0-RTT, stream multiplexing)
-- [ ] Multi-window/multi-pane layout server-side
-- [ ] File transfer / port forwarding
-- [ ] Multi-client fan-out
-- [ ] UDP hole punching / NAT traversal
-- [ ] Web gateway
-- [ ] Mosh-style predictive echo
-- [ ] Session recording / audit
-- [ ] SRV record discovery
-- [ ] BridgeSpace servers.json UI integration
-- [ ] Single bs-client process muxing panes over one connection
+## v2 — Future
 
-**v1 is "a reliable, encrypted, compressed, two-way-clipboard session relay that replaces mosh+ssh+zellij."**
+| Feature | Rationale |
+|---------|-----------|
+| QUIC via msquic | Eliminates TCP head-of-line blocking on high-latency links |
+| Nonblocking TLS handshakes in event loop | Kill last blocking call for total async |
+| Session recording + replay | ImageFrame already has frame-order metadata |
+| Read-only spectators (fan-out mode) | Shared session view without write access |
+| SRV record peer discovery | DNS-based fleet discovery, no seed config |
+| Dictionary-trained zstd | Higher compression ratio on ANSI terminal output |
 
 ---
 
-## 11. Monorepo Layout
+## 11. Source Layout
 
 ```
 bridgesessions/
-├── CMakeLists.txt              # Top-level project
-|├── CMakePresets.json           # debug, release, linux-amd64-release, linux-arm64-release
-├── cmake/
-│   ├── FindZstd.cmake
-│   └── toolchain-linux-amd64.cmake
-│   └── toolchain-linux-arm64.cmake
-├── bs-protocol/                # Shared protocol types (static lib)
-│   ├── CMakeLists.txt
-│   ├── include/bsprotocol/
-│   │   ├── message.hpp         # Message type enum, variant structs
-│   │   └── codec.hpp           # encode/decode + zstd
-│   ├── src/
-│   │   └── codec.cpp
-│   └── tests/
-│       ├── message_test.cpp
-│       └── codec_test.cpp
-├── bs-transport/               # TLS + frame I/O (static lib)
-│   ├── CMakeLists.txt
-│   ├── include/bstransport/
-│   │   ├── tls.hpp             # ServerContext, ClientContext, TOFU
-│   │   └── frame_io.hpp        # read_frame, write_frame
-│   ├── src/
-│   │   ├── tls.cpp
-│   │   └── frame_io.cpp
-│   └── tests/
-│       └── tls_test.cpp
-├── bs-server/                  # Linux daemon (executable)
-│   ├── CMakeLists.txt
-│   ├── src/
-│   │   ├── main.cpp
-│   │   ├── session.hpp
-│   │   ├── session_manager.hpp
-│   │   ├── ring_buffer.hpp
-│   │   ├── pty_linux.cpp
-│   │   ├── osc52_capture.hpp
-│   │   └── persistence.hpp
-│   └── tests/
-├── bs-client/                  # macOS relay (executable)
-│   ├── CMakeLists.txt
-│   ├── src/
-│   │   ├── main.cpp
-│   │   ├── clipboard_bridge.mm # Objective-C++ for NSPasteboard
-│   │   └── terminal_raw.cpp    # tcsetattr cfmakeraw
-│   └── tests/
+├── bridgesessions.cpp          ← Single source file (~5,847 lines, ~232 KB)
+├── CMakeLists.txt              ← CMake project (optional; `cl`/`g++` preferred)
+├── _run_tests.ps1              ← Windows test harness (builds + runs 16 suites)
+├── tests/                      ← 16 Catch2 test suites (include bridgesessions.cpp directly)
+│   ├── test_message.cpp
+│   ├── test_codec.cpp
+│   ├── test_frame_io.cpp
+│   ├── test_tls.cpp
+│   ├── test_tls_reliability.cpp
+│   ├── test_session.cpp
+│   ├── test_session_registry.cpp
+│   ├── test_mesh.cpp
+│   ├── test_mesh_reliability.cpp
+│   ├── test_config.cpp
+│   ├── test_identity.cpp
+│   ├── test_osc52.cpp
+│   ├── test_ring_buffer.cpp
+│   ├── test_relay.cpp
+│   ├── test_multi_attach.cpp
+│   └── test_authorized_keys_reload.cpp
 ├── docs/
-│   ├── ARCHITECTURE.md         # This file — the spec
-│   ├── GUIDELINE.md            # Design sketch
-│   ├── PLANS.md                # Implementation phases + timeline
-│   ├── TODO.md                 # Active task checklist
-│   ├── AUTONOMOUS.md           # Agent dispatch rules
-│   ├── deerflow-research-memo.md
-│   └── man/                    # Man pages
-├── install.sh                  # Full dev environment setup
-├── .clang-format
-├── .clang-tidy
-├── .gitignore
-└── README.md
+│   ├── ARCHITECTURE.md         ← This file
+│   ├── GUIDELINE.md            ← Design sketch + vision
+│   ├── PLANS.md                ← Implementation plan
+│   ├── TODO.md                 ← Task checklist
+│   └── AUTONOMOUS.md           ← Agent dispatch rules
+├── scripts/                    ← Build helpers
+├── scratch/                    ← Ignored one-off debug scripts
+├── matrix.sh                   ← 4-node health matrix
+├── configure-firewall.ps1      ← Windows firewall rules
+├── install-daemon.ps1          ← Windows NSSM setup
+├── config.shadow.production.example
+├── authorized_keys.all         ← Consolidated 4-node pubkey set
+├── config.{linux-a,linux-b,macos-peer} ← Per-node deployment configs
+├── com.bridgesessions.mesh.plist  ← macOS LaunchAgent template
+├── deploy_remote.sh            ← Linux deploy helper
+└── build_release.ps1           ← Windows release build
 ```
 
 ---
@@ -629,85 +559,63 @@ bridgesessions/
 
 | ADR | Decision | Section |
 |-----|----------|---------|
-| 001 | One TLS connection per bs-client process (not per pane) | §1 |
-| 002 | IPv6-first, IPv4 compatible | §1 |
-| 003 | New message types: ScrollbackAck, SessionDied, ClipboardEcho | §2.2 |
+| 001 | One TLS connection per pane-session attachment | §1 |
+| 002 | IPv4 with Tailscale overlay | §1 |
+| 003 | Peer mesh, not client-server | §1 |
 | 004 | App-level stream ID = session attachment, not session lifetime | §2.3 |
 | 005 | Clipboard race prevention via hash echo | §2.4 |
 | 006 | Clipboard compression enabled (zstd) | §2.5 |
-| 007 | Command resolution order (--cmd > config > default) | §3.1 |
-| 008 | PTY death handling with auto_restart | §3.2 |
-| 009 | Clipboard ownership in bs-client, not BridgeSpace | §4.2 |
-| 010 | Server restart = full TLS handshake | §4.3 |
-| 011 | v1 BridgeSpace integration is minimal | §6 |
-| 012 | Server restart invalidates TLS session tickets | §8 |
+| 008 | PTY death handling with auto_restart | §3.1 |
+| 012 | Daemon restart = full TLS handshake | §8 |
 | 013 | TLS-over-TCP for v1; QUIC via msquic for v2 | §8 |
 | 014 | TCP congestion control (OS-managed) is adequate | §8 |
-| 015 | No connection migration in v1; reconnect with backoff | §4.3 |
-| 016 | Multipath deferred (N/A over TCP) | — |
-| 017 | TCP primary transport; no fallback needed | §7.3 |
+| 015 | No connection migration in v1; reconnect with backoff | §9 |
+| 017 | TCP primary transport; no fallback needed | §7.2 |
 | 018 | Hand-rolled binary framing over schema frameworks | §2.5 |
 | 019 | ALPN identifies protocol; first message negotiates version | — |
-| 020 | TCP flow control provides sufficient backpressure | §2.3 |
 | 021 | No keystroke batching — send immediately | §2.1 |
-| 022 | TOFU with explicit `rotate-key` command | §5 |
-| 023 | authorized_keys + revoked_keys flat files | §5 |
-| 024 | 0-RTT not applicable (TCP); disabled in v2 | — |
-| 025 | Same-user model, env sanitization, ulimit | §3 |
-| 026 | Thread-per-session; adequate to 10K concurrent | PLANS.md |
-| 027 | Raw ANSI ring buffer, zstd-compressed, 1MB default | §3.2 |
-| 028 | Session metadata persistence (JSON), explicit resurrect | PLANS.md |
-| 029 | Per-user bs-server (mosh model, no root) | §3 |
-| 030 | Raw mode on stdin distinguishes Ctrl+D from PTY close | §4.1 |
-| 031 | BridgeSpace owns SIGWINCH; bs-server applies TIOCSWINSZ | §4.1 |
-| 032 | NSPasteboard polling at 500ms via ObjC++ bridge | §4.2 |
+| 022 | TOFU with explicit `keygen` command | §5.2 |
+| 023 | authorized_keys flat file | §5.1 |
+| 025 | Same-user model, env sanitization | — |
+| 027 | Raw ANSI ring buffer, zstd-compressed, 16K lines | §3.1 |
+| 028 | Session metadata persistence (JSON), explicit resurrect | §3.1 |
+| 029 | Per-user daemon (mosh model, no root) | §7 |
+| 030 | Raw mode on stdin distinguishes Ctrl+D from PTY close | — |
+| 032 | System clipboard polling at 500ms | §2.4 |
 | 033 | Plain text clipboard v1; binary + MIME for v2 | — |
-|| 034 | Large clipboard payloads deferred to v2 chunking | — |
-|| 035 | bs-client allocates own PTY; BridgeSpace connects via Unix socket | §6 |
-|| 036 | Hybrid error propagation: exit codes + stderr + protocol Error frames | §6 |
-|| 037 | Explicit linux/amd64 + linux/arm64 cross-build presets with sysroot package roots | §9, §11 |
+| 035 | bridgemind.ai GUI is a mesh peer, not a terminal emulator | §1 |
+| 037 | Single-source cross-platform build (no libs) | §11 |
 
 ### C++-Specific ADRs
 
 | ADR | Rule |
 |-----|------|
-| C01 | **RAII for all resources.** unique_ptr for fds, custom deleters for SSL_CTX. No raw new/delete. |
-| C02 | **No exceptions across thread boundaries.** `std::expected<T, Error>` for fallible ops. |
-| C03 | **Header-only where possible.** Protocol types, codec, ring buffer. .cpp for non-template code. |
-| C04 | **Compile-time polymorphism.** std::variant + std::visit for message types. Templates for ring buffer. |
-| C05 | **Sanitizers in CI from day one.** ASan + UBSan + TSan on every PR. LibFuzzer on decode(). |
+| C01 | RAII for all resources. unique_ptr for fds, custom deleters for SSL_CTX |
+| C02 | No exceptions across thread boundaries. `std::expected<T, Error>` |
+| C03 | Single-file — no library targets, everything in bridgesessions.cpp |
+| C04 | Compile-time polymorphism: std::variant + std::visit for message types |
+| C05 | Test suite before every release commit |
 
 ---
 
-## 13. Deep Research Findings
+## 13. Key Data: 4-Node Cluster
 
-All 26 research questions investigated May 2026 via DeerFlow v2 (TinyFish + Exa + corpus search across 12,619 indexed sources). Key findings that shaped the architecture:
+| Node | OS | Tailscale IP | Pubkey (first 16) | Daemon |
+|------|----|-------------|-------------------|--------|
+| Shadow | Windows 11 | 100.124.169.66 | e702d6ad10e1891f | NSSM |
+| linux-b | Linux | 203.0.113.12 | 358e0bb8b4e3bc24 | systemd |
+| linux-a | Linux | 203.0.113.11 | 80f749207dabc121 | systemd |
+| macos-peer | macOS | 203.0.113.16 | b29a006f19ac5037 | LaunchAgent |
 
-| Research Area | Finding | Impact |
-|--------------|---------|--------|
-| UDP blocking rates | 5-15% of enterprise networks block UDP. Palo Alto/Ubiquiti admins actively recommend blocking QUIC. | Confirmed TLS-over-TCP for v1. No UDP dependency. |
-| Go QUIC library options | Production-tested (Caddy, Syncthing) but CGo overhead and GC interaction make native C++ libraries preferable. | C++23 + msquic/lsquic — native FFI-free QUIC libraries. |
-| 0-RTT replay attacks | Real — TLS 1.3 0-RTT data is inherently replayable. Attach message replay could disrupt sessions. | 0-RTT disabled. v2 requires anti-replay nonce. |
-| Per-connection concurrency model | Before choosing C++, confirmed the model scales: fine to 10K concurrent with ~2KB overhead/connection. GC becomes the bottleneck at 100K+ in managed runtimes. | Thread-per-session in C++ — same architecture, zero-GC guarantee. |
-| ed25519 key rotation | SSH-style authorized_keys + revoked_keys flat files are the standard. TOFU is adequate for <50 servers. | Adopted flat-file model. |
-| NSPasteboard API | No push notification — macOS clipboard managers poll `changeCount`. pbpaste polling is universal. | ObjC++ bridge polls changeCount every 500ms. No Swift helper needed. |
+Mesh forms within ~100s of all daemons starting. 12/12 health directions all `healthy`. `pong_timeout=0`, `config_reload=0` across all nodes (no flap, no churn loop).
 
----
-
-## 14. Open Questions
-
-1. **Bootstrapping on fresh servers?** v1: manual install (scp binary, echo key, systemd enable). v2: `bs-client bootstrap --ssh-user=X`.
-2. **Connection brokering / NAT traversal?** v1: direct TCP to known IPs. v2: Tailscale/WireGuard overlay.
-3. **Latency hiding?** v1: no predictive echo (same UX as SSH). v2: Mosh-style state synchronization.
-4. **Terminal identification?** v1: client reads TERM from env, passes in Attach. Server sets on PTY. Supported: xterm-256color, xterm-kitty, tmux-256color.
-5. **Session recording?** v2: `--record-sessions` with tee between PTY and ring buffer.
-6. **Graceful hostname changes?** v1: DNS A/AAAA at dial. v2: SRV records.
+See `matrix.sh` for reproduction, `install-daemon.ps1` for Shadow, `com.bridgesessions.mesh.plist` for macOS.
 
 ---
 
-**Status:** v0.5.1 — all 12 phases complete, 74/74 tests. Wave 2 active.
-**Language:** C++23 (firm).
+**Status:** v1.4.0 — cross-platform peer mesh validated on 4 nodes.
+**Language:** C++23 (single source file).
 **Transport:** TLS 1.3 over TCP v1 → QUIC via msquic v2.
-**Auth:** ed25519 mutual TLS + TOFU (firm).
-**Compression:** zstd per-frame (firm).
-**Next:** Wave 2 — Image & Animation Transfer (see TODO.md).
+**Auth:** ed25519 mutual TLS + TOFU.
+**Compression:** zstd per-frame.
+**Next:** v1.5 — file transfer, restart signal, markdown render hint, remote file editing, virtual folder sync.
