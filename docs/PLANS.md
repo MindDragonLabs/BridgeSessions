@@ -1,80 +1,100 @@
 # bridgesessions — Implementation Plan
 
-**Spec:** [ARCHITECTURE.md](./ARCHITECTURE.md)
-**Sketch:** [GUIDELINE.md](./GUIDELINE.md)
-**Language:** C++23
-**Build:** CMake 3.25+
-**Dependencies:** 2 link-time (OpenSSL 3.0+, zstd), 4 header-only (Catch2, spdlog, CLI11, nlohmann/json)
+**Design:** [GUIDELINE.md](./GUIDELINE.md)
+**Architecture:** [ARCHITECTURE.md](./ARCHITECTURE.md)
+**Active TODO:** [TODO.md](./TODO.md)
+**Language:** C++23 | **Build:** Single-file, MSVC/g++/clang + vcpkg | **Deps:** OpenSSL 3+, zstd, CLI11, spdlog, nlohmann/json, Catch2
 
 ---
 
-## Current Sprint: Windows Native Port (v0.6.0-windows)
+## Where we are
 
-**Target:** Windows 11 x64, MSVC 2022, native Win32 APIs. No MinGW, WSL, POSIX emulation.
+Single-file peer-to-peer mesh relay, validated 1.4.0 across 4 nodes (Windows/Linux/macOS). 22 message types, TLS 1.3 mTLS, ed25519 TOFU, multi-attach sessions, mDNS+gossip discovery, daemon health IPC, 1009/1009 tests on Windows.
 
-**Execution plan:** [`PLANS-WINDOWS.md`](../../PLANS-WINDOWS.md) (project root)
+## What changed
 
-| Phase | What | Effort |
-|-------|------|--------|
-| W0 | Toolchain: VS Build Tools 2022 + CMake + vcpkg deps | 1 hour |
-| W1 | bs-protocol: compile MSVC, run 18 tests | 1 hour |
-| W2 | bs-transport: compile frame_io + tls, Winsock2 adaptation | 1–2 hours |
-| W3 | bs-client: Win32 Console API + 2-thread relay + clipboard | 3–5 days |
-| W4 | bs-server: ConPTY replacement for fork/PTY (optional) | 3–5 days |
-| W5 | Integration: Windows bs-client ↔ Linux bs-server | 1–2 days |
+The old plan (two binaries, three libs, BridgeSpace macOS front-end, Windows port sprint) has been **superseded** by a simpler reality:
 
-**Portable as-is:** bs-protocol (codec, messages, zstd), bs-transport (TLS, frame I/O — OpenSSL only)
-**Needs porting:** bs-client (termios→SetConsoleMode, poll→threads, clipboard→Win32), bs-server (fork→CreateProcess, PTY→ConPTY)
+- **Single-file** `bridgesessions.cpp` — no libs, no CMake library targets, one `cl`/`g++` command builds all platforms.
+- **Peer mesh, not client-server** — every node runs the same binary; the GUI (bridgemind.ai) is a mesh peer.
+- **Windows port done** — the single-file includes native Winsock2 + ConPTY + MSVC build. The dedicated `PLANS-WINDOWS.md` is archived.
+- **No BridgeSpace.app** — the bridgemind.ai browser-based terminal is the operator console.
 
 ---
 
-## New Workstream: shadow-agent (planned 2026-06-01)
+## Shipped: v1.4.0 (this wave)
 
-**Target:** Single Shadow-resident daemon that multiplexes shell, CUA, fs, hermes.chat, roblox, and win32 behind **one** mTLS+ed25519 MCP endpoint on Tailscale `100.124.169.66:9100` so any AI on the mesh can drive Shadow with one credential.
-
-**Execution plan:** [`PLANS-shadow-agent.md`](../../PLANS-shadow-agent.md) · **TODO:** [`TODO-shadow-agent.md`](../../TODO-shadow-agent.md) (project root)
-**Day-2 ops skill:** [`skills/devops/shadow-agent/`](../../../../Users/Shadow/AppData/Local/hermes/skills/devops/shadow-agent/SKILL.md) (in-repo)
-
-| Phase | What | Effort | Status |
-|-------|------|--------|--------|
-| S0 | Plan + skill docs (umbrellas + in-repo SKILL.md) | 0.5 hr | `[ ]` |
-| S1 | Skeleton: CMake, config, delegation, tests | 1 day | `[ ]` |
-| S2 | HTTP+TLS server, MCP routing, 401/403 | 1.5 days | `[ ]` |
-| S3 | shell.* (reuses bs-client-core two-thread relay) | 1.5 days | `[ ]` |
-| S4 | fs.* (jailed under C:\SFTP\agent\) | 0.5 day | `[ ]` |
-| S5 | cua.* (requires user-session worker for GUI) | 0.5 day | `[ ]` |
-| S6 | hermes.* (wraps existing FastAPI on 8787) | 0.5 day | `[ ]` |
-| S7 | roblox.* (transparent MCP proxy to Studio) | 1 day | `[ ]` |
-| S8 | win.* (jail-break tool, NOT in default delegation) | 0.5 day | `[ ]` |
-| S9 | Windows service install (LocalSystem supervisor + hidden user worker) | 1 day | `[ ]` |
-| S10 | Audit log + per-client rate limit (60/min default) | 0.5 day | `[ ]` |
-| S11 | Python SDK (`shadow-agent-client`) for other Hermes instances | 1 day | `[ ]` |
-| S12 | End-to-end smoke + REMOTE-OPS-GUIDE update | 0.5 day | `[ ]` |
-
-**Reuses:** `bs-transport` (mTLS+ed25519), `bs-client-core.lib` (ConPTY two-thread relay), `bs-protocol` (codec). Talks to existing primitives: `bs-server` (loopback), Hermes FastAPI (`:8787`), Windows CUA (`:8765`), BvSshServer, Roblox Studio MCP.
-**Open:** delegation defaults, port choice, source location, Roblox MCP auto-detect vs hardcoded. See `PLANS-shadow-agent.md` § Open Questions.
+| Area | Deliverable | Status |
+|------|------------|--------|
+| Mesh core | Single-binary peer-to-peer, TLS 1.3 mTLS, ed25519 TOFU | ✅ |
+| Cross-platform | Windows MSVC, Linux g++, macOS clang — one source | ✅ |
+| Session lifecycle | Multi-attach, detach, kill, resurrect, auto-restart circuit breaker | ✅ |
+| Discovery | mDNS LAN + seed config + gossip peer propagation | ✅ |
+| Config | seed/pubkey/token parsing, CRLF-safe, dedup by name | ✅ |
+| Health IPC | Loopback :19980 on all platforms, event-driven in select() | ✅ |
+| Duplicate conns | Deterministic tie-break (smaller pubkey keeps outbound) | ✅ |
+| Backoff scheduling | Per-addr timer, one dial per loop, no starvation | ✅ |
+| Frame-stall guard | 10s recv timeout on peer sockets | ✅ |
+| Single-instance guard | Probe IPC port before starting | ✅ |
+| Test suite | 1009/1009, 16 suites, isolated USERPROFILE | ✅ |
+| 4-node validation | Shadow + linux-a + linux-b + macos-peer — 12/12 health green | ✅ |
 
 ---
 
-## v1 Core — COMPLETE (macOS + Linux)
+## v1.5 — Current sprint
 
-13 phases, 74/74 tests on macOS arm64 + Linux x86_64. 20 message types (17 base + 3 Wave 2 image types). See [TODO.md](./TODO.md) for per-phase status.
+Build the GUIDELINE features on top of the proven mesh substrate. All items reuse the existing wire protocol, daemon architecture, and cross-platform transport.
 
-## Wave 2 — COMPLETE
+| Priority | Feature | Wire impact | Effort |
+|----------|---------|-------------|--------|
+| 1 | `file send` / `file recv` — mesh-native peer-to-peer transfer | New message types (FileTransfer, FileAck, FileChunk) + new CLI subcommand | Moderate |
+| 2 | `restart` signal — kill + respawn bash/hermes/codex/claude over mesh | Extend SignalMsg (0x0D) with Restart variant | Small |
+| 3 | `render_hint` flag — tell GUI "this OutputMsg is markdown, render it" | Single flag bit in frame header | Trivial |
+| 4 | `edit` subcommand — open remote file locally, save delta patch | No new wire types; scp+patch pattern over existing transfer | Moderate |
+| 5 | Virtual folder mapping — local↔remote live sync | New daemon thread per mount, inotify/FSEvents/ReadDirectoryChanges | Large |
+| — | `stats` IPC parity — expose daemon conns/sessions over :19980 | Parse in cli_ipc_accept_one, same as HEALTH | Small |
 
-ImageData, ImageFrame, ImageAck message types. chafa terminal rendering. Client `image`/`anim` CLI commands. Full test coverage. All 7 items done.
+### v1.5 sequencing
 
-## v1.0 Polish — 2 remaining
-
-- [ ] **v1.0-2** libFuzzer 1M+ iterations on decode()
-- [ ] **v1.0-5** clang-tidy zero warnings (`.clang-tidy` needs portable path rewrite)
-
-## v2 Deferred — 14 items
-
-Deferred until after Windows port. See [TODO.md](./TODO.md) for full list. Post-port priority: v2-2 (bootstrapping), v2-6 (recording), v2-8 (rich clipboard), v2-1 (QUIC).
+```
+Priority 1  ─► file send/recv ─► Priority 2  ─► restart signal ─► Priority 3  ─► render_hint
+                                                  │
+                                                  ▼
+                                    Priority 4/5 ─► edit, virtual folders (parallel-able)
+```
 
 ---
 
-## Why C++23
+## Future v2 (post v1.5)
 
-Zero-GC latency. `std::expected<T,E>`, `std::print`, `std::flat_map`, `std::mdspan`, `deducing this`, `[[assume(expr)]]`. OpenSSL native bindings. Single static binary deploy (~5 MB). msquic path to v2 QUIC — library swap, not rewrite. RAII everywhere.
+| Feature | Rationale |
+|---------|-----------|
+| QUIC via msquic | Library swap, same protocol — eliminates TCP head-of-line blocking on high-latency links |
+| Nonblocking TLS handshakes | Kill the last blocking call in the event loop |
+| Session recording + replay | Protocol messages already exist (`ImageFrame` → `RecordedFrame`) |
+| Read-only spectators (fan-out) | Share a session view without write access |
+| SRV record peer discovery | DNS-based, no config needed for fleet nodes |
+| Dictionary-trained zstd | Higher compression on ANSI-heavy terminal output |
+
+---
+
+## shadow-agent — separate workstream
+
+See `PLANS-shadow-agent.md` (project root). bridgesessions is the **mesh substrate**; shadow-agent is a **different binary** that wraps Shadow's desktop surface (CUA, FS, Hermes chat, Roblox) behind one mTLS endpoint. The GUIDELINE's file transfer, edit, and restart features here feed into shadow-agent's `shell.*` / `fs.*` tool surface.
+
+---
+
+## Docs audit
+
+| Doc | Status |
+|-----|--------|
+| `GUIDELINE.md` | ✅ Current — rewritten for mesh vision |
+| `ARCHITECTURE.md` | ⚠️ Two-binary client/server — still accurate at protocol level, needs front-end diagram update |
+| `TODO.md` | ✅ Rewritten — maps to v1.4/v1.5/v2 |
+| `PLANS.md` | ✅ Rewritten — this file |
+| `README.md` | ✅ Rewritten — matches mesh reality |
+| `AUTONOMOUS.md` | ⚠️ Agent dispatch rules OK; library targets stale |
+| `PLANS-WINDOWS.md` | 🗄️ Superseded — archived in git history |
+| `PLANS-shadow-agent.md` | ✅ Current (separate workstream) |
+| `TODO-shadow-agent.md` | ✅ Current (separate workstream) |
+| `todo.md` (root) | ✅ Current (reliability deployment) |
