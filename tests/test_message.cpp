@@ -288,4 +288,113 @@ TEST_CASE("MessageType enum values are correct", "[message]") {
     REQUIRE(static_cast<uint8_t>(MessageType::ImageAck)       == 0x14);
     REQUIRE(static_cast<uint8_t>(MessageType::Hello)          == 0x15);
     REQUIRE(static_cast<uint8_t>(MessageType::Gossip)         == 0x16);
+    REQUIRE(static_cast<uint8_t>(MessageType::SessionSearch)  == 0x17);
+    REQUIRE(static_cast<uint8_t>(MessageType::FileMeta)       == 0x1C);
+    REQUIRE(static_cast<uint8_t>(MessageType::FileChunk)      == 0x1D);
+    REQUIRE(static_cast<uint8_t>(MessageType::FileAck)        == 0x1E);
+}
+
+// ── File Transfer Message Tests (v1.5, P1) ──────────────────────
+
+TEST_CASE("FileMetaMsg defaults and equality", "[message][file]") {
+    SECTION("defaults") {
+        FileMetaMsg m;
+        REQUIRE(m.filename.empty());
+        REQUIRE(m.filesize == 0);
+        REQUIRE(m.checksum.empty());
+        REQUIRE(m.total_chunks == 0);
+    }
+
+    SECTION("equality") {
+        FileMetaMsg a;
+        a.filename = "test.bin";
+        a.filesize = 1024;
+        a.checksum = "abc123";
+        a.total_chunks = 4;
+
+        FileMetaMsg b;
+        b.filename = "test.bin";
+        b.filesize = 1024;
+        b.checksum = "abc123";
+        b.total_chunks = 4;
+
+        REQUIRE(a == b);
+        b.filesize = 2048;
+        REQUIRE_FALSE(a == b);
+    }
+}
+
+TEST_CASE("FileChunkMsg defaults and equality", "[message][file]") {
+    SECTION("defaults") {
+        FileChunkMsg m;
+        REQUIRE(m.chunk_index == 0);
+        REQUIRE(m.total_chunks == 0);
+        REQUIRE(m.data.empty());
+    }
+
+    SECTION("equality") {
+        FileChunkMsg a;
+        a.chunk_index = 2;
+        a.total_chunks = 10;
+        a.data = {0xDE, 0xAD, 0xBE, 0xEF};
+
+        FileChunkMsg b;
+        b.chunk_index = 2;
+        b.total_chunks = 10;
+        b.data = {0xDE, 0xAD, 0xBE, 0xEF};
+
+        REQUIRE(a == b);
+        b.data = {0x00};
+        REQUIRE_FALSE(a == b);
+    }
+
+    SECTION("empty data") {
+        FileChunkMsg m;
+        m.chunk_index = 0;
+        m.total_chunks = 1;
+        REQUIRE(m.data.empty());
+    }
+}
+
+TEST_CASE("FileAckMsg defaults and equality", "[message][file]") {
+    SECTION("defaults") {
+        FileAckMsg m;
+        REQUIRE(m.chunk_index == 0);
+        REQUIRE(m.next_requested == 0);
+        REQUIRE(m.error == false);
+        REQUIRE(m.error_msg.empty());
+    }
+
+    SECTION("error ack") {
+        FileAckMsg a;
+        a.chunk_index = 5;
+        a.next_requested = 5;
+        a.error = true;
+        a.error_msg = "disk full";
+
+        FileAckMsg b;
+        b.chunk_index = 5;
+        b.next_requested = 5;
+        b.error = true;
+        b.error_msg = "disk full";
+
+        REQUIRE(a == b);
+        REQUIRE_FALSE(a == FileAckMsg{});
+    }
+}
+
+TEST_CASE("File message types are constructible via variant", "[message][file]") {
+    Message m0 = FileMetaMsg{};
+    Message m1 = FileChunkMsg{};
+    Message m2 = FileAckMsg{};
+
+    REQUIRE(std::holds_alternative<FileMetaMsg>(m0));
+    REQUIRE(std::holds_alternative<FileChunkMsg>(m1));
+    REQUIRE(std::holds_alternative<FileAckMsg>(m2));
+}
+
+TEST_CASE("message_type maps file types to correct enums", "[message][file]") {
+    REQUIRE(message_type(FileMetaMsg{})  == MessageType::FileMeta);
+    REQUIRE(message_type(FileChunkMsg{}) == MessageType::FileChunk);
+    REQUIRE(message_type(FileAckMsg{})   == MessageType::FileAck);
 }

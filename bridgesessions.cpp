@@ -305,6 +305,9 @@ enum class MessageType : uint8_t {
     SdpAnswer      = 0x19,  // bidirectional: WebRTC SDP answer (over TCP gossip)
     DhtFindNode    = 0x1A,  // bidirectional: Kademlia find-node query
     DhtFindValue   = 0x1B,  // bidirectional: Kademlia find-value query
+    FileMeta       = 0x1C,  // bidirectional: file metadata (name, size, checksum, total_chunks)
+    FileChunk      = 0x1D,  // bidirectional: file data chunk (chunk_index, data)
+    FileAck        = 0x1E,  // bidirectional: file chunk acknowledgement / next chunk request
 };
 
 // ── Empty Message Structs (must be declared before variant) ──────
@@ -436,6 +439,31 @@ struct SessionSearchMsg {
     bool operator==(const SessionSearchMsg&) const = default;
 };
 
+// ── File Transfer Message Structs (v1.5, P1) ────────────────────
+
+struct FileMetaMsg {
+    std::string filename;       // basename only
+    uint64_t filesize = 0;      // total file size in bytes
+    std::string checksum;       // SHA-256 hex of entire file
+    uint32_t total_chunks = 0;  // total number of chunks
+    bool operator==(const FileMetaMsg&) const = default;
+};
+
+struct FileChunkMsg {
+    uint32_t chunk_index = 0;   // 0-based chunk index
+    uint32_t total_chunks = 0;  // total number of chunks (repeated for convenience)
+    std::vector<uint8_t> data;  // zstd-compressed chunk payload
+    bool operator==(const FileChunkMsg&) const = default;
+};
+
+struct FileAckMsg {
+    uint32_t chunk_index = 0;   // acknowledged chunk index
+    uint32_t next_requested = 0; // next chunk we want (for resume: > chunk_index+1)
+    bool error = false;          // true = transfer aborted (e.g. disk full)
+    std::string error_msg;       // human-readable error detail
+    bool operator==(const FileAckMsg&) const = default;
+};
+
 // ── WebRTC SDP Exchange Message Structs (D15) ───────────────────
 
 struct SdpOfferMsg {
@@ -496,7 +524,10 @@ using Message = std::variant<
     SdpOfferMsg,        // 22 — D15
     SdpAnswerMsg,       // 23 — D15
     DhtFindNodeMsg,     // 24 — D16
-    DhtFindValueMsg     // 25 — D16
+    DhtFindValueMsg,    // 25 — D16
+    FileMetaMsg,        // 26 — P1 file transfer
+    FileChunkMsg,       // 27 — P1 file transfer
+    FileAckMsg          // 28 — P1 file transfer
 >;
 
 // ── Frame ──────────────────────────────────────────────────────────
@@ -552,6 +583,9 @@ constexpr MessageType index_to_type[] = {
     MessageType::SdpAnswer,     // 23 — D15
     MessageType::DhtFindNode,   // 24 — D16
     MessageType::DhtFindValue,  // 25 — D16
+    MessageType::FileMeta,      // 26 — P1
+    MessageType::FileChunk,     // 27 — P1
+    MessageType::FileAck,       // 28 — P1
 };
 static_assert(std::size(index_to_type) == std::variant_size_v<Message>,
               "index_to_type must have one entry per variant alternative");
@@ -667,6 +701,27 @@ void serialize_msg(Serializer& s, const DhtFindNodeMsg& m) {
 void serialize_msg(Serializer& s, const DhtFindValueMsg& m) {
     s.bytes(m.key.data(), 32);
     s.str_prefixed(m.sender_name);
+}
+void serialize_msg(Serializer& s, const FileMetaMsg& m) {
+    s.str_prefixed(m.filename);
+    s.u32be(static_cast<uint32_t>(m.filesize >> 32));
+    s.u32be(static_cast<uint32_t>(m.filesize & 0xFFFFFFFF));
+    s.str_prefixed(m.checksum);
+    s.u32be(m.total_chunks);
+}
+void serialize_msg(Serializer& s, const FileChunkMsg& m) {
+    s.u32be(m.chunk_index);
+    s.u32be(m.total_chunks);
+    if (m.data.size() > MAX_FRAME_SIZE)
+        throw std::runtime_error("file chunk payload exceeds MAX_FRAME_SIZE");
+    s.u32be(static_cast<uint32_t>(m.data.size()));
+    if (!m.data.empty()) s.bytes(std::span<const uint8_t>(m.data.data(), m.data.size()));
+}
+void serialize_msg(Serializer& s, const FileAckMsg& m) {
+    s.u32be(m.chunk_index);
+    s.u32be(m.next_requested);
+    s.u8(m.error ? 1 : 0);
+    s.str_prefixed_u16(m.error_msg);
 }
 
 // ── Zstd ──────────────────────────────────────────────────────
@@ -943,6 +998,32 @@ Message decode(std::span<const uint8_t> raw) {
         auto key_bytes = d.bytes_size(32);
         std::copy(key_bytes.begin(), key_bytes.end(), m.key.begin());
         m.sender_name = d.str_prefixed();
+        return m;
+    }
+    case 0x1C: {
+        FileMetaMsg m;
+        m.filename = d.str_prefixed();
+        uint64_t hi = d.u32be();
+        uint64_t lo = d.u32be();
+        m.filesize = (hi << 32) | lo;
+        m.checksum = d.str_prefixed();
+        m.total_chunks = d.u32be();
+        return m;
+    }
+    case 0x1D: {
+        FileChunkMsg m;
+        m.chunk_index = d.u32be();
+        m.total_chunks = d.u32be();
+        uint32_t sz = d.u32be();
+        if (sz > 0) m.data = d.bytes_size(sz);
+        return m;
+    }
+    case 0x1E: {
+        FileAckMsg m;
+        m.chunk_index = d.u32be();
+        m.next_requested = d.u32be();
+        m.error = d.u8() != 0;
+        m.error_msg = d.str_prefixed_u16();
         return m;
     }
     }
