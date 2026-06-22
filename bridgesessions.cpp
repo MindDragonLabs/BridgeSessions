@@ -5326,6 +5326,9 @@ public:
                     response = result + "\n";
                 }
             }
+            else if (line.rfind("STATS", 0) == 0) {
+                response = daemon_stats_json() + "\n";
+            }
             else if (line.rfind("VFOLDER_SYNC ", 0) == 0) {
                 std::string name = line.substr(13);
                 std::string result = daemon_vfolder_sync(name);
@@ -6186,6 +6189,30 @@ public:
         std::cout << "sessions: " << sessions_.list().size() << "\n";
     }
 
+    // ── Daemon IPC: STATS — JSON version ────────────
+    std::string daemon_stats_json() const {
+        auto now = std::chrono::steady_clock::now();
+        std::string j = "{\"node\":\"" + config_.node_name + "\",\"pubkey\":\"" + our_pubkey_.substr(0,16) + "\"";
+        j += ",\"listen_port\":" + std::to_string(config_.listen_port);
+        j += ",\"connections\":" + std::to_string(conns_.size());
+        j += ",\"max_peers\":" + std::to_string(config_.max_peers);
+        j += ",\"peers\":[";
+        bool first = true;
+        for (auto& cn : conns_) {
+            if (cn.sock_fd == INVALID_SOCKET) continue;
+            if (!first) j += ","; first = false;
+            auto pong_age = std::chrono::duration_cast<std::chrono::seconds>(now - cn.last_pong).count();
+            auto uptime = std::chrono::duration_cast<std::chrono::seconds>(now - cn.connected_at).count();
+            j += "{\"name\":\"" + cn.peer_name + "\",\"addr\":\"" + cn.peer_addr + "\",\"outbound\":" + (cn.is_outbound ? "true" : "false");
+            j += ",\"uptime_s\":" + std::to_string(uptime) + ",\"last_pong_s\":" + std::to_string(pong_age);
+            j += ",\"bytes_in\":" + std::to_string(cn.bytes_in) + ",\"bytes_out\":" + std::to_string(cn.bytes_out);
+            if (cn.attached_session) j += ",\"session\":\"" + cn.attached_session->name + "\"";
+            j += "}";
+        }
+        j += "],\"sessions\":" + std::to_string(sessions_.list().size()) + "}";
+        return j;
+    }
+
     // ── CLI: show_peers_detail — live connection status ──────────
     void show_peers_detail(const std::string& peer_name = "") {
         auto now = std::chrono::steady_clock::now();
@@ -6884,9 +6911,9 @@ int main(int argc, char** argv) {
         return 0;
     }
     if (stats_cmd_app->parsed()) {
-        bs::mesh::MeshConfig cfg = bs::mesh::load_config(config_path);
-        bs::mesh::MeshController mc(cfg);
-        mc.show_stats();
+        std::string ipc = daemon_simple_ipc("STATS", 5000);
+        if (ipc.empty()) { std::cerr << "no daemon running\n"; return 1; }
+        std::cout << ipc << "\n";
         return 0;
     }
     if (file_send_app->parsed()) {
