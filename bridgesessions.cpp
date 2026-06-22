@@ -6739,7 +6739,7 @@ int main(int argc, char** argv) {
 #endif
 
     CLI::App app{"bridgesessions — mesh terminal relay"};
-    app.set_version_flag("--version,-V", "1.4.0");
+    app.set_version_flag("--version,-V", "1.5.0");
 
     // Global options
     std::string config_path = "";

@@ -1,44 +1,54 @@
-# bridgesessions — v1.4.0 reliability hardening
+# bridgesessions — v1.5.0 mesh file services
 
-**Status:** 🟢 **v1.4.0 released** — all items closed, docs reconciled, 4-node validated.
+**Status:** 🟢 **v1.5.0 released** — all P1-P6 items shipped, 4-node validated.
 **Date:** 2026-06-22
 
 ---
 
-## Deliverables
+## v1.4.0 — mesh substrate
 
-| Item | Status |
-|------|--------|
-| Single-instance guard (probe IPC :19980 before start) | ✅ |
-| TLS 1.2+ fallback (not 1.3-only — cross-platform edge) | ✅ |
-| Bounded blocking handshake (select + deadline, not spin) | ✅ |
-| Backoff scheduling (per-addr, one dial per loop) | ✅ |
-| Startup IPC init before seed dials | ✅ |
-| Empty-pubkey guard on Gossip/Hello | ✅ |
-| Duplicate-conn tie-break (deterministic, symmetric) | ✅ |
-| Discovered peers not persisted (kill config_reload churn) | ✅ |
-| IPC fd in select() + event-driven accept | ✅ |
-| HEALTH = last_pong freshness, not synchronous ping | ✅ |
-| Bounded recv on IPC accept (2s) | ✅ |
-| bootstrap_identity path fix (bs_dir, not home_dir_) | ✅ |
-| Daemon health IPC un-gated (all platforms) | ✅ |
-| macOS PTY include (util.h vs pty.h) | ✅ |
-| CRLF-safe config parsing + seed pubkey token parsing | ✅ |
-| Peer pubkey dedup in dial loop (don't re-dial connected) | ✅ |
-| Steady-state recv timeout (10s, kPeerRecvTimeoutMs) | ✅ |
-| `--version` bumped 1.3.0-reliability → 1.4.0 | ✅ |
-| Test suite: 1009/1009 (16 suites, isolated USERPROFILE) | ✅ |
+**Status:** 🟢 **v1.4.0 released** — all items closed, docs reconciled, 4-node validated.
+**Date:** 2026-06-22
 
-## Test failures found & fixed
+See Git history for v1.4 release log.
 
-| Suite | Symptom | Fix |
-|-------|---------|-----|
-| `test_config` | Asserted default port 19948; code changed to 19949 | Updated assertion |
+## v1.5.0 — mesh file services
 
-## Production validation
+### Deliverables
 
-All 4 nodes (Shadow/Win + linux-b + linux-a + macos-peer) deployed 1.4.0, mesh formed
-within ~100s, live `health` = `healthy` in all 12 directions.
+| # | Feature | Notes | Status |
+|---|---------|-------|--------|
+| P1 | `file send` / `file recv` | FileMeta(0x18), FileChunk(0x19), FileAck(0x1A), FileRequest(0x1F) bidirectional. Live SHA-256 verified Shadow↔linux-b | ✅ |
+| P2 | `restart` signal | SignalMsg::Restart enum + process field. Kill+respawn handler. 36/36 session tests | ✅ |
+| P3 | `render_hint` flag | FLAG_RENDER_MARKDOWN=0x04, OutputMsg.render_markdown bool, heuristic detection, config override. 156/156 message tests | ✅ |
+| P4 | `edit <peer>:<path>` | Route through daemon IPC (EDIT_DL/EDIT_UP). Download to temp, open $EDITOR, verify SHA-256, upload diffs. Live verified | ✅ |
+| P5 | Virtual folder mapping | `vfolder.<name>.*` config keys. CLI: add/list/sync. Config-driven polling sync over daemon IPC | ✅ |
+| P6 | `stats` IPC parity | STATS IPC command → JSON. Live daemon state: 3 peers, uptime, bytes. Verified | ✅ |
+
+### Test suite
+
+| Suite | Layer | Assertions |
+|-------|-------|-----------|
+| test_message | unit | 156 |
+| test_codec | unit | 155 |
+| test_frame_io | unit | 42 |
+| test_osc52 | unit | 37 |
+| test_ring_buffer | unit | 49 |
+| test_identity | unit | 84 |
+| test_config | unit | 73 |
+| test_tls | integration | 146 |
+| test_tls_reliability | integration | 9 |
+| test_authorized_keys_reload | integration | 23 |
+| test_session | integration | 36 |
+| test_session_registry | integration | 75 |
+| test_relay | integration | 28 |
+| test_multi_attach | integration | 48 |
+| test_mesh | integration | 69 |
+| test_mesh_reliability | integration | 26 |
+| test_file_transfer | integration | 18 |
+| **Total** | **17 suites** | **1074** |
+
+### 4-node cluster validation
 
 ```
 shadow → linux-a/linux-b/macos-peer : healthy / healthy / healthy
@@ -47,30 +57,25 @@ linux-b  → shadow/linux-a/macos-peer: healthy / healthy / healthy
 macos-peer→ shadow/linux-a/linux-b  : healthy / healthy / healthy
 ```
 
-## Docs reconciliation (same session)
+- file send Shadow→linux-b: SHA-256 match
+- file send linux-b→Shadow: SHA-256 match
+- edit download from linux-b: confirmed
+- stats IPC: 3 peers, real uptime
+- vfolder add + list: config persist verified
 
-All architecture docs rewritten to match peer-mesh reality:
+### Commits
 
-| Doc | What changed |
-|-----|-------------|
-| `GUIDELINE.md` | Client/server sketch → mesh swarm vision |
-| `PLANS.md` | Windows port phases → v1.4/v1.5/v2 roadmap |
-| `TODO.md` (docs/) | 13-phase checklist → v1.4 done / v1.5 sprint / v2 deferred |
-| `README.md` | Old two-binary setup → peer mesh quickstart |
-| `AUTONOMOUS.md` | Stale lib targets → single-file reality, pitfalls |
-| `ARCHITECTURE.md` | Client-server spec → peer mesh with ADR-003 |
+```
+12ba28d P6: stats IPC parity — live JSON over daemon IPC
+d384e62 P5: virtual folder mapping — config + CLI + polling sync
+15f90e4 P4: edit <peer>:<path> IPC routing — download + editor + verify + upload
+f4756e8 P4: edit <peer>:<path> — remote file editing with delta upload
+fae8ece P3: render_hint flag — markdown vs raw terminal detection
+a580564 P1 cleanup: resume support, integration tests, MSVC libs fix + P2: restart signal
+9ab6c90 P1.8-P1.19: file transfer daemon + CLI + IPC routing + live cluster test
+81ef77e P1.1-P1.7: file transfer protocol types + codec + unit tests
+```
 
-## Move forward
+### Next
 
-v1.5 sprint items tracked in `docs/TODO.md`:
-- `file send`/`file recv` — mesh-native transfer
-- `restart` signal — kill+respawn processes over mesh
-- `render_hint` flag — markdown vs raw terminal
-- `edit` subcommand — remote file editing
-- Virtual folder mapping — local↔remote live sync
-- `stats` IPC parity
-
----
-
-**Commits:** `232eaf7` → `e0387ee` → `7f05bc8` → `9b4b359` → `62fddb9` → `405c181`
-**Next:** v1.5 — start with `file send`/`file recv`.
+v1.7: Platform filesystem watchers + bidirectional vfolder sync (tracked in `docs/TODO.md`)
