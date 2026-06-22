@@ -5742,13 +5742,200 @@ public:
     }
 
     // ── CLI: file_recv ──────────────────────────────────────────
+    // ── CLI: file_recv ──────────────────────────────────────────
     std::string file_recv(const std::string& peer_name, const std::string& remote_path,
                           const std::string& local_dir) {
         (void)local_dir;
-        // Try daemon IPC first
         std::string ipc = daemon_recv_via_ipc(peer_name, remote_path, 120000);
         if (!ipc.empty()) return ipc;
         return "ERROR no daemon running";
+    }
+
+    // ── CLI: edit_peer ──────────────────────────────────────────
+    void edit_peer(const std::string& target) {
+        // Parse "peer:/path" or "peer:path"
+        auto colon = target.find(':');
+        if (colon == std::string::npos || colon == 0 || colon == target.size() - 1) {
+            std::cerr << "usage: bridgesessions edit <peer>:<path> (e.g. linux-b:/etc/nginx.conf)\n";
+            return;
+        }
+        std::string peer_name = target.substr(0, colon);
+        std::string remote_path = target.substr(colon + 1);
+
+        // Connect to peer
+        std::string addr = find_peer_addr(peer_name);
+        if (addr.empty()) { std::cerr << "peer not found: " << peer_name << "\n"; return; }
+        auto sc = connect_and_hello(addr);
+        if (!sc.ssl || sc.sfd == INVALID_SOCKET) {
+            std::cerr << "cannot connect to " << peer_name << "\n"; return;
+        }
+
+        // Request the remote file
+        FileRequestMsg req;
+        req.path = remote_path;
+        try { write_frame(sc.ssl.get(), req, CONTROL_STREAM_ID); }
+        catch (...) { std::cerr << "failed to request file\n"; CLOSESOCK(sc.sfd); return; }
+
+        // Wait for FileMeta
+        std::string filename, checksum;
+        uint32_t total_chunks = 0;
+        auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(15);
+        while (std::chrono::steady_clock::now() < deadline) {
+            fd_set rfds; FD_ZERO(&rfds); FD_SET(sc.sfd, &rfds);
+            timeval tv{3, 0};
+            if (select(static_cast<int>(sc.sfd) + 1, &rfds, nullptr, nullptr, &tv) <= 0) continue;
+            try {
+                Message resp = read_frame(sc.ssl.get());
+                if (std::holds_alternative<FileMetaMsg>(resp)) {
+                    auto& m = std::get<FileMetaMsg>(resp);
+                    filename = m.filename; checksum = m.checksum; total_chunks = m.total_chunks;
+                    break;
+                }
+                if (std::holds_alternative<FileAckMsg>(resp)) {
+                    auto& ack = std::get<FileAckMsg>(resp);
+                    if (ack.error) { std::cerr << "remote error: " << ack.error_msg << "\n"; CLOSESOCK(sc.sfd); return; }
+                }
+            } catch (...) {}
+        }
+        if (filename.empty()) { std::cerr << "no file metadata from " << peer_name << "\n"; CLOSESOCK(sc.sfd); return; }
+
+        // Create temp dir
+        std::string tmp_dir;
+#ifdef _WIN32
+        char tmp_path[MAX_PATH + 1] = {};
+        GetTempPathA(sizeof(tmp_path), tmp_path);
+        char tmp_dir_buf[MAX_PATH + 1] = {};
+        GetTempFileNameA(tmp_path, "bsed", 0, tmp_dir_buf);
+        DeleteFileA(tmp_dir_buf);
+        CreateDirectoryA(tmp_dir_buf, nullptr);
+        tmp_dir = tmp_dir_buf;
+#else
+        char tmpl[] = "/tmp/bsedit-XXXXXX";
+        char* d = mkdtemp(tmpl);
+        tmp_dir = d ? d : "/tmp/bsedit";
+#endif
+
+        std::string local_path = tmp_dir + "/" + filename;
+        std::string part_path = local_path + ".part";
+        {
+            std::ofstream out_file(part_path, std::ios::binary);
+            if (!out_file) { std::cerr << "cannot create " << part_path << "\n"; CLOSESOCK(sc.sfd); return; }
+
+            uint32_t chunks_recv = 0;
+            deadline = std::chrono::steady_clock::now() + std::chrono::seconds(120);
+            while (chunks_recv < total_chunks && std::chrono::steady_clock::now() < deadline) {
+                fd_set rfds; FD_ZERO(&rfds); FD_SET(sc.sfd, &rfds);
+                timeval tv{5, 0};
+                if (select(static_cast<int>(sc.sfd) + 1, &rfds, nullptr, nullptr, &tv) <= 0) continue;
+                try {
+                    Message resp = read_frame(sc.ssl.get());
+                    if (std::holds_alternative<FileChunkMsg>(resp)) {
+                        auto& chunk = std::get<FileChunkMsg>(resp);
+                        if (chunk.chunk_index == chunks_recv) {
+                            std::vector<uint8_t> decompressed;
+                            if (!chunk.data.empty())
+                                decompressed = zstd_decompress(std::span<const uint8_t>(chunk.data.data(), chunk.data.size()));
+                            if (!decompressed.empty())
+                                out_file.write(reinterpret_cast<const char*>(decompressed.data()), decompressed.size());
+                            ++chunks_recv;
+                            try { write_frame(sc.ssl.get(), FileAckMsg{chunk.chunk_index, chunks_recv, false, ""}, CONTROL_STREAM_ID); } catch (...) {}
+                        }
+                    }
+                } catch (...) {}
+            }
+            out_file.close();
+            if (chunks_recv < total_chunks) {
+                std::cerr << "incomplete download: " << chunks_recv << "/" << total_chunks << "\n";
+                CLOSESOCK(sc.sfd); return;
+            }
+        }
+        // Rename .part → local
+        std::filesystem::rename(part_path, local_path);
+
+        std::cout << "downloaded " << filename << " (" << checksum.substr(0, 12) << "...) to " << local_path << "\n";
+
+        // Open editor
+#ifdef _WIN32
+        std::string editor = "notepad++";
+        const char* env_editor = std::getenv("EDITOR");
+        if (env_editor && *env_editor) editor = env_editor;
+        std::string edit_cmd = editor + " \"" + local_path + "\"";
+        system(edit_cmd.c_str());
+#else
+        std::string editor = "vim";
+        const char* env_editor = std::getenv("EDITOR");
+        if (env_editor && *env_editor) editor = env_editor;
+        std::string edit_cmd = editor + " " + local_path;
+        int ret = system(edit_cmd.c_str());
+        if (ret != 0) {
+            std::cerr << "editor exited with code " << ret << "\n";
+        }
+#endif
+
+        // Read back and check for changes
+        std::ifstream infile(local_path, std::ios::binary);
+        std::string new_content((std::istreambuf_iterator<char>(infile)), std::istreambuf_iterator<char>());
+        std::string new_checksum = sha256_hex(new_content);
+        SOCKET sfd = sc.sfd;
+
+        if (new_checksum == checksum) {
+            std::cout << "no changes to " << filename << "\n";
+            CLOSESOCK(sfd);
+            return;
+        }
+
+        std::cout << "file changed, uploading...\n";
+
+        // Upload modified file using same connection
+        // First close old conn state — the remote will drop after upload completes
+        const size_t kChunkRawSize = 48 * 1024;
+        size_t total = new_content.size();
+        uint32_t total_chunks_up = static_cast<uint32_t>((total + kChunkRawSize - 1) / kChunkRawSize);
+        if (total_chunks_up == 0) total_chunks_up = 1;
+
+        FileMetaMsg meta;
+        meta.filename = filename; meta.filesize = static_cast<uint64_t>(total);
+        meta.checksum = new_checksum; meta.total_chunks = total_chunks_up;
+        try { write_frame(sc.ssl.get(), meta, CONTROL_STREAM_ID); }
+        catch (...) { std::cerr << "upload: send meta failed\n"; CLOSESOCK(sfd); return; }
+
+        // Wait for initial ACK
+        deadline = std::chrono::steady_clock::now() + std::chrono::seconds(15);
+        bool got_ack = false;
+        while (std::chrono::steady_clock::now() < deadline) {
+            fd_set rfds; FD_ZERO(&rfds); FD_SET(sfd, &rfds);
+            timeval tv{3, 0};
+            if (select(static_cast<int>(sfd) + 1, &rfds, nullptr, nullptr, &tv) <= 0) continue;
+            try {
+                Message resp = read_frame(sc.ssl.get());
+                if (std::holds_alternative<FileAckMsg>(resp)) {
+                    auto& ack = std::get<FileAckMsg>(resp);
+                    if (ack.error) { std::cerr << "remote error: " << ack.error_msg << "\n"; CLOSESOCK(sfd); return; }
+                    got_ack = true; break;
+                }
+            } catch (...) {}
+        }
+        if (!got_ack) { std::cerr << "upload: no ack from remote\n"; CLOSESOCK(sfd); return; }
+
+        // Send chunks
+        for (uint32_t ci = 0; ci < total_chunks_up; ++ci) {
+            size_t offset = static_cast<size_t>(ci) * kChunkRawSize;
+            size_t chunk_sz = (std::min)(kChunkRawSize, total - offset);
+            std::string raw_chunk = new_content.substr(offset, chunk_sz);
+            std::vector<uint8_t> compressed;
+            if (!raw_chunk.empty()) {
+                compressed = zstd_compress(
+                    std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(raw_chunk.data()), raw_chunk.size()));
+            }
+            FileChunkMsg chunk;
+            chunk.chunk_index = ci; chunk.total_chunks = total_chunks_up;
+            chunk.data = std::move(compressed);
+            try { write_frame(sc.ssl.get(), chunk, CONTROL_STREAM_ID); }
+            catch (...) { std::cerr << "upload: send chunk " << ci << " failed\n"; CLOSESOCK(sfd); return; }
+        }
+
+        std::cout << "uploaded " << filename << " (" << total << " bytes, " << total_chunks_up << " chunks, sha256:" << new_checksum.substr(0, 12) << "...)\n";
+        CLOSESOCK(sfd);
     }
 
     // ── CLI: show_stats ───────────────────────────────────────
@@ -6345,6 +6532,11 @@ int main(int argc, char** argv) {
     file_recv_app->add_option("remote", file_recv_remote, "Remote file path")->required();
     file_recv_app->add_option("local", file_recv_local, "Local directory (default: .)");
 
+    // edit
+    std::string edit_target;
+    auto* edit_cmd_app = app.add_subcommand("edit", "Edit a file on a remote peer");
+    edit_cmd_app->add_option("target", edit_target, "Peer:path (e.g. linux-b:/etc/nginx.conf)")->required();
+
     CLI11_PARSE(app, argc, argv);
 
     // Resolve config path
@@ -6437,6 +6629,13 @@ int main(int argc, char** argv) {
         std::string result = mc.file_recv(file_recv_peer, file_recv_remote, file_recv_local);
         std::cout << result << "\n";
         return result.find("ERROR") == std::string::npos ? 0 : 1;
+    }
+    if (edit_cmd_app->parsed()) {
+        bs::mesh::MeshConfig cfg = bs::mesh::load_config(config_path);
+        bs::mesh::bootstrap_identity(home_dir);
+        bs::mesh::MeshController mc(cfg);
+        mc.edit_peer(edit_target);
+        return 0;
     }
     // Default: daemon mode
     bs::mesh::MeshConfig cfg = bs::mesh::load_config(config_path);
