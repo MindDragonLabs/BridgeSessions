@@ -12,22 +12,42 @@
 using namespace bs::mesh;
 using namespace std::chrono_literals;
 
+#ifdef _WIN32
+#define BS_CMD(win_cmd, posix_cmd) win_cmd
+#else
+#define BS_CMD(win_cmd, posix_cmd) posix_cmd
+#endif
+
 int main(int argc, char* argv[]) {
     return Catch::Session().run(argc, argv);
 }
 
 // ── Helpers ─────────────────────────────────────────────────────
 
-#ifdef _WIN32
 static void kill_child_process(Session& s) {
+#ifdef _WIN32
     if (s.child_pid) {
         TerminateProcess(s.child_pid, 1);
         WaitForSingleObject(s.child_pid, 5000);
         CloseHandle(s.child_pid);
         s.child_pid = nullptr;
     }
-}
+#else
+    if (s.child_pid > 0) {
+        kill(s.child_pid, SIGTERM);
+        int status = 0;
+        for (int i = 0; i < 50; ++i) {
+            if (waitpid(s.child_pid, &status, WNOHANG) == s.child_pid) break;
+            usleep(100000);
+        }
+        if (waitpid(s.child_pid, &status, WNOHANG) != s.child_pid) {
+            kill(s.child_pid, SIGKILL);
+            waitpid(s.child_pid, &status, 0);
+        }
+        s.child_pid = -1;
+    }
 #endif
+}
 
 // Get a temp path for persistence testing
 static std::string temp_persistence_path() {
@@ -45,7 +65,7 @@ static void cleanup_temp_file(const std::string& path) {
 
 TEST_CASE("SessionRegistry: create session via attach", "[session_registry]") {
     SessionRegistry registry;
-    auto* s = registry.attach("test_create", "cmd.exe /c echo hello", 80, 24, "xterm-256color");
+    auto* s = registry.attach("test_create", BS_CMD("cmd.exe /c echo hello", "echo hello"), 80, 24, "xterm-256color");
     REQUIRE(s != nullptr);
     REQUIRE(s->name == "test_create");
     REQUIRE(s->state == SessionState::Attached);
@@ -56,7 +76,6 @@ TEST_CASE("SessionRegistry: create session via attach", "[session_registry]") {
     REQUIRE(list[0].name == "test_create");
     REQUIRE(list[0].state == "attached");
 
-    kill_child_process(*s);
     registry.kill("test_create");
     REQUIRE(registry.count() == 0);
 }
@@ -65,7 +84,7 @@ TEST_CASE("SessionRegistry: create session via attach", "[session_registry]") {
 
 TEST_CASE("SessionRegistry: detach session changes state", "[session_registry]") {
     SessionRegistry registry;
-    auto* s = registry.attach("test_detach", "cmd.exe /c timeout /t 10", 80, 24, "xterm-256color");
+    auto* s = registry.attach("test_detach", BS_CMD("cmd.exe /c timeout /t 10", "sleep 10"), 80, 24, "xterm-256color");
     REQUIRE(s != nullptr);
     REQUIRE(s->state == SessionState::Attached);
 
@@ -78,7 +97,6 @@ TEST_CASE("SessionRegistry: detach session changes state", "[session_registry]")
     REQUIRE(list.size() == 1);
     REQUIRE(list[0].state == "detached");
 
-    kill_child_process(*s);
     registry.kill("test_detach");
 }
 
@@ -86,7 +104,7 @@ TEST_CASE("SessionRegistry: detach session changes state", "[session_registry]")
 
 TEST_CASE("SessionRegistry: reattach to detached session", "[session_registry]") {
     SessionRegistry registry;
-    auto* s1 = registry.attach("test_reattach", "cmd.exe /c timeout /t 10", 80, 24, "xterm-256color");
+    auto* s1 = registry.attach("test_reattach", BS_CMD("cmd.exe /c timeout /t 10", "sleep 10"), 80, 24, "xterm-256color");
     REQUIRE(s1 != nullptr);
     registry.detach("test_reattach");
     REQUIRE(s1->state == SessionState::Detached);
@@ -96,7 +114,6 @@ TEST_CASE("SessionRegistry: reattach to detached session", "[session_registry]")
     REQUIRE(s2 == s1);  // same session object
     REQUIRE(s2->state == SessionState::Attached);
 
-    kill_child_process(*s2);
     registry.kill("test_reattach");
 }
 
@@ -104,11 +121,10 @@ TEST_CASE("SessionRegistry: reattach to detached session", "[session_registry]")
 
 TEST_CASE("SessionRegistry: kill removes session", "[session_registry]") {
     SessionRegistry registry;
-    auto* s = registry.attach("test_kill", "cmd.exe /c timeout /t 10", 80, 24, "xterm-256color");
+    auto* s = registry.attach("test_kill", BS_CMD("cmd.exe /c timeout /t 10", "sleep 10"), 80, 24, "xterm-256color");
     REQUIRE(s != nullptr);
     REQUIRE(registry.count() == 1);
 
-    kill_child_process(*s);
     registry.kill("test_kill");
     REQUIRE(registry.count() == 0);
     REQUIRE(registry.get("test_kill") == nullptr);
@@ -121,7 +137,7 @@ TEST_CASE("SessionRegistry: kill removes session", "[session_registry]") {
 
 TEST_CASE("SessionRegistry: cannot attach to dead session", "[session_registry]") {
     SessionRegistry registry;
-    auto* s = registry.attach("test_dead", "cmd.exe /c exit /b 1", 80, 24, "xterm-256color");
+    auto* s = registry.attach("test_dead", BS_CMD("cmd.exe /c exit /b 1", "exit 1"), 80, 24, "xterm-256color");
     REQUIRE(s != nullptr);
 
     // Wait for process to exit
@@ -131,6 +147,14 @@ TEST_CASE("SessionRegistry: cannot attach to dead session", "[session_registry]"
         CloseHandle(s->child_pid);
         s->child_pid = nullptr;
         s->state = SessionState::Died;
+    }
+#else
+    if (s->child_pid > 0) {
+        int status = 0;
+        if (waitpid(s->child_pid, &status, WNOHANG) == s->child_pid) {
+            s->child_pid = -1;
+            s->state = SessionState::Died;
+        }
     }
 #endif
 
@@ -147,12 +171,11 @@ TEST_CASE("SessionRegistry: get returns session or nullptr", "[session_registry]
     SessionRegistry registry;
     REQUIRE(registry.get("nonexistent") == nullptr);
 
-    auto* s = registry.attach("test_get", "cmd.exe /c timeout /t 10", 80, 24, "xterm-256color");
+    auto* s = registry.attach("test_get", BS_CMD("cmd.exe /c timeout /t 10", "sleep 10"), 80, 24, "xterm-256color");
     REQUIRE(s != nullptr);
     REQUIRE(registry.get("test_get") == s);
     REQUIRE(registry.get("test_get")->name == "test_get");
 
-    kill_child_process(*s);
     registry.kill("test_get");
 }
 
@@ -162,7 +185,7 @@ TEST_CASE("SessionRegistry: multiple independent sessions", "[session_registry]"
     SessionRegistry registry;
     std::vector<Session*> sessions;
     for (int i = 0; i < 3; ++i) {
-        auto* s = registry.attach("multi_" + std::to_string(i), "cmd.exe /c timeout /t 10", 80, 24, "xterm-256color");
+        auto* s = registry.attach("multi_" + std::to_string(i), BS_CMD("cmd.exe /c timeout /t 10", "sleep 10"), 80, 24, "xterm-256color");
         REQUIRE(s != nullptr);
         sessions.push_back(s);
     }
@@ -177,7 +200,6 @@ TEST_CASE("SessionRegistry: multiple independent sessions", "[session_registry]"
     REQUIRE(registry.get("multi_1")->state == SessionState::Attached);
 
     for (auto* s : sessions) {
-        kill_child_process(*s);
         registry.kill(s->name);
     }
     REQUIRE(registry.count() == 0);
@@ -187,7 +209,7 @@ TEST_CASE("SessionRegistry: multiple independent sessions", "[session_registry]"
 
 TEST_CASE("SessionRegistry: prune_idle removes idle detached", "[session_registry]") {
     SessionRegistry registry;
-    auto* s = registry.attach("test_idle", "cmd.exe /c timeout /t 10", 80, 24, "xterm-256color");
+    auto* s = registry.attach("test_idle", BS_CMD("cmd.exe /c timeout /t 10", "sleep 10"), 80, 24, "xterm-256color");
     REQUIRE(s != nullptr);
 
     registry.detach("test_idle");
@@ -199,8 +221,6 @@ TEST_CASE("SessionRegistry: prune_idle removes idle detached", "[session_registr
     // Prune with 1-second timeout
     registry.prune_idle(std::chrono::seconds(1));
     REQUIRE(registry.count() == 0);
-
-    kill_child_process(*s);
 }
 
 // ── Test 9: Persist sessions and resurrect ──────────────────────
@@ -213,7 +233,7 @@ TEST_CASE("SessionRegistry: persist and resurrect sessions", "[session_registry]
     {
         SessionRegistry registry;
         registry.set_persistence_path(path);
-        auto* s = registry.attach("persist_test", "cmd.exe /c echo persisted", 80, 24, "xterm-256color");
+        auto* s = registry.attach("persist_test", BS_CMD("cmd.exe /c echo persisted", "echo persisted"), 80, 24, "xterm-256color");
         REQUIRE(s != nullptr);
         REQUIRE(registry.count() == 1);
 
@@ -221,7 +241,7 @@ TEST_CASE("SessionRegistry: persist and resurrect sessions", "[session_registry]
         REQUIRE(saved);
         REQUIRE(std::filesystem::exists(path));
 
-        kill_child_process(*s);
+        registry.kill("persist_test");
     }
 
     // New registry loads persisted sessions
@@ -242,7 +262,6 @@ TEST_CASE("SessionRegistry: persist and resurrect sessions", "[session_registry]
         REQUIRE(r->state == SessionState::Attached);
         REQUIRE(registry2.count() == 1);
 
-        kill_child_process(*r);
         registry2.kill("persist_test");
     }
 
@@ -253,7 +272,7 @@ TEST_CASE("SessionRegistry: persist and resurrect sessions", "[session_registry]
 
 TEST_CASE("SessionRegistry: reap_dead detects exited child", "[session_registry]") {
     SessionRegistry registry;
-    auto* s = registry.attach("test_reap", "cmd.exe /c exit /b 42", 80, 24, "xterm-256color");
+    auto* s = registry.attach("test_reap", BS_CMD("cmd.exe /c exit /b 42", "exit 42"), 80, 24, "xterm-256color");
     REQUIRE(s != nullptr);
     REQUIRE(s->state == SessionState::Attached);
 
@@ -271,7 +290,7 @@ TEST_CASE("SessionRegistry: reap_dead detects exited child", "[session_registry]
 
 TEST_CASE("SessionRegistry: auto_restart respawns died child", "[session_registry]") {
     SessionRegistry registry;
-    auto* s = registry.attach("test_restart", "cmd.exe /c exit /b 1", 80, 24, "xterm-256color");
+    auto* s = registry.attach("test_restart", BS_CMD("cmd.exe /c exit /b 1", "exit 1"), 80, 24, "xterm-256color");
     REQUIRE(s != nullptr);
     s->auto_restart = true;
     s->reset_restart_failures();
@@ -296,7 +315,6 @@ TEST_CASE("SessionRegistry: auto_restart respawns died child", "[session_registr
     REQUIRE(s2->generation > old_generation);
 #endif
 
-    kill_child_process(*s2);
     registry.kill("test_restart");
 }
 
@@ -304,7 +322,7 @@ TEST_CASE("SessionRegistry: auto_restart respawns died child", "[session_registr
 
 TEST_CASE("SessionRegistry: circuit breaker after repeated failures", "[session_registry]") {
     SessionRegistry registry;
-    auto* s = registry.attach("test_cb", "cmd.exe /c timeout /t 30", 80, 24, "xterm-256color");
+    auto* s = registry.attach("test_cb", BS_CMD("cmd.exe /c timeout /t 30", "sleep 30"), 80, 24, "xterm-256color");
     REQUIRE(s != nullptr);
     s->auto_restart = true;
     s->reset_restart_failures();
@@ -315,10 +333,16 @@ TEST_CASE("SessionRegistry: circuit breaker after repeated failures", "[session_
     for (int i = 0; i < 4; ++i) {
         auto* cur = registry.get("test_cb");
         REQUIRE(cur != nullptr);
+#ifdef _WIN32
         if (cur->child_pid) {
             TerminateProcess(cur->child_pid, 1);
         }
-        // Give TerminateProcess time to take effect, then let reap_dead detect + restart
+#else
+        if (cur->child_pid > 0) {
+            kill(cur->child_pid, SIGTERM);
+        }
+#endif
+        // Give process termination time to take effect, then let reap_dead detect + restart
         std::this_thread::sleep_for(200ms);
         registry.reap_dead();
     }
@@ -337,7 +361,7 @@ TEST_CASE("SessionRegistry: circuit breaker after repeated failures", "[session_
 
 TEST_CASE("SessionRegistry: double attach replaces existing", "[session_registry]") {
     SessionRegistry registry;
-    auto* s1 = registry.attach("test_double", "cmd.exe /c timeout /t 10", 80, 24, "xterm-256color");
+    auto* s1 = registry.attach("test_double", BS_CMD("cmd.exe /c timeout /t 10", "sleep 10"), 80, 24, "xterm-256color");
     REQUIRE(s1 != nullptr);
     REQUIRE(s1->state == SessionState::Attached);
 
@@ -347,6 +371,5 @@ TEST_CASE("SessionRegistry: double attach replaces existing", "[session_registry
     REQUIRE(s2 == s1);
     REQUIRE(s2->state == SessionState::Attached);
 
-    kill_child_process(*s2);
     registry.kill("test_double");
 }

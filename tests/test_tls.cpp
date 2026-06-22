@@ -20,6 +20,11 @@ static WsaInit _wsa;
 #include <atomic>
 #include <cstdio>
 #include <fstream>
+#ifndef _WIN32
+#include <signal.h>
+struct SigpipeIgnore { SigpipeIgnore() { signal(SIGPIPE, SIG_IGN); } };
+static SigpipeIgnore _sigpipe_ignore;
+#endif
 
 using namespace bs::mesh;
 
@@ -34,6 +39,13 @@ struct TmpFile {
         GetTempPathA(sizeof(tmpPath), tmpPath);
         GetTempFileNameA(tmpPath, "bst", 0, tmpl);
         path = tmpl;
+#else
+        char tmpl[] = "/tmp/bs-test-XXXXXX";
+        int fd = mkstemp(tmpl);
+        if (fd >= 0) {
+            path = tmpl;
+            close(fd);
+        }
 #endif
         if (!path.empty()) {
             FILE* f = fopen(path.c_str(), "w");

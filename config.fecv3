@@ -1,0 +1,20 @@
+# bridgesessions mesh config
+node.name linux-a
+node.listen 0.0.0.0:19949
+mesh.max_peers 50
+mesh.gossip_interval_secs 30
+mesh.reconnect_backoff_max_secs 30
+mesh.ping_interval_secs 5
+mesh.pong_timeout_secs 30
+transport.webrtc_enabled false
+dht.enabled false
+upnp.enabled false
+seed shadow 100.124.169.66:19949 pubkey=e702d6ad10e1891f4fc2a7764df40eef5e3e459b971654996353bc34f8e936bc
+seed linux-b 203.0.113.12:19949 pubkey=358e0bb8b4e3bc245139a6678554b47c3306e8e553ff02f60e912b27590ace52
+seed macos-peer 203.0.113.16:19949 pubkey=b29a006f19ac50378957e43a59621daf53c8d944905523b2fd066fe763da971a
+sessions.scrollback_lines 1000
+sessions.idle_timeout_hours 168
+sessions.default_shell /bin/bash -l
+sessions.terminal xterm-256color
+sessions.persistence_path ~/.bridgesessions/sessions.json
+sessions.authorized_keys_path ~/.bridgesessions/authorized_keys

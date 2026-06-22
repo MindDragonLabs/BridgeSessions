@@ -18,7 +18,12 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/ioctl.h>
+#include <sys/stat.h>
+#ifdef __APPLE__
+#include <util.h>
+#else
 #include <pty.h>
+#endif
 #endif
 #include <cstdint>
 #include <cstddef>
@@ -1339,9 +1344,10 @@ SslCtxPtr create_node_tls(const NodeTlsConfig& cfg, TlsMode mode,
         if (!ctx) throw std::runtime_error("TLS_client_method failed");
     }
 
-    // Both modes: TLS 1.3 only
-    SSL_CTX_set_min_proto_version(ctx.get(), TLS1_3_VERSION);
-    SSL_CTX_set_max_proto_version(ctx.get(), TLS1_3_VERSION);
+    // TLS 1.2+ for cross-platform OpenSSL/SChannel edge compatibility.
+    // TLS 1.3-only handshakes were observed to stall as SSL_ERROR_WANT_READ
+    // across macOS/Linux/Windows Tailscale paths with self-signed Ed25519 certs.
+    SSL_CTX_set_min_proto_version(ctx.get(), TLS1_2_VERSION);
 
     // Load own certificate + key
     if (!cfg.cert_file.empty()) {
@@ -1926,7 +1932,7 @@ struct PeerEntry {
 struct MeshConfig {
     std::string node_name = "unnamed";
     std::string listen_addr = "0.0.0.0";
-    uint16_t listen_port = 19948;
+    uint16_t listen_port = 19949;
     size_t max_peers = 50;
     int gossip_interval_secs = 30;
     int reconnect_backoff_max_secs = 30;
@@ -2079,6 +2085,8 @@ void write_peer_line(std::ostream& os, const std::string& prefix, const PeerEntr
 
     std::string line;
     while (std::getline(f, line)) {
+        // Strip a trailing CR so CRLF (Windows-authored) configs parse on POSIX.
+        if (!line.empty() && line.back() == '\r') line.pop_back();
         // Trim the line
         std::string_view sv(line);
         sv = trim(sv);
@@ -2158,36 +2166,34 @@ void write_peer_line(std::ostream& os, const std::string& prefix, const PeerEntr
         }
         // ── seed <name> <addr> ───────────────────────────────
         else if (key_str == "seed") {
-            // val contains "<name> <addr>"
-            std::string_view v2(val);
-            size_t sp2 = std::string::npos;
-            for (size_t i = 0; i < v2.size(); ++i) {
-                if (v2[i] == ' ' || v2[i] == '\t') {
-                    sp2 = i;
-                    break;
-                }
-            }
-            if (sp2 == std::string::npos) continue; // malformed seed line
-
-            std::string seed_name = std::string(trim(v2.substr(0, sp2)));
-            std::string seed_addr = std::string(trim(v2.substr(sp2 + 1)));
+            // Parse: seed <name> <addr> [pubkey=<hex>]
+            std::string v2(val);
+            std::istringstream iss(v2);
+            std::string seed_name, seed_addr;
+            if (!(iss >> seed_name >> seed_addr)) continue;
             if (seed_name.empty() || seed_addr.empty()) continue;
 
-            // Deduplicate by name: if a seed with this name already exists, update addr
+            PeerEntry parsed;
+            parsed.name = std::move(seed_name);
+            parsed.addr = std::move(seed_addr);
+            std::string extra;
+            while (iss >> extra) {
+                if (extra.starts_with("pubkey=")) {
+                    parsed.pubkey_hex = extra.substr(7);
+                }
+            }
+
+            // Deduplicate by name: if a seed with this name already exists, update fields.
             bool found = false;
             for (auto& s : cfg.seeds) {
-                if (s.name == seed_name) {
-                    s.addr = seed_addr;
+                if (s.name == parsed.name) {
+                    s.addr = parsed.addr;
+                    s.pubkey_hex = parsed.pubkey_hex;
                     found = true;
                     break;
                 }
             }
-            if (!found) {
-                PeerEntry p;
-                p.name = std::move(seed_name);
-                p.addr = std::move(seed_addr);
-                cfg.seeds.push_back(std::move(p));
-            }
+            if (!found) cfg.seeds.push_back(std::move(parsed));
         }
         // ── discovered <name> <addr> [pubkey=<hex>] [last_seen=<unix>] ──
         else if (key_str == "discovered") {
@@ -2729,8 +2735,17 @@ inline void set_socket_timeouts(SOCKET fd, int ms) {
 }
 
 // Default handshake/connect timeout for outbound mesh + CLI paths (R2).
-constexpr int kConnectTimeoutMs = 15000;
-constexpr int kHealthConnectTimeoutMs = 45000;
+constexpr int kConnectTimeoutMs = 3000;      // bounded: a dead-addr dial must not starve the event loop
+constexpr int kHealthConnectTimeoutMs = 5000;
+constexpr int kAcceptHandshakeTimeoutMs = 2000;
+// Steady-state recv timeout on established peer sockets. SSL_pending() only
+// guarantees >=1 buffered byte, not a whole frame, so a frame split across TLS
+// records (only the front half buffered) makes read_frame block in SSL_read_ex
+// on the rest. With no timeout that stalls the single-threaded event loop until
+// the peer sends more. A bounded timeout degrades that to "drop + reconnect"
+// (check_conn_read's catch closes the conn; backoff redials) instead of a freeze.
+// Must exceed ping_interval/pong cadence so an idle-but-healthy link never trips.
+constexpr int kPeerRecvTimeoutMs = 10000;
 constexpr uint16_t kMeshCliPort = 19980;
 
 inline int tls_last_syscall_errno() {
@@ -2767,17 +2782,45 @@ inline ConnectFailReason classify_ssl_connect_fail(int ssl_err) {
     return ConnectFailReason::TlsRejected;
 }
 
-// Blocking SSL_connect with retries when the socket timeout surfaces as WANT_READ/WRITE.
-inline int ssl_connect_blocking(SSL* ssl) {
-    for (int attempt = 0; attempt < 8; ++attempt) {
-        int rc = SSL_connect(ssl);
-        if (rc > 0) return rc;
-        int err = SSL_get_error(ssl, rc);
-        if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE)
-            continue;
-        return rc;
+inline bool wait_socket_ready(SOCKET fd, bool want_read, int timeout_ms) {
+    if (fd == INVALID_SOCKET) return false;
+    fd_set rfds;
+    fd_set wfds;
+    FD_ZERO(&rfds);
+    FD_ZERO(&wfds);
+    if (want_read) FD_SET(fd, &rfds); else FD_SET(fd, &wfds);
+    timeval tv;
+    tv.tv_sec = timeout_ms / 1000;
+    tv.tv_usec = (timeout_ms % 1000) * 1000;
+    int rc = select(static_cast<int>(fd) + 1, want_read ? &rfds : nullptr,
+                    want_read ? nullptr : &wfds, nullptr, &tv);
+    return rc > 0;
+}
+
+// Bounded blocking SSL handshake. Some platforms surface socket timeouts as
+// SSL_ERROR_WANT_READ/WRITE even on blocking sockets. Retrying immediately can
+// spin/hang. Wait for socket readiness until deadline instead.
+inline int ssl_handshake_blocking(SSL* ssl, SOCKET fd, bool server_side, int timeout_ms) {
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
+    int last_rc = -1;
+    for (;;) {
+        last_rc = server_side ? SSL_accept(ssl) : SSL_connect(ssl);
+        if (last_rc > 0) return last_rc;
+        int err = SSL_get_error(ssl, last_rc);
+        if (err != SSL_ERROR_WANT_READ && err != SSL_ERROR_WANT_WRITE) return last_rc;
+        auto now = std::chrono::steady_clock::now();
+        if (now >= deadline) return last_rc;
+        int remain = static_cast<int>(std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now).count());
+        if (!wait_socket_ready(fd, err == SSL_ERROR_WANT_READ, std::max(1, remain))) return last_rc;
     }
-    return SSL_connect(ssl);
+}
+
+inline int ssl_connect_blocking(SSL* ssl, SOCKET fd, int timeout_ms) {
+    return ssl_handshake_blocking(ssl, fd, false, timeout_ms);
+}
+
+inline int ssl_accept_blocking(SSL* ssl, SOCKET fd, int timeout_ms) {
+    return ssl_handshake_blocking(ssl, fd, true, timeout_ms);
 }
 
 #ifndef _WIN32
@@ -3177,6 +3220,7 @@ private:
         int delay_ms = 100;
         int max_ms = 30000;
         int attempt = 0;
+        std::chrono::steady_clock::time_point next_attempt{};
     };
     std::unordered_map<std::string, Backoff> backoffs_;
 
@@ -3314,8 +3358,11 @@ private:
         h.version = "1.0.0";
         h.pubkey_hex = our_pubkey_;
 
-        // Add seeds as known peers
+        // Add seeds as known peers. Only gossip peers with pubkeys; empty pubkey
+        // seed entries make Hello frames incompatible with 8-bit field lengths and
+        // are not useful for auth/routing.
         for (auto& s : config_.seeds) {
+            if (s.pubkey_hex.empty()) continue;
             PeerInfo pi;
             pi.name = s.name;
             pi.addr = s.addr;
@@ -3327,6 +3374,7 @@ private:
 
         // Add discovered peers
         for (auto& d : config_.discovered) {
+            if (d.pubkey_hex.empty()) continue;
             PeerInfo pi;
             pi.name = d.name;
             pi.addr = d.addr;
@@ -3400,21 +3448,21 @@ private:
                 changed = true;
             }
         }
-        if (changed) {
-#ifndef BS_TESTING
-            const std::string& path = config_file_path_.empty()
-                ? (home_dir_ + "/.bridgesessions/config") : config_file_path_;
-            (void)save_config(path, config_);
-#endif
-        }
+        // Discovered peers are runtime state only — never persist them. Writing the
+        // config here on every Hello bumps the file mtime, which retriggers
+        // reload_seeds_from_disk in a tight loop and starves the event loop.
+        (void)changed;
     }
 
-    // R4.2/R4.3: reload seed/discovered lists when config file changes on disk
+    // R4.2/R4.3: reload SEED list when config file changes on disk.
+    // NOTE: discovered peers are runtime state — we intentionally do NOT reload
+    // them. Reloading discovered from disk creates a churn loop: reload clobbers
+    // them, the next Hello re-merges them, merge_peers saves the config, the mtime
+    // change triggers another reload, ad infinitum — starving the event loop.
     void reload_seeds_from_disk() {
         if (config_file_path_.empty()) return;
         MeshConfig fresh = load_config(config_file_path_);
         config_.seeds = std::move(fresh.seeds);
-        config_.discovered = std::move(fresh.discovered);
         log_event("config_reload", config_file_path_);
     }
 
@@ -3439,8 +3487,19 @@ private:
         }
     }
 
-    // Duplicate resolution: if two conns have same pubkey, keep the one
-    // where OUR pubkey < PEER pubkey lexicographically
+    // Duplicate resolution: when both A and B dial each other simultaneously,
+    // two TCP connections form for the same peer pair. We must converge on
+    // exactly ONE surviving connection, and BOTH endpoints must independently
+    // agree on which physical connection survives.
+    //
+    // Deterministic rule: keep the connection INITIATED BY the endpoint with
+    // the lexicographically smaller pubkey. Concretely, for a duplicate pair
+    // with peer_pubkey P:
+    //   - if our_pubkey_ < P  → we are the smaller endpoint → keep OUTBOUND (we initiated it)
+    //   - if our_pubkey_ > P  → we are the larger endpoint  → keep INBOUND  (they initiated it)
+    // Both sides apply the same rule to the same pair, so both keep the single
+    // connection that the smaller-pubkey node opened. No mid-handshake teardown,
+    // no split — the loser is closed gracefully after the winner is established.
     void resolve_duplicates() {
         for (size_t i = 0; i < conns_.size(); ++i) {
             if (conns_[i].sock_fd == INVALID_SOCKET) continue;
@@ -3448,14 +3507,18 @@ private:
                 if (conns_[j].sock_fd == INVALID_SOCKET) continue;
                 if (conns_[i].peer_pubkey == conns_[j].peer_pubkey &&
                     !conns_[i].peer_pubkey.empty()) {
-                    // Keep the connection where our_pubkey < peer_pubkey
-                    bool keep_i = our_pubkey_ < conns_[i].peer_pubkey;
-                    if (keep_i) {
-                        remove_conn(j);
-                    } else {
-                        remove_conn(i);
-                    }
-                    // Restart the check after removal
+                    const std::string& pk = conns_[i].peer_pubkey;
+                    bool we_are_smaller = our_pubkey_ < pk;
+                    // Desired surviving direction on THIS endpoint.
+                    bool want_outbound = we_are_smaller;
+                    // Pick the candidate whose direction matches the desired one.
+                    bool i_matches = (conns_[i].is_outbound == want_outbound);
+                    bool j_matches = (conns_[j].is_outbound == want_outbound);
+                    size_t drop;
+                    if (i_matches && !j_matches) drop = j;
+                    else if (j_matches && !i_matches) drop = i;
+                    else { drop = j; }  // both match or neither: keep lower index (i)
+                    remove_conn(drop);
                     resolve_duplicates();
                     return;
                 }
@@ -3481,7 +3544,13 @@ private:
         if (!ssl) { ssl_close(nullptr, cfd); return; }
         SSL_set_fd(ssl.get(), static_cast<int>(cfd));
 
-        int ret = SSL_accept(ssl.get());
+        // Short timeout during handshake + Hello so a peer that completes TLS but
+        // stalls before sending Hello (or a rogue/incompatible client) cannot block
+        // the single-threaded event loop for long. A blocked accept here freezes
+        // peer reads → missed pongs → false pong_timeouts → mesh flap, and freezes
+        // the CLI IPC handler → `health` times out. Keep this tight.
+        set_socket_timeouts(cfd, kAcceptHandshakeTimeoutMs);
+        int ret = ssl_accept_blocking(ssl.get(), cfd, kAcceptHandshakeTimeoutMs);
         if (ret <= 0) {
             // R1: capture error before ssl_close drains the queue
             int ssl_err = SSL_get_error(ssl.get(), ret);
@@ -3518,6 +3587,10 @@ private:
             c.sock_fd = cfd;
             c.is_outbound = false;
             c.last_pong = std::chrono::steady_clock::now();
+            // Replace the tight handshake timeout with the steady-state recv
+            // timeout so a mid-frame stall bails (drop+reconnect) instead of
+            // freezing the event loop. See kPeerRecvTimeoutMs.
+            set_socket_timeouts(cfd, kPeerRecvTimeoutMs);
 
             // Merge known peers from Hello
             merge_peers(hello.known_peers);
@@ -3560,7 +3633,7 @@ private:
             if (!ssl) { ssl_close(nullptr, sfd); return false; }
             SSL_set_fd(ssl.get(), static_cast<int>(sfd));
 
-            int ret = ssl_connect_blocking(ssl.get());
+            int ret = ssl_connect_blocking(ssl.get(), sfd, outbound_connect_timeout_ms_);
             if (ret <= 0) {
                 // R1: capture error before ssl_close drains the queue
                 int ssl_err = SSL_get_error(ssl.get(), ret);
@@ -3599,6 +3672,9 @@ private:
             c.sock_fd = sfd;
             c.is_outbound = true;
             c.last_pong = std::chrono::steady_clock::now();
+            // Steady-state recv timeout (see kPeerRecvTimeoutMs): bound mid-frame
+            // stalls to drop+reconnect instead of a single-threaded loop freeze.
+            set_socket_timeouts(sfd, kPeerRecvTimeoutMs);
 
             // Merge known peers from Hello
             merge_peers(hello.known_peers);
@@ -3651,6 +3727,7 @@ private:
     GossipMsg build_gossip() const {
         GossipMsg g;
         for (auto& s : config_.seeds) {
+            if (s.pubkey_hex.empty()) continue;
             PeerInfo pi;
             pi.name = s.name;
             pi.addr = s.addr;
@@ -3659,6 +3736,7 @@ private:
             g.peers.push_back(std::move(pi));
         }
         for (auto& d : config_.discovered) {
+            if (d.pubkey_hex.empty()) continue;
             PeerInfo pi;
             pi.name = d.name;
             pi.addr = d.addr;
@@ -4158,13 +4236,33 @@ public:
 private:
 
     void check_conn_read(int conn_idx) {
-        auto& c = conns_[static_cast<size_t>(conn_idx)];
         try {
-            Message msg = read_frame(c.ssl.get());
-            dispatch_message(conn_idx, msg);
+            // Read at least one frame, then drain any further frames already
+            // buffered inside OpenSSL. select() only signals readability on the
+            // underlying socket; if a TLS record carrying several app frames was
+            // delivered in one segment, SSL_read pulls the first frame and leaves
+            // the rest in SSL's internal buffer. select() won't fire again for
+            // that buffered data, so without draining, queued Ping/Pong frames sit
+            // unread → last_pong never advances → false pong_timeout → the healthy
+            // connection gets torn down. Drain while SSL_pending() reports bytes.
+            for (;;) {
+                // Re-fetch by index each iteration: dispatch_message may push_back
+                // (reallocate) or erase from conns_, invalidating any held reference.
+                if (static_cast<size_t>(conn_idx) >= conns_.size()) return;
+                Conn& c = conns_[static_cast<size_t>(conn_idx)];
+                if (c.sock_fd == INVALID_SOCKET) return;
+                SSL* ssl = c.ssl.get();
+                Message msg = read_frame(ssl);
+                dispatch_message(conn_idx, msg);
+                if (static_cast<size_t>(conn_idx) >= conns_.size()) return;
+                Conn& c2 = conns_[static_cast<size_t>(conn_idx)];
+                if (c2.sock_fd == INVALID_SOCKET) return;
+                if (SSL_pending(c2.ssl.get()) <= 0) break;
+            }
         } catch (...) {
             // Read failure — must close TLS+socket (was leaking → CLOSE_WAIT on Windows)
-            close_conn(c);
+            if (static_cast<size_t>(conn_idx) < conns_.size())
+                close_conn(conns_[static_cast<size_t>(conn_idx)]);
         }
     }
 
@@ -4176,42 +4274,50 @@ private:
         // Try seeds first
         for (auto& s : config_.seeds) {
             if (has_conn_for_addr(s.addr)) continue;
+            // Also skip by pubkey: an inbound connection from this peer records the
+            // peer's EPHEMERAL source port as peer_addr, which never matches the seed's
+            // listen addr. Without this guard we would re-dial a peer we are already
+            // connected to every loop, creating a second connection that resolve_duplicates
+            // then tears down — churning forever and starving the event loop.
+            if (!s.pubkey_hex.empty() && has_conn_for_pubkey(s.pubkey_hex)) continue;
             if (conns_.size() >= config_.max_peers) break;
 
             auto& bo = backoffs_[s.addr];
-            if (bo.attempt > 0) {
-                auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-                    now - last_ping_time_);
-                // Check if we've waited enough
-                // Simple: try once per loop iteration with backoff
-            }
+            if (bo.attempt > 0 && now < bo.next_attempt) continue;
 
             // Attempt connect
             bool ok = connect_to_peer_impl(s.addr);
             if (ok) {
-                bo.attempt = 0;
-                bo.delay_ms = 100;
+                backoffs_.erase(s.addr);
             } else {
                 bo.attempt++;
-                bo.delay_ms = std::min(bo.delay_ms * 2, bo.max_ms);
+                bo.next_attempt = now + std::chrono::milliseconds(bo.delay_ms);
+                bo.delay_ms = std::min(std::max(bo.delay_ms * 2, 1000), bo.max_ms);
+                break; // one failed bounded dial per loop; keep accept/read responsive
             }
         }
 
-        // Try discovered peers too (if we have room)
+        // Try discovered peers too (if we have room). Snapshot by value:
+        // connect_to_peer_impl → merge_peers can push_back to config_.discovered,
+        // which would invalidate the loop iterator.
         if (conns_.size() < config_.max_peers) {
-            for (auto& d : config_.discovered) {
+            auto discovered_snap = config_.discovered;
+            for (auto& d : discovered_snap) {
                 if (d.addr.empty()) continue;
                 if (has_conn_for_addr(d.addr)) continue;
+                if (!d.pubkey_hex.empty() && has_conn_for_pubkey(d.pubkey_hex)) continue;
                 if (conns_.size() >= config_.max_peers) break;
 
                 auto& bo = backoffs_[d.addr];
+                if (bo.attempt > 0 && now < bo.next_attempt) continue;
                 bool ok = connect_to_peer_impl(d.addr);
                 if (ok) {
-                    bo.attempt = 0;
-                    bo.delay_ms = 100;
+                    backoffs_.erase(d.addr);
                 } else {
                     bo.attempt++;
-                    bo.delay_ms = std::min(bo.delay_ms * 2, bo.max_ms);
+                    bo.next_attempt = now + std::chrono::milliseconds(bo.delay_ms);
+                    bo.delay_ms = std::min(std::max(bo.delay_ms * 2, 1000), bo.max_ms);
+                    break; // one failed bounded dial per loop; keep accept/read responsive
                 }
             }
         }
@@ -4302,7 +4408,7 @@ public:
 
         // Bootstrap identity if needed
         std::string bs_dir = home_dir_ + "/.bridgesessions";
-        bootstrap_identity(home_dir_);
+        bootstrap_identity(bs_dir);
 
         // Read our pubkey
         std::string pub_path = bs_dir + "/id_ed25519.pub";
@@ -4418,6 +4524,13 @@ public:
         socklen_t plen = sizeof(peer);
         SOCKET cfd = accept(cli_listen_fd_, (sockaddr*)&peer, &plen);
         if (cfd == INVALID_SOCKET) return;
+        // CRITICAL: bound the recv. The accepted socket does not reliably inherit
+        // the listen socket's non-blocking flag (esp. on macOS), so a client that
+        // connects but sends no data would block recv() here and stall the ENTIRE
+        // daemon event loop — no peer reads, missed pongs, false pong_timeouts, and
+        // the whole mesh collapses. A 2s recv timeout makes the IPC handler
+        // self-limiting and keeps the loop responsive.
+        set_socket_timeouts(cfd, 2000);
         char buf[256] = {};
         int n = recv(cfd, buf, sizeof(buf) - 1, 0);
         std::string response = "ERROR bad request\n";
@@ -4430,17 +4543,21 @@ public:
                 std::string peer_name = line.substr(7);
                 std::string want_addr = find_peer_addr(peer_name);
                 bool found = false, ok = false;
+                auto now = std::chrono::steady_clock::now();
+                auto fresh = std::chrono::seconds(config_.pong_timeout_secs > 0
+                                                  ? config_.pong_timeout_secs : 30);
                 for (auto& c : conns_) {
                     if (c.sock_fd == INVALID_SOCKET) continue;
                     bool name_match = peer_name_eq(c.peer_name, peer_name);
                     bool addr_match = !want_addr.empty() && c.peer_addr == want_addr;
                     if (!name_match && !addr_match) continue;
                     found = true;
-                    try {
-                        write_frame(c.ssl.get(), PingMsg{}, CONTROL_STREAM_ID);
-                        auto dl = std::chrono::steady_clock::now() + std::chrono::seconds(5);
-                        ok = wait_for_pong(c.ssl.get(), c.sock_fd, dl);
-                    } catch (...) { ok = false; }
+                    // The daemon's own event loop pings every ping_interval_secs and
+                    // updates last_pong. A live conn whose last_pong is within the
+                    // pong-timeout window is healthy. Do NOT issue a synchronous ping
+                    // here: the main loop owns reads on this socket and would consume
+                    // the pong, producing false "no pong" results.
+                    ok = (now - c.last_pong) <= fresh;
                     break;
                 }
                 response = found ? (peer_name + (ok ? " healthy\n" : " no pong\n"))
@@ -4452,13 +4569,14 @@ public:
     }
 
     std::string daemon_health_via_ipc(const std::string& peer_name, int wait_ms) {
-#ifdef _WIN32
         SOCKET sfd = socket(AF_INET, SOCK_STREAM, 0);
         if (sfd == INVALID_SOCKET) return "";
         sockaddr_in sa{};
         sa.sin_family = AF_INET;
         sa.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
         sa.sin_port = htons(kMeshCliPort);
+        // Bound connect + recv so a stalled/dead daemon can never hang the CLI.
+        set_socket_timeouts(sfd, wait_ms > 0 ? wait_ms : 8000);
         if (connect(sfd, (sockaddr*)&sa, sizeof(sa)) == SOCKET_ERROR) {
             CLOSESOCK(sfd); return "";
         }
@@ -4472,8 +4590,11 @@ public:
             if (n > 0) {
                 total += n; buf[total] = '\0';
                 if (strchr(buf, '\n')) break;
+            } else if (n == 0) {
+                break;  // peer closed
             } else {
-                std::this_thread::sleep_for(std::chrono::milliseconds(50));
+                // recv timed out (SO_RCVTIMEO) or transient error; stop, don't spin.
+                break;
             }
         }
         CLOSESOCK(sfd);
@@ -4482,15 +4603,41 @@ public:
         while (!line.empty() && (line.back() == '\r' || line.back() == '\n'))
             line.pop_back();
         return line;
-#else
-        (void)peer_name; (void)wait_ms; return "";
-#endif
+    }
+
+    // Returns true if another bridgesessions daemon is already running locally
+    // (its CLI IPC port answers a PING). Used as a single-instance guard so a
+    // double-click / second `bsmesh` launch cannot squat ports and split the mesh.
+    bool another_daemon_running() {
+        SOCKET sfd = socket(AF_INET, SOCK_STREAM, 0);
+        if (sfd == INVALID_SOCKET) return false;
+        sockaddr_in sa{};
+        sa.sin_family = AF_INET;
+        sa.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        sa.sin_port = htons(kMeshCliPort);
+        set_socket_timeouts(sfd, 1500);
+        bool alive = (connect(sfd, (sockaddr*)&sa, sizeof(sa)) != SOCKET_ERROR);
+        CLOSESOCK(sfd);
+        return alive;
     }
 
     // ── Main event loop ───────────────────────────────────────
 
     void run() {
         running_ = true;
+
+        // Single-instance guard: if a daemon already owns the CLI IPC port,
+        // refuse to start a second one. SO_REUSEADDR otherwise lets a second
+        // process silently co-bind the mesh port and split-brain the mesh.
+        if (another_daemon_running()) {
+            log_event("mesh_already_running",
+                      "another daemon is listening on CLI IPC port "
+                      + std::to_string(kMeshCliPort) + "; refusing to start");
+            std::cerr << "bridgesessions: another daemon already running (IPC port "
+                      << kMeshCliPort << "). Refusing to start a second instance.\n";
+            running_ = false;
+            return;
+        }
 #ifndef _WIN32
         struct sigaction sa{};
         sa.sa_handler = sighup_reload_handler;
@@ -4554,6 +4701,15 @@ public:
             FD_SET(listen_fd_, &read_fds);
 
             SOCKET max_fd = listen_fd_;
+            // Make the CLI IPC port event-driven: include its listen fd in select()
+            // so `health` queries are serviced the moment they arrive, instead of
+            // once per (possibly slow) loop iteration. Without this, a loop tick
+            // spent in a peer handshake/read leaves IPC unaccepted and the CLI times
+            // out — observed as intermittent "health timed out" on Windows/macOS.
+            if (cli_listen_fd_ != INVALID_SOCKET) {
+                FD_SET(cli_listen_fd_, &read_fds);
+                if (cli_listen_fd_ > max_fd) max_fd = cli_listen_fd_;
+            }
             for (auto& c : conns_) {
                 if (c.sock_fd != INVALID_SOCKET) {
                     FD_SET(c.sock_fd, &read_fds);
@@ -4585,7 +4741,11 @@ public:
                 reload_seeds_from_disk();
 #endif
 
-            cli_ipc_accept_one();
+            // Service CLI IPC the moment a request arrives (event-driven).
+            if (cli_listen_fd_ != INVALID_SOCKET && FD_ISSET(cli_listen_fd_, &read_fds)) {
+                cli_ipc_accept_one();
+                if (nfds > 0) --nfds;
+            }
 
             // 3. Accept new connections
             if (nfds > 0 && FD_ISSET(listen_fd_, &read_fds)) {
@@ -4702,11 +4862,8 @@ public:
             for (auto& d : config_.discovered) if (d.name == name || d.pubkey_hex == pubkey) return;
             PeerEntry pe{name, addr, pubkey}; config_.discovered.push_back(pe);
             log_event("mdns_discovered", name + " " + addr);
-            // Do not persist junk LAN/test discoveries over production seeds
-            if (!name.empty() && name != "dup-peer" && addr.find("10.0.0.") == std::string::npos)
-#ifndef BS_TESTING
-                (void)save_config(home_dir_ + "/config", config_);
-#endif
+            // Discovered peers are runtime state; do not persist to the config file
+            // (would churn config_reload and starve the event loop).
         } catch (...) {}
     }
 
@@ -4815,7 +4972,7 @@ public:
         if (!ssl) { ssl_close(nullptr, sfd); out.fail = ConnectFailReason::TlsRejected; return out; }
         SSL_set_fd(ssl.get(), (int)sfd);
         {
-            int rc = ssl_connect_blocking(ssl.get());
+            int rc = ssl_connect_blocking(ssl.get(), sfd, outbound_connect_timeout_ms_);
             if (rc <= 0) {
                 int ssl_err = SSL_get_error(ssl.get(), rc);
                 char errbuf[256] = {};
@@ -4830,17 +4987,31 @@ public:
                 return out;
             }
         }
-        write_frame(ssl.get(), build_hello(), CONTROL_STREAM_ID);
-        Message msg = read_frame(ssl.get());
-        if (!std::holds_alternative<HelloMsg>(msg)) {
+        try {
+            write_frame(ssl.get(), build_hello(), CONTROL_STREAM_ID);
+            Message msg = read_frame(ssl.get());
+            if (!std::holds_alternative<HelloMsg>(msg)) {
+                ssl_close(ssl.get(), sfd);
+                out.fail = ConnectFailReason::HelloRejected;
+                out.fail_detail = "expected HelloMsg";
+                return out;
+            }
+            out.hello = std::get<HelloMsg>(msg);
+        } catch (const std::exception& e) {
             ssl_close(ssl.get(), sfd);
             out.fail = ConnectFailReason::HelloRejected;
-            out.fail_detail = "expected HelloMsg";
+            out.fail_detail = e.what();
+            log_event("tls_connect_and_hello_failed", out.fail_detail);
+            return out;
+        } catch (...) {
+            ssl_close(ssl.get(), sfd);
+            out.fail = ConnectFailReason::HelloRejected;
+            out.fail_detail = "hello exchange failed";
+            log_event("tls_connect_and_hello_failed", out.fail_detail);
             return out;
         }
         out.ssl = std::move(ssl);
         out.sfd = sfd;
-        out.hello = std::get<HelloMsg>(msg);
         return out;
     }
 
@@ -4957,8 +5128,10 @@ public:
 
     // ── CLI: health_check ─────────────────────────────────────
     bool health_check(const std::string& peer_name, std::string* status_out = nullptr) {
-#ifdef _WIN32
-        std::string ipc = daemon_health_via_ipc(peer_name, 10000);
+        // Prefer querying the local running daemon over its IPC port (all platforms).
+        // The daemon already maintains live mesh connections; opening a fresh
+        // competing TLS from an ephemeral CLI races the daemon and is unreliable.
+        std::string ipc = daemon_health_via_ipc(peer_name, 8000);
         if (!ipc.empty()) {
             if (status_out) {
                 auto sp = ipc.find(' ');
@@ -4966,7 +5139,6 @@ public:
             }
             return ipc.find(" healthy") != std::string::npos;
         }
-#endif
         int prev = outbound_connect_timeout_ms_;
         outbound_connect_timeout_ms_ = kHealthConnectTimeoutMs;
         struct TimeoutRestore { int& ref; int val; ~TimeoutRestore() { ref = val; } } restore{outbound_connect_timeout_ms_, prev};
@@ -4993,6 +5165,10 @@ public:
             if (status_out) *status_out = ok ? "healthy" : "no pong";
             CLOSESOCK(sc.sfd);
             return ok;
+        } catch (const std::exception& e) {
+            if (status_out) *status_out = std::string("error: ") + e.what();
+            if (sc.sfd != INVALID_SOCKET) CLOSESOCK(sc.sfd);
+            return false;
         } catch (...) {
             if (status_out) *status_out = "error";
             if (sc.sfd != INVALID_SOCKET) CLOSESOCK(sc.sfd);
@@ -5516,7 +5692,7 @@ int main(int argc, char** argv) {
 #endif
 
     CLI::App app{"bridgesessions — mesh terminal relay"};
-    app.set_version_flag("--version,-V", "1.3.0-reliability");
+    app.set_version_flag("--version,-V", "1.4.0");
 
     // Global options
     std::string config_path = "";

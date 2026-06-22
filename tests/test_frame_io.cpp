@@ -34,6 +34,13 @@ struct TmpFile {
         GetTempPathA(sizeof(tmpPath), tmpPath);
         GetTempFileNameA(tmpPath, "bst", 0, tmpl);
         path = tmpl;
+#else
+        char tmpl[] = "/tmp/bs-test-XXXXXX";
+        int fd = mkstemp(tmpl);
+        if (fd >= 0) {
+            path = tmpl;
+            close(fd);
+        }
 #endif
         if (!path.empty()) {
             FILE* f = fopen(path.c_str(), "w");

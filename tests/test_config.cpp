@@ -49,7 +49,7 @@ TEST_CASE("load_config fills defaults for missing keys", "[config]") {
 
     REQUIRE(cfg.node_name == "unnamed");
     REQUIRE(cfg.listen_addr == "0.0.0.0");
-    REQUIRE(cfg.listen_port == 19948);
+    REQUIRE(cfg.listen_port == 19949);
     REQUIRE(cfg.max_peers == 50);
     REQUIRE(cfg.gossip_interval_secs == 30);
     REQUIRE(cfg.reconnect_backoff_max_secs == 30);

@@ -98,3 +98,6 @@ bridgesessions-src.tar.gz
 _test.txt
 *.csv
 *.dat
+
+# ── Local scratch / one-off debug scripts ──────────────────
+scratch/
