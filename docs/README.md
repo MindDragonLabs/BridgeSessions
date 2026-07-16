@@ -8,12 +8,12 @@ a TLS 1.3 mesh — no SSH, no mosh, no tmux/zellij in the path.
 
 | Document | What it covers |
 |---|---|
-| [Architecture](architecture.md) | Design, components, ADRs, and the `bs://` protocol model. |
+| [Design](design.md) | Design, components, ADRs, and the `bs://` protocol model. |
 | [Building](building.md) | Compile from source on Linux, Windows (MinGW), and macOS. |
 | [Usage](usage.md) | Command-line reference and everyday workflows. |
 | [Configuration](configuration.md) | Server and client config file reference. |
 | [Protocol](protocol.md) | Wire format, message types, and stream multiplexing. |
-| [Bridge Panel](bridge-panel.md) | The `bridgepanel` web surface for publishing documents to peers. |
+| [Bridge Panel](bridge-panel.md) | The Bridge Panel web surface for publishing documents to peers. |
 
 ## Quick orientation
 

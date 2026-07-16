@@ -15,7 +15,22 @@ mesh. No SSH, no mosh, no tmux/zellij in the connection path.
 > remote-terminal service). Converts to **Apache-2.0** on **2030-07-16**. See
 > [LICENSE](LICENSE).
 
-## Build
+## Install from binary
+
+Download the latest release for your platform:
+
+- Linux (x86_64): `bridgesessions`
+- macOS (arm64): `bridgesessions-macos-arm64`
+- Windows (x86_64): `bridgesessions-windows-x86_64.exe`
+
+Place the binary in your `$PATH` and run:
+
+```bash
+bridgesessions --version   # → 2.0.0
+bridgesessions keygen
+```
+
+## Build from source
 
 ```bash
 # Linux / macOS (needs libssl, zstd, fmt, spdlog)
@@ -31,23 +46,24 @@ including CMake and the modular `bs-*` tree, are in
 
 ```bash
 # 1. Generate a keypair (once)
-./bridgesessions keygen
+bridgesessions keygen
 
 # 2. Point a node at a seed peer and run it
-./bridgesessions --config ~/.bridgesessions/config
+bridgesessions --config ~/.bridgesessions/config
 ```
 
 `~/.bridgesessions/config`:
+
 ```ini
 mesh.node_name   my-laptop
 mesh.listen      19949
-seed <seed-peer-host>:<port>
+seed <seed-peer-host>:19949
 sessions.default_shell /bin/bash -l
 ```
 
 ```bash
 # 3. Attach from anywhere
-./bridgesessions shell <server> --name hms
+bridgesessions shell <server> --name hms
 ```
 
 See [docs/usage.md](docs/usage.md) for the full command reference and
@@ -57,7 +73,7 @@ See [docs/usage.md](docs/usage.md) for the full command reference and
 
 | Document | What it covers |
 |---|---|
-| [docs/architecture.md](docs/architecture.md) | Design, ADRs, component model. |
+| [docs/design.md](docs/design.md) | Design, ADRs, component model. |
 | [docs/building.md](docs/building.md) | Compile on Linux / Windows / macOS. |
 | [docs/usage.md](docs/usage.md) | CLI reference and workflows. |
 | [docs/configuration.md](docs/configuration.md) | Config file reference. |
@@ -67,7 +83,7 @@ See [docs/usage.md](docs/usage.md) for the full command reference and
 ## Releases
 
 Prebuilt binaries for **Linux (x86_64)**, **Windows (x86_64)**, and
-**macOS (arm64)** are attached to each GitHub/Codeberg release tag
+**macOS (arm64)** ship in [`dist/`](dist/) and with each Codeberg release tag
 (`vX.Y.Z`).
 
 ## Contributing
@@ -78,5 +94,4 @@ welcome.
 ## Security
 
 Found a vulnerability? Please follow the disclosure process in
-[SECURITY.md](SECURITY.md) — do **not** open a public issue for security
-reports.
+[SECURITY.md](SECURITY.md).
