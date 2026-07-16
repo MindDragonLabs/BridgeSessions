@@ -263,5 +263,6 @@ bridgesessions pane publish ./report.md \
 - [Usage](usage.md)  
 - [Building](building.md)  
 
-Demo media (generated product trailer) lives under
-[`assets/`](assets/) when present: `demo-install-ai-mesh.mp4`.
+Demo media (HyperFrames product trailer) lives under
+[`assets/`](assets/): `demo-install-ai-mesh.gif` (README embed) and
+`demo-install-ai-mesh.mp4` (1080p full quality).

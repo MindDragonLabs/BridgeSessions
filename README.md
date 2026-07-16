@@ -19,21 +19,10 @@ Markdown reviews.
 
 ### Product demo
 
-<video
-  src="https://codeberg.org/Mind-Dragon/BridgeSessions/raw/branch/main/docs/assets/demo-install-ai-mesh.mp4"
-  poster="https://codeberg.org/Mind-Dragon/BridgeSessions/raw/branch/main/docs/assets/demo-poster.jpg"
-  controls
-  playsinline
-  preload="metadata"
-  width="100%"
->
-Your browser does not support the video tag.
-[Download demo trailer (MP4, 22s)](docs/assets/demo-install-ai-mesh.mp4)
-</video>
+[![BridgeSessions product demo](docs/assets/demo-install-ai-mesh.gif)](docs/assets/demo-install-ai-mesh.mp4)
 
-[![Watch the demo](docs/assets/demo-poster.jpg)](docs/assets/demo-install-ai-mesh.mp4)
-
-*HyperFrames storyboard (22s) — install → mesh → AI CUA → media/vision → Bridge Panel.* · [raw MP4](docs/assets/demo-install-ai-mesh.mp4)
+*HyperFrames storyboard (22s) — install → mesh → AI CUA → media/vision → Bridge Panel.*  
+Full quality: **[MP4 · 1080p · 2.7 MB](docs/assets/demo-install-ai-mesh.mp4)** · [file view with player](https://codeberg.org/Mind-Dragon/BridgeSessions/src/branch/main/docs/assets/demo-install-ai-mesh.mp4)
 
 > License: **Business Source License 1.1** (BSL-1.1). Production and commercial
 > use are permitted with one carve-out (you may not operate it as a hosted
