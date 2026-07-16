@@ -1,14 +1,23 @@
 # BridgeSessions
 
-**Mesh terminal relay** — a single C++23 binary that gives you persistent,
-encrypted, multi-session terminal access to remote Linux hosts over a TLS 1.3
-mesh. No SSH, no mosh, no tmux/zellij in the connection path.
+**Mesh terminal relay** — one C++23 binary that replaces the usual remote stack
+(**SSH + MOSH + SCP + tmux/Zellij + WinRM**) with a single secure mesh
+(`bs://` over TLS 1.3). Built for humans **and** AI agents: durable PTYs,
+file/image/video transfer, Windows CUA peers, and **Bridge Panel** for long
+Markdown reviews.
 
-- **Persistent sessions** — disconnect and reattach; your PTY keeps running.
-- **Encrypted mesh** — ed25519 mutual TLS 1.3, forward secrecy.
+- **Persistent sessions** — disconnect and reattach; the PTY keeps running (tmux’s job, built in).
+- **Encrypted mesh** — ed25519 mutual TLS 1.3, forward secrecy (SSH’s job, fleet-native).
+- **Files + media** — on-protocol transfer for logs, screenshots, and video (SCP + vision I/O).
+- **Windows + Linux + macOS** — one mesh for shells and desktop automation (WinRM-class peers).
+- **Bridge Panel** — agent-friendly Markdown surface (Edit / Save / Copy), not chat paste.
 - **One binary** — client, server, and `doctor` in `bridgesessions`.
-- **Clipboard** — two-way, hash-deduped, no echo loops.
-- **Bridge Panel** — publish Markdown to peers over a web surface.
+
+**Read the full story:** [docs/why-bridge-sessions.md](docs/why-bridge-sessions.md)
+
+![Bridge Panel](docs/assets/bridgepanel-read.png)
+
+[Demo trailer (MP4)](docs/assets/demo-install-ai-mesh.mp4)
 
 > License: **Business Source License 1.1** (BSL-1.1). Production and commercial
 > use are permitted with one carve-out (you may not operate it as a hosted
@@ -73,6 +82,7 @@ See [docs/usage.md](docs/usage.md) for the full command reference and
 
 | Document | What it covers |
 |---|---|
+| **[docs/why-bridge-sessions.md](docs/why-bridge-sessions.md)** | Why it replaces SSH/MOSH/SCP/tmux/WinRM + AI workflows. |
 | [docs/design.md](docs/design.md) | Design, ADRs, component model. |
 | [docs/building.md](docs/building.md) | Compile on Linux / Windows / macOS. |
 | [docs/usage.md](docs/usage.md) | CLI reference and workflows. |

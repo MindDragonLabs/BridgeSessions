@@ -32,18 +32,21 @@ bridgesessions pane publish <file.md> \
 This copies the local file into the node's BridgePanel surface under
 `default / documents`, where any peer who can reach the panel can read it.
 
-## Layout
+## Screenshots
 
-```
-┌──────────────┬──────────────────────────────────────┐
-│ BRIDGE PANEL  │  default / documents / note.md       │  ← breadcrumb
-│  build tag    ├──────────────────────────────────────┤
-│ SESSIONS      │  [ Edit ] [ Copy ]                    │  ← tools bar
-│ ▸ default     ├──────────────────────────────────────┤
-│   ▸ documents │  # My Note                           │
-│     note.md   │  Rendered markdown body…             │
-└──────────────┴──────────────────────────────────────┘
-```
+### Read mode
+
+![Bridge Panel read](assets/bridgepanel-read.png)
+
+Sidebar session tree, breadcrumb aligned with **SESSIONS**, outlined **Edit** /
+**Copy** tools, rendered Markdown body.
+
+### Edit mode
+
+![Bridge Panel edit](assets/bridgepanel-edit.png)
+
+Inline Markdown source with **Save** / **Cancel**. Agents publish long reports
+here; humans review without drowning in chat scrollback.
 
 ## Editing model
 
