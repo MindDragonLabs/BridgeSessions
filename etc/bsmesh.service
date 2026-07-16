@@ -1,0 +1,14 @@
+[Unit]
+Description=bridgesessions mesh daemon
+After=network.target
+
+[Service]
+Type=simple
+User=agent
+WorkingDirectory=/home/user/bridgesessions
+ExecStart=/home/user/bridgesessions/bsmesh --config /home/user/.bridgesessions/config
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,7 @@
+BasedOnStyle: LLVM
+IndentWidth: 4
+ColumnLimit: 120
+CppStandard: c++23
+AllowShortFunctionsOnASingleLine: Inline
+BreakBeforeBraces: Attach
+PointerAlignment: Left

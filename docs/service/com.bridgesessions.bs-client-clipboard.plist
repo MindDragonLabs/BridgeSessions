@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  com.bridgesessions.bs-client-clipboard.plist — macOS LaunchAgent
+  for the bridgesessions bs-client clipboard sidecar.
+
+  Installation:
+    cp com.bridgesessions.bs-client-clipboard.plist ~/Library/LaunchAgents/
+    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.bridgesessions.bs-client-clipboard.plist
+
+  Status & logs:
+    launchctl print gui/$(id -u)/com.bridgesessions.bs-client-clipboard
+    tail -f ~/Library/Logs/com.bridgesessions.bs-client-clipboard.out
+    tail -f ~/Library/Logs/com.bridgesessions.bs-client-clipboard.err
+
+  Removal:
+    launchctl bootout gui/$(id -u)/com.bridgesessions.bs-client-clipboard
+    rm ~/Library/LaunchAgents/com.bridgesessions.bs-client-clipboard.plist
+
+  Requirements:
+    - /usr/local/bin/bs-client must exist and be executable
+    - The bs-server daemon must be reachable (the sidecar connects to it)
+-->
+<plist version="1.0">
+<dict>
+    <!-- Unique reverse-domain label for this agent -->
+    <key>Label</key>
+    <string>com.bridgesessions.bs-client-clipboard</string>
+
+    <!-- Program to run (absolute path recommended by Apple) -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/local/bin/bs-client</string>
+        <string>--quiet</string>
+        <string>--name</string>
+        <string>clipboard-sidecar</string>
+    </array>
+
+    <!-- Launch as soon as the agent is loaded -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!-- Keep the process alive — relaunch if it exits/crashes -->
+    <key>KeepAlive</key>
+    <true/>
+
+    <!-- Redirect stdout to a per-user log file (launchd expands ~) -->
+    <key>StandardOutPath</key>
+    <string>~/Library/Logs/com.bridgesessions.bs-client-clipboard.out</string>
+
+    <!-- Redirect stderr to a per-user log file (launchd expands ~) -->
+    <key>StandardErrorPath</key>
+    <string>~/Library/Logs/com.bridgesessions.bs-client-clipboard.err</string>
+
+    <!-- Nice value: run at normal priority (0 is default) -->
+    <key>Nice</key>
+    <integer>0</integer>
+
+    <!-- Throttle respawns: wait at least 5 seconds before restarting -->
+    <key>ThrottleInterval</key>
+    <integer>5</integer>
+</dict>
+</plist>

@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.bridgesessions.mesh</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>SED_HOME/bridgesessions/bridgesessions</string>
+    <string>--config</string>
+    <string>SED_HOME/.bridgesessions/config</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>SED_HOME/bridgesessions</string>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>SED_HOME/.bridgesessions/bs-mesh.log</string>
+  <key>StandardErrorPath</key>
+  <string>SED_HOME/.bridgesessions/bs-mesh.log</string>
+</dict>
+</plist>

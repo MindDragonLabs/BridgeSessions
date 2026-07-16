@@ -1,0 +1,13 @@
+{
+  "test_name": "basic-movement",
+  "key_sequence": [
+    { "action": "key", "key": "W", "duration_ms": 2000 },
+    { "action": "key", "key": "SPACE", "duration_ms": 100 },
+    { "action": "key", "key": "A", "duration_ms": 1000 },
+    { "action": "key", "key": "D", "duration_ms": 1000 },
+    { "action": "key", "key": "E", "duration_ms": 100 }
+  ],
+  "expected_telemetry_events": ["player_moved", "ball_picked_up"],
+  "timeout_seconds": 15,
+  "fail_on": ["player_stuck", "game_crashed"]
+}

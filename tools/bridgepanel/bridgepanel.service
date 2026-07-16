@@ -1,0 +1,21 @@
+[Unit]
+Description=BridgePanel v2 session-aware artifact surface
+After=network-online.target tailscaled.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=%h/.config/bridgepanel/environment
+ExecStart=/usr/bin/python3 ${BRIDGEPANEL_SCRIPT} serve --bind ${BRIDGEPANEL_BIND} --port ${BRIDGEPANEL_PORT}
+Restart=on-failure
+RestartSec=3
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=%h/.local/share/bridgepanel %h/.config/bridgepanel
+RestrictAddressFamilies=AF_INET AF_INET6
+
+[Install]
+WantedBy=default.target
