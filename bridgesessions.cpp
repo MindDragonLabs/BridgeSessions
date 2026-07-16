@@ -2056,6 +2056,75 @@ void Session::reset_restart_failures() {
     const std::string& name, const std::string& command,
     uint16_t cols, uint16_t rows, const std::string& term)
 {
+    // v2.0.1: one-shot commands (cmd /c …) skip ConPTY. ConPTY/conhost often
+    // only delivers mode CSI to the pipe while command text never arrives
+    // before SessionDied (fleet RCA). Plain anonymous pipes capture stdout
+    // reliably for health/shell --cmd.
+    const bool oneshot =
+        command.find("/c ") != std::string::npos ||
+        command.find("/C ") != std::string::npos ||
+        command.find("/c\"") != std::string::npos ||
+        command.find("/C\"") != std::string::npos;
+    if (oneshot) {
+        HANDLE out_r = nullptr, out_w = nullptr, in_r = nullptr, in_w = nullptr;
+        SECURITY_ATTRIBUTES sa{sizeof(sa), nullptr, TRUE};
+        if (!CreatePipe(&out_r, &out_w, &sa, 0))
+            return std::unexpected(PtyError{"CreatePipe(out) failed"});
+        if (!CreatePipe(&in_r, &in_w, &sa, 0)) {
+            CloseHandle(out_r); CloseHandle(out_w);
+            return std::unexpected(PtyError{"CreatePipe(in) failed"});
+        }
+        // Parent keeps out_r / in_w non-inheritable; child gets out_w / in_r.
+        SetHandleInformation(out_r, HANDLE_FLAG_INHERIT, 0);
+        SetHandleInformation(in_w, HANDLE_FLAG_INHERIT, 0);
+
+        STARTUPINFOW si{};
+        si.cb = sizeof(si);
+        si.dwFlags = STARTF_USESTDHANDLES;
+        si.hStdOutput = out_w;
+        si.hStdError = out_w;
+        si.hStdInput = in_r;
+
+        std::wstring cmdline = utf8_to_wide(command);
+        std::vector<wchar_t> mutable_cmdline(cmdline.begin(), cmdline.end());
+        mutable_cmdline.push_back(L'\0');
+        const std::wstring application = resolve_windows_application(cmdline);
+
+        PROCESS_INFORMATION pi{};
+        BOOL created = CreateProcessW(
+            application.empty() ? nullptr : application.c_str(),
+            mutable_cmdline.data(),
+            nullptr, nullptr,
+            TRUE,  // inherit the pipe ends we left inheritable
+            CREATE_NO_WINDOW,
+            nullptr, nullptr,
+            &si, &pi);
+        const DWORD create_error = created ? ERROR_SUCCESS : GetLastError();
+        // Parent must close the ends it handed to the child.
+        CloseHandle(out_w);
+        CloseHandle(in_r);
+        if (!created) {
+            CloseHandle(out_r);
+            CloseHandle(in_w);
+            return std::unexpected(PtyError{
+                "CreateProcessW(oneshot) failed: " + std::to_string(create_error)});
+        }
+        CloseHandle(pi.hThread);
+
+        Session s;
+        s.name = name;
+        s.command = command;
+        s.master_fd = out_r;
+        s.write_handle = in_w;
+        s.child_pid = pi.hProcess;
+        s.hpcon = nullptr;
+        s.generation = ++g_session_generation;
+        s.state = SessionState::Running;
+        log_event("session_oneshot_pipes", name);
+        (void)cols; (void)rows; (void)term;
+        return s;
+    }
+
     HANDLE hPipeInRead = nullptr, hPipeInWrite = nullptr;
     HANDLE hPipeOutRead = nullptr, hPipeOutWrite = nullptr;
 
@@ -4094,7 +4163,7 @@ public:
         bool heartbeat_suspended_for_busy = false;
         // A detached exec worker may own ssl/sock_fd. Close paths mark this
         // and defer destruction until exec_busy is released.
-        // v2.0.0: timestamp when an exec/transfer began,
+        // v2.0.1: timestamp when an exec/transfer began,
         // so check_stale_exec() can force-release a stuck exec_busy flag
         // if the CLI timed out and the worker thread outlived its caller.
         std::chrono::steady_clock::time_point exec_started_at = {};
@@ -6266,36 +6335,91 @@ public:
 #ifdef _WIN32
             if (s->child_pid &&
                 WaitForSingleObject(s->child_pid, 0) == WAIT_OBJECT_0) {
-                // v1.7.1: ConPTY's conhost can lag slightly behind the
-                // child process actually exiting before it flushes the
-                // last chunk of console output into the pipe we read via
-                // PeekNamedPipe/ReadFile. For fast one-shot commands (e.g.
-                // `hostname`) this occasionally raced: we'd observe the
-                // exit before the final bytes were visible, and a waiting
-                // daemon_shell_exec_wait() stops reading the instant it
-                // sees SessionDiedMsg — so a late OutputMsg would never be
-                // consumed. Give the pipe one short grace window to catch
-                // up and drain any trailing bytes before declaring death.
-                for (int grace = 0; grace < 5; ++grace) {
-                    DWORD avail = 0;
-                    if (!PeekNamedPipe(s->master_fd, nullptr, 0, nullptr, &avail, nullptr) || avail == 0) {
-                        Sleep(20);
-                        continue;
-                    }
-                    std::string late;
-                    late.resize(avail);
-                    DWORD got = 0;
-                    if (ReadFile(s->master_fd, &late[0], avail, &got, nullptr) && got > 0) {
-                        late.resize(got);
-                        s->scrollback.write(std::string_view(late));
-                        auto late_osc = scan_osc52(late);
-                        if (!late_osc.cleaned_text.empty()) {
-                            OutputMsg lom;
-                            lom.data = std::move(late_osc.cleaned_text);
-                            fanout(lom);
+                // v2.0.1: ConPTY/conhost flushes command text AFTER process exit.
+                // Force-close the pseudoconsole to push remaining bytes into the
+                // pipe, then drain until quiet. Log fanout failures (was silent).
+                auto fanout_out = [&](std::string data) {
+                    if (data.empty()) return;
+                    OutputMsg lom;
+                    lom.data = std::move(data);
+                    if (config_.render_hint == "markdown") lom.render_markdown = true;
+                    else if (config_.render_hint != "raw")
+                        lom.render_markdown = looks_like_markdown(lom.data);
+                    int targets = 0;
+                    for (auto& target : conns_) {
+                        if (target.sock_fd == INVALID_SOCKET || !target.ssl) continue;
+                        // Prefer attached_session match; also any DirectSession
+                        // peer (one-shot shell uses a dedicated TLS conn).
+                        const bool match =
+                            target.attached_session == s ||
+                            target.purpose == ConnectionPurpose::DirectSession;
+                        if (!match) continue;
+                        try {
+                            write_frame(target.ssl.get(), lom, CONTROL_STREAM_ID);
+                            ++targets;
+                        } catch (const std::exception& e) {
+                            log_event("fanout_output_failed",
+                                      s->name + " " + e.what());
+                        } catch (...) {
+                            log_event("fanout_output_failed", s->name + " unknown");
                         }
                     }
-                    break;
+                    log_event("fanout_output",
+                              s->name + " targets=" + std::to_string(targets) +
+                                  " bytes=" + std::to_string(lom.data.size()));
+                };
+                auto drain_pipe = [&](int max_ms) {
+                    int empty_streak = 0;
+                    const auto start = std::chrono::steady_clock::now();
+                    size_t total = 0;
+                    std::string acc;
+                    while (empty_streak < 12) {
+                        const auto elapsed =
+                            std::chrono::duration_cast<std::chrono::milliseconds>(
+                                std::chrono::steady_clock::now() - start)
+                                .count();
+                        if (elapsed >= max_ms) break;
+                        DWORD avail = 0;
+                        if (!s->master_fd ||
+                            !PeekNamedPipe(s->master_fd, nullptr, 0, nullptr, &avail, nullptr) ||
+                            avail == 0) {
+                            Sleep(25);
+                            ++empty_streak;
+                            continue;
+                        }
+                        empty_streak = 0;
+                        std::string late;
+                        late.resize(avail);
+                        DWORD got = 0;
+                        if (ReadFile(s->master_fd, late.data(), avail, &got, nullptr) && got > 0) {
+                            late.resize(got);
+                            total += got;
+                            s->scrollback.write(std::string_view(late));
+                            acc += late;
+                        }
+                    }
+                    // One coalesced OutputMsg after drain (plain text).
+                    if (!acc.empty()) {
+                        auto osc = scan_osc52(acc);
+                        fanout_out(strip_ansi_escapes(osc.cleaned_text));
+                    }
+                    return total;
+                };
+
+                // First pass: drain whatever is already available.
+                size_t drained = drain_pipe(250);
+                // Closing the pseudo console forces conhost to flush remaining
+                // child output into our pipe (Microsoft ConPTY behavior).
+                if (s->hpcon) {
+                    ClosePseudoConsole(s->hpcon);
+                    s->hpcon = nullptr;
+                }
+                drained += drain_pipe(500);
+                // Note: do NOT re-broadcast full session scrollback here — resurrected
+                // Session objects retain prior one-shot text and would pollute capture.
+                if (drained > 0) {
+                    log_event("pty_death_drain",
+                              s->name + " bytes=" + std::to_string(drained));
                 }
 
                 DWORD exit_code = 0;
@@ -6303,12 +6427,19 @@ public:
                 sessions_.record_finished(*s, static_cast<int32_t>(exit_code), "died");
                 CloseHandle(s->child_pid);
                 s->child_pid = nullptr;
+                // master_fd / write_handle closed by Session dtor or reattach path
                 s->state = SessionState::Died;
 
                 SessionDiedMsg sdm;
                 sdm.exit_code = static_cast<int32_t>(exit_code);
                 sdm.signal_num = 0;
-                fanout(sdm);
+                for (auto& target : conns_) {
+                    if (target.attached_session != s || target.sock_fd == INVALID_SOCKET ||
+                        !target.ssl) continue;
+                    try {
+                        write_frame(target.ssl.get(), sdm, CONTROL_STREAM_ID);
+                    } catch (...) {}
+                }
                 log_event("session_died", s->name + " exit_code=" + std::to_string(exit_code));
             }
 #else
@@ -6529,7 +6660,7 @@ private:
         }
     }
 
-    // v2.0.0 (BUG-1): force-release a stuck exec_busy flag. If a CLI
+    // v2.0.1 (BUG-1): force-release a stuck exec_busy flag. If a CLI
     // `shell --cmd` / file transfer times out client-side, the daemon's
     // background worker keeps running (up to its own 60s deadline) and
     // exec_busy stays set, blocking all IPC to that peer with
@@ -7586,6 +7717,7 @@ public:
             int32_t exit_code = 0;
             bool running = true;
             bool transport_error = false;
+            bool saw_session_end = false;
             try {
                 AttachMsg am;
                 am.session_name = session_name;
@@ -7613,7 +7745,35 @@ public:
                     if ((ready > 0 && FD_ISSET((int)sc.sfd, &read_fds)) ||
                         SSL_pending(sc.ssl.get()) > 0) {
                         running = process_noninteractive_response(
-                            sc.ssl.get(), exit_code, &transport_error);
+                            sc.ssl.get(), exit_code, &transport_error, &saw_session_end);
+                    }
+                }
+                // v2.0.1: after SessionDied, drain late OutputMsg frames briefly.
+                // Server may still push conhost-flushed text after death notice.
+                if (saw_session_end && !transport_error && sc.ssl && sc.sfd != INVALID_SOCKET) {
+                    const auto drain_deadline =
+                        std::chrono::steady_clock::now() + std::chrono::milliseconds(300);
+                    while (std::chrono::steady_clock::now() < drain_deadline) {
+                        if (SSL_pending(sc.ssl.get()) <= 0) {
+                            fd_set rfds; FD_ZERO(&rfds); FD_SET((int)sc.sfd, &rfds);
+                            timeval tv{0, 50'000};
+#ifdef _WIN32
+                            if (select(0, &rfds, nullptr, nullptr, &tv) <= 0) continue;
+#else
+                            if (select((int)sc.sfd + 1, &rfds, nullptr, nullptr, &tv) <= 0) continue;
+#endif
+                        }
+                        try {
+                            Message resp = read_frame(sc.ssl.get());
+                            if (std::holds_alternative<OutputMsg>(resp)) {
+                                std::cout << strip_ansi_escapes(std::get<OutputMsg>(resp).data)
+                                          << std::flush;
+                            } else if (std::holds_alternative<PingMsg>(resp)) {
+                                write_frame(sc.ssl.get(), PongMsg{}, CONTROL_STREAM_ID);
+                            }
+                        } catch (...) {
+                            break;
+                        }
                     }
                 }
                 if (transport_error) {
@@ -7816,22 +7976,28 @@ public:
         return 0;
     }
 
-    // Non-interactive response handler: writes OutputMsg data to stdout,
+    // Non-interactive response handler: writes OutputMsg data to stdout
+    // (ANSI-stripped — ConPTY mode CSI is not useful for --cmd capture),
     // returns false on SessionDiedMsg (capturing exit_code).
     bool process_noninteractive_response(SSL* ssl, int32_t& exit_code,
-                                         bool* transport_error = nullptr) {
+                                         bool* transport_error = nullptr,
+                                         bool* session_ended = nullptr) {
         if (transport_error) *transport_error = false;
+        if (session_ended) *session_ended = false;
         try {
             Message resp = read_frame(ssl);
             if (std::holds_alternative<OutputMsg>(resp)) {
-                std::cout << std::get<OutputMsg>(resp).data << std::flush;
+                std::cout << strip_ansi_escapes(std::get<OutputMsg>(resp).data) << std::flush;
             } else if (std::holds_alternative<SessionDiedMsg>(resp)) {
                 exit_code = std::get<SessionDiedMsg>(resp).exit_code;
+                if (session_ended) *session_ended = true;
                 return false;
             } else if (std::holds_alternative<DetachMsg>(resp)) {
+                if (session_ended) *session_ended = true;
                 return false;
             } else if (std::holds_alternative<ExitCodeMsg>(resp)) {
                 exit_code = std::get<ExitCodeMsg>(resp).code;
+                if (session_ended) *session_ended = true;
                 return false;
             } else if (std::holds_alternative<PingMsg>(resp)) {
                 write_frame(ssl, PongMsg{}, CONTROL_STREAM_ID);
@@ -7902,6 +8068,7 @@ public:
         std::string output;
         int ec = daemon_shell_via_ipc(peer_name, "health-" + nonce, "echo " + nonce, &output, 15000);
         if (ec >= 0) {
+            output = strip_ansi_escapes(output);
             bool ok = (ec == 0 && output.find(nonce) != std::string::npos);
             if (status_out) {
                 *status_out = ok ? "healthy (data-plane ok)"
@@ -7959,12 +8126,53 @@ public:
                 }
                 Message resp = read_frame(sc.ssl.get());
                 if (std::holds_alternative<OutputMsg>(resp)) {
-                    stdout_buf += std::get<OutputMsg>(resp).data;
+                    stdout_buf += strip_ansi_escapes(std::get<OutputMsg>(resp).data);
                 } else if (std::holds_alternative<ExitCodeMsg>(resp)) {
                     exit_code = std::get<ExitCodeMsg>(resp).code;
+                    // v2.0.1: brief post-death drain for late Windows OutputMsg
+                    const auto ddeadline =
+                        std::chrono::steady_clock::now() + std::chrono::milliseconds(300);
+                    while (std::chrono::steady_clock::now() < ddeadline) {
+                        if (SSL_pending(sc.ssl.get()) <= 0) {
+                            fd_set drfds; FD_ZERO(&drfds); FD_SET(sc.sfd, &drfds);
+                            timeval dtv{0, 50'000};
+#ifdef _WIN32
+                            if (select(0, &drfds, nullptr, nullptr, &dtv) <= 0) continue;
+#else
+                            if (select(static_cast<int>(sc.sfd) + 1, &drfds, nullptr, nullptr, &dtv) <= 0) continue;
+#endif
+                        }
+                        try {
+                            Message late = read_frame(sc.ssl.get());
+                            if (std::holds_alternative<OutputMsg>(late))
+                                stdout_buf += strip_ansi_escapes(std::get<OutputMsg>(late).data);
+                            else if (std::holds_alternative<PingMsg>(late))
+                                write_frame(sc.ssl.get(), PongMsg{}, CONTROL_STREAM_ID);
+                        } catch (...) { break; }
+                    }
                     break;
                 } else if (std::holds_alternative<SessionDiedMsg>(resp)) {
                     exit_code = std::get<SessionDiedMsg>(resp).exit_code;
+                    const auto ddeadline =
+                        std::chrono::steady_clock::now() + std::chrono::milliseconds(300);
+                    while (std::chrono::steady_clock::now() < ddeadline) {
+                        if (SSL_pending(sc.ssl.get()) <= 0) {
+                            fd_set drfds; FD_ZERO(&drfds); FD_SET(sc.sfd, &drfds);
+                            timeval dtv{0, 50'000};
+#ifdef _WIN32
+                            if (select(0, &drfds, nullptr, nullptr, &dtv) <= 0) continue;
+#else
+                            if (select(static_cast<int>(sc.sfd) + 1, &drfds, nullptr, nullptr, &dtv) <= 0) continue;
+#endif
+                        }
+                        try {
+                            Message late = read_frame(sc.ssl.get());
+                            if (std::holds_alternative<OutputMsg>(late))
+                                stdout_buf += strip_ansi_escapes(std::get<OutputMsg>(late).data);
+                            else if (std::holds_alternative<PingMsg>(late))
+                                write_frame(sc.ssl.get(), PongMsg{}, CONTROL_STREAM_ID);
+                        } catch (...) { break; }
+                    }
                     break;
                 } else if (std::holds_alternative<PingMsg>(resp)) {
                     write_frame(sc.ssl.get(), PongMsg{}, CONTROL_STREAM_ID);
@@ -8636,7 +8844,7 @@ int cmd_doctor(const std::string& config_path) {
         ++failures;
     };
 
-    std::cout << "bridgesessions doctor v2.0.0\n";
+    std::cout << "bridgesessions doctor v2.0.1\n";
     if (fs::exists(dir) && fs::is_directory(dir)) pass("dir config", dir);
     else fail("dir config", dir);
 
@@ -8681,7 +8889,7 @@ int main(int argc, char** argv) {
 #endif
 
     CLI::App app{"bridgesessions — mesh terminal relay"};
-    app.set_version_flag("--version,-V", "2.0.0");
+    app.set_version_flag("--version,-V", "2.0.1");
 
     // Global options
     std::string config_path = "";
