@@ -16,9 +16,10 @@ Shipping release: **v2.0.5-alpha2**. Probe live `--version`.
 4. Use the configured peer name and pinned key; never encode private fleet names or addresses in public instructions.
 5. File transfers: `bs file send|recv … --wait`; parse `PROGRESS …` lines; do not assume 120s timeout (fixed in 2.0.4).
 6. PowerShell: protect `$_` from bash (`'…'` or `\$_`); v2.0.2+ skips broken cmd wrapping for powershell.exe.
-7. Do not claim “production-secure SSH replacement” until `docs/remediation-20260716/TODO-AUDIT-CLOSURE.md` P0 is fully `[x]`.
+7. Do not claim “production-secure SSH replacement” (public alpha posture; see SECURITY.md / AUDIT).
 8. No secrets in git or chat. English-only operator-facing text unless the user asks otherwise.
 9. Verify claims with real command output in this session.
+10. **Public forge = Codeberg** (`Mind-Dragon/BridgeSessions`) via **SSH deploy-key**. Binaries ship in git `dist/` (raw/tag URLs). Do **not** route this product through local user Forgejo or require FORGEJO_TOKEN for binary delivery.
 
 ## Key paths
 
