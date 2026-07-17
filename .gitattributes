@@ -1,0 +1,44 @@
+# Release archive policy
+
+# Build/runtime products
+/.audit/** export-ignore
+/.audit-* export-ignore
+/dist/** export-ignore
+/build/** export-ignore
+/build-*/** export-ignore
+/**/__pycache__/** export-ignore
+/**/*.pyc export-ignore
+
+# Operator-only planning and fleet history
+/ARCHITECTURE.md export-ignore
+/COMPLETED_PHASES.md export-ignore
+/DISTRIBUTION.md export-ignore
+/GUIDELINE.md export-ignore
+/INTEGRATION.md export-ignore
+/PLANS.md export-ignore
+/docs/remediation-20260716/** export-ignore
+/config.shadow.production.example export-ignore
+/config.* export-ignore
+/config.example -export-ignore
+/*.ps1 export-ignore
+/*.bat export-ignore
+/clean_configs.sh export-ignore
+/deploy*.sh export-ignore
+/diag*.sh export-ignore
+
+# Retained non-shipping modular experiment
+/main.cpp export-ignore
+/session_manager_test.cpp export-ignore
+/bs-client/** export-ignore
+/bs-server/** export-ignore
+/bs-*/** export-ignore
+/protocol/** export-ignore
+/transport/** export-ignore
+/docs/man/** export-ignore
+
+# Preserve media byte-for-byte
+*.gif binary
+*.mp4 binary
+*.png binary
+*.ico binary
+*.exe binary

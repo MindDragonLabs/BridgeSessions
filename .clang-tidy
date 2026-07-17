@@ -1,11 +1,3 @@
 ---
 Checks: '-*,clang-analyzer-*'
-HeaderFilterRegex: '^/Users/testuser/bridgesessions/'
-ExtraArgsBefore:
-  - -I/Users/testuser/bridgesessions/bs-client/src
-  - -I/Users/testuser/bridgesessions/bs-server/src
-  - -I/Users/testuser/bridgesessions/bs-protocol/include
-  - -I/Users/testuser/bridgesessions/bs-transport/include
-  - -stdlib=libc++
-  - -isysroot
-  - /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk
+HeaderFilterRegex: '.*/bridgesessions/(bridgesessions\.cpp|bs-(client|server|protocol|transport)/.*|tests/.*)'

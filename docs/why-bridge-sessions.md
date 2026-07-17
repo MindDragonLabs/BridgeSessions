@@ -26,7 +26,7 @@ tools together:
 BridgeSessions **absorbs the job of each** into a single design:
 
 ```
-  [ laptop / agent ]  ── bs:// over TLS 1.3 ──►  [ peer mesh ]
+  [ laptop / agent ]  ── bs:// over TLS 1.2+ (prefer 1.3) ──►  [ peer mesh ]
                               │
               ┌───────────────┼────────────────┐
               ▼               ▼                ▼
@@ -123,7 +123,7 @@ SSH + WinRM + SMB for each hop.
 
 | Property | BridgeSessions |
 |---|---|
-| Transport | TLS 1.3 over TCP (port **19949** by default) |
+| Transport | TLS 1.2+ (prefer 1.3) over TCP (port **19949** by default) |
 | Auth | ed25519 mutual TLS + authorized_keys |
 | Forward secrecy | X25519 |
 | Compression | zstd per-frame on large payloads |

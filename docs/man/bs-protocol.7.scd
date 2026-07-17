@@ -8,7 +8,7 @@ bs-protocol — bridgesessions wire protocol
 
 The *bs-protocol* defines the framing, message types, and serialisation rules
 for all communication between *bs-client*(1) and *bs-server*(1). Every message
-is carried inside a binary frame over a TLS 1.3 connection.
+is carried inside a binary frame over a TLS 1.2+ (prefer 1.3) connection.
 
 # WIRE FORMAT
 
@@ -183,7 +183,7 @@ the session's ring buffer:
 Authentication occurs at the TLS layer:
 
 . Both client and server hold ed25519 keypairs.
-. During the TLS 1.3 handshake, the server requests a client certificate.
+. During the TLS 1.2+ handshake (prefer 1.3), the server requests a client certificate.
 . The client certificate's public key is checked against the server's
   _authorized_keys_ file (one hex-encoded key per line).
 . The server's certificate fingerprint is verified via TOFU (Trust On First

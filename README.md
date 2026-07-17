@@ -2,12 +2,17 @@
 
 **Mesh terminal relay** — one C++23 binary that replaces the usual remote stack
 (**SSH + MOSH + SCP + tmux/Zellij + WinRM**) with a single secure mesh
-(`bs://` over TLS 1.3). Built for humans **and** AI agents: durable PTYs,
+(`bs://` over TLS 1.2+, prefer 1.3). Built for humans **and** AI agents: durable PTYs,
 file/image/video transfer, Windows CUA peers, and **Bridge Panel** for long
 Markdown reviews.
 
+> **Alpha status:** `2.0.5-alpha2` is a security-audited public alpha, not a
+> production-secure SSH replacement. The canonical shipping implementation is
+> [`bridgesessions.cpp`](bridgesessions.cpp); see [LEGACY_CODE.md](LEGACY_CODE.md)
+> for the non-shipping modular experiment retained in the repository.
+
 - **Persistent sessions** — disconnect and reattach; the PTY keeps running (tmux’s job, built in).
-- **Encrypted mesh** — ed25519 mutual TLS 1.3, forward secrecy (SSH’s job, fleet-native).
+- **Encrypted mesh** — ed25519 mutual TLS 1.2+ (prefer 1.3), forward secrecy (SSH’s job, fleet-native).
 - **Files + media** — on-protocol transfer for logs, screenshots, and video (SCP + vision I/O).
 - **Windows + Linux + macOS** — one mesh for shells and desktop automation (WinRM-class peers).
 - **Bridge Panel** — agent-friendly Markdown surface (Edit / Save / Copy), not chat paste.
@@ -29,32 +34,60 @@ Full quality: **[MP4 · 1080p · 2.7 MB](docs/assets/demo-install-ai-mesh.mp4)
 > remote-terminal service). Converts to **Apache-2.0** on **2030-07-16**. See
 > [LICENSE](LICENSE).
 
+
+## For AI agents (Hermes, Codex, Claude, OpenCode, Cursor, Grok, …)
+
+This repo ships multi-harness agent instructions:
+
+| File | Role |
+|------|------|
+| [`AGENTS.md`](AGENTS.md) | Always-on project rules (AGENTS.md standard) |
+| [`CLAUDE.md`](CLAUDE.md) | Symlink → `AGENTS.md` for Claude Code |
+| [`skills/bridgesessions/SKILL.md`](skills/bridgesessions/SKILL.md) | Portable **Agent Skills** skill (YAML frontmatter + body) |
+| `.claude/skills/bridgesessions` | Symlink for Claude Code discovery |
+| `.opencode/skills/bridgesessions` | Symlink for OpenCode discovery |
+| `.agents/skills/bridgesessions` | Symlink for generic Agent Skills discovery |
+
+**Load the skill** when operating `bs` mesh, Windows peers, large file transfer, or security remediation.
+Release security changes are summarized in [`CHANGELOG.md`](CHANGELOG.md) and
+the support/reporting policy lives in [`SECURITY.md`](SECURITY.md).
+
+Install/refresh harness links: `./scripts/install-agent-skill.sh`.
+
+
 ## Install from binary
 
-Download the latest release for your platform:
+Verified `2.0.5-alpha2` release artifacts in `dist/`:
 
-- Linux (x86_64): `bridgesessions`
-- macOS (arm64): `bridgesessions-macos-arm64`
-- Windows (x86_64): `bridgesessions-windows-x86_64.exe`
+| Platform | Artifact |
+|----------|----------|
+| Linux x86_64 | `bridgesessions-linux-x86_64` |
+| Windows x86_64 | `bridgesessions-windows-x86_64.exe` |
+| macOS arm64 | `bridgesessions-macos-arm64` |
+| Source | `bridgesessions-2.0.5-alpha2-source.tar.gz` |
 
-Place the binary in your `$PATH` and run:
+Verify with `cd dist && sha256sum -c SHA256SUMS` (see
+[docs/RELEASE-PROVENANCE.md](docs/RELEASE-PROVENANCE.md)).
+
+Place the binary for your OS in `$PATH` and run:
 
 ```bash
-bridgesessions --version   # → 2.0.0
+bridgesessions --version   # → 2.0.5-alpha2
 bridgesessions keygen
 ```
 
 ## Build from source
 
 ```bash
-# Linux / macOS (needs libssl, zstd, fmt, spdlog)
-./build.sh
-./bridgesessions --version        # → 2.0.0
+# Linux / macOS (needs OpenSSL, zstd, fmt, spdlog, CLI11, nlohmann-json)
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build --parallel
+./build/bridgesessions --version  # → 2.0.5-alpha2
 ```
 
-Windows (x86_64) cross-compiles from Linux with MinGW. Full instructions,
-including CMake and the modular `bs-*` tree, are in
-[docs/building.md](docs/building.md).
+Windows (x86_64) cross-compiles from Linux with MinGW. Full instructions are in
+[docs/building.md](docs/building.md). Release artifacts must pass
+`scripts/release-checksums.sh`.
 
 ## Quickstart
 
@@ -69,9 +102,9 @@ bridgesessions --config ~/.bridgesessions/config
 `~/.bridgesessions/config`:
 
 ```ini
-mesh.node_name   my-laptop
-mesh.listen      19949
-seed <seed-peer-host>:19949
+node.name   my-laptop
+node.listen 192.168.1.28:19949
+seed peer-a <seed-peer-host>:19949 pubkey=<64-hex-ed25519-public-key>
 sessions.default_shell /bin/bash -l
 ```
 
@@ -97,9 +130,10 @@ See [docs/usage.md](docs/usage.md) for the full command reference and
 
 ## Releases
 
-Prebuilt binaries for **Linux (x86_64)**, **Windows (x86_64)**, and
-**macOS (arm64)** ship in [`dist/`](dist/) and with each Codeberg release tag
-(`vX.Y.Z`).
+Release candidates are accepted only when their embedded version equals
+[`VERSION`](VERSION), `SHA256SUMS` verifies, and the CycloneDX artifact manifest
+parses. **2.0.5-alpha2** ships Linux x86_64, Windows x86_64, and macOS arm64
+built from this source.
 
 ## Contributing
 

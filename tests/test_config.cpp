@@ -421,6 +421,358 @@ TEST_CASE("Windows command builder wraps client overrides exactly once",
             "\"C:\\Windows\\System32\\cmd.exe\" /d /s /c \"dir C:\\\\\"");
 }
 
+
+TEST_CASE("verify_outbound_peer_identity enforces pin/cert/Hello binding",
+          "[config][security][p0]") {
+    // Happy path
+    auto ok = verify_outbound_peer_identity(
+        "abc", "abc", "abc", "test-pc1", "test-pc1", true);
+    REQUIRE(ok.ok);
+
+    // Missing pin when required
+    auto miss = verify_outbound_peer_identity(
+        "", "abc", "abc", "", "n", true);
+    REQUIRE_FALSE(miss.ok);
+    REQUIRE(miss.reason.find("pinned") != std::string::npos);
+
+    // Pin mismatch
+    auto badpin = verify_outbound_peer_identity(
+        "abc", "zzz", "zzz", "", "", true);
+    REQUIRE_FALSE(badpin.ok);
+
+    // Hello != cert
+    auto badhello = verify_outbound_peer_identity(
+        "abc", "abc", "fff", "", "", true);
+    REQUIRE_FALSE(badhello.ok);
+
+    // Name mismatch
+    auto badname = verify_outbound_peer_identity(
+        "abc", "abc", "abc", "test-pc1", "attacker", true);
+    REQUIRE_FALSE(badname.ok);
+
+    // require_pin=false allows empty pin if cert present
+    auto loose = verify_outbound_peer_identity(
+        "", "abc", "abc", "", "peer-a", false);
+    REQUIRE(loose.ok);
+}
+
+TEST_CASE("verify_outbound_peer_identity requires complete Hello identity",
+          "[config][security][p0][alpha2]") {
+    auto missing_key = verify_outbound_peer_identity(
+        "abc", "abc", "", "peer-a", "peer-a", true);
+    REQUIRE_FALSE(missing_key.ok);
+    REQUIRE(missing_key.reason.find("Hello pubkey") != std::string::npos);
+
+    auto missing_name = verify_outbound_peer_identity(
+        "abc", "abc", "abc", "peer-a", "", true);
+    REQUIRE_FALSE(missing_name.ok);
+    REQUIRE(missing_name.reason.find("Hello node name") != std::string::npos);
+}
+
+TEST_CASE("verify_inbound_peer_identity binds configured name key and Hello",
+          "[config][security][p0][alpha2]") {
+    MeshConfig cfg;
+    cfg.seeds.push_back(PeerEntry{
+        .name = "peer-a", .addr = "203.0.113.10:19949", .pubkey_hex = "abc"});
+
+    REQUIRE(verify_inbound_peer_identity(cfg, "abc", "abc", "peer-a").ok);
+    REQUIRE_FALSE(verify_inbound_peer_identity(cfg, "abc", "", "peer-a").ok);
+    REQUIRE_FALSE(verify_inbound_peer_identity(cfg, "abc", "zzz", "peer-a").ok);
+    REQUIRE_FALSE(verify_inbound_peer_identity(cfg, "abc", "abc", "peer-b").ok);
+    REQUIRE_FALSE(verify_inbound_peer_identity(cfg, "zzz", "zzz", "peer-a").ok);
+
+    // A separately authorized key may introduce a new non-colliding name.
+    REQUIRE(verify_inbound_peer_identity(cfg, "xyz", "xyz", "peer-new").ok);
+}
+
+TEST_CASE("sanitize_transfer_filename rejects traversal and device names",
+          "[config][security][p0]") {
+    REQUIRE(sanitize_transfer_filename("ok.txt").value() == "ok.txt");
+    REQUIRE(sanitize_transfer_filename("a/b/c.txt").value() == "c.txt");
+    // Basename of a relative traversal is allowed; containment is enforced by path_is_inside_directory.
+    REQUIRE(sanitize_transfer_filename("../etc/passwd").value() == "passwd");
+    REQUIRE(sanitize_transfer_filename("foo/bar.txt").value() == "bar.txt");
+    REQUIRE_FALSE(sanitize_transfer_filename("/etc/passwd").has_value());
+    REQUIRE_FALSE(sanitize_transfer_filename("C:\\Windows\\x").has_value());
+    REQUIRE_FALSE(sanitize_transfer_filename("").has_value());
+    REQUIRE_FALSE(sanitize_transfer_filename("..").has_value());
+    REQUIRE_FALSE(sanitize_transfer_filename("CON").has_value());
+    REQUIRE_FALSE(sanitize_transfer_filename("nul.txt").has_value());
+    REQUIRE_FALSE(sanitize_transfer_filename(std::string("a\0b", 3)).has_value());
+}
+
+TEST_CASE("path_is_inside_directory contains paths under receive root",
+          "[config][security][p0]") {
+    namespace fs = std::filesystem;
+    auto tmp = fs::temp_directory_path() / "bs_recv_test";
+    fs::create_directories(tmp);
+    auto good = tmp / "file.bin";
+    REQUIRE(path_is_inside_directory(good, tmp));
+    auto escape = tmp / ".." / "escape.bin";
+    // weakly_canonical may resolve outside
+    REQUIRE_FALSE(path_is_inside_directory(escape, tmp));
+    fs::remove_all(tmp);
+}
+
+TEST_CASE("transfer metadata binds declared size to canonical chunk count",
+          "[config][security][transfer][alpha2]") {
+    REQUIRE(validate_transfer_metadata(0, 1, 1024).ok);
+    REQUIRE(validate_transfer_metadata(1, 1, 1024).ok);
+    REQUIRE(validate_transfer_metadata(kTransferChunkRawSize, 1, 1 << 20).ok);
+    REQUIRE(validate_transfer_metadata(kTransferChunkRawSize + 1, 2, 1 << 20).ok);
+
+    REQUIRE_FALSE(validate_transfer_metadata(1, 0, 1024).ok);
+    REQUIRE_FALSE(validate_transfer_metadata(1, 2, 1024).ok);
+    REQUIRE_FALSE(validate_transfer_metadata(1025, 1, 1024).ok);
+    REQUIRE_FALSE(validate_transfer_metadata(
+        1, std::numeric_limits<uint32_t>::max(), 1024).ok);
+}
+
+TEST_CASE("incoming file receive state is isolated per connection",
+          "[config][security][transfer][alpha2]") {
+    MeshController::Conn first;
+    MeshController::Conn second;
+    first.file_receive.active = true;
+    first.file_receive.filename = "first.bin";
+
+    REQUIRE_FALSE(second.file_receive.active);
+    REQUIRE(second.file_receive.filename.empty());
+}
+
+TEST_CASE("incoming chunks cannot exceed declared file shape",
+          "[config][security][transfer][alpha2]") {
+    REQUIRE(validate_transfer_chunk(1, 0, 0, 1, 0, 1, 1).ok);
+    REQUIRE_FALSE(validate_transfer_chunk(1, 0, 0, 1, 0, 1, 2).ok);
+    REQUIRE_FALSE(validate_transfer_chunk(1, 0, 0, 1, 0, 2, 1).ok);
+    REQUIRE_FALSE(validate_transfer_chunk(1, 0, 0, 1, 1, 1, 1).ok);
+
+    REQUIRE(validate_transfer_chunk(
+        kTransferChunkRawSize + 1, 0, 0, 2,
+        0, 2, kTransferChunkRawSize).ok);
+    REQUIRE(validate_transfer_chunk(
+        kTransferChunkRawSize + 1, kTransferChunkRawSize, 1, 2,
+        1, 2, 1).ok);
+    REQUIRE_FALSE(validate_transfer_chunk(
+        kTransferChunkRawSize + 1, kTransferChunkRawSize, 1, 2,
+        1, 2, 0).ok);
+    REQUIRE(validate_transfer_chunk(0, 0, 0, 1, 0, 1, 0).ok);
+}
+
+TEST_CASE("MeshController watches the explicitly loaded config path",
+          "[config][config-dir][alpha2]") {
+    auto root = fs::temp_directory_path() / "bs_explicit_config_test";
+    fs::remove_all(root);
+    fs::create_directories(root);
+    auto explicit_config = (root / "operator.conf").string();
+    std::ofstream(explicit_config) << "node.name explicit-config-test\n";
+
+    MeshConfig cfg = load_config(explicit_config);
+    {
+        MeshController controller(cfg, root.string(), explicit_config);
+        REQUIRE(controller.config_file_path_for_test() == explicit_config);
+    }
+    fs::remove_all(root);
+}
+
+TEST_CASE("direct peer commands reject an unpinned peer before TCP connect",
+          "[config][security][pin][alpha2]") {
+    namespace fs = std::filesystem;
+    auto root = fs::temp_directory_path() /
+                ("bs_direct_pin_" + std::to_string(
+                    std::chrono::steady_clock::now().time_since_epoch().count()));
+    fs::create_directories(root);
+
+    MeshConfig cfg;
+    cfg.node_name = "pin-test";
+    MeshController controller(cfg, root.string());
+    REQUIRE(controller.direct_connect_rejects_missing_pin_for_test());
+
+    fs::remove_all(root);
+}
+
+TEST_CASE("hex_decode rejects malformed authorized keys",
+          "[config][security][authorized_keys][alpha2]") {
+    REQUIRE(hex_decode(std::string(64, 'z')).empty());
+    REQUIRE(hex_decode("abc").empty());
+    REQUIRE(hex_decode(std::string(64, '0')).size() == 32);
+    REQUIRE(hex_decode(std::string(64, 'A')).size() == 32);
+}
+
+TEST_CASE("private text files are created owner-only",
+          "[config][security][permissions][alpha2]") {
+    namespace fs = std::filesystem;
+    auto root = fs::temp_directory_path() /
+                ("bs_private_file_" + std::to_string(
+                    std::chrono::steady_clock::now().time_since_epoch().count()));
+    REQUIRE(ensure_private_directory(root.string()));
+    auto path = root / "identity.pem";
+
+#ifndef _WIN32
+    const mode_t old_mask = ::umask(0022);
+#endif
+    REQUIRE(write_private_text_file(path.string(), "secret\n"));
+    REQUIRE(append_private_text_file(path.string(), "next\n"));
+#ifndef _WIN32
+    ::umask(old_mask);
+    struct stat st {};
+    REQUIRE(::stat(path.c_str(), &st) == 0);
+    REQUIRE((st.st_mode & 0777) == 0600);
+    REQUIRE(::stat(root.c_str(), &st) == 0);
+    REQUIRE((st.st_mode & 0777) == 0700);
+#endif
+    std::ifstream in(path);
+    std::string content((std::istreambuf_iterator<char>(in)), {});
+    REQUIRE(content == "secret\nnext\n");
+
+    fs::remove_all(root);
+}
+
+TEST_CASE("editor launcher passes hostile filenames as one argv element",
+          "[config][security][editor][alpha2]") {
+#ifdef _WIN32
+    SUCCEED("covered by _spawnlp implementation on Windows");
+#else
+    namespace fs = std::filesystem;
+    auto root = fs::temp_directory_path() /
+                ("bs_editor_argv_" + std::to_string(
+                    std::chrono::steady_clock::now().time_since_epoch().count()));
+    fs::create_directories(root);
+    auto script = root / "editor";
+    auto captured = root / "captured";
+    auto injected = root / "injected";
+    const std::string script_body =
+        "#!/bin/sh\nprintf '%s' \"$1\" > \"$BS_CAPTURED\"\n";
+    {
+        std::ofstream out(script);
+        out << script_body;
+    }
+    fs::permissions(script, fs::perms::owner_all,
+                    fs::perm_options::replace);
+    ::setenv("BS_CAPTURED", captured.c_str(), 1);
+
+    const std::string hostile =
+        (root / ("note;touch " + injected.string())).string();
+    REQUIRE(run_editor_process(script.string(), hostile) == 0);
+    std::ifstream in(captured);
+    std::string received((std::istreambuf_iterator<char>(in)), {});
+    REQUIRE(received == hostile);
+    REQUIRE_FALSE(fs::exists(injected));
+
+    ::unsetenv("BS_CAPTURED");
+    fs::remove_all(root);
+#endif
+}
+
+TEST_CASE("structured logger honors configured app home",
+          "[config][isolation][logging][alpha2]") {
+    namespace fs = std::filesystem;
+    auto root = fs::temp_directory_path() /
+                ("bs_log_home_" + std::to_string(
+                    std::chrono::steady_clock::now().time_since_epoch().count()));
+    fs::create_directories(root);
+
+    configure_logger_home(root.string());
+    log_event("alpha2_logger_isolation");
+    REQUIRE(fs::exists(root / "bs-mesh.log"));
+
+    fs::remove_all(root);
+}
+
+TEST_CASE("bounded TCP connect does not exceed its deadline",
+          "[config][network][timeout][alpha2]") {
+#ifdef _WIN32
+    SUCCEED("covered by Windows integration build");
+#else
+    SOCKET fd = socket(AF_INET, SOCK_STREAM, 0);
+    REQUIRE(fd != INVALID_SOCKET);
+    sockaddr_in sa{};
+    sa.sin_family = AF_INET;
+    sa.sin_port = htons(9);
+    REQUIRE(inet_pton(AF_INET, "203.0.113.1", &sa.sin_addr) == 1);
+
+    auto started = std::chrono::steady_clock::now();
+    auto result = connect_socket_with_timeout(
+        fd, reinterpret_cast<sockaddr*>(&sa), sizeof(sa), 100);
+    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - started);
+    REQUIRE_FALSE(result.connected);
+    REQUIRE(elapsed < std::chrono::seconds(1));
+    CLOSESOCK(fd);
+#endif
+}
+
+TEST_CASE("release and mesh Hello share the canonical alpha2 version",
+          "[config][release][version][alpha2]") {
+    REQUIRE(std::string(kBridgeSessionsVersion) == "2.0.5-alpha2");
+
+    namespace fs = std::filesystem;
+    auto root = fs::temp_directory_path() /
+                ("bs_version_" + std::to_string(
+                    std::chrono::steady_clock::now().time_since_epoch().count()));
+    MeshConfig cfg;
+    cfg.node_name = "version-test";
+    MeshController controller(cfg, root.string());
+    REQUIRE(controller.hello_version_for_test() == kBridgeSessionsVersion);
+    fs::remove_all(root);
+}
+
+TEST_CASE("local IPC port supports a strict per-process override",
+          "[config][ipc][multi-instance][alpha2]") {
+    REQUIRE(resolve_mesh_cli_port(nullptr) == 19980);
+    REQUIRE(resolve_mesh_cli_port("") == 19980);
+    REQUIRE(resolve_mesh_cli_port("20081") == 20081);
+    REQUIRE(resolve_mesh_cli_port("0") == 19980);
+    REQUIRE(resolve_mesh_cli_port("65536") == 19980);
+    REQUIRE(resolve_mesh_cli_port("20081junk") == 19980);
+}
+
+TEST_CASE("transfer IPC progress lines are emitted once across recv chunks",
+          "[config][ipc][transfer][alpha2]") {
+    std::string pending;
+    std::vector<std::string> progress;
+    auto emit = [&](const std::string& line) { progress.push_back(line); };
+
+    REQUIRE_FALSE(consume_transfer_ipc_chunk(
+        pending, "PROGRESS phase=send pct=1.0\nPRO", emit).has_value());
+    auto terminal = consume_transfer_ipc_chunk(
+        pending, "GRESS phase=send pct=2.0\nOK sent file.bin\n", emit);
+
+    REQUIRE(progress == std::vector<std::string>{
+        "PROGRESS phase=send pct=1.0",
+        "PROGRESS phase=send pct=2.0"});
+    REQUIRE(terminal == std::optional<std::string>{"OK sent file.bin"});
+    REQUIRE(pending.empty());
+}
+
+TEST_CASE("PowerShell client overrides skip cmd /c so $_ survives",
+          "[config][windows_cmd]") {
+    // powershell is a real exe token → no cmd /c wrap (cmd wrap breaks pipes/$_).
+    const std::string ps_body =
+        "powershell -NoProfile -Command \"1..3 | ForEach-Object { $_ }\"";
+    const auto override_ps =
+        resolve_session_command(MeshConfig{}, "one-shot", ps_body);
+    REQUIRE(override_ps.source == SessionCommandSource::ClientOverride);
+    REQUIRE(command_has_direct_windows_exe_token(ps_body));
+    REQUIRE(is_windows_cli_oneshot_command(ps_body));
+
+    const auto direct = build_windows_command_line(
+        override_ps, "C:\\Windows\\System32\\cmd.exe", true);
+    REQUIRE(direct == ps_body);
+    REQUIRE(direct.find("/c ") == std::string::npos);
+
+    // Builtins still wrap, with doubled quotes if needed.
+    const auto dir_cmd = resolve_session_command(MeshConfig{}, "one-shot", "dir");
+    const auto wrapped = build_windows_command_line(
+        dir_cmd, "C:\\Windows\\System32\\cmd.exe", true);
+    REQUIRE(wrapped ==
+            "\"C:\\Windows\\System32\\cmd.exe\" /d /s /c \"dir\"");
+
+    REQUIRE(escape_for_cmd_slash_c("a\"b\"c") == "a\"\"b\"\"c");
+    REQUIRE(escape_for_cmd_slash_c("noquotes") == "noquotes");
+    REQUIRE(first_windows_cli_token(
+                "powershell -NoProfile -Command x") == "powershell");
+}
+
 TEST_CASE("SSH config expansion yields a BridgeSessions hostname",
           "[config][ssh_alias]") {
     const std::string expanded =
@@ -459,4 +811,54 @@ TEST_CASE("SSH alias imports as a transient BridgeSessions peer",
 
 int main(int argc, char* argv[]) {
     return Catch::Session().run(argc, argv);
+}
+
+TEST_CASE("make_app_paths isolates under custom root", "[config][security][config-dir]") {
+    auto p = make_app_paths("/tmp/bs-isolated-home");
+    REQUIRE(p.root == "/tmp/bs-isolated-home");
+    REQUIRE(p.config == "/tmp/bs-isolated-home/config");
+    REQUIRE(p.received == "/tmp/bs-isolated-home/received");
+    REQUIRE(p.authorized_keys == "/tmp/bs-isolated-home/authorized_keys");
+    REQUIRE(p.key_pem.find("/tmp/bs-isolated-home/") == 0);
+    REQUIRE(resolve_under_app_home("~/.bridgesessions/authorized_keys", p.root) ==
+            p.authorized_keys);
+    REQUIRE(resolve_under_app_home("/abs/other", p.root) == "/abs/other");
+    MeshConfig cfg;
+    apply_app_home_defaults(cfg, p.root);
+    REQUIRE(cfg.authorized_keys_path == p.authorized_keys);
+    REQUIRE(cfg.persistence_path == p.sessions);
+}
+
+TEST_CASE("attacker forged Hello pubkey rejected by verify_outbound",
+          "[config][security][attacker]") {
+    // Victim pin and cert key match; attacker forges Hello with different pubkey.
+    auto r = verify_outbound_peer_identity(
+        "pin_victim_key",
+        "pin_victim_key",
+        "attacker_forged_hello_key",
+        "windows-peer",
+        "windows-peer",
+        true);
+    REQUIRE_FALSE(r.ok);
+    REQUIRE(r.reason.find("Hello") != std::string::npos);
+}
+
+TEST_CASE("attacker MITM cert fails pin check",
+          "[config][security][attacker]") {
+    auto r = verify_outbound_peer_identity(
+        "expected_seed_pin",
+        "mitm_cert_key",
+        "mitm_cert_key",
+        "test-pc1",
+        "test-pc1",
+        true);
+    REQUIRE_FALSE(r.ok);
+    REQUIRE(r.reason.find("pin") != std::string::npos);
+}
+
+TEST_CASE("attacker empty pin refused when require_pin",
+          "[config][security][attacker]") {
+    auto r = verify_outbound_peer_identity(
+        "", "some_cert", "some_cert", "", "x", true);
+    REQUIRE_FALSE(r.ok);
 }

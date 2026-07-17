@@ -390,7 +390,13 @@ TEST_CASE("mesh: gossip exchange transfers peer info", "[mesh][integration]") {
         saddr.sin_family = AF_INET;
         saddr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
         saddr.sin_port = htons(static_cast<u_short>(port));
-        REQUIRE(connect(sfd, reinterpret_cast<sockaddr*>(&saddr), sizeof(saddr)) == 0);
+                REQUIRE(connect(sfd, reinterpret_cast<sockaddr*>(&saddr), sizeof(saddr)) == 0);
+#ifndef _WIN32
+        timeval tv{5, 0};
+        setsockopt(sfd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+        setsockopt(sfd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+#endif
+
 
         NodeTlsConfig ccfg;
         ccfg.cert_file = id_b.cert_file;
@@ -662,8 +668,15 @@ TEST_CASE("MeshController: connect_to_peer establishes TLS connection", "[mesh][
     MeshConfig cfg;
     cfg.node_name = "test-node";
     cfg.listen_port = 29999; // different port from listener
+    // Pin the listener's Ed25519 pubkey (require_seed_pins default true since v2.0.3).
+    PeerEntry seed;
+    seed.name = "server";
+    seed.addr = peer_addr;
+    seed.pubkey_hex = pubkey_hex_from_pem(server_ck.second);
+    cfg.seeds.push_back(seed);
 
-    MeshController mc(cfg);
+    // App home = isolated bs_dir (not $HOME alone).
+    MeshController mc(cfg, bs_dir);
 
     // Now call connect_to_peer
     bool connected = mc.connect_to_peer(peer_addr);

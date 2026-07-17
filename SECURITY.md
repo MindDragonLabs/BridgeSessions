@@ -4,7 +4,8 @@
 
 | Version | Supported |
 |---|---|
-| 2.0.x | ✅ |
+| 2.0.5-alpha2 | ✅ public alpha |
+| 2.0.0–2.0.4 | ❌ superseded |
 | < 2.0 | ❌ |
 
 ## Reporting a vulnerability
@@ -25,8 +26,10 @@ fix and disclosure timeline with you.
 
 ## Scope notes
 
-- The Bridge Panel is bound to the node's VPN address, not localhost, and
-  performs **no authentication of its own** — its security boundary is the
-  mesh/VPN. Do not expose its port to the public internet.
+- BridgePanel defaults to loopback and requires its generated bearer token for
+  every write. VPN/LAN reads may be allowed only through explicit trusted-IP
+  configuration. Do not expose its port to the public internet.
 - ed25519 mutual TLS is the primary authentication mechanism; protect your
-  `~/.bridgesessions/id_ed25519.pem` keypair as you would an SSH key.
+  `~/.bridgesessions/id_ed25519.pem` private key as you would an SSH key.
+- Seed and direct CLI connections require pinned Ed25519 public keys. Do not
+  disable `mesh.require_seed_pins` on untrusted networks.

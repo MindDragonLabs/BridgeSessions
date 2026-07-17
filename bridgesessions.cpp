@@ -52,6 +52,8 @@
 #include <functional>
 #ifdef _WIN32
 #include <windows.h>
+#include <fcntl.h>
+#include <process.h>
 #endif
 #include <zstd.h>
 #include <openssl/evp.h>
@@ -98,6 +100,11 @@
 // ────────────────────────────────────────────────────────────────────
 
 namespace bs::mesh {
+
+#ifndef BS_VERSION
+#define BS_VERSION "0.0.0-dev"
+#endif
+inline constexpr std::string_view kBridgeSessionsVersion = BS_VERSION;
 
 // ────────────────────────────────────────────────────────────────────
 // 0. RING BUFFER (thread-safe circular buffer for PTY scrollback)
@@ -802,7 +809,9 @@ struct Decoder {
     const uint8_t* p = nullptr;
     const uint8_t* end = nullptr;
 
-    [[nodiscard]] bool ok(size_t need) const { return p + need <= end; }
+    bool ok(size_t need = 0) const {
+        return p <= end && need <= static_cast<size_t>(end - p);
+    }
 
     void ensure(size_t need) {
         if (!ok(need)) throw std::runtime_error("frame truncated");
@@ -862,6 +871,189 @@ std::string sha256_hex(std::string_view data) {
         hex += buf;
     }
     return hex;
+}
+
+// Incremental SHA-256 for large file transfers (no full-file RAM).
+class Sha256Stream {
+public:
+    Sha256Stream() {
+        ctx_ = EVP_MD_CTX_new();
+        if (!ctx_ || EVP_DigestInit_ex(ctx_, EVP_sha256(), nullptr) != 1) {
+            if (ctx_) { EVP_MD_CTX_free(ctx_); ctx_ = nullptr; }
+        }
+    }
+    ~Sha256Stream() {
+        if (ctx_) EVP_MD_CTX_free(ctx_);
+    }
+    Sha256Stream(const Sha256Stream&) = delete;
+    Sha256Stream& operator=(const Sha256Stream&) = delete;
+    bool ok() const { return ctx_ != nullptr; }
+    bool update(const void* data, size_t n) {
+        if (!ctx_ || !data || n == 0) return ctx_ != nullptr;
+        return EVP_DigestUpdate(ctx_, data, n) == 1;
+    }
+    bool update(std::string_view sv) { return update(sv.data(), sv.size()); }
+    bool update(const std::vector<uint8_t>& v) {
+        return update(v.data(), v.size());
+    }
+    std::string final_hex() {
+        if (!ctx_) return {};
+        unsigned char md[EVP_MAX_MD_SIZE];
+        unsigned int len = 0;
+        if (EVP_DigestFinal_ex(ctx_, md, &len) != 1) return {};
+        EVP_MD_CTX_free(ctx_);
+        ctx_ = nullptr;
+        std::string hex;
+        for (unsigned int i = 0; i < len; ++i) {
+            char buf[3];
+            snprintf(buf, sizeof(buf), "%02x", md[i]);
+            hex += buf;
+        }
+        return hex;
+    }
+private:
+    EVP_MD_CTX* ctx_ = nullptr;
+};
+
+// Transfer timeouts: idle stall + size-aware overall (v2.0.5).
+// min ~0.25 MiB/s for ETA budget; floor 5 min; ceiling 2 h.
+[[nodiscard]] inline std::chrono::seconds transfer_overall_timeout(uint64_t bytes) {
+    constexpr uint64_t kMinBps = 256ull * 1024ull; // 0.25 MiB/s
+    uint64_t secs = bytes / kMinBps;
+    if (secs < 300) secs = 300;
+    if (secs > 7200) secs = 7200;
+    return std::chrono::seconds(static_cast<int64_t>(secs));
+}
+constexpr int kTransferIdleTimeoutSec = 120;
+constexpr int kTransferProgressIntervalSec = 10;
+constexpr size_t kTransferChunkRawSize = 48 * 1024;
+
+struct TransferMetadataValidation {
+    bool ok = false;
+    uint32_t expected_chunks = 0;
+    std::string reason;
+};
+
+[[nodiscard]] inline TransferMetadataValidation calculate_transfer_metadata(
+    uint64_t filesize, uint64_t max_bytes) {
+    if (max_bytes > 0 && filesize > max_bytes) {
+        return {false, 0, "file exceeds transfer.max_bytes"};
+    }
+    uint64_t expected = filesize / kTransferChunkRawSize;
+    if (filesize % kTransferChunkRawSize != 0) ++expected;
+    if (expected == 0) expected = 1;  // zero-byte files still carry one empty chunk
+    if (expected > std::numeric_limits<uint32_t>::max()) {
+        return {false, 0, "file requires too many chunks"};
+    }
+    const auto expected_u32 = static_cast<uint32_t>(expected);
+    return {true, expected_u32, {}};
+}
+
+[[nodiscard]] inline TransferMetadataValidation validate_transfer_metadata(
+    uint64_t filesize, uint32_t total_chunks, uint64_t max_bytes) {
+    auto result = calculate_transfer_metadata(filesize, max_bytes);
+    if (!result.ok) return result;
+    const auto expected_u32 = result.expected_chunks;
+    if (total_chunks != expected_u32) {
+        return {false, expected_u32, "declared chunk count does not match file size"};
+    }
+    return result;
+}
+
+struct TransferChunkValidation {
+    bool ok = false;
+    std::string reason;
+};
+
+[[nodiscard]] inline TransferChunkValidation validate_transfer_chunk(
+    uint64_t expected_size,
+    uint64_t received_bytes,
+    uint32_t expected_index,
+    uint32_t expected_total_chunks,
+    uint32_t chunk_index,
+    uint32_t chunk_total_chunks,
+    size_t decompressed_size) {
+    if (chunk_total_chunks != expected_total_chunks) {
+        return {false, "chunk total does not match transfer metadata"};
+    }
+    if (chunk_index != expected_index || chunk_index >= expected_total_chunks) {
+        return {false, "unexpected chunk index"};
+    }
+    if (received_bytes > expected_size) {
+        return {false, "received byte count already exceeds declared size"};
+    }
+    const uint64_t remaining = expected_size - received_bytes;
+    const uint64_t expected_chunk_size =
+        std::min<uint64_t>(remaining, kTransferChunkRawSize);
+    if (decompressed_size != expected_chunk_size) {
+        return {false, "chunk bytes do not match declared file size"};
+    }
+    return {true, {}};
+}
+
+[[nodiscard]] inline std::string format_transfer_progress(
+    const char* phase,
+    const std::string& file,
+    uint32_t chunks_done,
+    uint32_t chunks_total,
+    uint64_t bytes_done,
+    uint64_t bytes_total,
+    double rate_mibs,
+    int eta_sec) {
+    double pct = 0.0;
+    if (bytes_total > 0)
+        pct = 100.0 * static_cast<double>(bytes_done) / static_cast<double>(bytes_total);
+    else if (chunks_total > 0)
+        pct = 100.0 * static_cast<double>(chunks_done) / static_cast<double>(chunks_total);
+    char buf[512];
+    snprintf(buf, sizeof(buf),
+             "PROGRESS phase=%s file=%s chunks=%u/%u bytes=%llu/%llu pct=%.1f rate_mibs=%.2f eta_sec=%d",
+             phase, file.c_str(), chunks_done, chunks_total,
+             static_cast<unsigned long long>(bytes_done),
+             static_cast<unsigned long long>(bytes_total),
+             pct, rate_mibs, eta_sec);
+    return std::string(buf);
+}
+
+[[nodiscard]] inline std::optional<std::string> consume_transfer_ipc_chunk(
+    std::string& pending,
+    std::string_view chunk,
+    const std::function<void(const std::string&)>& emit_progress) {
+    pending.append(chunk);
+    size_t consumed = 0;
+    while (true) {
+        const size_t newline = pending.find('\n', consumed);
+        if (newline == std::string::npos) break;
+        std::string line = pending.substr(consumed, newline - consumed);
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        consumed = newline + 1;
+
+        if (line.rfind("PROGRESS ", 0) == 0) {
+            emit_progress(line);
+            continue;
+        }
+        if (line.rfind("OK ", 0) == 0 || line.rfind("ERROR", 0) == 0) {
+            pending.erase(0, consumed);
+            return line;
+        }
+    }
+    if (consumed > 0) pending.erase(0, consumed);
+    return std::nullopt;
+}
+
+[[nodiscard]] inline std::string sha256_file_stream(const std::string& path) {
+    std::ifstream in(path, std::ios::binary);
+    if (!in) return {};
+    Sha256Stream h;
+    if (!h.ok()) return {};
+    std::array<char, 64 * 1024> buf{};
+    while (in) {
+        in.read(buf.data(), static_cast<std::streamsize>(buf.size()));
+        auto n = in.gcount();
+        if (n > 0 && !h.update(buf.data(), static_cast<size_t>(n))) return {};
+    }
+    if (in.bad() || !in.eof()) return {};
+    return h.final_hex();
 }
 
 std::vector<uint8_t> encode(const Message& msg, uint16_t stream_id) {
@@ -1215,16 +1407,136 @@ std::string pubkey_hex(EVP_PKEY* key) {
 }
 
 std::vector<uint8_t> hex_decode(const std::string& hex) {
+    if ((hex.size() % 2) != 0) return {};
     std::vector<uint8_t> raw;
-    for (size_t i = 0; i + 1 < hex.size(); i += 2) {
-        unsigned int byte = 0;
-        std::stringstream ss;
-        ss << std::hex << hex.substr(i, 2);
-        ss >> byte;
-        raw.push_back(static_cast<uint8_t>(byte));
+    raw.reserve(hex.size() / 2);
+    const auto nibble = [](char c) -> int {
+        if (c >= '0' && c <= '9') return c - '0';
+        if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+        if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+        return -1;
+    };
+    for (size_t i = 0; i < hex.size(); i += 2) {
+        const int hi = nibble(hex[i]);
+        const int lo = nibble(hex[i + 1]);
+        if (hi < 0 || lo < 0) return {};
+        raw.push_back(static_cast<uint8_t>((hi << 4) | lo));
     }
     return raw;
 }
+
+namespace {
+
+bool write_private_text_file_impl(const std::string& path,
+                                  std::string_view content,
+                                  bool append) {
+#ifdef _WIN32
+    const int flags = _O_WRONLY | _O_CREAT | _O_BINARY |
+                      (append ? _O_APPEND : _O_TRUNC);
+    const int fd = _open(path.c_str(), flags, _S_IREAD | _S_IWRITE);
+    if (fd < 0) return false;
+    bool ok = _chmod(path.c_str(), _S_IREAD | _S_IWRITE) == 0;
+    size_t offset = 0;
+    while (ok && offset < content.size()) {
+        const size_t remaining = content.size() - offset;
+        const unsigned int chunk = static_cast<unsigned int>(
+            std::min<size_t>(remaining, 1u << 30));
+        const int written = _write(fd, content.data() + offset, chunk);
+        if (written <= 0) {
+            ok = false;
+            break;
+        }
+        offset += static_cast<size_t>(written);
+    }
+    if (ok && _commit(fd) != 0) ok = false;
+    if (_close(fd) != 0) ok = false;
+    return ok;
+#else
+    const int flags = O_WRONLY | O_CREAT | (append ? O_APPEND : O_TRUNC)
+#ifdef O_CLOEXEC
+                      | O_CLOEXEC
+#endif
+                      ;
+    const int fd = ::open(path.c_str(), flags, S_IRUSR | S_IWUSR);
+    if (fd < 0) return false;
+    bool ok = ::fchmod(fd, S_IRUSR | S_IWUSR) == 0;
+    size_t offset = 0;
+    while (ok && offset < content.size()) {
+        const ssize_t written = ::write(fd, content.data() + offset,
+                                        content.size() - offset);
+        if (written < 0 && errno == EINTR) continue;
+        if (written <= 0) {
+            ok = false;
+            break;
+        }
+        offset += static_cast<size_t>(written);
+    }
+    if (ok && ::fsync(fd) != 0) ok = false;
+    if (::close(fd) != 0) ok = false;
+    return ok;
+#endif
+}
+
+} // anonymous namespace
+
+[[nodiscard]] bool write_private_text_file(const std::string& path,
+                                           std::string_view content) {
+    return write_private_text_file_impl(path, content, false);
+}
+
+[[nodiscard]] bool append_private_text_file(const std::string& path,
+                                            std::string_view content) {
+    return write_private_text_file_impl(path, content, true);
+}
+
+[[nodiscard]] bool ensure_private_directory(const std::string& path) {
+    std::error_code ec;
+    std::filesystem::create_directories(path, ec);
+    if (ec) return false;
+#ifndef _WIN32
+    std::filesystem::permissions(
+        path, std::filesystem::perms::owner_all,
+        std::filesystem::perm_options::replace, ec);
+    if (ec) return false;
+#endif
+    return true;
+}
+
+[[nodiscard]] bool restrict_private_file_permissions(const std::string& path) {
+#ifdef _WIN32
+    return ::_chmod(path.c_str(), _S_IREAD | _S_IWRITE) == 0;
+#else
+    return ::chmod(path.c_str(), S_IRUSR | S_IWUSR) == 0;
+#endif
+}
+
+[[nodiscard]] int run_editor_process(const std::string& editor,
+                                     const std::string& local_path) {
+    if (editor.empty() || local_path.empty()) return -1;
+#ifdef _WIN32
+    const intptr_t result = _spawnlp(_P_WAIT, editor.c_str(), editor.c_str(),
+                                     local_path.c_str(), nullptr);
+    return result < 0 ? -1 : static_cast<int>(result);
+#else
+    const pid_t pid = ::fork();
+    if (pid < 0) return -1;
+    if (pid == 0) {
+        ::execlp(editor.c_str(), editor.c_str(), local_path.c_str(),
+                 static_cast<char*>(nullptr));
+        _exit(127);
+    }
+    int status = 0;
+    while (::waitpid(pid, &status, 0) < 0) {
+        if (errno == EINTR) continue;
+        return -1;
+    }
+    if (WIFEXITED(status)) return WEXITSTATUS(status);
+    if (WIFSIGNALED(status)) return 128 + WTERMSIG(status);
+    return -1;
+#endif
+}
+
+} // anonymous namespace
 
 // ── AuthorizedKeys ────────────────────────────────────────────
 
@@ -1278,6 +1590,8 @@ struct AuthorizedKeys {
 
 // ── Custom cert verify callbacks ──────────────────────────────
 
+namespace {
+
 // Local bytes->hex for verify-callback logging (avoids depending on later helpers).
 inline std::string verify_bytes_hex(const std::vector<uint8_t>& b) {
     static const char* d = "0123456789abcdef";
@@ -1328,6 +1642,26 @@ int client_cert_verify_cb(X509_STORE_CTX* ctx, void* arg) {
     }
     log_event("tls_verify_client", fp + " result=reject");  // R1.2
     return 0;
+}
+
+void free_owned_authorized_keys(void*, void* ptr, CRYPTO_EX_DATA*, int, long, void*) {
+    delete static_cast<AuthorizedKeys*>(ptr);
+}
+
+void free_owned_tofu_callback(void*, void* ptr, CRYPTO_EX_DATA*, int, long, void*) {
+    delete static_cast<std::function<bool(const std::string&)>*>(ptr);
+}
+
+int owned_authorized_keys_index() {
+    static const int index = SSL_CTX_get_ex_new_index(
+        0, nullptr, nullptr, nullptr, free_owned_authorized_keys);
+    return index;
+}
+
+int owned_tofu_callback_index() {
+    static const int index = SSL_CTX_get_ex_new_index(
+        0, nullptr, nullptr, nullptr, free_owned_tofu_callback);
+    return index;
 }
 
 } // anonymous namespace
@@ -1383,78 +1717,53 @@ std::string peer_cert_subject_oneline(SSL* ssl) {
 void bootstrap_identity(const std::string& home_dir) {
     namespace fs = std::filesystem;
     fs::path dir(home_dir);
+    if (!ensure_private_directory(dir.string()))
+        throw std::runtime_error("cannot create private identity directory " + dir.string());
 
     // If the standard identity already exists, nothing to do
     fs::path id_key   = dir / "id_ed25519.pem";
     fs::path id_cert  = dir / "id_ed25519-cert.pem";
     fs::path id_pub   = dir / "id_ed25519.pub";
 
-    if (fs::exists(id_key)) return;
+    if (fs::exists(id_key)) {
+        for (const auto& path : {id_key, id_cert, id_pub}) {
+            if (fs::exists(path) && !restrict_private_file_permissions(path.string()))
+                throw std::runtime_error("cannot restrict permissions on " + path.string());
+        }
+        return;
+    }
 
     // Migration: if legacy _bs_autocert.pem + _bs_autokey.pem exist, copy them
     fs::path legacy_cert = dir / "_bs_autocert.pem";
     fs::path legacy_key  = dir / "_bs_autokey.pem";
 
     if (fs::exists(legacy_cert) && fs::exists(legacy_key)) {
-        fs::copy_file(legacy_cert, id_cert, fs::copy_options::overwrite_existing);
-        fs::copy_file(legacy_key, id_key, fs::copy_options::overwrite_existing);
+        const auto read_text = [](const fs::path& path) {
+            std::ifstream in(path, std::ios::binary);
+            if (!in) throw std::runtime_error("cannot read " + path.string());
+            return std::string(std::istreambuf_iterator<char>(in), {});
+        };
+        const std::string cert_pem = read_text(legacy_cert);
+        const std::string key_pem = read_text(legacy_key);
+        if (!write_private_text_file(id_cert.string(), cert_pem) ||
+            !write_private_text_file(id_key.string(), key_pem))
+            throw std::runtime_error("cannot securely migrate legacy identity");
 
         // Also generate the .pub file from the migrated key
-        std::ifstream kf(id_key);
-        if (kf.is_open()) {
-            std::stringstream buf;
-            buf << kf.rdbuf();
-            kf.close();
-            std::string hex = pubkey_hex_from_pem(buf.str());
-            if (!hex.empty()) {
-                std::ofstream pf(id_pub);
-                pf << hex;
-                pf.close();
-            }
-        }
+        std::string hex = pubkey_hex_from_pem(key_pem);
+        if (hex.empty() || !write_private_text_file(id_pub.string(), hex + "\n"))
+            throw std::runtime_error("cannot securely write migrated public key");
         return;
     }
 
     // Fresh bootstrap: generate keypair
-    fs::create_directories(dir);
-
     auto [cert_pem, key_pem] = generate_cert_key_pair("bridgesessions");
     std::string pubkey_hex = pubkey_hex_from_pem(key_pem);
 
-    // Write key
-    {
-        std::ofstream f(id_key);
-        if (!f) throw std::runtime_error("cannot write " + id_key.string());
-        f << key_pem;
-        f.close();
-    }
-
-    // Write cert
-    {
-        std::ofstream f(id_cert);
-        if (!f) throw std::runtime_error("cannot write " + id_cert.string());
-        f << cert_pem;
-        f.close();
-    }
-
-    // Write pubkey
-    {
-        std::ofstream f(id_pub);
-        if (!f) throw std::runtime_error("cannot write " + id_pub.string());
-        f << pubkey_hex;
-        f.close();
-    }
-
-    // Set file permissions: owner read+write only (0600 equivalent)
-#ifdef _WIN32
-    ::_chmod(id_key.string().c_str(), _S_IREAD | _S_IWRITE);
-    ::_chmod(id_cert.string().c_str(), _S_IREAD | _S_IWRITE);
-    ::_chmod(id_pub.string().c_str(), _S_IREAD | _S_IWRITE);
-#else
-    ::chmod(id_key.string().c_str(), S_IRUSR | S_IWUSR);
-    ::chmod(id_cert.string().c_str(), S_IRUSR | S_IWUSR);
-    ::chmod(id_pub.string().c_str(), S_IRUSR | S_IWUSR);
-#endif
+    if (!write_private_text_file(id_key.string(), key_pem) ||
+        !write_private_text_file(id_cert.string(), cert_pem) ||
+        !write_private_text_file(id_pub.string(), pubkey_hex + "\n"))
+        throw std::runtime_error("cannot securely write generated identity");
 }
 
 // ── Public: unified create_node_tls ──────────────────────────────
@@ -1462,9 +1771,8 @@ void bootstrap_identity(const std::string& home_dir) {
 // auth_storage / tofu_storage: optional caller-owned storage for the
 // cert-verify callback context. When supplied, the context is written there
 // and NOT heap-allocated, so the caller controls its lifetime (must outlive the
-// returned SSL_CTX). When null (e.g. short-lived test contexts), the context is
-// heap-allocated and intentionally leaked for the life of the process — fine for
-// tests, not for the long-running daemon (R8.3).
+// returned SSL_CTX). When null, fallback storage is attached to SSL_CTX ex-data
+// and destroyed automatically with the context.
 
 SslCtxPtr create_node_tls(const NodeTlsConfig& cfg, TlsMode mode,
                           AuthorizedKeys* auth_storage = nullptr,
@@ -1479,10 +1787,13 @@ SslCtxPtr create_node_tls(const NodeTlsConfig& cfg, TlsMode mode,
         if (!ctx) throw std::runtime_error("TLS_client_method failed");
     }
 
-    // TLS 1.2+ for cross-platform OpenSSL/SChannel edge compatibility.
-    // TLS 1.3-only handshakes were observed to stall as SSL_ERROR_WANT_READ
-    // across macOS/Linux/Windows Tailscale paths with self-signed Ed25519 certs.
+    // TLS 1.2+ (prefer 1.3). TLS 1.3-only handshakes stalled as SSL_ERROR_WANT_READ
+    // across macOS/Linux/Windows Tailscale paths with self-signed Ed25519 certs
+    // (fleet RCA). Product docs: TLS 1.2 minimum, TLS 1.3 preferred — not 1.3-only.
     SSL_CTX_set_min_proto_version(ctx.get(), TLS1_2_VERSION);
+#if defined(TLS1_3_VERSION)
+    SSL_CTX_set_max_proto_version(ctx.get(), TLS1_3_VERSION);
+#endif
 
     // Load own certificate + key
     if (!cfg.cert_file.empty()) {
@@ -1503,7 +1814,16 @@ SslCtxPtr create_node_tls(const NodeTlsConfig& cfg, TlsMode mode,
                            nullptr);
 
         AuthorizedKeys* auth = auth_storage;
-        if (!auth) auth = new AuthorizedKeys{};  // test/standalone: leaked for process lifetime
+        std::unique_ptr<AuthorizedKeys> owned_auth;
+        if (!auth) {
+            owned_auth = std::make_unique<AuthorizedKeys>();
+            auth = owned_auth.get();
+            const int index = owned_authorized_keys_index();
+            if (index < 0 || SSL_CTX_set_ex_data(ctx.get(), index, auth) != 1) {
+                throw std::runtime_error("attach authorized_keys callback storage failed");
+            }
+            (void)owned_auth.release();
+        }
         if (!cfg.authorized_keys_file.empty())
             auth->load_from_file(cfg.authorized_keys_file);
         SSL_CTX_set_cert_verify_callback(ctx.get(), server_cert_verify_cb, auth);
@@ -1517,7 +1837,15 @@ SslCtxPtr create_node_tls(const NodeTlsConfig& cfg, TlsMode mode,
 
         std::function<bool(const std::string&)>* cb = tofu_storage;
         if (cb) *cb = cfg.tofu_cb;
-        else cb = new std::function<bool(const std::string&)>(cfg.tofu_cb);  // test/standalone: leaked
+        else {
+            auto owned_cb = std::make_unique<std::function<bool(const std::string&)>>(cfg.tofu_cb);
+            cb = owned_cb.get();
+            const int index = owned_tofu_callback_index();
+            if (index < 0 || SSL_CTX_set_ex_data(ctx.get(), index, cb) != 1) {
+                throw std::runtime_error("attach TOFU callback storage failed");
+            }
+            (void)owned_cb.release();
+        }
         SSL_CTX_set_cert_verify_callback(ctx.get(), client_cert_verify_cb, cb);
     }
 
@@ -2052,6 +2380,10 @@ void Session::reset_restart_failures() {
     return std::wstring(resolved.data(), len);
 }
 
+// Forward decls — full definitions live next to prepare_session_command.
+[[nodiscard]] bool is_windows_cli_oneshot_command(const std::string& command);
+[[nodiscard]] bool command_has_direct_windows_exe_token(const std::string& command);
+
 [[nodiscard]] std::expected<Session, PtyError> create_session(
     const std::string& name, const std::string& command,
     uint16_t cols, uint16_t rows, const std::string& term)
@@ -2060,11 +2392,10 @@ void Session::reset_restart_failures() {
     // only delivers mode CSI to the pipe while command text never arrives
     // before SessionDied (fleet RCA). Plain anonymous pipes capture stdout
     // reliably for health/shell --cmd.
-    const bool oneshot =
-        command.find("/c ") != std::string::npos ||
-        command.find("/C ") != std::string::npos ||
-        command.find("/c\"") != std::string::npos ||
-        command.find("/C\"") != std::string::npos;
+    // v2.0.2: also treat direct powershell/pwsh -Command/-File one-shots as
+    // pipe captures (they no longer go through cmd /c, so /c detection alone
+    // is insufficient).
+    const bool oneshot = is_windows_cli_oneshot_command(command);
     if (oneshot) {
         HANDLE out_r = nullptr, out_w = nullptr, in_r = nullptr, in_w = nullptr;
         SECURITY_ATTRIBUTES sa{sizeof(sa), nullptr, TRUE};
@@ -2405,6 +2736,9 @@ enum class HostPlatform : uint8_t { Windows, MacOS, Posix };
 }
 
 struct MeshConfig {
+    // Runtime provenance only; never serialized. The reload watcher must follow
+    // the file actually loaded by --config rather than assuming root/config.
+    std::string source_path;
     std::string node_name = "unnamed";
     std::string listen_addr = "0.0.0.0";
     uint16_t listen_port = 19949;
@@ -2413,6 +2747,13 @@ struct MeshConfig {
     int reconnect_backoff_max_secs = 30;
     int ping_interval_secs = 5;
     int pong_timeout_secs = 30;
+    // When true (default), outbound seed/discovered dials require pubkey= pin and
+    // post-handshake cert/Hello identity binding. TLS fingerprint TOFU alone is
+    // not sufficient for mesh trust (independent review 2026-07-16 P0-1).
+    bool require_seed_pins = true;
+    // Hard cap on inbound file transfer size (bytes). 0 = unlimited.
+    // Default 8 GiB so 500MB+ agent artifacts work; override with transfer.max_bytes.
+    uint64_t transfer_max_bytes = 8ull * 1024ull * 1024ull * 1024ull;
     std::vector<PeerEntry> seeds;
     std::vector<PeerEntry> discovered;
     std::string authorized_keys_path = "~/.bridgesessions/authorized_keys";
@@ -2564,6 +2905,7 @@ void write_peer_line(std::ostream& os, const std::string& prefix, const PeerEntr
 [[nodiscard]] MeshConfig load_config(const std::string& path) {
     MeshConfig cfg;
     std::string resolved = expand_home(path);
+    cfg.source_path = resolved;
 
     std::ifstream f(resolved);
     if (!f.is_open()) return cfg; // missing file = all defaults
@@ -2617,6 +2959,14 @@ void write_peer_line(std::ostream& os, const std::string& prefix, const PeerEntr
         } else if (key_str == "mesh.pong_timeout_secs") {
             auto v = parse_int(val);
             if (v.has_value()) cfg.pong_timeout_secs = *v;
+        } else if (key_str == "mesh.require_seed_pins") {
+            std::string s(val);
+            for (char& c : s) if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
+            cfg.require_seed_pins = !(s == "false" || s == "0" || s == "no" || s == "off");
+        } else if (key_str == "transfer.max_bytes") {
+            try {
+                cfg.transfer_max_bytes = static_cast<uint64_t>(std::stoull(std::string(val)));
+            } catch (...) {}
         }
         // ── transport.<key> (D15 WebRTC) ─────────────────────
         else if (key_str == "transport.webrtc_enabled") {
@@ -2823,6 +3173,218 @@ void write_peer_line(std::ostream& os, const std::string& prefix, const PeerEntr
     return !expected.empty() && expected == actual;
 }
 
+// ── Outbound peer identity (mesh + direct) ─────────────────────────
+// Independent review 2026-07-16 P0-1: mesh connector must not trust TLS alone.
+struct OutboundPeerVerifyResult {
+    bool ok = false;
+    std::string reason;
+};
+
+[[nodiscard]] const PeerEntry* find_peer_entry_by_addr(const MeshConfig& cfg,
+                                                       const std::string& addr) {
+    for (const auto& peer : cfg.seeds) {
+        if (peer.addr == addr) return &peer;
+    }
+    for (const auto& peer : cfg.discovered) {
+        if (peer.addr == addr) return &peer;
+    }
+    return nullptr;
+}
+
+// Single verification routine for outbound links: pin ↔ cert ↔ Hello.
+// require_pin: when true, empty expected_pubkey is a hard fail.
+[[nodiscard]] OutboundPeerVerifyResult verify_outbound_peer_identity(
+    const std::string& expected_pubkey,
+    const std::string& cert_pubkey,
+    const std::string& hello_pubkey,
+    const std::string& expected_name,
+    const std::string& hello_name,
+    bool require_pin) {
+    if (cert_pubkey.empty()) {
+        return {false, "empty peer certificate public key"};
+    }
+    if (require_pin && expected_pubkey.empty()) {
+        return {false, "no pinned public key (seed/discovered pubkey= required)"};
+    }
+    if (!expected_pubkey.empty() &&
+        !peer_identity_matches(expected_pubkey, cert_pubkey)) {
+        return {false, "certificate public key does not match pin"};
+    }
+    if (hello_pubkey.empty()) {
+        return {false, "empty Hello pubkey"};
+    }
+    if (hello_pubkey != cert_pubkey) {
+        return {false, "Hello pubkey does not match TLS certificate key"};
+    }
+    if (hello_name.empty()) {
+        return {false, "empty Hello node name"};
+    }
+    if (!expected_name.empty() &&
+        !config_peer_name_eq(expected_name, hello_name)) {
+        return {false, "Hello node name does not match expected peer name"};
+    }
+    return {true, {}};
+}
+
+// Inbound links are already authorized by the certificate callback, but the
+// application Hello still has to identify the same key and must not claim a
+// configured name belonging to another key. Otherwise an authorized peer can
+// impersonate a different peer in name-based command routing.
+[[nodiscard]] OutboundPeerVerifyResult verify_inbound_peer_identity(
+    const MeshConfig& cfg,
+    const std::string& cert_pubkey,
+    const std::string& hello_pubkey,
+    const std::string& hello_name) {
+    if (cert_pubkey.empty()) return {false, "empty peer certificate public key"};
+    if (hello_pubkey.empty()) return {false, "empty Hello pubkey"};
+    if (hello_pubkey != cert_pubkey) {
+        return {false, "Hello pubkey does not match TLS certificate key"};
+    }
+    if (hello_name.empty()) return {false, "empty Hello node name"};
+
+    auto check_peer = [&](const PeerEntry& peer) -> std::optional<std::string> {
+        if (!peer.pubkey_hex.empty() && peer.pubkey_hex == cert_pubkey &&
+            !config_peer_name_eq(peer.name, hello_name)) {
+            return "certificate key is configured for a different peer name";
+        }
+        if (!peer.pubkey_hex.empty() &&
+            config_peer_name_eq(peer.name, hello_name) &&
+            peer.pubkey_hex != cert_pubkey) {
+            return "Hello node name is pinned to a different certificate key";
+        }
+        return std::nullopt;
+    };
+    for (const auto& peer : cfg.seeds) {
+        if (auto reason = check_peer(peer)) return {false, *reason};
+    }
+    for (const auto& peer : cfg.discovered) {
+        if (auto reason = check_peer(peer)) return {false, *reason};
+    }
+    return {true, {}};
+}
+
+// ── File transfer path containment (P0-3) ──────────────────────────
+[[nodiscard]] std::optional<std::string> sanitize_transfer_filename(
+    std::string_view name) {
+    if (name.empty() || name.size() > 255) return std::nullopt;
+    // Reject absolute paths / drive letters before basename.
+    if (name[0] == '/' || name[0] == '\\') return std::nullopt;
+    if (name.size() >= 2 && std::isalpha(static_cast<unsigned char>(name[0])) &&
+        name[1] == ':') {
+        return std::nullopt;
+    }
+    std::string s(name);
+    // Basename only (reject if empty after strip).
+    const auto slash = s.find_last_of("/\\");
+    if (slash != std::string::npos) s = s.substr(slash + 1);
+    if (s.empty() || s == "." || s == "..") return std::nullopt;
+    if (s.find('/') != std::string::npos || s.find('\\') != std::string::npos) {
+        return std::nullopt;
+    }
+    for (unsigned char c : s) {
+        if (c < 32 || c == 127) return std::nullopt;
+    }
+    // Windows reserved device names (case-insensitive).
+    std::string upper = s;
+    for (char& c : upper) {
+        if (c >= 'a' && c <= 'z') c = static_cast<char>(c - 'a' + 'A');
+    }
+    static constexpr const char* kReserved[] = {
+        "CON", "PRN", "AUX", "NUL",
+        "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+        "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+    };
+    std::string stem = upper;
+    const auto dot = stem.find('.');
+    if (dot != std::string::npos) stem = stem.substr(0, dot);
+    for (const char* r : kReserved) {
+        if (stem == r) return std::nullopt;
+    }
+    return s;
+}
+
+[[nodiscard]] bool path_is_inside_directory(const std::filesystem::path& candidate,
+                                            const std::filesystem::path& root) {
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    fs::path root_abs = fs::weakly_canonical(root, ec);
+    if (ec) root_abs = fs::absolute(root, ec);
+    if (ec) return false;
+    fs::path cand_abs = fs::weakly_canonical(candidate, ec);
+    if (ec) cand_abs = fs::absolute(candidate, ec);
+    if (ec) return false;
+    auto root_s = root_abs.lexically_normal().string();
+    auto cand_s = cand_abs.lexically_normal().string();
+#ifdef _WIN32
+    for (char& c : root_s) if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
+    for (char& c : cand_s) if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
+    for (char& c : root_s) if (c == '/') c = '\\';
+    for (char& c : cand_s) if (c == '/') c = '\\';
+    const char sep = '\\';
+#else
+    const char sep = '/';
+#endif
+    if (root_s.empty()) return false;
+    if (!root_s.empty() && root_s.back() == sep) {
+        // ok
+    } else {
+        root_s.push_back(sep);
+    }
+    return cand_s == root_s.substr(0, root_s.size() - 1) ||
+           cand_s.rfind(root_s, 0) == 0;
+}
+
+// ── App home isolation (--config-dir) ─────────────────────────────
+// When --config-dir is set, ALL identity/config/receive/state live under that
+// directory (not under $HOME/.bridgesessions). Audit residual R1.
+struct AppPaths {
+    std::string root;
+    std::string config;
+    std::string received;
+    std::string authorized_keys;
+    std::string sessions;
+    std::string key_pem;
+    std::string cert_pem;
+    std::string pub;
+    std::string logs;
+    std::string state;
+};
+
+[[nodiscard]] inline AppPaths make_app_paths(std::string root) {
+    if (root.empty()) root = expand_home("~/.bridgesessions");
+    // Strip trailing slashes
+    while (root.size() > 1 && (root.back() == '/' || root.back() == '\\')) root.pop_back();
+    AppPaths p;
+    p.root = root;
+    p.config = root + "/config";
+    p.received = root + "/received";
+    p.authorized_keys = root + "/authorized_keys";
+    p.sessions = root + "/sessions.json";
+    p.key_pem = root + "/id_ed25519.pem";
+    p.cert_pem = root + "/id_ed25519-cert.pem";
+    p.pub = root + "/id_ed25519.pub";
+    p.logs = root + "/logs";
+    p.state = root + "/state";
+    return p;
+}
+
+// Rewrite legacy ~/.bridgesessions/... defaults into an isolated app root.
+[[nodiscard]] inline std::string resolve_under_app_home(const std::string& path,
+                                                        const std::string& app_root) {
+    if (path.empty()) return path;
+    constexpr std::string_view kLegacy = "~/.bridgesessions";
+    if (path == kLegacy || path.starts_with(std::string(kLegacy) + "/") ||
+        path.starts_with(std::string(kLegacy) + "\\")) {
+        return app_root + path.substr(kLegacy.size());
+    }
+    return expand_home(path);
+}
+
+inline void apply_app_home_defaults(MeshConfig& cfg, const std::string& app_root) {
+    cfg.authorized_keys_path = resolve_under_app_home(cfg.authorized_keys_path, app_root);
+    cfg.persistence_path = resolve_under_app_home(cfg.persistence_path, app_root);
+}
+
 [[nodiscard]] std::string expand_ssh_alias(const std::string& alias) {
     if (alias.empty() || !std::all_of(alias.begin(), alias.end(), [](unsigned char c) {
             return std::isalnum(c) || c == '.' || c == '_' || c == '-';
@@ -2864,27 +3426,124 @@ struct ResolvedSessionCommand {
     SessionCommandSource source = SessionCommandSource::ConfigDefault;
 };
 
+// Escape a payload for cmd.exe `/S /C "..."`.
+// Nested double-quotes must be doubled (`"` → `""`) or cmd terminates the
+// outer `/C` string early. Prefer NOT wrapping PowerShell in cmd at all
+// (see build_windows_command_line) — empirical: even with doubled quotes,
+// `cmd /S /C "powershell -Command ""...| ForEach-Object { $_ }..."""` still
+// breaks pipes so cmd tries to run ForEach-Object as its own command.
+// `$` itself is not special to cmd; quote/pipe destruction makes `$_` look
+// "mistreated". Callers still must protect `$` from *bash* expansion.
+[[nodiscard]] std::string escape_for_cmd_slash_c(const std::string& payload) {
+    std::string out;
+    out.reserve(payload.size() + 8);
+    for (unsigned char ch : payload) {
+        if (ch == '"') {
+            out += "\"\"";
+        } else {
+            out.push_back(static_cast<char>(ch));
+        }
+    }
+    return out;
+}
+
+// First argv token of a Windows command line (quote-aware, best-effort).
+[[nodiscard]] std::string first_windows_cli_token(const std::string& command) {
+    size_t i = 0;
+    while (i < command.size() && (command[i] == ' ' || command[i] == '\t')) ++i;
+    if (i >= command.size()) return {};
+    if (command[i] == '"') {
+        const size_t end = command.find('"', i + 1);
+        if (end == std::string::npos) return command.substr(i + 1);
+        return command.substr(i + 1, end - (i + 1));
+    }
+    const size_t end = command.find_first_of(" \t", i);
+    return command.substr(i, end == std::string::npos ? std::string::npos : end - i);
+}
+
+// Heuristic: command line starts with a real Windows application rather than a
+// cmd builtin (`dir`, `echo`, …). Used to skip cmd /c wrapping so PowerShell
+// scriptblocks with `$_` and pipes survive CreateProcess.
+[[nodiscard]] bool command_has_direct_windows_exe_token(const std::string& command) {
+    std::string token = first_windows_cli_token(command);
+    if (token.empty()) return false;
+    // basename lower
+    size_t slash = token.find_last_of("\\/");
+    std::string base = slash == std::string::npos ? token : token.substr(slash + 1);
+    for (char& c : base) {
+        if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
+    }
+    if (base.size() >= 4 && base.compare(base.size() - 4, 4, ".exe") == 0) {
+        return true;
+    }
+    // bare names that SearchPath resolves with PATHEXT
+    static constexpr const char* kKnown[] = {
+        "powershell", "powershell.exe", "pwsh", "pwsh.exe",
+        "cmd", "cmd.exe", "python", "python.exe", "python3", "python3.exe",
+        "py", "py.exe",
+    };
+    for (const char* k : kKnown) {
+        if (base == k) return true;
+    }
+    return false;
+}
+
+// True for non-interactive client-override launches that must use anonymous
+// pipes (not ConPTY) so --cmd stdout is captured reliably.
+[[nodiscard]] bool is_windows_cli_oneshot_command(const std::string& command) {
+    if (command.find("/c ") != std::string::npos ||
+        command.find("/C ") != std::string::npos ||
+        command.find("/c\"") != std::string::npos ||
+        command.find("/C\"") != std::string::npos) {
+        return true;
+    }
+    std::string lower = command;
+    for (char& c : lower) {
+        if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
+    }
+    const bool is_ps =
+        lower.find("powershell") != std::string::npos ||
+        lower.find("pwsh") != std::string::npos;
+    if (!is_ps) return false;
+    return lower.find("-command") != std::string::npos ||
+           lower.find("-encodedcommand") != std::string::npos ||
+           lower.find("-file") != std::string::npos ||
+           lower.find(" -c ") != std::string::npos ||
+           lower.find(" -c\"") != std::string::npos;
+}
+
 [[nodiscard]] std::string build_windows_command_line(
     const ResolvedSessionCommand& resolved,
     const std::string& comspec,
     bool direct_executable_available = true) {
+    // Named/default profile whose first token is a real application: direct.
     if (resolved.source != SessionCommandSource::ClientOverride &&
         direct_executable_available) {
         return resolved.command;
     }
+    // ClientOverride that is already an executable cmdline (powershell …):
+    // do NOT wrap in cmd /c. Wrapping destroys nested quotes, pipes, and $_.
+    // Empirically even quote-doubling under cmd /S /C still breaks PS pipes.
+    if (resolved.source == SessionCommandSource::ClientOverride &&
+        direct_executable_available &&
+        command_has_direct_windows_exe_token(resolved.command)) {
+        return resolved.command;
+    }
+    // Builtins (`dir`, …) and non-resolvable commands: cmd /c + doubled quotes.
     const std::string shell = comspec.empty() ? "cmd.exe" : comspec;
-    return "\"" + shell + "\" /d /s /c \"" + resolved.command + "\"";
+    return "\"" + shell + "\" /d /s /c \"" +
+           escape_for_cmd_slash_c(resolved.command) + "\"";
 }
 
 [[nodiscard]] std::string prepare_session_command(
     const ResolvedSessionCommand& resolved) {
 #ifdef _WIN32
     const char* comspec = std::getenv("ComSpec");
-    bool direct_executable_available = true;
-    if (resolved.source != SessionCommandSource::ClientOverride) {
-        direct_executable_available = !resolve_windows_application(
-            utf8_to_wide(resolved.command)).empty();
-    }
+    // Always SearchPath the first token — including ClientOverride — so
+    // powershell.exe skips cmd wrapping while `dir` still gets cmd /c.
+    const bool direct_executable_available =
+        !resolve_windows_application(utf8_to_wide(resolved.command)).empty() ||
+        command_has_direct_windows_exe_token(resolved.command);
     return build_windows_command_line(
         resolved, comspec ? comspec : "cmd.exe", direct_executable_available);
 #else
@@ -2930,6 +3589,8 @@ struct ResolvedSessionCommand {
     f << "mesh.reconnect_backoff_max_secs " << cfg.reconnect_backoff_max_secs << "\n";
     f << "mesh.ping_interval_secs " << cfg.ping_interval_secs << "\n";
     f << "mesh.pong_timeout_secs " << cfg.pong_timeout_secs << "\n";
+    f << "mesh.require_seed_pins " << (cfg.require_seed_pins ? "true" : "false") << "\n";
+    f << "transfer.max_bytes " << cfg.transfer_max_bytes << "\n";
     f << "transport.webrtc_enabled " << (cfg.webrtc_enabled ? "true" : "false") << "\n";
     f << "dht.enabled " << (cfg.dht_enabled ? "true" : "false") << "\n";
     f << "upnp.enabled " << (cfg.upnp_enabled ? "true" : "false") << "\n";
@@ -3054,37 +3715,62 @@ inline std::vector<SessionMeta> load_sessions(const std::string& path) {
 // 9. LOGGING — structured JSON logging via spdlog
 // ────────────────────────────────────────────────────────────────────
 
+struct StructuredLoggerState {
+    std::mutex mutex;
+    std::string app_home;
+    std::shared_ptr<spdlog::logger> logger;
+};
+
+inline StructuredLoggerState& structured_logger_state() {
+    static StructuredLoggerState state;
+    return state;
+}
+
+inline void configure_logger_home(const std::string& app_home) {
+    if (app_home.empty()) return;
+    auto& state = structured_logger_state();
+    std::lock_guard lock(state.mutex);
+    if (state.app_home == app_home) return;
+    if (state.logger) state.logger->flush();
+    spdlog::drop("bs-mesh");
+    state.logger.reset();
+    state.app_home = app_home;
+}
+
 // Thread-safe JSON logger
 inline std::shared_ptr<spdlog::logger> get_logger() {
-    static auto logger = []() {
+    auto& state = structured_logger_state();
+    std::lock_guard lock(state.mutex);
+    if (state.logger) return state.logger;
+
+    if (state.app_home.empty()) {
         const char* home = getenv("HOME");
 #ifdef _WIN32
         if (!home) home = getenv("USERPROFILE");
 #endif
-        std::string path = home ? std::string(home) + "/.bridgesessions/bs-mesh.log"
-                                : "/tmp/bs-mesh.log";
-        // Create parent directory if needed
-        namespace fs = std::filesystem;
-        auto parent = fs::path(path).parent_path();
-        std::error_code ec;
-        fs::create_directories(parent, ec);
+        if (!home || !*home)
+            throw std::runtime_error("cannot initialize logger: home directory unavailable");
+        state.app_home = (std::filesystem::path(home) / ".bridgesessions").string();
+    }
+    if (!ensure_private_directory(state.app_home))
+        throw std::runtime_error("cannot initialize logger directory " + state.app_home);
 
-        auto file_sink = std::make_shared<spdlog::sinks::rotating_file_sink_mt>(
-            path, 1'048'576, 3);  // 1 MB, 3 rotated files
-        file_sink->set_pattern("%v");  // raw JSON lines
+    const std::string path =
+        (std::filesystem::path(state.app_home) / "bs-mesh.log").string();
+    auto file_sink = std::make_shared<spdlog::sinks::rotating_file_sink_mt>(
+        path, 1'048'576, 3);  // 1 MB, 3 rotated files
+    file_sink->set_pattern("%v");  // raw JSON lines
 
-        auto l = std::make_shared<spdlog::logger>("bs-mesh", file_sink);
-        l->set_level(spdlog::level::info);
-        l->flush_on(spdlog::level::info);
-        spdlog::register_logger(l);
-        return l;
-    }();
-    return logger;
+    state.logger = std::make_shared<spdlog::logger>("bs-mesh", file_sink);
+    state.logger->set_level(spdlog::level::info);
+    state.logger->flush_on(spdlog::level::info);
+    spdlog::register_logger(state.logger);
+    return state.logger;
 }
 
 // Log a structured event as a single JSON line
 inline void log_event(const std::string& event, const std::string& detail = "") {
-    auto* l = get_logger().get();
+    auto l = get_logger();
     nlohmann::json j;
     j["ts"] = std::to_string(std::chrono::steady_clock::now().time_since_epoch().count());
     j["event"] = event;
@@ -3577,6 +4263,106 @@ inline void set_socket_timeouts(SOCKET fd, int ms) {
 #endif
 }
 
+struct TimedConnectResult {
+    bool connected = false;
+    bool timed_out = false;
+    int error = 0;
+};
+
+[[nodiscard]] inline TimedConnectResult connect_socket_with_timeout(
+    SOCKET fd, const sockaddr* address, socklen_t address_len, int timeout_ms) {
+    TimedConnectResult result;
+    if (fd == INVALID_SOCKET || !address || timeout_ms < 0) {
+        result.error = EINVAL;
+        return result;
+    }
+
+#ifdef _WIN32
+    u_long nonblocking = 1;
+    if (ioctlsocket(fd, FIONBIO, &nonblocking) != 0) {
+        result.error = WSAGetLastError();
+        return result;
+    }
+    const auto restore_blocking = [&]() {
+        u_long blocking = 0;
+        ioctlsocket(fd, FIONBIO, &blocking);
+    };
+#else
+    const int original_flags = fcntl(fd, F_GETFL, 0);
+    if (original_flags < 0 || fcntl(fd, F_SETFL, original_flags | O_NONBLOCK) != 0) {
+        result.error = errno;
+        return result;
+    }
+    const auto restore_blocking = [&]() {
+        fcntl(fd, F_SETFL, original_flags);
+    };
+#endif
+
+    const int connect_result =
+        connect(fd, address, static_cast<int>(address_len));
+    if (connect_result == 0) {
+        restore_blocking();
+        result.connected = true;
+        return result;
+    }
+
+#ifdef _WIN32
+    const int pending_error = WSAGetLastError();
+    if (pending_error != WSAEWOULDBLOCK && pending_error != WSAEINPROGRESS) {
+        restore_blocking();
+        result.error = pending_error;
+        return result;
+    }
+#else
+    if (errno != EINPROGRESS) {
+        result.error = errno;
+        restore_blocking();
+        return result;
+    }
+#endif
+
+    fd_set write_fds;
+    FD_ZERO(&write_fds);
+    FD_SET(fd, &write_fds);
+    timeval timeout{};
+    timeout.tv_sec = timeout_ms / 1000;
+    timeout.tv_usec = (timeout_ms % 1000) * 1000;
+    const int selected =
+        select(static_cast<int>(fd) + 1, nullptr, &write_fds, nullptr, &timeout);
+    if (selected == 0) {
+        result.timed_out = true;
+        result.error = ETIMEDOUT;
+        restore_blocking();
+        return result;
+    }
+    if (selected < 0) {
+#ifdef _WIN32
+        result.error = WSAGetLastError();
+#else
+        result.error = errno;
+#endif
+        restore_blocking();
+        return result;
+    }
+
+    int socket_error = 0;
+    socklen_t error_len = sizeof(socket_error);
+    if (getsockopt(fd, SOL_SOCKET, SO_ERROR,
+                   reinterpret_cast<char*>(&socket_error), &error_len) != 0) {
+#ifdef _WIN32
+        result.error = WSAGetLastError();
+#else
+        result.error = errno;
+#endif
+        restore_blocking();
+        return result;
+    }
+    restore_blocking();
+    result.error = socket_error;
+    result.connected = socket_error == 0;
+    return result;
+}
+
 [[nodiscard]] inline bool socket_peer_half_closed(SOCKET fd) {
     if (fd == INVALID_SOCKET) return true;
 #ifndef _WIN32
@@ -3611,7 +4397,20 @@ constexpr int kAcceptHandshakeTimeoutMs = 2000;
 // This applies only after select() reports frame data; idle healthy links do not
 // enter the blocking read, so the bound can stay below the ping cadence.
 constexpr int kPeerRecvTimeoutMs = 3000;
-constexpr uint16_t kMeshCliPort = 19980;
+constexpr uint16_t kDefaultMeshCliPort = 19980;
+
+[[nodiscard]] inline uint16_t resolve_mesh_cli_port(const char* value) {
+    if (!value || !*value) return kDefaultMeshCliPort;
+    char* end = nullptr;
+    errno = 0;
+    const unsigned long parsed = std::strtoul(value, &end, 10);
+    if (errno != 0 || end == value || *end != '\0' || parsed == 0 || parsed > 65535)
+        return kDefaultMeshCliPort;
+    return static_cast<uint16_t>(parsed);
+}
+
+inline const uint16_t kMeshCliPort =
+    resolve_mesh_cli_port(std::getenv("BRIDGESESSIONS_IPC_PORT"));
 
 // ── Base64 helpers (RFC 4648, no padding) ──────────────────────
 constexpr char kB64[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -4136,6 +4935,18 @@ public:
         DirectSession,
     };
 
+    struct FileReceiveState {
+        std::string filename;
+        std::string path;          // full output path
+        std::string checksum;      // expected SHA-256
+        uint64_t expected_size = 0;
+        uint64_t received_bytes = 0;
+        uint32_t total_chunks = 0;
+        uint32_t received_chunks = 0;
+        std::ofstream file;
+        bool active = false;
+    };
+
     struct Conn {
         std::string peer_name;
         std::string peer_pubkey;
@@ -4168,17 +4979,7 @@ public:
         // if the CLI timed out and the worker thread outlived its caller.
         std::chrono::steady_clock::time_point exec_started_at = {};
         bool close_requested = false;
-    };
-
-    // Incoming file transfer tracking (v1.5, P1)
-    struct FileReceiveState {
-        std::string filename;
-        std::string path;          // full output path
-        std::string checksum;       // expected SHA-256
-        uint32_t total_chunks = 0;
-        uint32_t received_chunks = 0;
-        std::ofstream file;
-        bool active = false;
+        FileReceiveState file_receive;
     };
 
     // Return 0 to drop the older connection (i), 1 to drop the newer one (j).
@@ -4271,8 +5072,6 @@ private:
     static constexpr int kTieBreakAcceptWindowMs = 12000;
     static constexpr int kForcedReconnectDeadlineMs = 20000;
 
-    // Active incoming file transfer (v1.5, P1)
-    FileReceiveState file_recv_state_;
 
     // Shutdown flag for event loop
     std::atomic<bool> running_{false};
@@ -4484,6 +5283,12 @@ private:
             return false;
         }
         c.close_requested = false;
+        if (c.file_receive.active) {
+            c.file_receive.file.close();
+            std::error_code ec;
+            std::filesystem::remove(c.file_receive.path + ".part", ec);
+            c.file_receive.active = false;
+        }
         if (c.attached_session) {
             detach_connection_session(c, has_replacement_transport(c));
         }
@@ -4499,7 +5304,7 @@ private:
     HelloMsg build_hello() const {
         HelloMsg h;
         h.node_name = config_.node_name;
-        h.version = "1.0.0";
+        h.version = kBridgeSessionsVersion;
         h.pubkey_hex = our_pubkey_;
 
         // Add seeds as known peers. Only gossip peers with pubkeys; empty pubkey
@@ -4718,6 +5523,17 @@ private:
             }
             auto& hello = std::get<HelloMsg>(msg);
 
+            // Bind the application identity to the authorized client
+            // certificate and reject configured name/key collisions.
+            const auto identity = verify_inbound_peer_identity(
+                config_, peer_pk, hello.pubkey_hex, hello.node_name);
+            if (!identity.ok) {
+                log_event("hello_identity_rejected",
+                          hello.node_name + " reason=" + identity.reason);
+                ssl_close(ssl.get(), cfd);
+                return;
+            }
+
             Conn c;
             c.peer_name = hello.node_name;
             c.peer_pubkey = peer_pk;
@@ -4766,54 +5582,13 @@ private:
             set_socket_timeouts(sfd, outbound_connect_timeout_ms_);
             { int o = 1; setsockopt(sfd, SOL_SOCKET, SO_REUSEADDR, (const char*)&o, sizeof(o)); }  // R3.6
 
-            // Non-blocking connect with bounded timeout.
-            // On macOS, SO_SNDTIMEO doesn't affect connect(), so a blocking
-            // connect to an unreachable host can stall the event loop for 75+s.
-            // Use non-blocking connect + select() to enforce the timeout on
-            // all platforms.
-#ifdef _WIN32
-            u_long nb_mode = 1;
-            ioctlsocket(sfd, FIONBIO, &nb_mode);
-#else
-            int flags = fcntl(sfd, F_GETFL, 0);
-            fcntl(sfd, F_SETFL, flags | O_NONBLOCK);
-#endif
-            int cr = connect(sfd, reinterpret_cast<sockaddr*>(&sa), sizeof(sa));
-            if (cr == SOCKET_ERROR) {
-#ifdef _WIN32
-                int err = WSAGetLastError();
-                if (err != WSAEWOULDBLOCK && err != WSAEINPROGRESS) {
-#else
-                if (errno != EINPROGRESS) {
-#endif
-                    ssl_close(nullptr, sfd);
-                    return false;
-                }
-                // Wait for connect to complete with timeout
-                fd_set wfds; FD_ZERO(&wfds); FD_SET(sfd, &wfds);
-                timeval tv{};
-                tv.tv_sec = outbound_connect_timeout_ms_ / 1000;
-                tv.tv_usec = (outbound_connect_timeout_ms_ % 1000) * 1000;
-                int sel = select(static_cast<int>(sfd) + 1, nullptr, &wfds, nullptr, &tv);
-                if (sel <= 0) {
-                    ssl_close(nullptr, sfd);
-                    return false;
-                }
-                // Check if connect succeeded
-                int sock_err = 0; socklen_t slen = sizeof(sock_err);
-                getsockopt(sfd, SOL_SOCKET, SO_ERROR, (char*)&sock_err, &slen);
-                if (sock_err != 0) {
-                    ssl_close(nullptr, sfd);
-                    return false;
-                }
+            const auto connect_result = connect_socket_with_timeout(
+                sfd, reinterpret_cast<sockaddr*>(&sa), sizeof(sa),
+                outbound_connect_timeout_ms_);
+            if (!connect_result.connected) {
+                ssl_close(nullptr, sfd);
+                return false;
             }
-            // Restore blocking mode
-#ifdef _WIN32
-            nb_mode = 0;
-            ioctlsocket(sfd, FIONBIO, &nb_mode);
-#else
-            fcntl(sfd, F_SETFL, flags);
-#endif
 
             // TLS handshake (client side)
             auto ssl = SslPtr(SSL_new(tls_connect_.get()));
@@ -4835,9 +5610,16 @@ private:
                 return false;
             }
 
-            // Get peer's pubkey
+            // Get peer's Ed25519 public key from the TLS certificate.
             std::string peer_pk = peer_public_key_hex(ssl.get());
             if (peer_pk.empty()) { ssl_close(ssl.get(), sfd); return false; }
+
+            // Look up configured pin for this dial target (seed/discovered).
+            const PeerEntry* pe = find_peer_entry_by_addr(config_, addr);
+            const std::string expected_pk = pe ? pe->pubkey_hex : std::string{};
+            const std::string expected_name = pe ? pe->name : std::string{};
+            // Seeds always require pins when require_seed_pins; discovered same.
+            const bool require_pin = config_.require_seed_pins;
 
             // Send our Hello
             write_frame(ssl.get(), build_hello(), CONTROL_STREAM_ID);
@@ -4849,6 +5631,17 @@ private:
                 return false;
             }
             auto& hello = std::get<HelloMsg>(msg);
+
+            // P0-1: pin ↔ cert ↔ Hello before merge_peers or trusting the link.
+            auto v = verify_outbound_peer_identity(
+                expected_pk, peer_pk, hello.pubkey_hex,
+                expected_name, hello.node_name, require_pin);
+            if (!v.ok) {
+                log_event("mesh_peer_identity_rejected",
+                          addr + " name=" + hello.node_name + " reason=" + v.reason);
+                ssl_close(ssl.get(), sfd);
+                return false;
+            }
 
             Conn c;
             c.peer_name = hello.node_name;
@@ -4863,7 +5656,7 @@ private:
             // stalls to drop+reconnect instead of a single-threaded loop freeze.
             set_socket_timeouts(sfd, kPeerRecvTimeoutMs);
 
-            // Merge known peers from Hello
+            // Merge known peers from Hello only after identity is verified.
             merge_peers(hello.known_peers);
 
             conns_.push_back(std::move(c));
@@ -4993,68 +5786,84 @@ private:
     // ── P1: File transfer handlers ──────────────────────────────
 
     void handle_file_meta(Conn& c, const FileMetaMsg& m) {
-        // Prepare receive path
+        // Prepare receive path — never trust raw remote filenames (P0-3).
         namespace fs = std::filesystem;
-        fs::create_directories(receive_dir_);
-        std::string out_path = receive_dir_ + "/" + m.filename;
-        std::string part_path = out_path + ".part";
-
-        // Resume support: check if a .part file already exists with matching checksum prefix
-        std::string resume_part_path;
-        uint32_t resume_index = 0;
-        if (fs::exists(part_path)) {
-            auto part_size = fs::file_size(part_path);
-            // If partial file is smaller than total and within 90% of expected size, resume
-            auto expected_total = m.filesize;
-            if (part_size > 0 && static_cast<double>(part_size) / expected_total < 0.90) {
-                resume_part_path = part_path;
-                // Estimate resumed chunks: 48KB raw per chunk
-                size_t kChunkRawSize = 48 * 1024;
-                resume_index = static_cast<uint32_t>(part_size / kChunkRawSize);
-                log_event("file_recv_resume", m.filename + " resuming at chunk " + std::to_string(resume_index));
-            } else {
-                // Stale .part, remove it
-                fs::remove(part_path);
-            }
+        auto safe_name = sanitize_transfer_filename(m.filename);
+        if (!safe_name) {
+            std::string err = "rejected unsafe filename";
+            log_event("file_recv_rejected", m.filename + " reason=unsafe_filename");
+            try { write_frame(c.ssl.get(), FileAckMsg{0, 0, true, err}, CONTROL_STREAM_ID); } catch (...) {}
+            return;
+        }
+        const auto metadata = validate_transfer_metadata(
+            m.filesize, m.total_chunks, config_.transfer_max_bytes);
+        if (!metadata.ok) {
+            const std::string& err = metadata.reason;
+            log_event("file_recv_rejected",
+                      *safe_name + " size=" + std::to_string(m.filesize) +
+                      " chunks=" + std::to_string(m.total_chunks) +
+                      " reason=" + err);
+            try { write_frame(c.ssl.get(), FileAckMsg{0, 0, true, err}, CONTROL_STREAM_ID); } catch (...) {}
+            return;
+        }
+        std::error_code ec;
+        fs::create_directories(receive_dir_, ec);
+        if (ec) {
+            std::string err = "cannot create receive directory";
+            log_event("file_recv_failed", receive_dir_ + " reason=" + ec.message());
+            try { write_frame(c.ssl.get(), FileAckMsg{0, 0, true, err}, CONTROL_STREAM_ID); } catch (...) {}
+            return;
         }
 
+        // Starting a new transfer on the same connection aborts its old partial.
+        auto& state = c.file_receive;
+        if (state.active) {
+            state.file.close();
+            fs::remove(state.path + ".part", ec);
+            state.active = false;
+        }
+
+        std::string out_path = (fs::path(receive_dir_) / *safe_name).string();
+        if (!path_is_inside_directory(out_path, receive_dir_)) {
+            std::string err = "path escapes receive directory";
+            log_event("file_recv_rejected", *safe_name + " reason=path_escape");
+            try { write_frame(c.ssl.get(), FileAckMsg{0, 0, true, err}, CONTROL_STREAM_ID); } catch (...) {}
+            return;
+        }
         int suffix = 1;
-        while (fs::exists(out_path)) {
-            std::string alt = receive_dir_ + "/" + m.filename + "." + std::to_string(suffix);
+        while (fs::exists(out_path) || fs::exists(out_path + ".part")) {
+            std::string alt = (fs::path(receive_dir_) /
+                               (*safe_name + "." + std::to_string(suffix))).string();
+            if (!path_is_inside_directory(alt, receive_dir_)) break;
             out_path = alt;
             ++suffix;
         }
+        const std::string part_path = out_path + ".part";
 
-        file_recv_state_ = FileReceiveState{};
-        file_recv_state_.filename = m.filename;
-        file_recv_state_.path = out_path;
-        file_recv_state_.checksum = m.checksum;
-        file_recv_state_.total_chunks = m.total_chunks;
-        file_recv_state_.received_chunks = resume_index;
-        std::ios_base::openmode mode = std::ios::binary | (resume_index > 0 ? std::ios::app : std::ios::trunc);
-        file_recv_state_.file.open(part_path, mode);
-        file_recv_state_.active = file_recv_state_.file.is_open();
-        if (!file_recv_state_.active) {
+        state = FileReceiveState{};
+        state.filename = *safe_name;
+        state.path = out_path;
+        state.checksum = m.checksum;
+        state.expected_size = m.filesize;
+        state.total_chunks = m.total_chunks;
+        state.file.open(part_path, std::ios::binary | std::ios::trunc);
+        state.active = state.file.is_open();
+        if (!state.active) {
             std::string err = "cannot open " + out_path + ".part";
             log_event("file_recv_failed", err);
             try { write_frame(c.ssl.get(), FileAckMsg{0, 0, true, err}, CONTROL_STREAM_ID); } catch (...) {}
             return;
         }
-        log_event("file_recv_start", m.filename + " -> " + out_path);
+        log_event("file_recv_start", *safe_name + " -> " + out_path);
         // Acknowledge chunk index 0 to start streaming
         try { write_frame(c.ssl.get(), FileAckMsg{0, 0, false, ""}, CONTROL_STREAM_ID); } catch (...) {}
     }
 
     void handle_file_chunk(Conn& c, const FileChunkMsg& m) {
-        if (!file_recv_state_.active) {
+        auto& state = c.file_receive;
+        if (!state.active) {
             log_event("file_chunk_orphan", "no active receive for chunk " + std::to_string(m.chunk_index));
-            return;
-        }
-        if (m.chunk_index != file_recv_state_.received_chunks) {
-            std::string err = "expected chunk " + std::to_string(file_recv_state_.received_chunks)
-                            + " but got " + std::to_string(m.chunk_index);
-            log_event("file_chunk_mismatch", err);
-            try { write_frame(c.ssl.get(), FileAckMsg{file_recv_state_.received_chunks, file_recv_state_.received_chunks, true, err}, CONTROL_STREAM_ID); } catch (...) {}
+            try { write_frame(c.ssl.get(), FileAckMsg{m.chunk_index, 0, true, "no active receive"}, CONTROL_STREAM_ID); } catch (...) {}
             return;
         }
         // Decompress chunk data (zstd)
@@ -5062,39 +5871,64 @@ private:
         if (!m.data.empty()) {
             decompressed = zstd_decompress(std::span<const uint8_t>(m.data.data(), m.data.size()));
         }
-        if (!decompressed.empty()) {
-            file_recv_state_.file.write(reinterpret_cast<const char*>(decompressed.data()),
-                                        static_cast<std::streamsize>(decompressed.size()));
+        const auto chunk_valid = validate_transfer_chunk(
+            state.expected_size, state.received_bytes, state.received_chunks,
+            state.total_chunks, m.chunk_index, m.total_chunks, decompressed.size());
+        if (!chunk_valid.ok) {
+            const std::string err = chunk_valid.reason;
+            log_event("file_chunk_rejected", state.filename + " reason=" + err);
+            state.file.close();
+            std::error_code ec;
+            std::filesystem::remove(state.path + ".part", ec);
+            state.active = false;
+            try { write_frame(c.ssl.get(), FileAckMsg{m.chunk_index, state.received_chunks, true, err}, CONTROL_STREAM_ID); } catch (...) {}
+            return;
         }
-        file_recv_state_.received_chunks = m.chunk_index + 1;
-        if (file_recv_state_.received_chunks >= file_recv_state_.total_chunks) {
-            file_recv_state_.file.close();
-            // Rename .part → final name
+        if (!decompressed.empty()) {
+            state.file.write(reinterpret_cast<const char*>(decompressed.data()),
+                             static_cast<std::streamsize>(decompressed.size()));
+            if (!state.file) {
+                const std::string err = "failed to write receive file";
+                log_event("file_recv_failed", state.filename + " reason=write_error");
+                state.file.close();
+                std::error_code ec;
+                std::filesystem::remove(state.path + ".part", ec);
+                state.active = false;
+                try { write_frame(c.ssl.get(), FileAckMsg{m.chunk_index, state.received_chunks, true, err}, CONTROL_STREAM_ID); } catch (...) {}
+                return;
+            }
+        }
+        state.received_chunks = m.chunk_index + 1;
+        state.received_bytes += decompressed.size();
+        if (state.received_chunks >= state.total_chunks) {
+            state.file.close();
             namespace fs = std::filesystem;
-            std::string final_path = file_recv_state_.path;
-            std::string part_path = final_path + ".part";
-            try { fs::rename(part_path, final_path); } catch (...) {
-                log_event("file_recv_rename_failed", part_path + " -> " + final_path);
+            const std::string final_path = state.path;
+            const std::string part_path = final_path + ".part";
+            const std::string actual = sha256_file_stream(part_path);
+            const bool checksum_ok = !actual.empty() && actual == state.checksum;
+            std::string final_error;
+            if (!checksum_ok) {
+                final_error = "checksum mismatch";
+                std::error_code ec;
+                fs::remove(part_path, ec);
+            } else {
                 std::error_code ec;
                 fs::rename(part_path, final_path, ec);
-            }
-            // Verify checksum
-            bool checksum_ok = true;
-            try {
-                std::ifstream verify_file(final_path, std::ios::binary);
-                if (verify_file) {
-                    std::string content((std::istreambuf_iterator<char>(verify_file)),
-                                        std::istreambuf_iterator<char>());
-                    std::string actual = sha256_hex(content);
-                    checksum_ok = (actual == file_recv_state_.checksum);
+                if (ec) {
+                    final_error = "cannot publish received file";
+                    log_event("file_recv_rename_failed",
+                              part_path + " -> " + final_path + " reason=" + ec.message());
+                    fs::remove(part_path, ec);
                 }
-            } catch (...) { checksum_ok = false; }
-            log_event("file_recv_complete", file_recv_state_.filename
-                       + " " + std::to_string(file_recv_state_.received_chunks) + " chunks"
-                       + (checksum_ok ? " checksum_ok" : " CHECKSUM_MISMATCH"));
-            file_recv_state_.active = false;
+            }
+            const bool complete_ok = final_error.empty();
+            log_event("file_recv_complete", state.filename
+                       + " " + std::to_string(state.received_chunks) + " chunks"
+                       + (complete_ok ? " checksum_ok" : " ERROR=" + final_error));
+            state.active = false;
             // Send final ack
-            try { write_frame(c.ssl.get(), FileAckMsg{m.chunk_index, m.total_chunks, !checksum_ok, checksum_ok ? "" : "checksum mismatch"}, CONTROL_STREAM_ID); } catch (...) {}
+            try { write_frame(c.ssl.get(), FileAckMsg{m.chunk_index, m.total_chunks, !complete_ok, final_error}, CONTROL_STREAM_ID); } catch (...) {}
         } else {
             // Request next chunk
             try { write_frame(c.ssl.get(), FileAckMsg{m.chunk_index, m.chunk_index + 1, false, ""}, CONTROL_STREAM_ID); } catch (...) {}
@@ -5119,17 +5953,16 @@ private:
         }
 
         uint64_t filesize = static_cast<uint64_t>(fs::file_size(local_path));
+        const auto shape = calculate_transfer_metadata(filesize, config_.transfer_max_bytes);
+        if (!shape.ok) {
+            log_event("file_send_error", shape.reason + ": " + local_path);
+            return false;
+        }
         std::string filename = fs::path(local_path).filename().string();
-        std::ifstream infile(local_path, std::ios::binary);
-        if (!infile) { log_event("file_send_error", "cannot open " + local_path); return false; }
-        std::string content((std::istreambuf_iterator<char>(infile)),
-                             std::istreambuf_iterator<char>());
-        std::string checksum = sha256_hex(content);
+        std::string checksum = sha256_file_stream(local_path);
+        if (checksum.empty()) { log_event("file_send_error", "cannot hash " + local_path); return false; }
 
-        const size_t kChunkRawSize = 48 * 1024;
-        size_t total = content.size();
-        uint32_t total_chunks = static_cast<uint32_t>((total + kChunkRawSize - 1) / kChunkRawSize);
-        if (total_chunks == 0) total_chunks = 1;
+        const uint32_t total_chunks = shape.expected_chunks;
 
         FileMetaMsg meta;
         meta.filename = filename; meta.filesize = filesize;
@@ -5140,15 +5973,16 @@ private:
                   << total_chunks << " chunk(s), sha256:" << checksum.substr(0, 12) << "...)\n";
 
         // Fire all chunks without per-chunk ACK wait (must not block inside event loop).
+        std::ifstream infile(local_path, std::ios::binary);
+        if (!infile) { log_event("file_send_error", "cannot open " + local_path); return false; }
+        std::vector<char> raw(kTransferChunkRawSize);
         for (uint32_t ci = 0; ci < total_chunks; ++ci) {
-            size_t offset = static_cast<size_t>(ci) * kChunkRawSize;
-            size_t chunk_sz = std::min(kChunkRawSize, total - offset);
-            std::string raw_chunk = content.substr(offset, chunk_sz);
+            infile.read(raw.data(), static_cast<std::streamsize>(kTransferChunkRawSize));
+            size_t chunk_sz = static_cast<size_t>(infile.gcount());
             std::vector<uint8_t> compressed;
-            if (!raw_chunk.empty()) {
+            if (chunk_sz > 0) {
                 compressed = zstd_compress(
-                    std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(raw_chunk.data()),
-                                             raw_chunk.size()));
+                    std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(raw.data()), chunk_sz));
             }
             FileChunkMsg chunk;
             chunk.chunk_index = ci; chunk.total_chunks = total_chunks;
@@ -5160,8 +5994,13 @@ private:
         return true;
     }
 
-    std::string daemon_file_send_wait(const std::string& peer_name, const std::string& local_path) {
+    std::string daemon_file_send_wait(const std::string& peer_name, const std::string& local_path,
+                                      const std::function<void(const std::string&)>& on_progress = {}) {
         namespace fs = std::filesystem;
+        auto emit = [&](const std::string& line) {
+            if (on_progress) on_progress(line);
+            else std::cerr << line << "\n";
+        };
         if (!fs::exists(local_path) || fs::is_directory(local_path))
             return "ERROR file not found or is a directory: " + local_path;
 
@@ -5185,16 +6024,14 @@ private:
         target->exec_started_at = std::chrono::steady_clock::now();
 
         uint64_t filesize = static_cast<uint64_t>(fs::file_size(local_path));
+        const auto shape = calculate_transfer_metadata(filesize, config_.transfer_max_bytes);
+        if (!shape.ok) return "ERROR " + shape.reason;
         std::string filename = fs::path(local_path).filename().string();
-        std::ifstream infile(local_path, std::ios::binary);
-        if (!infile) return "ERROR cannot open " + local_path;
-        std::string content((std::istreambuf_iterator<char>(infile)), std::istreambuf_iterator<char>());
-        std::string checksum = sha256_hex(content);
+        // Stream hash first (no full-file RAM).
+        std::string checksum = sha256_file_stream(local_path);
+        if (checksum.empty()) return "ERROR cannot hash " + local_path;
 
-        const size_t kChunkRawSize = 48 * 1024;
-        size_t total = content.size();
-        uint32_t total_chunks = static_cast<uint32_t>((total + kChunkRawSize - 1) / kChunkRawSize);
-        if (total_chunks == 0) total_chunks = 1;
+        const uint32_t total_chunks = shape.expected_chunks;
 
         try {
             FileMetaMsg meta;
@@ -5207,8 +6044,13 @@ private:
             return "ERROR send meta: " + std::string(e.what());
         }
 
-        auto wait_ack = [&](uint32_t expected_next, std::chrono::steady_clock::time_point deadline) -> std::string {
-            while (std::chrono::steady_clock::now() < deadline) {
+        auto overall_deadline = std::chrono::steady_clock::now() + transfer_overall_timeout(filesize);
+        auto idle_deadline = std::chrono::steady_clock::now() +
+                             std::chrono::seconds(kTransferIdleTimeoutSec);
+
+        auto wait_ack = [&](uint32_t expected_next) -> std::string {
+            while (std::chrono::steady_clock::now() < overall_deadline &&
+                   std::chrono::steady_clock::now() < idle_deadline) {
                 if (SSL_pending(target->ssl.get()) <= 0) {
                     fd_set rfds; FD_ZERO(&rfds); FD_SET(target->sock_fd, &rfds);
                     timeval tv{2, 0};
@@ -5220,7 +6062,11 @@ private:
                     if (std::holds_alternative<FileAckMsg>(resp)) {
                         auto& ack = std::get<FileAckMsg>(resp);
                         if (ack.error) return "ERROR remote: " + ack.error_msg;
-                        if (ack.next_requested >= expected_next) return "OK";
+                        if (ack.next_requested >= expected_next) {
+                            idle_deadline = std::chrono::steady_clock::now() +
+                                            std::chrono::seconds(kTransferIdleTimeoutSec);
+                            return "OK";
+                        }
                     } else if (std::holds_alternative<PingMsg>(resp)) {
                         write_frame(target->ssl.get(), PongMsg{}, CONTROL_STREAM_ID);
                     }
@@ -5230,22 +6076,28 @@ private:
                     return "ERROR transfer ack failed";
                 }
             }
-            return "ERROR transfer timeout waiting for ack";
+            if (std::chrono::steady_clock::now() >= overall_deadline)
+                return "ERROR transfer overall timeout";
+            return "ERROR transfer idle timeout waiting for ack";
         };
 
-        auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(120);
-        std::string ack = wait_ack(0, deadline);
+        std::string ack = wait_ack(0);
         if (ack.rfind("ERROR", 0) == 0) return ack;
 
+        std::ifstream infile(local_path, std::ios::binary);
+        if (!infile) return "ERROR cannot open " + local_path;
+        auto t0 = std::chrono::steady_clock::now();
+        auto last_progress = t0;
+        uint64_t bytes_sent = 0;
+        std::vector<char> raw(kTransferChunkRawSize);
+
         for (uint32_t ci = 0; ci < total_chunks; ++ci) {
-            size_t offset = static_cast<size_t>(ci) * kChunkRawSize;
-            size_t chunk_sz = std::min(kChunkRawSize, total - offset);
-            std::string raw_chunk = content.substr(offset, chunk_sz);
+            infile.read(raw.data(), static_cast<std::streamsize>(kTransferChunkRawSize));
+            size_t chunk_sz = static_cast<size_t>(infile.gcount());
             std::vector<uint8_t> compressed;
-            if (!raw_chunk.empty()) {
+            if (chunk_sz > 0) {
                 compressed = zstd_compress(
-                    std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(raw_chunk.data()),
-                                             raw_chunk.size()));
+                    std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(raw.data()), chunk_sz));
             }
             FileChunkMsg chunk;
             chunk.chunk_index = ci;
@@ -5253,8 +6105,23 @@ private:
             chunk.data = std::move(compressed);
             try { write_frame(target->ssl.get(), chunk, CONTROL_STREAM_ID); }
             catch (const std::exception& e) { return "ERROR send chunk: " + std::string(e.what()); }
-            ack = wait_ack(ci + 1, deadline);
+            bytes_sent += chunk_sz;
+            ack = wait_ack(ci + 1);
             if (ack.rfind("ERROR", 0) == 0) return ack;
+
+            auto now = std::chrono::steady_clock::now();
+            if (now - last_progress >= std::chrono::seconds(kTransferProgressIntervalSec) ||
+                ci + 1 == total_chunks) {
+                last_progress = now;
+                double elapsed = std::max(0.001, std::chrono::duration<double>(now - t0).count());
+                double rate = (static_cast<double>(bytes_sent) / elapsed) / (1024.0 * 1024.0);
+                int eta = 0;
+                if (rate > 0.001 && filesize > bytes_sent)
+                    eta = static_cast<int>((static_cast<double>(filesize - bytes_sent) /
+                                           (rate * 1024.0 * 1024.0)));
+                emit(format_transfer_progress("send", filename, ci + 1, total_chunks,
+                                              bytes_sent, filesize, rate, eta));
+            }
         }
 
         log_event("file_send_wait_complete", filename + " " + std::to_string(filesize) + " bytes");
@@ -5271,17 +6138,19 @@ private:
             return;
         }
         uint64_t filesize = static_cast<uint64_t>(fs::file_size(m.path));
+        const auto shape = calculate_transfer_metadata(filesize, config_.transfer_max_bytes);
+        if (!shape.ok) {
+            try { write_frame(c.ssl.get(), FileAckMsg{0, 0, true, shape.reason}, CONTROL_STREAM_ID); } catch (...) {}
+            return;
+        }
         std::string filename = fs::path(m.path).filename().string();
-        std::ifstream infile(m.path, std::ios::binary);
-        if (!infile) { log_event("file_request_error", "cannot open " + m.path); return; }
-        std::string content((std::istreambuf_iterator<char>(infile)),
-                             std::istreambuf_iterator<char>());
-        std::string checksum = sha256_hex(content);
-
-        const size_t kChunkRawSize = 48 * 1024;
-        size_t total = content.size();
-        uint32_t total_chunks = static_cast<uint32_t>((total + kChunkRawSize - 1) / kChunkRawSize);
-        if (total_chunks == 0) total_chunks = 1;
+        std::string checksum = sha256_file_stream(m.path);
+        if (checksum.empty()) {
+            log_event("file_request_error", "cannot hash " + m.path);
+            try { write_frame(c.ssl.get(), FileAckMsg{0, 0, true, "cannot hash file"}, CONTROL_STREAM_ID); } catch (...) {}
+            return;
+        }
+        const uint32_t total_chunks = shape.expected_chunks;
 
         FileMetaMsg meta;
         meta.filename = filename; meta.filesize = filesize;
@@ -5289,25 +6158,29 @@ private:
         try { write_frame(c.ssl.get(), meta, CONTROL_STREAM_ID); } catch (...) { return; }
         log_event("file_request_sending", filename + " to " + c.peer_name + " " + std::to_string(total_chunks) + " chunks");
 
-        // Fire all chunks without ACK wait (must not block inside event loop).
+        std::ifstream infile(m.path, std::ios::binary);
+        if (!infile) { log_event("file_request_error", "cannot open " + m.path); return; }
+        std::vector<char> raw(kTransferChunkRawSize);
         for (uint32_t ci = 0; ci < total_chunks; ++ci) {
-            size_t offset = static_cast<size_t>(ci) * kChunkRawSize;
-            size_t chunk_sz = std::min(kChunkRawSize, total - offset);
-            std::string raw_chunk = content.substr(offset, chunk_sz);
+            infile.read(raw.data(), static_cast<std::streamsize>(kTransferChunkRawSize));
+            size_t chunk_sz = static_cast<size_t>(infile.gcount());
             std::vector<uint8_t> compressed;
-            if (!raw_chunk.empty()) {
+            if (chunk_sz > 0) {
                 compressed = zstd_compress(
-                    std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(raw_chunk.data()), raw_chunk.size()));
+                    std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(raw.data()), chunk_sz));
             }
             FileChunkMsg chunk;
             chunk.chunk_index = ci; chunk.total_chunks = total_chunks;
             chunk.data = std::move(compressed);
-            try { write_frame(c.ssl.get(), chunk, CONTROL_STREAM_ID); } catch (...) { return; }
+            try { write_frame(c.ssl.get(), chunk, CONTROL_STREAM_ID); } catch (...) {
+                log_event("file_request_error", "send chunk failed " + std::to_string(ci));
+                return;
+            }
         }
         log_event("file_request_complete", filename + " " + std::to_string(filesize) + " bytes");
     }
 
-    // ── Daemon file recv: send FileRequest to peer (non-blocking, returns immediately)
+    // ── Daemon file recv: send FileRequest to peer    // ── Daemon file recv: send FileRequest to peer (non-blocking, returns immediately)
     std::string daemon_file_recv(const std::string& peer_name, const std::string& remote_path,
                                  const std::string& local_dir = "") {
         log_event("file_recv_request", remote_path + " from " + peer_name);
@@ -5333,8 +6206,13 @@ private:
     }
 
     std::string daemon_file_recv_wait(const std::string& peer_name, const std::string& remote_path,
-                                      const std::string& local_dest) {
+                                      const std::string& local_dest,
+                                      const std::function<void(const std::string&)>& on_progress = {}) {
         namespace fs = std::filesystem;
+        auto emit = [&](const std::string& line) {
+            if (on_progress) on_progress(line);
+            else std::cerr << line << "\n";
+        };
         Conn* target = nullptr;
         for (auto& c : conns_) {
             if (is_live_mesh_transport_for(c, peer_name)) {
@@ -5362,9 +6240,13 @@ private:
             return "ERROR send request: " + std::string(e.what());
         }
 
-        auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(120);
+        // Meta may arrive after peer hashes; allow long idle for first byte of large files.
+        auto overall_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(7200);
+        auto idle_deadline = std::chrono::steady_clock::now() +
+                             std::chrono::seconds(kTransferIdleTimeoutSec);
         std::optional<FileMetaMsg> meta;
-        while (!meta && std::chrono::steady_clock::now() < deadline) {
+        while (!meta && std::chrono::steady_clock::now() < overall_deadline &&
+               std::chrono::steady_clock::now() < idle_deadline) {
             if (SSL_pending(target->ssl.get()) <= 0) {
                 fd_set rfds; FD_ZERO(&rfds); FD_SET(target->sock_fd, &rfds);
                 timeval tv{2, 0};
@@ -5375,6 +6257,8 @@ private:
                 Message resp = read_frame(target->ssl.get());
                 if (std::holds_alternative<FileMetaMsg>(resp)) {
                     meta = std::get<FileMetaMsg>(resp);
+                    idle_deadline = std::chrono::steady_clock::now() +
+                                    std::chrono::seconds(kTransferIdleTimeoutSec);
                 } else if (std::holds_alternative<FileAckMsg>(resp)) {
                     auto& ack = std::get<FileAckMsg>(resp);
                     if (ack.error) return "ERROR remote: " + ack.error_msg;
@@ -5387,22 +6271,51 @@ private:
         }
         if (!meta) return "ERROR transfer timeout waiting for file metadata";
 
+        const auto metadata = validate_transfer_metadata(
+            meta->filesize, meta->total_chunks, config_.transfer_max_bytes);
+        if (!metadata.ok) {
+            try { write_frame(target->ssl.get(), FileAckMsg{0, 0, true, metadata.reason}, CONTROL_STREAM_ID); } catch (...) {}
+            return "ERROR " + metadata.reason;
+        }
+        overall_deadline = std::chrono::steady_clock::now() +
+                           transfer_overall_timeout(meta->filesize);
+
+        auto safe_name = sanitize_transfer_filename(meta->filename);
+        if (!safe_name) return "ERROR rejected unsafe remote filename";
+
         fs::path dest = local_dest.empty() ? fs::path(receive_dir_) : fs::path(local_dest);
         std::string dest_str = dest.string();
         bool dest_is_dir = dest_str.empty() || dest_str.back() == '/' || dest_str.back() == '\\';
         std::error_code ec;
         if (!dest_is_dir && fs::exists(dest, ec) && fs::is_directory(dest, ec)) dest_is_dir = true;
-        if (dest_is_dir) dest /= meta->filename;
+        if (dest_is_dir) dest /= *safe_name;
         if (dest.has_parent_path()) fs::create_directories(dest.parent_path(), ec);
         std::string part_path = dest.string() + ".part";
 
         std::ofstream out(part_path, std::ios::binary | std::ios::trunc);
         if (!out) return "ERROR cannot open " + part_path;
+        struct PartialFileGuard {
+            std::string path;
+            bool committed = false;
+            ~PartialFileGuard() {
+                if (!committed) {
+                    std::error_code ignored;
+                    std::filesystem::remove(path, ignored);
+                }
+            }
+        } partial_guard{part_path};
+
+        Sha256Stream hasher;
+        if (!hasher.ok()) return "ERROR sha256 init failed";
 
         uint32_t chunks_recv = 0;
         uint64_t bytes_recv = 0;
+        auto t0 = std::chrono::steady_clock::now();
+        auto last_progress = t0;
         try { write_frame(target->ssl.get(), FileAckMsg{0, 0, false, ""}, CONTROL_STREAM_ID); } catch (...) {}
-        while (chunks_recv < meta->total_chunks && std::chrono::steady_clock::now() < deadline) {
+        while (chunks_recv < meta->total_chunks &&
+               std::chrono::steady_clock::now() < overall_deadline &&
+               std::chrono::steady_clock::now() < idle_deadline) {
             if (SSL_pending(target->ssl.get()) <= 0) {
                 fd_set rfds; FD_ZERO(&rfds); FD_SET(target->sock_fd, &rfds);
                 timeval tv{2, 0};
@@ -5413,20 +6326,43 @@ private:
                 Message resp = read_frame(target->ssl.get());
                 if (std::holds_alternative<FileChunkMsg>(resp)) {
                     auto& chunk = std::get<FileChunkMsg>(resp);
-                    if (chunk.chunk_index != chunks_recv) {
-                        return "ERROR chunk mismatch expected " + std::to_string(chunks_recv)
-                             + " got " + std::to_string(chunk.chunk_index);
-                    }
                     std::vector<uint8_t> data;
                     if (!chunk.data.empty())
                         data = zstd_decompress(std::span<const uint8_t>(chunk.data.data(), chunk.data.size()));
+                    const auto chunk_valid = validate_transfer_chunk(
+                        meta->filesize, bytes_recv, chunks_recv, meta->total_chunks,
+                        chunk.chunk_index, chunk.total_chunks, data.size());
+                    if (!chunk_valid.ok) {
+                        try { write_frame(target->ssl.get(), FileAckMsg{
+                            chunk.chunk_index, chunks_recv, true, chunk_valid.reason},
+                            CONTROL_STREAM_ID); } catch (...) {}
+                        return "ERROR " + chunk_valid.reason;
+                    }
                     if (!data.empty()) {
                         out.write(reinterpret_cast<const char*>(data.data()),
                                   static_cast<std::streamsize>(data.size()));
+                        if (!out) return "ERROR failed to write receive file";
+                        hasher.update(data);
                         bytes_recv += data.size();
                     }
                     ++chunks_recv;
+                    idle_deadline = std::chrono::steady_clock::now() +
+                                    std::chrono::seconds(kTransferIdleTimeoutSec);
                     write_frame(target->ssl.get(), FileAckMsg{chunk.chunk_index, chunks_recv, false, ""}, CONTROL_STREAM_ID);
+
+                    auto now = std::chrono::steady_clock::now();
+                    if (now - last_progress >= std::chrono::seconds(kTransferProgressIntervalSec) ||
+                        chunks_recv == meta->total_chunks) {
+                        last_progress = now;
+                        double elapsed = std::max(0.001, std::chrono::duration<double>(now - t0).count());
+                        double rate = (static_cast<double>(bytes_recv) / elapsed) / (1024.0 * 1024.0);
+                        int eta = 0;
+                        if (rate > 0.001 && meta->filesize > bytes_recv)
+                            eta = static_cast<int>((static_cast<double>(meta->filesize - bytes_recv) /
+                                                   (rate * 1024.0 * 1024.0)));
+                        emit(format_transfer_progress("recv", *safe_name, chunks_recv, meta->total_chunks,
+                                                      bytes_recv, meta->filesize, rate, eta));
+                    }
                 } else if (std::holds_alternative<FileAckMsg>(resp)) {
                     auto& ack = std::get<FileAckMsg>(resp);
                     if (ack.error) return "ERROR remote: " + ack.error_msg;
@@ -5438,18 +6374,24 @@ private:
             }
         }
         out.close();
-        if (chunks_recv < meta->total_chunks)
-            return "ERROR transfer timeout after " + std::to_string(chunks_recv) + "/" + std::to_string(meta->total_chunks) + " chunks";
+        if (chunks_recv < meta->total_chunks) {
+            if (std::chrono::steady_clock::now() >= overall_deadline)
+                return "ERROR transfer overall timeout after " + std::to_string(chunks_recv) + "/" +
+                       std::to_string(meta->total_chunks) + " chunks";
+            return "ERROR transfer idle timeout after " + std::to_string(chunks_recv) + "/" +
+                   std::to_string(meta->total_chunks) + " chunks";
+        }
 
-        std::ifstream verify(part_path, std::ios::binary);
-        std::string content((std::istreambuf_iterator<char>(verify)), std::istreambuf_iterator<char>());
-        std::string actual = sha256_hex(content);
+        std::string actual = hasher.final_hex();
         if (actual != meta->checksum) {
-            fs::remove(part_path, ec);
             return "ERROR checksum mismatch expected " + meta->checksum + " got " + actual;
+        }
+        if (bytes_recv != meta->filesize) {
+            return "ERROR received byte count does not match metadata";
         }
         fs::rename(part_path, dest, ec);
         if (ec) return "ERROR rename failed: " + ec.message();
+        partial_guard.committed = true;
 
         log_event("file_recv_wait_complete", meta->filename + " -> " + dest.string());
         return "OK received " + dest.string() + " " + std::to_string(bytes_recv) + " bytes sha256:" + actual;
@@ -5648,14 +6590,27 @@ private:
         }
         if (filename.empty()) return "ERROR no FileMeta from " + peer_name;
 
+        auto safe = sanitize_transfer_filename(filename);
+        if (!safe) return "ERROR rejected unsafe remote filename for edit";
+        filename = *safe;
+
+        // filesize may be unknown from incomplete meta parse; use chunk count budget.
+        // Prefer size-aware overall timeout when meta carried filesize (re-read if needed).
         std::string local_path = tmp_dir + "/" + filename;
         std::string part_path = local_path + ".part";
         {
             std::ofstream out_file(part_path, std::ios::binary);
             if (!out_file) return "ERROR cannot open " + part_path;
+            Sha256Stream hasher;
             uint32_t chunks_recv = 0;
-            deadline = std::chrono::steady_clock::now() + std::chrono::seconds(120);
-            while (chunks_recv < total_chunks && std::chrono::steady_clock::now() < deadline) {
+            uint64_t bytes_recv = 0;
+            auto overall = std::chrono::steady_clock::now() + transfer_overall_timeout(
+                static_cast<uint64_t>(total_chunks) * kTransferChunkRawSize);
+            auto idle = std::chrono::steady_clock::now() +
+                        std::chrono::seconds(kTransferIdleTimeoutSec);
+            while (chunks_recv < total_chunks &&
+                   std::chrono::steady_clock::now() < overall &&
+                   std::chrono::steady_clock::now() < idle) {
                 fd_set rfds; FD_ZERO(&rfds); FD_SET(target->sock_fd, &rfds);
                 timeval tv{5, 0};
                 if (select(static_cast<int>(target->sock_fd) + 1, &rfds, nullptr, nullptr, &tv) <= 0) continue;
@@ -5666,15 +6621,31 @@ private:
                         if (chunk.chunk_index == chunks_recv) {
                             std::vector<uint8_t> d;
                             if (!chunk.data.empty()) d = zstd_decompress(std::span<const uint8_t>(chunk.data.data(), chunk.data.size()));
-                            if (!d.empty()) out_file.write(reinterpret_cast<const char*>(d.data()), d.size());
+                            if (!d.empty()) {
+                                out_file.write(reinterpret_cast<const char*>(d.data()),
+                                               static_cast<std::streamsize>(d.size()));
+                                hasher.update(d);
+                                bytes_recv += d.size();
+                            }
                             ++chunks_recv;
+                            idle = std::chrono::steady_clock::now() +
+                                   std::chrono::seconds(kTransferIdleTimeoutSec);
                             try { write_frame(target->ssl.get(), FileAckMsg{chunk.chunk_index, chunks_recv, false, ""}, CONTROL_STREAM_ID); } catch (...) {}
                         }
+                    } else if (std::holds_alternative<PingMsg>(resp)) {
+                        write_frame(target->ssl.get(), PongMsg{}, CONTROL_STREAM_ID);
                     }
                 } catch (...) {}
             }
             out_file.close();
             if (chunks_recv < total_chunks) return "ERROR incomplete " + std::to_string(chunks_recv) + "/" + std::to_string(total_chunks);
+            if (!checksum.empty()) {
+                std::string actual = hasher.final_hex();
+                if (actual != checksum) {
+                    std::error_code ec; fs::remove(part_path, ec);
+                    return "ERROR checksum mismatch";
+                }
+            }
         }
         fs::rename(part_path, local_path);
         log_event("edit_dl_complete", filename + " -> " + local_path);
@@ -6560,6 +7531,11 @@ private:
             // connected to every loop, creating a second connection that resolve_duplicates
             // then tears down — churning forever and starving the event loop.
             if (!s.pubkey_hex.empty() && has_conn_for_pubkey(s.pubkey_hex)) continue;
+            if (config_.require_seed_pins && s.pubkey_hex.empty()) {
+                log_event("mesh_seed_missing_pin",
+                          s.name + " " + s.addr + " (add pubkey= to seed line)");
+                continue;
+            }
             if (conns_.size() >= config_.max_peers) break;
             if (should_defer_outbound_for(s, now)) continue;
 
@@ -6587,6 +7563,7 @@ private:
                 if (d.addr.empty()) continue;
                 if (has_conn_for_addr(d.addr)) continue;
                 if (!d.pubkey_hex.empty() && has_conn_for_pubkey(d.pubkey_hex)) continue;
+                if (config_.require_seed_pins && d.pubkey_hex.empty()) continue;
                 if (conns_.size() >= config_.max_peers) break;
                 if (should_defer_outbound_for(d, now)) continue;
 
@@ -6705,74 +7682,58 @@ private:
         resolve_duplicates();
     }
 
-    // ── Backoff sleep for seeds trying to reconnect ────────────
-
-    void sleep_backoffs() {
-        // Sleep for the minimum backoff among pending seeds
-        int min_sleep = 1000; // default 1 second
-        auto now = std::chrono::steady_clock::now();
-
-        for (auto& [addr, bo] : backoffs_) {
-            if (bo.attempt > 0 && bo.delay_ms < min_sleep) {
-                min_sleep = bo.delay_ms;
-            }
-        }
-
-        // Actually sleep via select timeout in run() loop
-        // This method just returns the suggested sleep
-    }
-
 public:
     // ── Constructor ───────────────────────────────────────────
 
-    MeshController(const MeshConfig& cfg)
+    MeshController(const MeshConfig& cfg, std::string app_home = {},
+                   std::string config_path = {})
         : config_(cfg)
     {
         configure_sigpipe_handling();
-        // Determine home directory
-#ifdef _WIN32
-        const char* home = std::getenv("USERPROFILE");
-#else
-        const char* home = std::getenv("HOME");
-#endif
-        if (home) home_dir_ = home;
+        // app_home is the BridgeSessions root directory (default ~/.bridgesessions).
+        // --config-dir sets this so identity/keys/receive never touch $HOME/.bridgesessions.
+        if (app_home.empty()) {
+            app_home = expand_home("~/.bridgesessions");
+        }
+        while (app_home.size() > 1 && (app_home.back() == '/' || app_home.back() == '\\')) {
+            app_home.pop_back();
+        }
+        home_dir_ = app_home;
+        configure_logger_home(app_home);
+        AppPaths paths = make_app_paths(app_home);
+        apply_app_home_defaults(config_, app_home);
 
-        // Default receive directory
-        receive_dir_ = home_dir_ + "/.bridgesessions/received";
+        receive_dir_ = paths.received;
+        bootstrap_identity(paths.root);
 
-        // Bootstrap identity if needed
-        std::string bs_dir = home_dir_ + "/.bridgesessions";
-        bootstrap_identity(bs_dir);
-
-        // Read our pubkey
-        std::string pub_path = bs_dir + "/id_ed25519.pub";
+        std::string pub_path = paths.pub;
         std::ifstream pf(pub_path);
         if (pf.is_open()) {
             std::getline(pf, our_pubkey_);
             pf.close();
         }
 
-        // Read key and cert for TLS
-        std::string key_path = bs_dir + "/id_ed25519.pem";
-        std::string cert_path = bs_dir + "/id_ed25519-cert.pem";
+        std::string key_path = paths.key_pem;
+        std::string cert_path = paths.cert_pem;
 
-        // Create listen TLS context
         NodeTlsConfig listen_cfg;
         listen_cfg.cert_file = cert_path;
         listen_cfg.key_file = key_path;
-        listen_cfg.authorized_keys_file = expand_home(config_.authorized_keys_path);
+        listen_cfg.authorized_keys_file = resolve_under_app_home(config_.authorized_keys_path, app_home);
         tls_listen_ = create_node_tls(listen_cfg, TlsMode::Listen, &authorized_keys_);
 
-        // Create connect TLS context with TOFU callback
         NodeTlsConfig connect_cfg;
         connect_cfg.cert_file = cert_path;
         connect_cfg.key_file = key_path;
-        connect_cfg.tofu_cb = [](const std::string&) { return true; }; // Accept all for now
+        connect_cfg.tofu_cb = [](const std::string& /*fingerprint*/) {
+            return true;
+        };
         tls_connect_ = create_node_tls(connect_cfg, TlsMode::Connect, nullptr, &tofu_cb_);
 
-        // Set persistence path for sessions
-        sessions_.set_persistence_path(expand_home(config_.persistence_path));
-        config_file_path_ = home_dir_ + "/.bridgesessions/config";
+        sessions_.set_persistence_path(resolve_under_app_home(config_.persistence_path, app_home));
+        config_file_path_ = !config_path.empty()
+            ? expand_home(config_path)
+            : (!config_.source_path.empty() ? config_.source_path : paths.config);
 
         // D16: Initialize DHT if enabled
 #ifndef BS_NO_DHT
@@ -6796,6 +7757,20 @@ public:
         }
 #endif
     }
+
+#ifdef BS_TESTING
+    [[nodiscard]] const std::string& config_file_path_for_test() const {
+        return config_file_path_;
+    }
+    [[nodiscard]] std::string hello_version_for_test() const {
+        return build_hello().version;
+    }
+    [[nodiscard]] bool direct_connect_rejects_missing_pin_for_test() {
+        auto result = connect_and_hello("127.0.0.1:1", {});
+        return result.fail == ConnectFailReason::TlsRejected &&
+               result.fail_detail == "peer key not pinned";
+    }
+#endif
 
     // ── Destructor ────────────────────────────────────────────
 
@@ -6928,7 +7903,13 @@ public:
                 } else {
                     std::string peer_name = rest.substr(0, sp);
                     std::string path = b64dec(rest.substr(sp + 1));
-                    response = daemon_file_send_wait(peer_name, path) + "\n";
+                    // Long transfer: lift the 2s IPC socket timeout; stream PROGRESS lines.
+                    set_socket_timeouts(cfd, 7200000);
+                    auto prog = [&](const std::string& pline) {
+                        std::string msg = pline + "\n";
+                        send(cfd, msg.data(), (int)msg.size(), 0);
+                    };
+                    response = daemon_file_send_wait(peer_name, path, prog) + "\n";
                 }
             }
             else if (line.rfind("FILE_RECV ", 0) == 0) {
@@ -6966,7 +7947,12 @@ public:
                     std::string peer_name = rest.substr(0, sp1);
                     std::string path = b64dec(rest.substr(sp1 + 1, sp2 - sp1 - 1));
                     std::string local_dest = b64dec(rest.substr(sp2 + 1));
-                    response = daemon_file_recv_wait(peer_name, path, local_dest) + "\n";
+                    set_socket_timeouts(cfd, 7200000);
+                    auto prog = [&](const std::string& pline) {
+                        std::string msg = pline + "\n";
+                        send(cfd, msg.data(), (int)msg.size(), 0);
+                    };
+                    response = daemon_file_recv_wait(peer_name, path, local_dest, prog) + "\n";
                 }
             }
             else if (line.rfind("SHELL ", 0) == 0) {
@@ -7069,7 +8055,8 @@ public:
         sa.sin_family = AF_INET;
         sa.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
         sa.sin_port = htons(kMeshCliPort);
-        set_socket_timeouts(sfd, wait_ms > 0 ? wait_ms : 120000);
+        int to = wait_for_completion ? std::max(wait_ms, 7200000) : (wait_ms > 0 ? wait_ms : 120000);
+        set_socket_timeouts(sfd, to);
         if (connect(sfd, (sockaddr*)&sa, sizeof(sa)) == SOCKET_ERROR) {
             CLOSESOCK(sfd); return "";
         }
@@ -7077,18 +8064,23 @@ public:
             ? ("FILE_SEND_WAIT_B64 " + peer_name + " " + b64enc(path) + "\n")
             : ("FILE_SEND " + peer_name + " " + path + "\n");
         send(sfd, cmd.data(), (int)cmd.size(), 0);
-        // Read response
-        char buf[4096] = {};
-        int total = 0;
-        while (total < (int)sizeof(buf) - 1) {
-            int n = recv(sfd, buf + total, (int)sizeof(buf) - 1 - total, 0);
-            if (n > 0) { total += n; buf[total] = '\0'; if (strchr(buf, '\n')) break; }
-            else break;
+        std::string pending;
+        char buf[8192];
+        while (true) {
+            int n = recv(sfd, buf, (int)sizeof(buf) - 1, 0);
+            if (n <= 0) break;
+            auto terminal = consume_transfer_ipc_chunk(
+                pending, std::string_view(buf, static_cast<size_t>(n)),
+                [](const std::string& line) { std::cerr << line << "\n"; });
+            if (terminal) {
+                CLOSESOCK(sfd);
+                return *terminal;
+            }
         }
         CLOSESOCK(sfd);
-        std::string line(buf);
-        while (!line.empty() && (line.back() == '\r' || line.back() == '\n')) line.pop_back();
-        return line;
+        while (!pending.empty() && (pending.back() == '\r' || pending.back() == '\n'))
+            pending.pop_back();
+        return pending;
     }
 
     // CLI-side: shell command relay through daemon IPC.
@@ -7197,7 +8189,9 @@ public:
         sa.sin_family = AF_INET;
         sa.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
         sa.sin_port = htons(kMeshCliPort);
-        set_socket_timeouts(sfd, wait_ms > 0 ? wait_ms : 120000);
+        // Large transfers stream PROGRESS lines then final OK/ERROR; allow hours.
+        int to = wait_for_completion ? std::max(wait_ms, 7200000) : (wait_ms > 0 ? wait_ms : 120000);
+        set_socket_timeouts(sfd, to);
         if (connect(sfd, (sockaddr*)&sa, sizeof(sa)) == SOCKET_ERROR) {
             CLOSESOCK(sfd); return "";
         }
@@ -7205,17 +8199,44 @@ public:
             ? ("FILE_RECV_WAIT_B64 " + peer_name + " " + b64enc(path) + " " + b64enc(local_dest) + "\n")
             : ("FILE_RECV_B64 " + peer_name + " " + b64enc(path) + " " + b64enc(local_dest) + "\n");
         send(sfd, cmd.data(), (int)cmd.size(), 0);
-        char buf[4096] = {};
-        int total = 0;
-        while (total < (int)sizeof(buf) - 1) {
-            int n = recv(sfd, buf + total, (int)sizeof(buf) - 1 - total, 0);
-            if (n > 0) { total += n; buf[total] = '\0'; if (strchr(buf, '\n')) break; }
-            else break;
+        std::string acc;
+        char buf[8192];
+        while (true) {
+            int n = recv(sfd, buf, (int)sizeof(buf) - 1, 0);
+            if (n <= 0) break;
+            buf[n] = '\0';
+            acc.append(buf, n);
+            // Stream PROGRESS lines to stderr for AI/operators as they arrive.
+            size_t pos = 0;
+            while (true) {
+                auto nl = acc.find('\n', pos);
+                if (nl == std::string::npos) break;
+                std::string line = acc.substr(pos, nl - pos);
+                pos = nl + 1;
+                if (line.rfind("PROGRESS ", 0) == 0) {
+                    std::cerr << line << "\n";
+                }
+            }
+            // Keep only incomplete trailing line in buffer for PROGRESS scan; full acc kept for final.
+            // Done when we have a non-PROGRESS final line ending with newline after last PROGRESS.
+            // Final response is last complete line that starts with OK or ERROR.
+            size_t last_nl = acc.rfind('\n');
+            if (last_nl != std::string::npos) {
+                // Find last full line
+                size_t start = acc.rfind('\n', last_nl > 0 ? last_nl - 1 : 0);
+                size_t line_start = (start == std::string::npos) ? 0 : start + 1;
+                std::string last = acc.substr(line_start, last_nl - line_start);
+                if (last.rfind("OK ", 0) == 0 || last.rfind("ERROR", 0) == 0) {
+                    CLOSESOCK(sfd);
+                    return last;
+                }
+            }
         }
         CLOSESOCK(sfd);
-        std::string line(buf);
-        while (!line.empty() && (line.back() == '\r' || line.back() == '\n')) line.pop_back();
-        return line;
+        while (!acc.empty() && (acc.back() == '\r' || acc.back() == '\n')) acc.pop_back();
+        auto last_nl = acc.rfind('\n');
+        if (last_nl != std::string::npos) return acc.substr(last_nl + 1);
+        return acc;
     }
 
     // Returns true if another bridgesessions daemon is already running locally
@@ -7583,6 +8604,11 @@ public:
     SslConn connect_and_hello(const std::string& addr,
                               const std::string& expected_pubkey = {}) {
         SslConn out;
+        if (expected_pubkey.empty()) {
+            out.fail = ConnectFailReason::TlsRejected;
+            out.fail_detail = "peer key not pinned";
+            return out;
+        }
         sockaddr_in sa = resolve_addr(addr);
         SOCKET sfd = socket(AF_INET, SOCK_STREAM, 0);
         if (sfd == INVALID_SOCKET) {
@@ -7592,21 +8618,14 @@ public:
         }
         set_socket_timeouts(sfd, outbound_connect_timeout_ms_);
         { int o = 1; setsockopt(sfd, SOL_SOCKET, SO_REUSEADDR, (const char*)&o, sizeof(o)); }  // R3.6
-        if (connect(sfd, (sockaddr*)&sa, sizeof(sa)) == SOCKET_ERROR) {
-            int err =
-#ifdef _WIN32
-                WSAGetLastError();
-#else
-                errno;
-#endif
-            out.fail =
-#ifdef _WIN32
-                (err == WSAETIMEDOUT) ? ConnectFailReason::Timeout :
-#else
-                (err == ETIMEDOUT) ? ConnectFailReason::Timeout :
-#endif
-                ConnectFailReason::Refused;
-            out.fail_detail = "connect errno=" + std::to_string(err);
+        const auto connect_result = connect_socket_with_timeout(
+            sfd, reinterpret_cast<sockaddr*>(&sa), sizeof(sa),
+            outbound_connect_timeout_ms_);
+        if (!connect_result.connected) {
+            out.fail = connect_result.timed_out
+                ? ConnectFailReason::Timeout
+                : ConnectFailReason::Refused;
+            out.fail_detail = "connect errno=" + std::to_string(connect_result.error);
             ssl_close(nullptr, sfd);
             return out;
         }
@@ -8259,14 +9278,13 @@ public:
         std::string editor = "notepad";
         const char* env_editor = std::getenv("EDITOR");
         if (env_editor && *env_editor) editor = env_editor;
-        std::string edit_cmd = editor + " \"" + local_path + "\"";
-        system(edit_cmd.c_str());
+        int ret = run_editor_process(editor, local_path);
+        if (ret != 0) { std::cerr << "editor exited with code " << ret << "\n"; }
 #else
         std::string editor = "vim";
         const char* env_editor = std::getenv("EDITOR");
         if (env_editor && *env_editor) editor = env_editor;
-        std::string edit_cmd = editor + " " + local_path;
-        int ret = system(edit_cmd.c_str());
+        int ret = run_editor_process(editor, local_path);
         if (ret != 0) { std::cerr << "editor exited with code " << ret << "\n"; }
 #endif
 
@@ -8668,10 +9686,12 @@ inline void render_image_to_terminal(const std::string& path_str) {
     auto bytes = read_binary_file(path);
     if (is_gif_magic_alt(bytes)) {
         auto frame = make_image_frame_message(path);
-        render_image_message(frame, STDOUT_FILENO);
+        if (!render_image_message(frame, STDOUT_FILENO))
+            std::cerr << "failed to render image frame\n";
     } else {
         auto img = make_image_data_message(path);
-        render_image_message(img, STDOUT_FILENO);
+        if (!render_image_message(img, STDOUT_FILENO))
+            std::cerr << "failed to render image\n";
     }
 }
 
@@ -8715,12 +9735,14 @@ std::string resolve_home(const std::string& path) {
 }
 
 // ── keygen: generate ed25519 keypair ──────────────────────────────
-int cmd_keygen() {
-    std::string home = resolve_home("~");
-    if (home.empty()) { std::cerr << "HOME/USERPROFILE not set\n"; return 1; }
+int cmd_keygen(const std::string& app_home) {
+    std::string dir = app_home.empty() ? (resolve_home("~") + "/.bridgesessions") : app_home;
+    if (dir.empty()) { std::cerr << "config dir empty / HOME not set\n"; return 1; }
 
-    std::string dir = home + "/.bridgesessions";
-    std::filesystem::create_directories(dir);
+    if (!bs::mesh::ensure_private_directory(dir)) {
+        std::cerr << "cannot create private config directory: " << dir << "\n";
+        return 1;
+    }
 
     auto [cert, key] = bs::mesh::generate_cert_key_pair("bridgesessions");
     auto pubkey = bs::mesh::pubkey_hex_from_pem(key);
@@ -8729,20 +9751,11 @@ int cmd_keygen() {
     std::string cert_path = dir + "/id_ed25519-cert.pem";
     std::string pub_path  = dir + "/id_ed25519.pub";
 
-    // Write key
-    {
-        std::ofstream f(key_path);
-        f << key;
-    }
-    // Write cert
-    {
-        std::ofstream f(cert_path);
-        f << cert;
-    }
-    // Write public key
-    {
-        std::ofstream f(pub_path);
-        f << pubkey << "\n";
+    if (!bs::mesh::write_private_text_file(key_path, key) ||
+        !bs::mesh::write_private_text_file(cert_path, cert) ||
+        !bs::mesh::write_private_text_file(pub_path, pubkey + "\n")) {
+        std::cerr << "cannot securely write generated identity\n";
+        return 1;
     }
 
     std::cout << "Generated ed25519 keypair:\n"
@@ -8787,17 +9800,29 @@ static std::string daemon_simple_ipc(const std::string& cmd, int wait_ms) {
 }
 
 // ── authorize: register a hex-encoded ed25519 public key ──────────
-int cmd_authorize(const char* hex_pubkey) {
+int cmd_authorize(const char* hex_pubkey, const std::string& app_home) {
     if (!hex_pubkey || !*hex_pubkey) {
         std::cerr << "usage: bridgesessions authorize <hex-pubkey>\n";
         return 1;
     }
 
-    std::string home = resolve_home("~");
-    if (home.empty()) { std::cerr << "HOME/USERPROFILE not set\n"; return 1; }
+    std::string normalized(hex_pubkey);
+    const auto decoded = bs::mesh::hex_decode(normalized);
+    if (normalized.size() != 64 || decoded.size() != 32) {
+        std::cerr << "invalid ed25519 public key: expected 64 hexadecimal characters\n";
+        return 1;
+    }
+    for (char& c : normalized) {
+        if (c >= 'A' && c <= 'F') c = static_cast<char>(c - 'A' + 'a');
+    }
 
-    std::string dir = home + "/.bridgesessions";
-    std::filesystem::create_directories(dir);
+    std::string dir = app_home.empty() ? (resolve_home("~") + "/.bridgesessions") : app_home;
+    if (dir.empty()) { std::cerr << "config dir empty / HOME not set\n"; return 1; }
+
+    if (!bs::mesh::ensure_private_directory(dir)) {
+        std::cerr << "cannot create private config directory: " << dir << "\n";
+        return 1;
+    }
     std::string path = dir + "/authorized_keys";
 
     // Check for duplicates
@@ -8805,27 +9830,26 @@ int cmd_authorize(const char* hex_pubkey) {
         std::ifstream existing(path);
         std::string line;
         while (std::getline(existing, line)) {
-            if (line == hex_pubkey) {
-                std::cout << "Key already authorized: " << hex_pubkey << "\n";
+            if (line == normalized) {
+                std::cout << "Key already authorized: " << normalized << "\n";
                 return 0;
             }
         }
     }
 
-    // Append
-    {
-        std::ofstream f(path, std::ios::app);
-        f << hex_pubkey << "\n";
+    if (!bs::mesh::append_private_text_file(path, normalized + "\n")) {
+        std::cerr << "cannot securely update " << path << "\n";
+        return 1;
     }
 
-    std::cout << "Authorized key: " << hex_pubkey << "\n";
+    std::cout << "Authorized key: " << normalized << "\n";
     std::cout << "Written to: " << path << "\n";
     return 0;
 }
 
-int cmd_doctor(const std::string& config_path) {
+int cmd_doctor(const std::string& config_path, const std::string& app_home) {
     namespace fs = std::filesystem;
-    std::string dir = resolve_home("~/.bridgesessions");
+    std::string dir = app_home.empty() ? resolve_home("~/.bridgesessions") : app_home;
     int failures = 0;
     auto pass = [](const std::string& label, const std::string& detail = "") {
         std::cout << "[PASS] " << label;
@@ -8844,7 +9868,7 @@ int cmd_doctor(const std::string& config_path) {
         ++failures;
     };
 
-    std::cout << "bridgesessions doctor v2.0.1\n";
+    std::cout << "bridgesessions doctor v" << bs::mesh::kBridgeSessionsVersion << "\n";
     if (fs::exists(dir) && fs::is_directory(dir)) pass("dir config", dir);
     else fail("dir config", dir);
 
@@ -8889,7 +9913,7 @@ int main(int argc, char** argv) {
 #endif
 
     CLI::App app{"bridgesessions — mesh terminal relay"};
-    app.set_version_flag("--version,-V", "2.0.1");
+    app.set_version_flag("--version,-V", std::string(bs::mesh::kBridgeSessionsVersion));
 
     // Global options
     std::string config_path = "";
@@ -9023,6 +10047,16 @@ int main(int argc, char** argv) {
     if (!config_dir.empty()) { home_dir = config_dir; }
     else { home_dir = resolve_home("~/.bridgesessions"); }
     if (config_path.empty()) { config_path = home_dir + "/config"; }
+    // Ensure isolated app root exists for --config-dir runs
+    {
+        namespace fs = std::filesystem;
+        std::error_code ec;
+        fs::create_directories(home_dir, ec);
+        auto paths = bs::mesh::make_app_paths(home_dir);
+        fs::create_directories(paths.received, ec);
+        fs::create_directories(paths.logs, ec);
+        fs::create_directories(paths.state, ec);
+    }
 
     // Dispatch
     if (!quick_peer.empty()) {
@@ -9037,9 +10071,9 @@ int main(int argc, char** argv) {
                       << ": pair it once with a pinned BridgeSessions pubkey\n";
             return 2;
         }
-        bs::mesh::bootstrap_identity(resolve_home("~/.bridgesessions"));
+        bs::mesh::bootstrap_identity(home_dir);
         auto [cols, rows] = bs::mesh::get_winsize();
-        bs::mesh::MeshController mc(cfg);
+        bs::mesh::MeshController mc(cfg, home_dir);
         return mc.shell_peer(quick_peer, quick_session, {}, cols, rows,
                              "xterm-256color");
     }
@@ -9048,8 +10082,8 @@ int main(int argc, char** argv) {
         // automated commands use daemon IPC and capture a finite result.
         if (!shell_cmd.empty() && !bs::mesh::stdin_is_terminal()) {
             bs::mesh::MeshConfig cfg = bs::mesh::load_config(config_path);
-            bs::mesh::bootstrap_identity(resolve_home("~/.bridgesessions"));
-            bs::mesh::MeshController mc(cfg);
+            bs::mesh::bootstrap_identity(home_dir);
+            bs::mesh::MeshController mc(cfg, home_dir);
             std::string output;
             int ec = mc.daemon_shell_via_ipc(shell_peer, shell_session, shell_cmd, &output);
             if (ec == -1) {
@@ -9074,8 +10108,8 @@ int main(int argc, char** argv) {
         if (shell_cols_opt->count() == 0) shell_cols = detected_cols;
         if (shell_rows_opt->count() == 0) shell_rows = detected_rows;
         bs::mesh::MeshConfig cfg = bs::mesh::load_config(config_path);
-        bs::mesh::bootstrap_identity(resolve_home("~/.bridgesessions"));
-        bs::mesh::MeshController mc(cfg);
+        bs::mesh::bootstrap_identity(home_dir);
+        bs::mesh::MeshController mc(cfg, home_dir);
         return mc.shell_peer(shell_peer, shell_session, shell_cmd, shell_cols, shell_rows, "xterm-256color");
     }
     if (sessions_cmd_app->parsed()) {
@@ -9087,18 +10121,18 @@ int main(int argc, char** argv) {
             }
         }
         bs::mesh::MeshConfig cfg = bs::mesh::load_config(config_path);
-        bs::mesh::MeshController mc(cfg);
+        bs::mesh::MeshController mc(cfg, home_dir);
         mc.list_sessions(sessions_peer, sessions_all);
         return 0;
     }
     if (keygen_cmd_app->parsed()) {
-        return cmd_keygen();
+        return cmd_keygen(home_dir);
     }
     if (auth_cmd_app->parsed()) {
-        return cmd_authorize(auth_pubkey.c_str());
+        return cmd_authorize(auth_pubkey.c_str(), home_dir);
     }
     if (doctor_cmd_app->parsed()) {
-        return cmd_doctor(config_path);
+        return cmd_doctor(config_path, home_dir);
     }
     if (peers_list->parsed()) {
         bs::mesh::MeshConfig cfg = bs::mesh::load_config(config_path);
@@ -9107,7 +10141,7 @@ int main(int argc, char** argv) {
         for (auto& p : cfg.seeds) std::cout << "  [seed] " << p.name << " " << p.addr << std::endl;
         for (auto& p : cfg.discovered) std::cout << "  [discovered] " << p.name << " " << p.addr << std::endl;
         // Show live connection status if daemon is running
-        bs::mesh::MeshController mc(cfg);
+        bs::mesh::MeshController mc(cfg, home_dir);
         mc.show_peers_detail();
         return 0;
     }
@@ -9130,7 +10164,7 @@ int main(int argc, char** argv) {
     if (health_cmd_app->parsed()) {
         bs::mesh::MeshConfig cfg = bs::mesh::load_config(config_path);
         bs::mesh::bootstrap_identity(home_dir);
-        bs::mesh::MeshController mc(cfg);
+        bs::mesh::MeshController mc(cfg, home_dir);
         std::string status;
         bool ok = mc.health_check(health_peer, &status);
         std::cout << health_peer << " " << status << std::endl;
@@ -9155,7 +10189,7 @@ int main(int argc, char** argv) {
     }
     if (stats_cmd_app->parsed()) {
         bs::mesh::MeshConfig cfg = bs::mesh::load_config(config_path);
-        bs::mesh::MeshController mc(cfg);
+        bs::mesh::MeshController mc(cfg, home_dir);
         std::string ipc = daemon_simple_ipc("STATS", 3000);
         if (!ipc.empty() && ipc.rfind("ERROR", 0) != 0) {
             std::cout << ipc << "\n";
@@ -9167,7 +10201,7 @@ int main(int argc, char** argv) {
     if (file_send_app->parsed()) {
         bs::mesh::MeshConfig cfg = bs::mesh::load_config(config_path);
         bs::mesh::bootstrap_identity(home_dir);
-        bs::mesh::MeshController mc(cfg);
+        bs::mesh::MeshController mc(cfg, home_dir);
         std::string result = mc.file_send(file_send_peer, file_send_path, file_send_wait);
         std::cout << result << "\n";
         return result.rfind("ERROR", 0) == 0 ? 1 : 0;
@@ -9175,7 +10209,7 @@ int main(int argc, char** argv) {
     if (file_recv_app->parsed()) {
         bs::mesh::MeshConfig cfg = bs::mesh::load_config(config_path);
         bs::mesh::bootstrap_identity(home_dir);
-        bs::mesh::MeshController mc(cfg);
+        bs::mesh::MeshController mc(cfg, home_dir);
         std::string dest = !file_recv_to.empty() ? file_recv_to : file_recv_local;
         std::string result = mc.file_recv(file_recv_peer, file_recv_remote, dest, file_recv_wait);
         std::cout << result << "\n";
@@ -9184,7 +10218,7 @@ int main(int argc, char** argv) {
     if (edit_cmd_app->parsed()) {
         bs::mesh::MeshConfig cfg = bs::mesh::load_config(config_path);
         bs::mesh::bootstrap_identity(home_dir);
-        bs::mesh::MeshController mc(cfg);
+        bs::mesh::MeshController mc(cfg, home_dir);
         mc.edit_peer(edit_target);
         return 0;
     }
@@ -9260,7 +10294,10 @@ int main(int argc, char** argv) {
         ve.sync_interval_secs = vfolder_interval;
         if (!vfolder_dir.empty()) ve.direction = vfolder_dir;
         cfg.vfolders.push_back(ve);
-        bs::mesh::save_config(config_path, cfg);
+        if (!bs::mesh::save_config(config_path, cfg)) {
+            std::cerr << "failed to write config: " << config_path << "\n";
+            return 1;
+        }
         std::cout << "added vfolder " << vfolder_name << "\n";
         return 0;
     }
@@ -9284,7 +10321,7 @@ int main(int argc, char** argv) {
         freopen("/dev/null", "w", stderr);
     }
 #endif
-    bs::mesh::MeshController mc(cfg);
+    bs::mesh::MeshController mc(cfg, home_dir);
     mc.run();
     return 0;
 }

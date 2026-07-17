@@ -452,3 +452,12 @@ TEST_CASE("AttachMsg round-trip with command field", "[message]") {
         REQUIRE(b.command == long_cmd);
     }
 }
+
+TEST_CASE("Decoder rejects impossible lengths without pointer arithmetic overflow",
+          "[message][codec][security][alpha2]") {
+    std::vector<uint8_t> one{0};
+    Decoder decoder{one.data(), one.data() + one.size()};
+    REQUIRE_FALSE(decoder.ok(std::numeric_limits<size_t>::max()));
+    REQUIRE_THROWS_AS(decoder.bytes_size(std::numeric_limits<size_t>::max()),
+                      std::runtime_error);
+}

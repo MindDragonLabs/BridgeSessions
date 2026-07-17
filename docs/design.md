@@ -8,7 +8,7 @@ One protocol. One binary. One mesh. No SSH. No mosh. No zellij.
 | Property | Choice |
 |---|---|
 | Language | C++23 (gcc 14+ / clang 18+) |
-| Transport | TLS 1.3 over TCP (v1), QUIC via msquic (v2) |
+| Transport | TLS 1.2+ prefer 1.3 over TCP (v1), QUIC via msquic (v2) |
 | Compression | zstd per-frame |
 | Auth | ed25519 mutual TLS + TOFU |
 | Build | CMake 3.25+ (or single-file `build.sh`) |
@@ -21,7 +21,7 @@ One protocol. One binary. One mesh. No SSH. No mosh. No zellij.
    │ bs-client --server=dev  │  │ bs-client --srv=dev │
    │ stdin/stdout relay      │  │                    │
    └───────────┬─────────────┘  └─────────┬──────────┘
-               │  bs:// over TLS 1.3/TCP (port 19949)  │
+               │  bs:// over TLS 1.2+/TCP (port 19949) │
                └──────────────────┬───────────────────┘
                           INTERNET
                ┌──────────────────┼───────────────────┐
@@ -84,7 +84,7 @@ your work.
 ### bs-client (relay agent)
 
 - Loads its ed25519 keypair, resolves the server, dials TCP 19949, performs
-  mutual TLS 1.3, then attaches to a session.
+  mutual TLS 1.2+ (prefer 1.3), then attaches to a session.
 - Reconnects with exponential backoff (100 ms → 5 s); reattaches transparently
   if the server buffered output during the gap.
 - On macOS, bridges the pasteboard (pbcopy/pbpaste) for two-way clipboard.

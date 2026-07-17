@@ -4,11 +4,12 @@ After=network.target
 
 [Service]
 Type=simple
-User=agent
-WorkingDirectory=/home/user/bridgesessions
-ExecStart=/home/user/bridgesessions/bsmesh --config /home/user/.bridgesessions/config
+User=bridgesessions
+Group=bridgesessions
+ExecStart=/usr/local/bin/bridgesessions --config-dir=%h/.bridgesessions --daemon
 Restart=always
 RestartSec=5
+NoNewPrivileges=true
 
 [Install]
 WantedBy=multi-user.target

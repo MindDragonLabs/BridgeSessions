@@ -11,6 +11,8 @@ bridgesessions-v[0-9]*
 # ── Generated files ──────────────────────────────────────────
 compile_commands.json
 .ccls-cache/
+__pycache__/
+*.pyc
 .vs/
 .vscode/
 .idea/
@@ -99,6 +101,9 @@ _test.txt
 *.csv
 *.dat
 build/
+/build-*/
+/.audit/
+/.audit-*.log
 *.o
 *.exe
 test_message
@@ -129,15 +134,11 @@ bridgesession-notes.md
 LOOP_BROKEN.log
 authorized_keys.all
 matrix.sh
-config.test-pc1
-config.test-pc2
-config.test-pc5
-config.test-pc7
-deploy.sh
-deploy_remote.sh
-diag_mac.sh
-diag_nodes.sh
-diag_shadow.ps1
+config.*
+!config.example
+deploy*.sh
+diag*.sh
+diag*.ps1
 bsmesh
 bs-daemon.bat
 match-flow-requirements.md

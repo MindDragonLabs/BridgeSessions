@@ -1,12 +1,12 @@
 # Protocol (`bs://`)
 
-BridgeSessions speaks a single binary-framed protocol over TLS 1.3.
+BridgeSessions speaks a single binary-framed protocol over TLS 1.2+ (prefer 1.3).
 
 ## Design principles
 
 | Principle | Implementation |
 |---|---|
-| Reliable | TLS 1.3 over TCP |
+| Reliable | TLS 1.2+ (prefer 1.3) over TCP |
 | Secure | ed25519 mutual auth, X25519 forward secrecy |
 | Compressed | zstd per-frame (2–8× on terminal output) |
 | Low-latency | `TCP_NODELAY`, keystrokes sent immediately |

@@ -7,13 +7,13 @@ default location). The file is plain key/value, one directive per line.
 
 ```ini
 # ── Mesh identity ──
-mesh.node_name     test-pc1
-mesh.listen        19949
+node.name          node-a
+node.listen        192.168.1.28:19949
 mesh.pong_timeout_secs 30
 mesh.reconnect_backoff_max_secs 30
 
 # ── Bootstrap peers ──
-seed <seed-peer-host>:<port>   # Seed peer to connect to on startup
+seed node-b <seed-peer-host>:<port> pubkey=<64-hex-ed25519-public-key>
 
 # ── Session defaults ──
 # Set this for the server OS: Windows `pwsh.exe -NoLogo`,
@@ -29,11 +29,11 @@ sessions.authorized_keys_path ~/.bridgesessions/authorized_keys
 
 | Directive | Meaning |
 |---|---|
-| `mesh.node_name` | Human-readable name for this node. |
-| `mesh.listen` | TCP port to bind for the mesh (default 19949). |
+| `node.name` | Human-readable name for this node. |
+| `node.listen` | IPv4 address and TCP port to bind for the mesh (default `0.0.0.0:19949`; prefer a VPN address). |
 | `mesh.pong_timeout_secs` | Disconnect if no pong within this window. |
 | `mesh.reconnect_backoff_max_secs` | Ceiling for reconnect backoff. |
-| `seed <host>:<port>` | A bootstrap peer to connect to on startup. Repeatable. |
+| `seed <name> <host>:<port> pubkey=<hex>` | A pinned bootstrap peer. Repeatable. |
 | `sessions.default_shell` | Shell spawned for a session (per-server OS). |
 | `sessions.persistence_path` | Where session metadata is persisted. |
 | `sessions.authorized_keys_path` | File of authorized ed25519 public keys (hex). |
@@ -49,5 +49,18 @@ A session's command resolves in this order (ADR-007):
 
 ## Example config (production-shaped)
 
-See `config.shadow.production.example` in the repository root for a filled-in
+See [`config.example`](../config.example) in the repository root for a sanitized
 template you can copy and adapt.
+
+## Local IPC port
+
+The daemon and CLI use loopback port `19980` by default. For multiple isolated
+instances on one host, set the same override for each daemon and its CLI calls:
+
+```bash
+BRIDGESESSIONS_IPC_PORT=20081 bridgesessions --config-dir /srv/bs-node-a
+BRIDGESESSIONS_IPC_PORT=20081 bridgesessions --config-dir /srv/bs-node-a health node-b
+```
+
+The override must be an integer from 1 through 65535; invalid values fall back
+to `19980`.

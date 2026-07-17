@@ -13,7 +13,7 @@ bs-server - bridgesessions session daemon
 # DESCRIPTION
 
 *bs-server* is the remote session daemon for the bridgesessions system. It runs
-as a single-threaded event loop on a Linux host, listening for TLS 1.3
+as a single-threaded event loop on a Linux host, listening for TLS 1.2+ (prefer 1.3)
 connections on a configurable TCP port (default 9948).
 
 The daemon manages named sessions, each backed by a pseudo-terminal (PTY) that
@@ -29,7 +29,7 @@ Key features:
 
 - *Up to 64 concurrent connections* in a single-threaded *poll()*-based event
   loop.
-- *TLS 1.3* with ed25519 mutual authentication. Client certificates are
+- *TLS 1.2+ (prefer 1.3)* with ed25519 mutual authentication. Client certificates are
   validated against an _authorized_keys_ file.
 - *Per-authorized-client namespaces:* logical session names are user-friendly
   but isolated by client key identity.

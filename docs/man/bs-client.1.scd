@@ -18,10 +18,10 @@ bs-client - bridgesessions terminal relay agent
 *bs-client* is the macOS terminal relay agent for the bridgesessions system. It
 sits between a terminal emulator (such as BridgeSpace.app) and a remote
 *bs-server*(1) daemon, translating stdin/stdout into protocol messages carried
-over a TLS 1.3 connection.
+over a TLS 1.2+ (prefer 1.3) connection.
 
 On startup, *bs-client* resolves the server address, establishes a TCP
-connection, performs a TLS 1.3 handshake with ed25519 mutual authentication,
+connection, performs a TLS 1.2+ handshake (prefer 1.3) with ed25519 mutual authentication,
 and sends an _Attach_ message to join a named session. Once attached, it enters
 a relay loop:
 

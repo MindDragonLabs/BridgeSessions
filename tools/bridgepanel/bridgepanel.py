@@ -25,8 +25,27 @@ from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
 APP = "BridgePanel"
-VERSION = "2.0.0"
-BUILDTAG = "2026.07.16"  # updated per release; see commit/build number in titlebar
+
+
+def release_version() -> str:
+    """Read the repository/package VERSION without maintaining a second copy."""
+    override = os.environ.get("BRIDGEPANEL_VERSION")
+    if override:
+        return override
+    here = Path(__file__).resolve()
+    for parent in (here.parent, *list(here.parents)[:3]):
+        candidate = parent / "VERSION"
+        try:
+            version = candidate.read_text(encoding="utf-8").strip()
+        except OSError:
+            continue
+        if version:
+            return version
+    return "dev"
+
+
+VERSION = release_version()
+BUILDTAG = VERSION
 DEFAULT_BIND = os.environ.get("BRIDGEPANEL_BIND", "127.0.0.1")
 DEFAULT_PORT = int(os.environ.get("BRIDGEPANEL_PORT", "9770"))
 MAX_UPLOAD = 10 * 1024 * 1024  # 10 MB — markdown text is small
@@ -169,6 +188,7 @@ def query_bs_sessions() -> list[dict]:
     Returns a list of {name, state, command} dicts. Returns [] if BS
     is not running or unreachable — panel works without BS.
     """
+    s = None
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         s.settimeout(BS_IPC_TIMEOUT)
@@ -180,9 +200,11 @@ def query_bs_sessions() -> list[dict]:
             if not chunk:
                 break
             raw += chunk
-        s.close()
     except (OSError, socket.timeout):
         return []
+    finally:
+        if s is not None:
+            s.close()
 
     text = raw.decode("utf-8", errors="replace").strip()
     if not text or text == "No sessions.":
@@ -1261,15 +1283,18 @@ class BridgePanelHandler(BaseHTTPRequestHandler):
     def reject(self, status: int, message: str) -> None:
         self.send_bytes(message.encode("utf-8"), "text/plain; charset=utf-8", status)
 
-    def authorized_path(self) -> tuple[str, str] | None:
+    def authorized_path(self, *, require_token: bool = False) -> tuple[str, str] | None:
         parsed = urlparse(self.path)
         parts = parsed.path.split("/")
         trusted_ips = getattr(self.server, "trusted_ips", set())
-        if self.client_address[0] in trusted_ips:
-            if len(parts) >= 2 and secrets.compare_digest(parts[1], self.token):
+        has_token = len(parts) >= 2 and secrets.compare_digest(parts[1], self.token)
+        if self.client_address[0] in trusted_ips and not require_token:
+            # Trusted IP may read without token; optional token strip if present.
+            if has_token:
                 parts = [""] + parts[2:]
             return "/" + "/".join(parts[1:]), parsed.query
-        if len(parts) < 2 or not secrets.compare_digest(parts[1], self.token):
+        # Untrusted IP, or any write: token required.
+        if not has_token:
             return None
         return "/" + "/".join(parts[2:]), parsed.query
 
@@ -1281,7 +1306,7 @@ class BridgePanelHandler(BaseHTTPRequestHandler):
             self.send_json({"ok": True, "service": APP, "version": VERSION})
             return
 
-        auth = self.authorized_path()
+        auth = self.authorized_path(require_token=False)
         if not auth:
             self.reject(HTTPStatus.NOT_FOUND, "Not found")
             return
@@ -1320,7 +1345,8 @@ class BridgePanelHandler(BaseHTTPRequestHandler):
             self.reject(HTTPStatus.NOT_FOUND, "Not found")
 
     def do_POST(self) -> None:
-        auth = self.authorized_path()
+        # Writes always require token — even from trusted IPs (audit P1-4c).
+        auth = self.authorized_path(require_token=True)
         if not auth:
             self.reject(HTTPStatus.NOT_FOUND, "Not found")
             return
@@ -1329,9 +1355,20 @@ class BridgePanelHandler(BaseHTTPRequestHandler):
         if path == "/api/save":
             try:
                 length = int(self.headers.get("Content-Length", "0") or 0)
-                raw_body = self.rfile.read(length)
+            except ValueError:
+                self.reject(HTTPStatus.BAD_REQUEST, "Invalid Content-Length")
+                return
+            if length < 0:
+                self.reject(HTTPStatus.BAD_REQUEST, "Invalid Content-Length")
+                return
+            # Reject oversized bodies BEFORE reading (audit P1-4a).
+            if length > MAX_UPLOAD:
+                self.reject(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, "Content too large")
+                return
+            try:
+                raw_body = self.rfile.read(length) if length else b"{}"
                 body = json.loads(raw_body)
-            except (ValueError, json.JSONDecodeError):
+            except (ValueError, json.JSONDecodeError, OSError):
                 self.reject(HTTPStatus.BAD_REQUEST, "Invalid JSON")
                 return
 

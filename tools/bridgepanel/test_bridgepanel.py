@@ -12,7 +12,7 @@ Run:  python3 -m unittest test_bridgepanel -v
 import importlib.util
 import json
 import os
-import socket
+
 import tempfile
 import threading
 import unittest
@@ -108,6 +108,7 @@ class TestHttpSurface(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         cls.server.shutdown()
+        cls.server.server_close()
         cls.tmp.cleanup()
 
     def _req(self, method, path, body=None):
