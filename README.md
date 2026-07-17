@@ -57,7 +57,8 @@ Install/refresh harness links: `./scripts/install-agent-skill.sh`.
 
 ## Install from binary
 
-Verified `2.0.5-alpha2` release artifacts in `dist/`:
+Current release: **`2.0.5-alpha2`** — assets under `dist/` (and on the forge
+release page when published).
 
 | Platform | Artifact |
 |----------|----------|
@@ -66,15 +67,24 @@ Verified `2.0.5-alpha2` release artifacts in `dist/`:
 | macOS arm64 | `bridgesessions-macos-arm64` |
 | Source | `bridgesessions-2.0.5-alpha2-source.tar.gz` |
 
-Verify with `cd dist && sha256sum -c SHA256SUMS` (see
-[docs/RELEASE-PROVENANCE.md](docs/RELEASE-PROVENANCE.md)).
-
-Place the binary for your OS in `$PATH` and run:
-
 ```bash
+cd dist
+sha256sum -c SHA256SUMS
+# Linux example
+install -m 0755 bridgesessions-linux-x86_64 ~/.local/bin/bridgesessions
+ln -sfn ~/.local/bin/bridgesessions ~/.local/bin/bs
 bridgesessions --version   # → 2.0.5-alpha2
 bridgesessions keygen
 ```
+
+| Platform | Notes |
+|----------|--------|
+| Linux | Dynamic link to system OpenSSL/zstd/fmt/spdlog |
+| Windows | MinGW-static OpenSSL+zstd; place `.exe` on `PATH` |
+| macOS arm64 | Expects Homebrew OpenSSL/zstd/fmt/spdlog under `/opt/homebrew` (or rebuild) |
+
+Provenance and build notes: [docs/RELEASE-PROVENANCE.md](docs/RELEASE-PROVENANCE.md) ·  
+Release notes: [docs/RELEASE-NOTES-2.0.5-alpha2.md](docs/RELEASE-NOTES-2.0.5-alpha2.md)
 
 ## Build from source
 
@@ -85,7 +95,7 @@ cmake --build build --parallel
 ./build/bridgesessions --version  # → 2.0.5-alpha2
 ```
 
-Windows (x86_64) cross-compiles from Linux with MinGW. Full instructions are in
+Or: `./build.sh` on Linux. Windows MinGW and macOS flags:
 [docs/building.md](docs/building.md). Release artifacts must pass
 `scripts/release-checksums.sh`.
 
@@ -111,6 +121,8 @@ sessions.default_shell /bin/bash -l
 ```bash
 # 3. Attach from anywhere
 bridgesessions shell <server> --name hms
+# data-plane health (not IPC-only)
+bridgesessions health <peer>   # → healthy (data-plane ok)
 ```
 
 See [docs/usage.md](docs/usage.md) for the full command reference and
@@ -127,13 +139,19 @@ See [docs/usage.md](docs/usage.md) for the full command reference and
 | [docs/configuration.md](docs/configuration.md) | Config file reference. |
 | [docs/protocol.md](docs/protocol.md) | The `bs://` wire protocol. |
 | [docs/bridge-panel.md](docs/bridge-panel.md) | The Bridge Panel web surface. |
+| [docs/RELEASE-NOTES-2.0.5-alpha2.md](docs/RELEASE-NOTES-2.0.5-alpha2.md) | This release’s forge notes. |
+| [docs/AUDIT-2.0.5-alpha2.md](docs/AUDIT-2.0.5-alpha2.md) | Security/reliability audit for this tag. |
 
 ## Releases
 
-Release candidates are accepted only when their embedded version equals
-[`VERSION`](VERSION), `SHA256SUMS` verifies, and the CycloneDX artifact manifest
-parses. **2.0.5-alpha2** ships Linux x86_64, Windows x86_64, and macOS arm64
-built from this source.
+Release candidates are accepted only when:
+
+1. Embedded version equals [`VERSION`](VERSION)
+2. `sha256sum -c dist/SHA256SUMS` passes
+3. `dist/SBOM-binaries.json` is valid CycloneDX 1.5
+
+**2.0.5-alpha2** ships Linux x86_64, Windows x86_64, and macOS arm64 from this
+source. Prefer the annotated git tag `v2.0.5-alpha2` over floating branch tips.
 
 ## Contributing
 

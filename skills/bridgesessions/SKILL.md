@@ -28,7 +28,7 @@ Portable skill for **Hermes**, **OpenAI Codex**, **Claude Code**, **OpenCode**,
 - One C++ binary: mesh daemon + CLI (`bridgesessions` / `bs`).
 - Replaces ad-hoc SSH + SCP + tmux + WinRM for **agent-native** shells and files.
 - Default mesh port **19949**; CLI IPC **19980** (local).
-- Current public candidate: **v2.0.5-alpha2**.
+- Current public release: **v2.0.5-alpha2**.
 - Public tag may lag; always run `bs --version` / `bridgesessions --version` live.
 
 ## Non-negotiables
@@ -46,7 +46,7 @@ Portable skill for **Hermes**, **OpenAI Codex**, **Claude Code**, **OpenCode**,
 
 ```bash
 export PATH="$HOME/.local/bin:$PATH"
-bs --version                          # expect 2.0.3+ security, 2.0.4+ transfers
+bs --version                          # expect 2.0.5-alpha2
 bs health <peer>                      # must say healthy (data-plane ok)
 bs shell <peer> --cmd '…'             # one-shot; exit code propagates
 bs file send <peer> /local/path --wait
