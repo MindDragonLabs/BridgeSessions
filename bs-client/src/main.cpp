@@ -1054,7 +1054,7 @@ int main(int argc, char** argv) {
     bool no_banner = false;
     bool stats_json = false;
 
-    app.add_option("target", host_target, "Host alias or server[:port] (ssh-style: bs-client test-pc1)")->expected(0, 1);
+    app.add_option("target", host_target, "Host alias or server[:port] (ssh-style: bs-client dev)")->expected(0, 1);
     app.add_option("-s,--server", server_addr, "Server host:port")->default_val("127.0.0.1:9948");
     app.add_option("--hosts", hosts_file, "Host alias file")->default_val(default_hosts_file());
     app.add_option("-n,--name", session_name, "Session name")->default_val("default");

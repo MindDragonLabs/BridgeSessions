@@ -13,7 +13,7 @@ One protocol. One binary. One mesh. No SSH. No mosh. No zellij.
 
 ---
 
-## Shipping 2.0.6 reality
+## Shipping 2.0.6-alpha2 reality
 
 The canonical implementation is the single `bridgesessions.cpp` monolith.
 `MeshController::run` owns established connections and PTYs on one select loop;
@@ -25,7 +25,7 @@ a fresh owner-only token under the selected app home. mDNS is disabled by defaul
 and may update addresses only for already trusted keys.
 
 Remote edit/vfolder sync and large image-on-wire claims are intentionally disabled
-for 2.0.6 until they have dedicated nonblocking transports. This section overrides
+for 2.0.6-alpha2 until they have dedicated nonblocking transports. This section overrides
 older aspirational v1/v2 text below where the two conflict.
 
 ---

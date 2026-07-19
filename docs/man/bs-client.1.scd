@@ -15,7 +15,7 @@ bs-client - bridgesessions terminal relay agent
 
 # LEGACY NOTICE
 
-BridgeSessions 2.0.6 ships the single *bridgesessions*(1) monolith. This modular
+BridgeSessions 2.0.6-alpha2 ships the single *bridgesessions*(1) monolith. This modular
 *bs-client* interface is not built or installed by the shipping CMake target;
 use *bridgesessions --help*.
 
@@ -62,7 +62,7 @@ _target_
 	Optional ssh-style host alias or raw _host[:port]_. If _target_ matches an
 	entry in _~/.bridgesessions/hosts_, that entry supplies the server address
 	and optional default key, certificate, and session name. Example:
-	*bs-client test-pc1 --name=hms*.
+	*bs-client dev --name=hms*.
 
 *-s, --server* _host:port_
 	Server address. Defaults to _127.0.0.1:9948_. The port component is
@@ -208,10 +208,10 @@ bs-client --server=dev.example.com --name=hms
 
 Add a host alias and connect like ssh:
 ```
-bs-client host add test-pc1 203.0.113.10:9948 \
+bs-client host add dev 203.0.113.10:9948 \
   --key ~/.bridgesessions/id_ed25519.pem \
   --cert ~/.bridgesessions/id_ed25519-cert.pem
-bs-client test-pc1 --name=hms
+bs-client dev --name=hms
 ```
 
 Attach with a custom command:
@@ -227,7 +227,7 @@ bs-client stats --json
 
 Diagnose key bytes in BridgeSpace pipe mode:
 ```
-bs-client test-pc1 --pipe --key-log ~/.bridgesessions/key-debug.log
+bs-client dev --pipe --key-log ~/.bridgesessions/key-debug.log
 ```
 
 Generate a keypair:

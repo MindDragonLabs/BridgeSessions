@@ -4,7 +4,7 @@
 
 | Version | Supported |
 |---|---|
-| 2.0.6 | ✅ public multi-platform alpha (current) |
+| 2.0.6-alpha2 | ✅ public multi-platform alpha (current) |
 | 2.0.1 | ❌ superseded |
 | 2.0.0 | ❌ superseded |
 | < 2.0 | ❌ |

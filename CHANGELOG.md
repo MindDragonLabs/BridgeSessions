@@ -2,11 +2,11 @@
 
 All notable public releases are documented here.
 
-## [2.0.6] — 2026-07-19
+## [2.0.6-alpha2] — 2026-07-19
 
-**Release engineering hardening** for the 2.0.6 public tag.
+**Release engineering hardening** for the 2.0.6-alpha2 public tag.
 
-Tag: `v2.0.6` · License: BSL-1.1 (→ Apache-2.0 on 2030-07-16)
+Tag: `v2.0.6-alpha2` · License: BSL-1.1 (→ Apache-2.0 on 2030-07-16)
 
 ### Security and runtime
 
@@ -25,17 +25,17 @@ Tag: `v2.0.6` · License: BSL-1.1 (→ Apache-2.0 on 2030-07-16)
 - Windows ConPTY input uses a bounded dedicated writer queue, keeping blocking
   pipe writes off the mesh event loop.
 - Async receive destinations are scoped to the requesting connection.
-- Image message IDs remain reserved only; 2.0.6 does not advertise large image
+- Image message IDs remain reserved only; 2.0.6-alpha2 does not advertise large image
   payload fragmentation or receiver rendering.
-- Remote edit and vfolder sync IPC commands fail closed in 2.0.6 until they use
+- Remote edit and vfolder sync IPC commands fail closed in 2.0.6-alpha2 until they use
   a dedicated transfer transport; they no longer block the daemon event loop.
 
 ### Release engineering
 
-- Exact `VERSION` 2.0.6 across CLI, CMake, packaging, and SBOM.
+- Exact `VERSION` 2.0.6-alpha2 across CLI, CMake, packaging, and SBOM.
 - Deterministic source packaging via `git archive --format=tar | gzip -n`.
 - `scripts/package-release.sh` gains `--release` mode with strict dirty-tree
-  refusal, no untracked files, and exact `v2.0.6` tag requirement.
+  refusal, no untracked files, and exact `v2.0.6-alpha2` tag requirement.
 - `--commit <sha>` safe override for tests and development packaging.
 - `scripts/release-checksums.sh` generates a unique valid CycloneDX UUID per run
   and includes the SBOM hash in `SHA256SUMS`; neither `SHA256SUMS` nor
@@ -53,8 +53,8 @@ Tag: `v2.0.6` · License: BSL-1.1 (→ Apache-2.0 on 2030-07-16)
 |------|-------|
 | `bridgesessions-linux-x86_64` | ELF x86_64 |
 | `bridgesessions-windows-x86_64.exe` | PE32+ MinGW static (OpenSSL+zstd) |
-| `bridgesessions-macos-arm64` | Mach-O arm64 (Homebrew OpenSSL/zstd/fmt/spdlog) |
-| `bridgesessions-2.0.6-source.tar.gz` / `.zip` | Deterministic exact-tag `git archive` source |
+| `bridgesessions-macos-arm64` | Mach-O arm64 (Homebrew OpenSSL/fmt/spdlog dylibs; static zstd) |
+| `bridgesessions-2.0.6-alpha2-source.tar.gz` / `.zip` | Deterministic exact-tag `git archive` source |
 | `SHA256SUMS` / `SBOM-binaries.json` | Provenance |
 
 ### Validation
@@ -123,7 +123,7 @@ Tag: `v2.0.5-alpha2` · License: BSL-1.1 (→ Apache-2.0 on 2030-07-16)
 |------|--------|
 | `bridgesessions-linux-x86_64` | ELF x86_64 |
 | `bridgesessions-windows-x86_64.exe` | PE32+ MinGW static (OpenSSL+zstd) |
-| `bridgesessions-macos-arm64` | Mach-O arm64 (Homebrew OpenSSL/zstd/fmt/spdlog) |
+| `bridgesessions-macos-arm64` | Mach-O arm64 (Homebrew OpenSSL/fmt/spdlog dylibs; static zstd) |
 | `bridgesessions-2.0.5-alpha2-source.tar.gz` | Deterministic source |
 | `SHA256SUMS` / `SBOM-binaries.json` | Provenance |
 

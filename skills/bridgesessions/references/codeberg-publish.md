@@ -12,7 +12,7 @@ Public product forge: **https://codeberg.org/Mind-Dragon/BridgeSessions**
 export GIT_SSH_COMMAND='ssh -i ~/.ssh/deploy-key -o IdentitiesOnly=yes -o BatchMode=yes'
 ssh -i ~/.ssh/deploy-key -o IdentitiesOnly=yes -T git@codeberg.org
 git push codeberg main
-git push codeberg v2.0.6
+git push codeberg v2.0.6-alpha2
 ```
 
 Permanent: `Host codeberg.org` → `IdentityFile ~/.ssh/deploy-key` in `~/.ssh/config`,
@@ -42,5 +42,5 @@ Binaries are downloadable from the Codeberg release attached to the exact tag.
 
 ## Tag meaning
 
-A **tag** (e.g. `v2.0.6`) is a permanent name for one commit so “this version”
+A **tag** (e.g. `v2.0.6-alpha2`) is a permanent name for one commit so “this version”
 is unambiguous. Branch `main` can move; the tag should not.

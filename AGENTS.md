@@ -6,7 +6,7 @@ Task-specific procedures: **`skills/bridgesessions/SKILL.md`** (Agent Skills ope
 ## Product
 
 Mesh terminal + file relay. One C++23 binary (`bridgesessions` / `bs`). Monolith source: `bridgesessions.cpp`.  
-Shipping release: **v2.0.6**. Probe live `--version`.
+Shipping release: **v2.0.6-alpha2**. Probe live `--version`.
 
 ## Agent rules
 
@@ -26,7 +26,7 @@ Shipping release: **v2.0.6**. Probe live `--version`.
 | Path | Role |
 |------|------|
 | `bridgesessions.cpp` | Shipping monolith |
-| `docs/remediation-20260716/` | Security + transfer remediation TODOs |
+| `CHANGELOG.md` / `docs/RELEASE-PROVENANCE.md` | Public release evidence and provenance |
 | `skills/bridgesessions/SKILL.md` | Portable skill for multi-harness |
 | `dist/` | Prebuilt binaries (verify checksums when releasing) |
 | `tests/` | Catch2 + Python panel tests |

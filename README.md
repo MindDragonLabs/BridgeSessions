@@ -6,7 +6,7 @@
 file transfer for media artifacts, Windows CUA peers, and **Bridge Panel** for long
 Markdown reviews.
 
-> **Alpha status:** `2.0.6` is a security-audited public alpha, not a
+> **Alpha status:** `2.0.6-alpha2` is a security-audited public alpha, not a
 > production-secure SSH replacement. The canonical shipping implementation is
 > [`bridgesessions.cpp`](bridgesessions.cpp); see [LEGACY_CODE.md](LEGACY_CODE.md)
 > for the non-shipping modular experiment retained in the repository.
@@ -48,7 +48,7 @@ This repo ships multi-harness agent instructions:
 | `.opencode/skills/bridgesessions` | Symlink for OpenCode discovery |
 | `.agents/skills/bridgesessions` | Symlink for generic Agent Skills discovery |
 
-**Load the skill** when operating `bs` mesh, Windows peers, large file transfer, or security remediation.
+**Load the skill** when operating `bs` mesh, Windows peers, large file transfer, or release hardening.
 Release security changes are summarized in [`CHANGELOG.md`](CHANGELOG.md) and
 the support/reporting policy lives in [`SECURITY.md`](SECURITY.md).
 
@@ -57,7 +57,7 @@ Install/refresh harness links: `./scripts/install-agent-skill.sh`.
 
 ## Install from binary
 
-Current release: **[`2.0.6`](https://codeberg.org/Mind-Dragon/BridgeSessions/releases/tag/v2.0.6)**.
+Current release: **[`2.0.6-alpha2`](https://codeberg.org/Mind-Dragon/BridgeSessions/releases/tag/v2.0.6-alpha2)**.
 Download the complete release bundle from Codeberg. Platform binaries are also
 mirrored under `dist/`; source archives, checksums, and the SBOM are generated
 as release assets from the exact signed tag.
@@ -67,7 +67,7 @@ as release assets from the exact signed tag.
 | Linux x86_64 | `bridgesessions-linux-x86_64` |
 | Windows x86_64 | `bridgesessions-windows-x86_64.exe` |
 | macOS arm64 | `bridgesessions-macos-arm64` |
-| Source | `bridgesessions-2.0.6-source.tar.gz`, `bridgesessions-2.0.6-source.zip` |
+| Source | `bridgesessions-2.0.6-alpha2-source.tar.gz`, `bridgesessions-2.0.6-alpha2-source.zip` |
 
 ```bash
 cd /path/to/downloaded-release-assets
@@ -75,7 +75,7 @@ sha256sum -c SHA256SUMS
 # Linux example
 install -m 0755 bridgesessions-linux-x86_64 ~/.local/bin/bridgesessions
 ln -sfn ~/.local/bin/bridgesessions ~/.local/bin/bs
-bridgesessions --version   # → 2.0.6
+bridgesessions --version   # → 2.0.6-alpha2
 bridgesessions keygen
 ```
 
@@ -83,10 +83,10 @@ bridgesessions keygen
 |----------|--------|
 | Linux | Dynamic link to system OpenSSL/zstd/fmt/spdlog |
 | Windows | MinGW-static OpenSSL+zstd; place `.exe` on `PATH` |
-| macOS arm64 | Expects Homebrew OpenSSL/zstd/fmt/spdlog under `/opt/homebrew` (or rebuild) |
+| macOS arm64 | Homebrew OpenSSL/fmt/spdlog dylibs; zstd linked statically (or rebuild) |
 
 Provenance and build notes: [docs/RELEASE-PROVENANCE.md](docs/RELEASE-PROVENANCE.md) ·  
-Release notes: [docs/RELEASE-NOTES-2.0.6.md](docs/RELEASE-NOTES-2.0.6.md)
+Release notes: [docs/RELEASE-NOTES-2.0.6-alpha2.md](docs/RELEASE-NOTES-2.0.6-alpha2.md)
 
 ## Build from source
 
@@ -94,7 +94,7 @@ Release notes: [docs/RELEASE-NOTES-2.0.6.md](docs/RELEASE-NOTES-2.0.6.md)
 # Linux / macOS (needs OpenSSL, zstd, fmt, spdlog, CLI11, nlohmann-json)
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --parallel
-./build/bridgesessions --version  # → 2.0.6
+./build/bridgesessions --version  # → 2.0.6-alpha2
 ```
 
 Or: `./build.sh` on Linux. Windows MinGW and macOS flags:
@@ -141,8 +141,8 @@ See [docs/usage.md](docs/usage.md) for the full command reference and
 | [docs/configuration.md](docs/configuration.md) | Config file reference. |
 | [docs/protocol.md](docs/protocol.md) | The `bs://` wire protocol. |
 | [docs/bridge-panel.md](docs/bridge-panel.md) | The Bridge Panel web surface. |
-| [docs/RELEASE-NOTES-2.0.6.md](docs/RELEASE-NOTES-2.0.6.md) | This release’s forge notes. |
-| [docs/AUDIT-2.0.5-alpha2.md](docs/AUDIT-2.0.5-alpha2.md) | Historical audit baseline that led to the 2.0.6 hardening work. |
+| [docs/RELEASE-NOTES-2.0.6-alpha2.md](docs/RELEASE-NOTES-2.0.6-alpha2.md) | This release’s forge notes. |
+| [docs/AUDIT-2.0.5-alpha2.md](docs/AUDIT-2.0.5-alpha2.md) | Historical audit baseline that led to the 2.0.6-alpha2 hardening work. |
 
 ## Releases
 
@@ -152,8 +152,8 @@ Release candidates are accepted only when:
 2. `sha256sum -c SHA256SUMS` passes in the downloaded release bundle
 3. The downloaded `SBOM-binaries.json` is valid CycloneDX 1.5
 
-**2.0.6** ships Linux x86_64, Windows x86_64, and macOS arm64 from this
-source. Prefer the annotated git tag `v2.0.6` over floating branch tips.
+**2.0.6-alpha2** ships Linux x86_64, Windows x86_64, and macOS arm64 from this
+source. Prefer the annotated git tag `v2.0.6-alpha2` over floating branch tips.
 
 ## Contributing
 

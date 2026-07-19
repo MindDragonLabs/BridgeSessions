@@ -145,7 +145,7 @@ session. If the agent process or network restarts, reattach — do not restart
 the world.
 
 ### Media through file transfer
-Image message IDs are reserved, but 2.0.6 does not implement large-image
+Image message IDs are reserved, but 2.0.6-alpha2 does not implement large-image
 fragmentation or receiver rendering. Send PNG/JPEG/GIF/video artifacts through
 the bounded file-transfer protocol, then render or analyze them locally.
 
@@ -224,7 +224,7 @@ bridgesessions pane publish ./report.md \
   --session default --type documents --title "Vision report"
 
 # File / media movement lives on the same mesh as the shell
-# (the file protocol carries media; image IDs remain reserved in 2.0.6)
+# (the file protocol carries media; image IDs remain reserved in 2.0.6-alpha2)
 ```
 
 ---

@@ -8,8 +8,9 @@
 #
 # Usage: ./scripts/codeberg-release.sh [--dry-run] [--draft-only] [TAG]
 #
-# The script is draft-first: create a draft release, upload assets, then PATCH
-# it to published. Existing assets are never overwritten or deleted.
+# The script is draft-first: create a draft release and upload assets. Without
+# `--draft-only`, it then PATCHes the draft to published. Existing assets are
+# never overwritten or deleted.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"

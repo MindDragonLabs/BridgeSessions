@@ -1,10 +1,10 @@
 # Non-shipping modular code
 
-BridgeSessions `2.0.6` ships the single-file implementation in
+BridgeSessions `2.0.6-alpha2` ships the single-file implementation in
 `bridgesessions.cpp`, built by the root `CMakeLists.txt`.
 
 The following tracked paths are an older modularization experiment and are **not
-compiled, tested, packaged, or security-supported** by the 2.0.6 root build:
+compiled, tested, packaged, or security-supported** by the 2.0.6-alpha2 root build:
 
 - `main.cpp`
 - `bs-client/`

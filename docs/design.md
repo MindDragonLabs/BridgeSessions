@@ -1,10 +1,10 @@
 # Architecture
 
-> **Forward-looking design archive.** The shipping 2.0.6 implementation is the
-> single `bridgesessions.cpp` monolith described by the "Shipping 2.0.6 reality"
-> section in [`ARCHITECTURE.md`](../ARCHITECTURE.md). Modular `bs-client` /
-> `bs-server`, dual-stack IPv6, and the command fallbacks below are not current
-> operational claims.
+> **Forward-looking design archive.** The shipping 2.0.6-alpha2 implementation is the
+> single [`bridgesessions.cpp`](../bridgesessions.cpp) monolith. See
+> [`LEGACY_CODE.md`](../LEGACY_CODE.md) for the boundary between shipping and
+> retained experimental code. Modular `bs-client` / `bs-server`, dual-stack
+> IPv6, and the command fallbacks below are not current operational claims.
 
 **Replace:** `mosh → ssh → zellij → hermes --tui`
 **With:** `bs-client ⚡ bs-server → hermes --tui`

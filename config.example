@@ -1,4 +1,4 @@
-# BridgeSessions 2.0.6 example
+# BridgeSessions 2.0.6-alpha2 example
 node.name node-a
 node.listen 192.0.2.10:19949
 

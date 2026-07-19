@@ -12,7 +12,7 @@ bs-server - bridgesessions session daemon
 
 # LEGACY NOTICE
 
-BridgeSessions 2.0.6 ships the single *bridgesessions*(1) monolith on TCP
+BridgeSessions 2.0.6-alpha2 ships the single *bridgesessions*(1) monolith on TCP
 19949. This modular *bs-server* interface is not built or installed by the
 shipping CMake target.
 

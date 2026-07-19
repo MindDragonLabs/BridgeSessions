@@ -1,4 +1,4 @@
-// test_mesh_responsiveness.cpp — BridgeSessions v2.0.6 runtime responsiveness tests
+// test_mesh_responsiveness.cpp — BridgeSessions v2.0.6-alpha2 runtime responsiveness tests
 //
 // Verifies:
 //   - A stalled pre-auth TLS handshake does not block a healthy peer's ping/pong.

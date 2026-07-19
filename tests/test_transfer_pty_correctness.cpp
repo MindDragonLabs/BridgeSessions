@@ -1,4 +1,4 @@
-// test_transfer_pty_correctness.cpp — v2.0.6 transfer/PTY correctness
+// test_transfer_pty_correctness.cpp — v2.0.6-alpha2 transfer/PTY correctness
 //
 // Covers:
 //   - async FILE_RECV destination is per Conn/request, not global receive_dir_

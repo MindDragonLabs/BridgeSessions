@@ -31,14 +31,14 @@ The repository root has a POSIX one-command build that produces the
 ```bash
 ./build.sh
 # → builds ./bridgesessions
-./bridgesessions --version   # → 2.0.6
+./bridgesessions --version   # → 2.0.6-alpha2
 ```
 
 The script runs:
 
 ```bash
 g++ -std=c++23 -O2 -DBS_NO_NAT -DBS_NO_WEBRTC -DBS_NO_DHT \
-    -DBS_VERSION=\"2.0.6\" \
+    -DBS_VERSION=\"2.0.6-alpha2\" \
     -o bridgesessions bridgesessions.cpp \
     -lssl -lcrypto -lzstd -pthread -lutil -lfmt -lspdlog
 ```
@@ -48,7 +48,7 @@ g++ -std=c++23 -O2 -DBS_NO_NAT -DBS_NO_WEBRTC -DBS_NO_DHT \
 ```bash
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j
-./build/bridgesessions --version   # → 2.0.6
+./build/bridgesessions --version   # → 2.0.6-alpha2
 ```
 
 `VERSION` is the single source of truth for CLI, CMake, mesh Hello, BridgePanel,
@@ -64,7 +64,7 @@ host under `~/.cache/bridgesessions-cross/`):
 x86_64-w64-mingw32-g++ -std=c++23 -O2 -DFMT_HEADER_ONLY \
   -DWIN32_LEAN_AND_MEAN -D_WIN32_WINNT=0x0A00 \
   -DBS_NO_NAT -DBS_NO_WEBRTC -DBS_NO_DHT \
-  -DBS_VERSION=\"2.0.6\" \
+  -DBS_VERSION=\"2.0.6-alpha2\" \
   -I"$MINGW_OPENSSL/include" -I"$ZSTD_SRC/lib" \
   -o dist/bridgesessions-windows-x86_64.exe bridgesessions.cpp \
   -L"$MINGW_OPENSSL/lib64" -L"$ZSTD_SRC/lib" \
@@ -79,7 +79,7 @@ export PATH=/opt/homebrew/bin:$PATH
 SSL=$(brew --prefix openssl@3)
 # also: zstd fmt spdlog nlohmann-json cli11
 clang++ -std=c++23 -O2 -DBS_NO_NAT -DBS_NO_WEBRTC -DBS_NO_DHT \
-  -DBS_VERSION=\"2.0.6\" \
+  -DBS_VERSION=\"2.0.6-alpha2\" \
   -I"$SSL/include" -I"$(brew --prefix zstd)/include" \
   -I"$(brew --prefix fmt)/include" -I"$(brew --prefix spdlog)/include" \
   -I"$(brew --prefix nlohmann-json)/include" -I"$(brew --prefix cli11)/include" \
@@ -87,10 +87,10 @@ clang++ -std=c++23 -O2 -DBS_NO_NAT -DBS_NO_WEBRTC -DBS_NO_DHT \
   -L"$SSL/lib" -L"$(brew --prefix zstd)/lib" \
   -L"$(brew --prefix fmt)/lib" -L"$(brew --prefix spdlog)/lib" \
   -lssl -lcrypto -lzstd -lfmt -lspdlog -pthread
-./bridgesessions-macos-arm64 --version   # → 2.0.6
+./bridgesessions-macos-arm64 --version   # → 2.0.6-alpha2
 ```
 
-Clipboard integration is Windows-only in 2.0.6.
+Clipboard integration is Windows-only in 2.0.6-alpha2.
 
 ## Tests
 

@@ -21,9 +21,9 @@ Regenerate source archive, checksums, and SBOM from a clean tree:
 
 | Artifact | Platform | Build notes |
 |----------|----------|-------------|
-| `bridgesessions-linux-x86_64` | Linux x86_64 | CMake RelWithDebInfo / shipping root |
+| `bridgesessions-linux-x86_64` | Linux x86_64 | CMake Release / shipping root |
 | `bridgesessions-windows-x86_64.exe` | Windows x86_64 | MinGW static cross-compile (OpenSSL+zstd) |
-| `bridgesessions-macos-arm64` | macOS arm64 | clang++ on Apple Silicon; Homebrew OpenSSL/zstd/fmt/spdlog dylibs |
+| `bridgesessions-macos-arm64` | macOS arm64 | clang++ on Apple Silicon; Homebrew OpenSSL/fmt/spdlog dylibs; static zstd |
 | `bridgesessions-<VERSION>-source.tar.gz` | Source archive | Deterministic `scripts/package-release.sh` |
 | `bridgesessions-<VERSION>-source.zip` | Source archive | Deterministic `git archive` ZIP |
 | `SHA256SUMS` | Checksums | SHA-256 of every release artifact, including the SBOM |
@@ -45,7 +45,7 @@ Git object and therefore change the exact-object source archive they describe.
 | Platform | How verified |
 |----------|----------------|
 | Linux | `./binary --version`, full CTest, ASan suite |
-| Windows | MinGW x86_64 build; all 18 test executables run natively on Windows 11 24H2 (252 cases / 1,430 assertions), including ConPTY queue and resize coverage; binary reports `2.0.6` |
+| Windows | MinGW x86_64 build; all 18 test executables run natively on Windows 11 24H2 (252 cases / 1,430 assertions), including ConPTY queue and resize coverage; binary reports `2.0.6-alpha2` |
 | macOS | Native Apple Silicon build + full CTest |
 
 ## Signing (recommended operator step)

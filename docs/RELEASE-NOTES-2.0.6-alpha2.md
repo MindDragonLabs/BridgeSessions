@@ -1,7 +1,7 @@
-# Release notes — BridgeSessions 2.0.6
+# Release notes — BridgeSessions 2.0.6-alpha2
 
 **Date:** 2026-07-19  
-**Tag:** `v2.0.6`  
+**Tag:** `v2.0.6-alpha2`  
 **Status:** Security-audited public multi-platform **alpha** — **not** a production-secure SSH replacement
 
 ## Download
@@ -11,7 +11,7 @@
 | Linux x86_64 | `bridgesessions-linux-x86_64` |
 | Windows x86_64 | `bridgesessions-windows-x86_64.exe` |
 | macOS arm64 | `bridgesessions-macos-arm64` |
-| Source | `bridgesessions-2.0.6-source.tar.gz`, `bridgesessions-2.0.6-source.zip` |
+| Source | `bridgesessions-2.0.6-alpha2-source.tar.gz`, `bridgesessions-2.0.6-alpha2-source.zip` |
 | Checksums | `SHA256SUMS` |
 | SBOM (CycloneDX 1.5) | `SBOM-binaries.json` |
 
@@ -20,7 +20,7 @@
 cd /path/to/downloaded-release-assets
 sha256sum -c SHA256SUMS
 chmod +x bridgesessions-linux-x86_64
-./bridgesessions-linux-x86_64 --version   # → 2.0.6
+./bridgesessions-linux-x86_64 --version   # → 2.0.6-alpha2
 ```
 
 Full provenance: [docs/RELEASE-PROVENANCE.md](RELEASE-PROVENANCE.md)  
@@ -41,7 +41,7 @@ Changelog: [CHANGELOG.md](../CHANGELOG.md)
 - Release scripts hardened for deterministic, reproducible packaging.
 - Source archives are produced with deterministic `git archive` tar/ZIP output
   plus `gzip -n` for the compressed tarball.
-- Release mode requires a clean tree and an exact `v2.0.6` tag.
+- Release mode requires a clean tree and an exact `v2.0.6-alpha2` tag.
 - SBOM uses a unique CycloneDX UUID on every run; SBOM hash is included in `SHA256SUMS`.
 - Codeberg release script is draft-first, supports explicit `--draft-only`
   staging, and never mutates published assets.
@@ -58,8 +58,9 @@ bridgesessions --config ~/.bridgesessions/config
 ```
 
 Windows: place the `.exe` on PATH; generate keys with `bridgesessions keygen`.  
-macOS arm64: binary expects Homebrew OpenSSL/zstd/fmt/spdlog at standard
-`/opt/homebrew/opt/...` paths, or rebuild from source (see [building.md](building.md)).
+macOS arm64: binary expects Homebrew OpenSSL/fmt/spdlog dylibs at standard
+`/opt/homebrew/opt/...` paths; zstd is statically linked. Or rebuild from source
+(see [building.md](building.md)).
 
 ## Security expectations
 

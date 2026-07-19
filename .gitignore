@@ -122,6 +122,7 @@ bridgesessions.exe
 # ── Publish-hostile / internal (never re-add) ──
 _archive/
 screenshots/
+/docs/remediation-*/
 *.ps1
 *.bat
 COMPLETED.md
