@@ -43,7 +43,6 @@ enable_testing()
 
 # ── Single-file mesh binary ────────────────────────────────────
 add_executable(bridgesessions bridgesessions.cpp)
-target_include_directories(bridgesessions PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 if(NOT BS_ENABLE_NAT)
     target_compile_definitions(bridgesessions PRIVATE BS_NO_NAT)
 endif()
@@ -78,8 +77,10 @@ file(GLOB TEST_SOURCES "tests/*.cpp")
 include(Catch)
 foreach(TEST_SRC ${TEST_SOURCES})
     get_filename_component(TEST_NAME ${TEST_SRC} NAME_WE)
+    if(WIN32 AND TEST_NAME STREQUAL "test_mesh_responsiveness")
+        continue()
+    endif()
     add_executable(${TEST_NAME} ${TEST_SRC})
-    target_include_directories(${TEST_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
     target_compile_definitions(${TEST_NAME} PRIVATE BS_TESTING BS_NO_NAT BS_NO_WEBRTC BS_NO_DHT)
     target_link_libraries(${TEST_NAME}
         OpenSSL::SSL OpenSSL::Crypto
@@ -92,5 +93,29 @@ foreach(TEST_SRC ${TEST_SOURCES})
     if(WIN32)
         target_link_libraries(${TEST_NAME} ws2_32.lib)
     endif()
-    catch_discover_tests(${TEST_NAME})
+    if(TEST_NAME STREQUAL "test_mesh" OR
+       TEST_NAME STREQUAL "test_mesh_responsiveness")
+        catch_discover_tests(${TEST_NAME}
+            PROPERTIES RESOURCE_LOCK bridgesessions_ipc)
+    else()
+        catch_discover_tests(${TEST_NAME})
+    endif()
 endforeach()
+
+# ── Python release-engineering tests ─────────────────────────────────
+# Use the PATH-resolved python3 so the test runs with the interpreter that
+# actually has pytest, rather than whichever version CMake found first.
+find_program(BRIDGESESSIONS_PYTHON python3)
+if(BRIDGESESSIONS_PYTHON)
+    execute_process(
+        COMMAND ${BRIDGESESSIONS_PYTHON} -c "import pytest"
+        RESULT_VARIABLE BRIDGESESSIONS_PYTEST_AVAILABLE
+        OUTPUT_QUIET ERROR_QUIET)
+    if(BRIDGESESSIONS_PYTEST_AVAILABLE EQUAL 0)
+        add_test(NAME release_python_tests
+            COMMAND ${BRIDGESESSIONS_PYTHON} -m pytest
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_release.py" -v)
+        set_tests_properties(release_python_tests PROPERTIES
+            ENVIRONMENT "PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}")
+    endif()
+endif()

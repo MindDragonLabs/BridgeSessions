@@ -15,14 +15,15 @@ the goal is a low-friction, high-quality bar.
 - **Build is green** with `./build.sh` (C++23).
 - **Tests pass.**
 - **Docs updated** if your change affects behavior, the CLI, or the protocol.
-- **No secrets, no hardcoded paths, no internal notes.** CI will reject
-  tracked `*.pem`, `authorized_keys`, or `C:\`-style absolute paths.
+- **No secrets, no hardcoded private paths, no internal notes.** Never commit
+  `*.pem`, `authorized_keys`, or machine-specific `C:\` paths.
 - Keep PRs focused — one logical change per pull request.
 
 ## Code style
 
 - C++23. Match the existing style in the file you edit.
-- `clang-format` and `clang-tidy` configs are in the repo root; CI runs them.
+- `clang-format` and `clang-tidy` configs are in the repo root; run them on
+  changed code before submitting.
 
 ## Reporting bugs
 

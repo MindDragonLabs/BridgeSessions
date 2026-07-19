@@ -4,8 +4,9 @@ Bridge Panel is a small web surface bundled with BridgeSessions. It lets a node
 publish Markdown documents into a session so peers can browse and read them in a
 browser — with edit, save, copy, and a breadcrumb that mirrors the mesh tree.
 
-It is served by the BridgePanel process and bound to the node's VPN/Tailscale
-address (not localhost) so other mesh peers can reach it.
+It is served by the BridgePanel process and binds to loopback by default. An
+operator may bind it to a VPN address explicitly after configuring trusted read
+sources; never expose it directly to the public internet.
 
 ## Features
 
@@ -30,7 +31,8 @@ bridgesessions pane publish <file.md> \
 ```
 
 This copies the local file into the node's BridgePanel surface under
-`default / documents`, where any peer who can reach the panel can read it.
+`default / documents`. Loopback clients can read it by default; remote VPN reads
+require the panel's explicit trusted-IP configuration.
 
 ## Screenshots
 
@@ -57,9 +59,10 @@ raw source.
 
 ## Security notes
 
-- The panel is bound to the VPN address, not `localhost`, so only mesh peers on
-  the VPN can reach it.
+- The panel binds to `127.0.0.1` by default. VPN/LAN binding is an explicit
+  operator decision, not the default security boundary.
 - Editing requires the file to be writable by the panel process; read-only
   documents show only **Copy**.
-- No authentication is performed by the panel itself — access control is the
-  mesh/VPN boundary. Do not expose the port publicly.
+- Every write requires the generated bearer token. Remote reads are allowed only
+  for explicitly trusted IPs when that mode is configured.
+- Do not expose the panel port publicly, even when write authentication is on.

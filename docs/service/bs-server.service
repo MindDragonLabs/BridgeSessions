@@ -1,4 +1,4 @@
-# bs-server.service — systemd user service for the bridgesessions session daemon
+# bs-server.service — systemd user service for the BridgeSessions monolith
 #
 # Installation (per-user):
 #   mkdir -p ~/.config/systemd/user
@@ -11,40 +11,28 @@
 #   journalctl --user -u bs-server.service -f
 #
 # Requirements:
-#   - /usr/local/bin/bs-server must exist and be executable
-#   - ~/.bridgesessions/ must contain:
-#       id_ed25519.pem          (private key)
-#       id_ed25519-cert.pem     (TLS certificate)
-#       sessions.json            (persisted session state — created on first run if missing)
+#   - /usr/local/bin/bridgesessions must exist and be executable
+#   - ~/.bridgesessions/config must contain the node name, listen address, and
+#     pinned peers. Identity files are generated under the same app home.
 
 [Unit]
-Description=bridgesessions session daemon
-Documentation=https://github.com/example/bridgesessions
+Description=BridgeSessions mesh daemon
+Documentation=https://codeberg.org/Mind-Dragon/BridgeSessions
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
 
-# Paths to the server binary, data directory, and TLS material.
-# Adjust ExecStart if your binary lives elsewhere (e.g. ~/bin, /opt/bridgesessions).
-ExecStart=/usr/local/bin/bs-server \
-    --listen :9948 \
-    --persist %h/.bridgesessions/sessions.json \
-    --key %h/.bridgesessions/id_ed25519.pem \
-    --cert %h/.bridgesessions/id_ed25519-cert.pem
+# Adjust ExecStart if the monolith lives elsewhere (for example ~/.local/bin).
+ExecStart=/usr/local/bin/bridgesessions --config %h/.bridgesessions/config
 
 # Restart policy — always bring the daemon back up after a crash.
 Restart=always
 RestartSec=5
 
-# Security hardening (optional but recommended for a network-facing daemon).
-# Remove or relax these if the server needs broader access.
-NoNewPrivileges=yes
-PrivateTmp=yes
-ProtectSystem=strict
-ProtectHome=read-only
-ReadWritePaths=%h/.bridgesessions
+# Do not add ProtectHome/ProtectSystem/NoNewPrivileges blindly: authorized peers
+# intentionally receive the daemon account's shell and file permissions.
 
 # Logging goes to the journal (stdout/stderr captured automatically).
 StandardOutput=journal

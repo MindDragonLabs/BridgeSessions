@@ -2,6 +2,72 @@
 
 All notable public releases are documented here.
 
+## [2.0.6] — 2026-07-19
+
+**Release engineering hardening** for the 2.0.6 public tag.
+
+Tag: `v2.0.6` · License: BSL-1.1 (→ Apache-2.0 on 2030-07-16)
+
+### Security and runtime
+
+- LAN mDNS discovery is disabled by default and can update addresses only for
+  keys already pinned in seeds or present in `authorized_keys`.
+- Local daemon IPC now requires a fresh owner-only per-process token; there is
+  no unauthenticated loopback fallback.
+- A second Hello is accepted only when byte-for-byte idempotent; identity
+  rebinding closes the connection.
+- Inbound and outbound daemon handshakes use bounded nonblocking state rather
+  than blocking the main event loop.
+- File send/receive wait operations and peer file requests run in a bounded,
+  joinable worker pool with per-transport ownership and cancellation.
+- POSIX PTY input uses a bounded ordered queue with TCP backpressure, preserving
+  partial writes, `EINTR`, and `EAGAIN` remainders.
+- Windows ConPTY input uses a bounded dedicated writer queue, keeping blocking
+  pipe writes off the mesh event loop.
+- Async receive destinations are scoped to the requesting connection.
+- Image message IDs remain reserved only; 2.0.6 does not advertise large image
+  payload fragmentation or receiver rendering.
+- Remote edit and vfolder sync IPC commands fail closed in 2.0.6 until they use
+  a dedicated transfer transport; they no longer block the daemon event loop.
+
+### Release engineering
+
+- Exact `VERSION` 2.0.6 across CLI, CMake, packaging, and SBOM.
+- Deterministic source packaging via `git archive --format=tar | gzip -n`.
+- `scripts/package-release.sh` gains `--release` mode with strict dirty-tree
+  refusal, no untracked files, and exact `v2.0.6` tag requirement.
+- `--commit <sha>` safe override for tests and development packaging.
+- `scripts/release-checksums.sh` generates a unique valid CycloneDX UUID per run
+  and includes the SBOM hash in `SHA256SUMS`; neither `SHA256SUMS` nor
+  `SBOM-binaries.json` hash or list themselves.
+- `scripts/codeberg-release.sh` is draft-first, verifies local and remote tag
+  commits, uses `curl --fail-with-body`, never mutates published assets, and
+  supports both `--dry-run` and explicit `--draft-only` staging.
+- `docs/RELEASE-PROVENANCE.md` no longer embeds self-referential source-archive
+  hashes inside the source archive.
+- Release scripts covered by `tests/test_release.py` registered in CTest.
+
+### Artifacts
+
+| File | Notes |
+|------|-------|
+| `bridgesessions-linux-x86_64` | ELF x86_64 |
+| `bridgesessions-windows-x86_64.exe` | PE32+ MinGW static (OpenSSL+zstd) |
+| `bridgesessions-macos-arm64` | Mach-O arm64 (Homebrew OpenSSL/zstd/fmt/spdlog) |
+| `bridgesessions-2.0.6-source.tar.gz` / `.zip` | Deterministic exact-tag `git archive` source |
+| `SHA256SUMS` / `SBOM-binaries.json` | Provenance |
+
+### Validation
+
+- Linux CTest **267/267**
+- Linux ASan/UBSan CTest **267/267**
+- Focused TSan responsiveness **5 cases / 42 assertions**
+- Native Apple Silicon CTest **266/266**
+- Native Windows 11 runtime acceptance: **18 test executables, 252 cases /
+  1,430 assertions**, including ConPTY queue and resize paths
+- Release-engineering pytest **25/25**
+- BridgePanel **13/13** and BridgePane **13/13**
+
 ## [2.0.5-alpha2] — 2026-07-17
 
 **Public multi-platform alpha** — security/reliability closeout after the 2026-07

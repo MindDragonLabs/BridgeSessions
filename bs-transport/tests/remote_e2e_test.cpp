@@ -1,4 +1,4 @@
-// remote_e2e_test.cpp — macOS → test-pc1 E2E test via SSH tunnel
+// remote_e2e_test.cpp — opt-in remote E2E test via a caller-provided tunnel
 #include <catch2/catch_test_macros.hpp>
 #include "bstransport/tls.hpp"
 #include "bstransport/frame_io.hpp"
@@ -10,18 +10,29 @@
 #include <unistd.h>
 #include <poll.h>
 #include <cstdio>
+#include <cstdlib>
 #include <chrono>
 
 using namespace bs::protocol;
 using namespace bs::transport;
 
-TEST_CASE("Remote E2E: macOS → test-pc1", "[remote-e2e]") {
-    const char* cert = "/Users/testuser/.bridgesessions/id_ed25519-cert.pem";
-    const char* key  = "/Users/testuser/.bridgesessions/id_ed25519.pem";
+TEST_CASE("Remote E2E: configured peer", "[remote-e2e]") {
+    const char* cert = std::getenv("BS_REMOTE_E2E_CERT");
+    const char* key = std::getenv("BS_REMOTE_E2E_KEY");
+    INFO("set BS_REMOTE_E2E_CERT to a test certificate");
+    REQUIRE(cert != nullptr);
+    REQUIRE(*cert != '\0');
+    INFO("set BS_REMOTE_E2E_KEY to the matching private key");
+    REQUIRE(key != nullptr);
+    REQUIRE(*key != '\0');
+    const char* host = std::getenv("BS_REMOTE_E2E_HOST");
+    const char* port = std::getenv("BS_REMOTE_E2E_PORT");
+    if (!host || !*host) host = "127.0.0.1";
+    if (!port || !*port) port = "9948";
 
     struct addrinfo hints{}; hints.ai_family = AF_INET; hints.ai_socktype = SOCK_STREAM;
     struct addrinfo* ai;
-    REQUIRE(getaddrinfo("127.0.0.1", "9948", &hints, &ai) == 0);
+    REQUIRE(getaddrinfo(host, port, &hints, &ai) == 0);
     int sock = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol); REQUIRE(sock >= 0);
     REQUIRE(connect(sock, ai->ai_addr, ai->ai_addrlen) == 0);
     freeaddrinfo(ai);

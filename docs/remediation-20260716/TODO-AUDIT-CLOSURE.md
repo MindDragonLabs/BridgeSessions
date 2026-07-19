@@ -1,13 +1,43 @@
-# Audit closure backlog — 2.0.5-alpha2
+# Audit closure backlog — 2.0.6
 
-**Goal:** every finding from the 2026-07-16 independent review and follow-on fleet RCAs is either **fixed with evidence** or **explicitly deferred with owner/date**.  
-**Release target:** **v2.0.5-alpha2** (Linux + Windows + macOS artifacts from this source).
+**Goal:** close the 2026-07-17 trust-boundary, event-loop, I/O, and release
+integrity findings with executable evidence.
+**Release target:** **v2.0.6**. This file is the canonical release checklist.
 
 Legend: `[x]` done with test/evidence · `[ ]` open · `[~]` partial · `[D]` deferred (documented)
 
 ---
 
-## P0 — Security
+## 2.0.6 closure
+
+| ID | Item | Status | Evidence / remaining gate |
+|----|------|--------|---------------------------|
+| S-1 | mDNS disabled by default; announcements cannot create trust | [x] | config + hostile-announcement tests |
+| S-2 | Local daemon IPC authenticated | [x] | fresh owner-only token + auth rejection tests |
+| S-3 | Duplicate Hello cannot rebind identity | [x] | exact-idempotence tests |
+| R-1 | TLS/Hello handshake cannot block event loop | [x] | nonblocking pending state + stalled-client test |
+| R-2 | Long file operations isolated from mesh loop | [x] | bounded joinable workers + two-peer responsiveness test |
+| R-3 | Blocking edit/vfolder paths removed from shipping IPC | [x] | fail-closed policy in 2.0.6 |
+| I-1 | Async receive destination is per connection | [x] | transfer correctness tests |
+| I-2 | PTY input cannot block mesh I/O or lose queued bytes | [x] | POSIX queue/backpressure tests + bounded Windows writer queue and native Windows ConPTY execution |
+| P-1 | Image wire claim matches implementation | [x] | IDs reserved; large-payload/rendering claim removed |
+| REL-1 | Exact-tag, clean-tree, reproducible source archive | [x] | release tests across umasks |
+| REL-2 | SBOM/checksum graph is non-self-referential | [x] | release tests + checksum validation |
+| REL-3 | Draft-first Codeberg upload verifies bytes | [x] | static/mocked release tests |
+| G-1 | Linux clean build, CTest, sanitizer, Python suites | [x] | 267/267 CTest; ASan/UBSan 267/267; TSan responsiveness 5/5; release 25/25; panel/pane 13/13 each |
+| G-2 | Native macOS arm64 acceptance | [x] | Homebrew clang build; 266/266 native CTest on Mac mini |
+| G-3 | Native Windows x86_64 acceptance | [x] | MinGW x86_64 build; all 18 test executables passed natively on test-pc7 (Windows 11 24H2): 252 cases / 1,430 assertions, including ConPTY queue and resize |
+| G-4 | Annotated signed tag and downloaded-asset verification | [ ] | publication gate; explicit approval required |
+
+Until G-4 is complete, the verdict remains **NO-PROMOTE**.
+
+---
+
+## Archived 2.0.5-alpha2 closure
+
+The rows below are historical evidence, not the 2.0.6 release gate.
+
+### P0 — Security
 
 | ID | Item | Status | Evidence |
 |----|------|--------|----------|

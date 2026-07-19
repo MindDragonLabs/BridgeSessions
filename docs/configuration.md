@@ -8,7 +8,7 @@ default location). The file is plain key/value, one directive per line.
 ```ini
 # ── Mesh identity ──
 node.name          node-a
-node.listen        192.168.1.28:19949
+node.listen        192.0.2.10:19949
 mesh.pong_timeout_secs 30
 mesh.reconnect_backoff_max_secs 30
 
@@ -43,9 +43,8 @@ sessions.authorized_keys_path ~/.bridgesessions/authorized_keys
 A session's command resolves in this order (ADR-007):
 
 1. Client `--cmd` flag (always wins)
-2. Server `config` per-session `command`
-3. Server `default_command`
-4. Hardcoded default: `hermes --tui`
+2. `session.<name>.command` in the server config
+3. `sessions.default_shell`
 
 ## Example config (production-shaped)
 

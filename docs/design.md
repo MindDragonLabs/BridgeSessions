@@ -1,5 +1,11 @@
 # Architecture
 
+> **Forward-looking design archive.** The shipping 2.0.6 implementation is the
+> single `bridgesessions.cpp` monolith described by the "Shipping 2.0.6 reality"
+> section in [`ARCHITECTURE.md`](../ARCHITECTURE.md). Modular `bs-client` /
+> `bs-server`, dual-stack IPv6, and the command fallbacks below are not current
+> operational claims.
+
 **Replace:** `mosh → ssh → zellij → hermes --tui`
 **With:** `bs-client ⚡ bs-server → hermes --tui`
 
@@ -59,9 +65,8 @@ your work.
 - **ADR-004 — Stream = session attachment, not session lifetime.** One TCP
   connection carries multiple streams via app-level stream IDs (see
   [Protocol](protocol.md)).
-- **ADR-007 — Command resolution order:** (1) client `--cmd`, (2) server
-  per-session `command`, (3) server `default_command`, (4) hardcoded
-  `hermes --tui`.
+- **ADR-007 — Command resolution order:** (1) client `--cmd`, (2)
+  `session.<name>.command`, (3) `sessions.default_shell`.
 - **ADR-008 — PTY death handling.** On unexpected PTY exit, the server sends
   `SessionDied{exit_code, signal}`. With `auto_restart: true` it respawns after
   `restart_delay_secs`; 3 failures in 60s → `EXITED`.

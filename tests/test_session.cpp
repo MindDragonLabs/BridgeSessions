@@ -1,6 +1,6 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/catch_session.hpp>
-#include "bridgesessions.cpp"
+#include "../bridgesessions.cpp"
 
 #include <string>
 #include <string_view>
@@ -181,7 +181,10 @@ TEST_CASE("kill session transitions to Died state", "[session]") {
 // ── Test 3: Resize session — no crash ─────────────────────────
 
 TEST_CASE("resize_pty does not crash", "[session]") {
-    auto s = create_session("test3", BS_CMD("cmd.exe /c timeout /t 10", "sleep 10"), 80, 24, "xterm-256color");
+    auto s = create_session(
+        "test3",
+        BS_CMD("cmd.exe", "sleep 10"),
+        80, 24, "xterm-256color");
     REQUIRE(s.has_value());
 
     auto& sess = *s;
@@ -190,6 +193,8 @@ TEST_CASE("resize_pty does not crash", "[session]") {
 #else
     auto result = resize_pty(sess.master_fd, 120, 40);
 #endif
+    INFO("resize result: " <<
+         (result.has_value() ? "success" : result.error().message));
     REQUIRE(result.has_value());
 }
 

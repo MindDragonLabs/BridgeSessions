@@ -26,7 +26,7 @@
 #undef max
 #endif
 
-#include "bridgesessions.cpp"
+#include "../bridgesessions.cpp"
 
 #include <thread>
 #include <chrono>

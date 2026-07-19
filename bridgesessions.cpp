@@ -1,10 +1,12 @@
-// SPDX-License-Identifier: BSL-1.1
+// SPDX-License-Identifier: BUSL-1.1
 // Copyright (c) Mind-Dragon. Licensed under the Business Source License 1.1.
 // bridgesessions.cpp — Mesh peer-to-peer terminal sharing
 // Single-file architecture: all protocol, TLS, session, and mesh logic in one file.
 // Namespace: bs::mesh
 
+#ifndef NOMINMAX
 #define NOMINMAX
+#endif
 #ifdef _WIN32
 #include <winsock2.h>
 #include <ws2tcpip.h>
@@ -63,13 +65,16 @@
 #include <openssl/bio.h>
 #include <openssl/ssl.h>
 #include <openssl/err.h>
+#include <openssl/rand.h>
 #include <atomic>
 #include <memory>
 #include <new>
 #include <thread>
 #include <mutex>
+#include <condition_variable>
 #include <shared_mutex>
 #include <unordered_map>
+#include <queue>
 #include <filesystem>
 #ifdef _WIN32
 #include <io.h>
@@ -1965,6 +1970,63 @@ void write_frame(SSL* ssl, const Message& msg, uint16_t stream_id) {
     }
 }
 
+// ── Non-blocking frame I/O helpers (for handshake state machine) ────
+// These variants never block; they drain or emit what is immediately
+// available and buffer the rest. They are used only during the initial
+// TLS + Hello handshake so the event loop stays responsive.
+
+[[nodiscard]] inline std::optional<Message> read_frame_nonblocking(
+    SSL* ssl, std::vector<uint8_t>& rx_buffer, int* want_error = nullptr) {
+    if (want_error) *want_error = SSL_ERROR_WANT_READ;
+    for (;;) {
+        std::array<uint8_t, 4096> chunk{};
+        size_t n = 0;
+        clear_stale_ssl_errors_before_io();
+        int ret = SSL_read_ex(ssl, chunk.data(), chunk.size(), &n);
+        if (ret > 0 && n > 0) {
+            rx_buffer.insert(rx_buffer.end(), chunk.begin(), chunk.begin() + static_cast<std::ptrdiff_t>(n));
+            continue;
+        }
+        int err = SSL_get_error(ssl, ret);
+        if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
+            if (want_error) *want_error = err;
+            break;
+        }
+        if (err == SSL_ERROR_ZERO_RETURN) break;
+        throw std::runtime_error("SSL_read failed during handshake");
+    }
+    if (buffered_bytes_hold_complete_frame(rx_buffer)) {
+        auto messages = drain_complete_frames(rx_buffer);
+        if (!messages.empty()) return std::move(messages.front());
+    }
+    return std::nullopt;
+}
+
+// Returns true when the encoded frame has been fully written.
+// On WANT_READ/WANT_WRITE returns false and leaves unwritten bytes in tx_buffer.
+[[nodiscard]] inline bool write_frame_nonblocking(
+    SSL* ssl, const Message& msg, uint16_t stream_id, std::vector<uint8_t>& tx_buffer,
+    int* want_error = nullptr) {
+    if (want_error) *want_error = SSL_ERROR_WANT_WRITE;
+    if (tx_buffer.empty()) tx_buffer = encode(msg, stream_id);
+    while (!tx_buffer.empty()) {
+        size_t n = 0;
+        clear_stale_ssl_errors_before_io();
+        int ret = SSL_write_ex(ssl, tx_buffer.data(), tx_buffer.size(), &n);
+        if (ret > 0 && n > 0) {
+            tx_buffer.erase(tx_buffer.begin(), tx_buffer.begin() + static_cast<std::ptrdiff_t>(n));
+            continue;
+        }
+        int err = SSL_get_error(ssl, ret);
+        if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
+            if (want_error) *want_error = err;
+            return false;
+        }
+        throw std::runtime_error("SSL_write failed during handshake");
+    }
+    return true;
+}
+
 // ────────────────────────────────────────────────────────────────────
 // 5. OSC 52 CLIPBOARD SCANNER
 // ────────────────────────────────────────────────────────────────────
@@ -2174,6 +2236,15 @@ struct Session {
 #else
     int master_fd = -1;
     int child_pid = -1;
+    // v2.0.6: bounded pending input queue for nonblocking PTY master writes.
+    // Keystrokes/clipboard pasted faster than the child consumes are queued
+    // here and drained by the event loop. High/low water marks apply
+    // backpressure by temporarily skipping reads from the attached peer.
+    std::string pending_input;
+    bool input_backpressured = false;
+    static constexpr size_t kPtyInputHighWater = 64 * 1024;
+    static constexpr size_t kPtyInputLowWater  = 16 * 1024;
+    static constexpr size_t kPtyInputMax       = 256 * 1024;
 #endif
     SessionState state = SessionState::Created;
 
@@ -2273,6 +2344,10 @@ Session::Session(Session&& other) noexcept
     , command(std::move(other.command))
     , master_fd(other.master_fd)
     , child_pid(other.child_pid)
+#ifndef _WIN32
+    , pending_input(std::move(other.pending_input))
+    , input_backpressured(other.input_backpressured)
+#endif
     , state(other.state)
     , scrollback(std::move(other.scrollback))
     , created_at(other.created_at)
@@ -2304,6 +2379,10 @@ Session& Session::operator=(Session&& other) noexcept {
         command = std::move(other.command);
         master_fd = other.master_fd;
         child_pid = other.child_pid;
+#ifndef _WIN32
+        pending_input = std::move(other.pending_input);
+        input_backpressured = other.input_backpressured;
+#endif
         state = other.state;
         scrollback = std::move(other.scrollback);
         created_at = other.created_at;
@@ -2478,19 +2557,17 @@ void Session::reset_restart_failures() {
         return std::unexpected(PtyError{"CreatePseudoConsole failed: " + std::to_string(hr)});
     }
 
-    // Per MSDN: CreatePseudoConsole takes ownership of the handles passed
-    // to it. After a successful call, the caller MUST close the inbound read
-    // and outbound write ends.
-    CloseHandle(hPipeInRead);
-    CloseHandle(hPipeOutWrite);
-    hPipeInRead = nullptr;
-    hPipeOutWrite = nullptr;
+    // Keep the ends passed to CreatePseudoConsole open until the child has
+    // been attached with CreateProcessW. Closing them before attachment can
+    // tear down the pseudoconsole and leave an HPCON that rejects resize.
 
     // The daemon-side pipe ends must never be inherited by the child. ConPTY
     // owns the opposite ends and brokers the child's standard streams itself.
     if (!SetHandleInformation(hPipeInWrite, HANDLE_FLAG_INHERIT, 0) ||
         !SetHandleInformation(hPipeOutRead, HANDLE_FLAG_INHERIT, 0)) {
         ClosePseudoConsole(hPC);
+        CloseHandle(hPipeInRead);
+        CloseHandle(hPipeOutWrite);
         CloseHandle(hPipeInWrite);
         CloseHandle(hPipeOutRead);
         return std::unexpected(PtyError{
@@ -2507,6 +2584,8 @@ void Session::reset_restart_failures() {
     if (attrSize == 0) {
         const DWORD error = GetLastError();
         ClosePseudoConsole(hPC);
+        CloseHandle(hPipeInRead);
+        CloseHandle(hPipeOutWrite);
         CloseHandle(hPipeInWrite);
         CloseHandle(hPipeOutRead);
         return std::unexpected(PtyError{
@@ -2517,6 +2596,8 @@ void Session::reset_restart_failures() {
         HeapAlloc(GetProcessHeap(), 0, attrSize));
     if (!siEx.lpAttributeList) {
         ClosePseudoConsole(hPC);
+        CloseHandle(hPipeInRead);
+        CloseHandle(hPipeOutWrite);
         CloseHandle(hPipeInWrite);
         CloseHandle(hPipeOutRead);
         return std::unexpected(PtyError{"HeapAlloc for process attributes failed"});
@@ -2526,6 +2607,8 @@ void Session::reset_restart_failures() {
         const DWORD error = GetLastError();
         HeapFree(GetProcessHeap(), 0, siEx.lpAttributeList);
         ClosePseudoConsole(hPC);
+        CloseHandle(hPipeInRead);
+        CloseHandle(hPipeOutWrite);
         CloseHandle(hPipeInWrite);
         CloseHandle(hPipeOutRead);
         return std::unexpected(PtyError{
@@ -2539,6 +2622,8 @@ void Session::reset_restart_failures() {
         DeleteProcThreadAttributeList(siEx.lpAttributeList);
         HeapFree(GetProcessHeap(), 0, siEx.lpAttributeList);
         ClosePseudoConsole(hPC);
+        CloseHandle(hPipeInRead);
+        CloseHandle(hPipeOutWrite);
         CloseHandle(hPipeInWrite);
         CloseHandle(hPipeOutRead);
         return std::unexpected(PtyError{
@@ -2570,6 +2655,13 @@ void Session::reset_restart_failures() {
         &pi);
     const DWORD create_error = created ? ERROR_SUCCESS : GetLastError();
 
+    // The pseudoconsole duplicated these ends. Release our references only
+    // after the child process has been attached.
+    CloseHandle(hPipeInRead);
+    CloseHandle(hPipeOutWrite);
+    hPipeInRead = nullptr;
+    hPipeOutWrite = nullptr;
+
     DeleteProcThreadAttributeList(siEx.lpAttributeList);
     HeapFree(GetProcessHeap(), 0, siEx.lpAttributeList);
 
@@ -2598,9 +2690,13 @@ void Session::reset_restart_failures() {
 [[nodiscard]] std::expected<void, PtyError> resize_pty(intptr_t handle, uint16_t cols, uint16_t rows) {
     HPCON hPC = reinterpret_cast<HPCON>(handle);
     COORD size = {static_cast<SHORT>(cols), static_cast<SHORT>(rows)};
-    if (SUCCEEDED(ResizePseudoConsole(hPC, size)))
+    const HRESULT result = ResizePseudoConsole(hPC, size);
+    if (SUCCEEDED(result))
         return {};
-    return std::unexpected(PtyError{"ResizePseudoConsole failed"});
+    return std::unexpected(PtyError{
+        "ResizePseudoConsole failed: HRESULT=" +
+        std::to_string(static_cast<unsigned long>(result)) +
+        " GetLastError=" + std::to_string(GetLastError())});
 }
 
 #else // POSIX create_session via fork+execpty
@@ -2788,6 +2884,10 @@ struct MeshConfig {
     // D17: NAT traversal via UPnP
     bool upnp_enabled = false;
 
+    // mDNS LAN discovery: disabled by default. Gossip/mDNS announcements are
+    // only merged when the announced pubkey is explicitly trusted.
+    bool mdns_enabled = false;
+
     MeshConfig() : default_shell(platform_default_shell()) {}
 };
 
@@ -2963,6 +3063,9 @@ void write_peer_line(std::ostream& os, const std::string& prefix, const PeerEntr
             std::string s(val);
             for (char& c : s) if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
             cfg.require_seed_pins = !(s == "false" || s == "0" || s == "no" || s == "off");
+        } else if (key_str == "mesh.mdns_enabled") {
+            std::string_view t = trim(val);
+            cfg.mdns_enabled = (t == "true" || t == "1" || t == "yes");
         } else if (key_str == "transfer.max_bytes") {
             try {
                 cfg.transfer_max_bytes = static_cast<uint64_t>(std::stoull(std::string(val)));
@@ -3354,17 +3457,18 @@ struct AppPaths {
     if (root.empty()) root = expand_home("~/.bridgesessions");
     // Strip trailing slashes
     while (root.size() > 1 && (root.back() == '/' || root.back() == '\\')) root.pop_back();
+    const std::filesystem::path root_path(root);
     AppPaths p;
-    p.root = root;
-    p.config = root + "/config";
-    p.received = root + "/received";
-    p.authorized_keys = root + "/authorized_keys";
-    p.sessions = root + "/sessions.json";
-    p.key_pem = root + "/id_ed25519.pem";
-    p.cert_pem = root + "/id_ed25519-cert.pem";
-    p.pub = root + "/id_ed25519.pub";
-    p.logs = root + "/logs";
-    p.state = root + "/state";
+    p.root = root_path.string();
+    p.config = (root_path / "config").string();
+    p.received = (root_path / "received").string();
+    p.authorized_keys = (root_path / "authorized_keys").string();
+    p.sessions = (root_path / "sessions.json").string();
+    p.key_pem = (root_path / "id_ed25519.pem").string();
+    p.cert_pem = (root_path / "id_ed25519-cert.pem").string();
+    p.pub = (root_path / "id_ed25519.pub").string();
+    p.logs = (root_path / "logs").string();
+    p.state = (root_path / "state").string();
     return p;
 }
 
@@ -3375,7 +3479,13 @@ struct AppPaths {
     constexpr std::string_view kLegacy = "~/.bridgesessions";
     if (path == kLegacy || path.starts_with(std::string(kLegacy) + "/") ||
         path.starts_with(std::string(kLegacy) + "\\")) {
-        return app_root + path.substr(kLegacy.size());
+        std::string relative = path.substr(kLegacy.size());
+        while (!relative.empty() &&
+               (relative.front() == '/' || relative.front() == '\\')) {
+            relative.erase(relative.begin());
+        }
+        if (relative.empty()) return std::filesystem::path(app_root).string();
+        return (std::filesystem::path(app_root) / relative).string();
     }
     return expand_home(path);
 }
@@ -3383,6 +3493,48 @@ struct AppPaths {
 inline void apply_app_home_defaults(MeshConfig& cfg, const std::string& app_root) {
     cfg.authorized_keys_path = resolve_under_app_home(cfg.authorized_keys_path, app_root);
     cfg.persistence_path = resolve_under_app_home(cfg.persistence_path, app_root);
+}
+
+// ── Per-daemon IPC authentication token ─────────────────────────────
+// Each daemon instance generates a fresh CSPRNG token after binding its
+// loopback IPC socket. The token is written owner-only under the app home;
+// every CLI helper must read it and prepend it to each IPC request.
+// There is no unauthenticated fallback.
+
+[[nodiscard]] inline std::string ipc_token_path(const std::string& app_home) {
+    return (std::filesystem::path(make_app_paths(app_home).root) /
+            "ipc-token").string();
+}
+
+[[nodiscard]] inline std::string generate_ipc_token() {
+    std::array<uint8_t, 32> bytes{};
+    if (RAND_bytes(bytes.data(), static_cast<int>(bytes.size())) != 1) {
+        throw std::runtime_error("RAND_bytes failed for IPC token");
+    }
+    static const char* d = "0123456789abcdef";
+    std::string token;
+    token.reserve(bytes.size() * 2);
+    for (uint8_t b : bytes) {
+        token.push_back(d[b >> 4]);
+        token.push_back(d[b & 0xF]);
+    }
+    return token;
+}
+
+[[nodiscard]] inline bool write_ipc_token_file(const std::string& app_home,
+                                              const std::string& token) {
+    return write_private_text_file(ipc_token_path(app_home), token);
+}
+
+[[nodiscard]] inline std::string load_ipc_token(const std::string& app_home) {
+    std::ifstream f(ipc_token_path(app_home));
+    if (!f.is_open()) return {};
+    std::string token;
+    if (std::getline(f, token)) {
+        // Strip trailing CR in case the file was edited on Windows.
+        if (!token.empty() && token.back() == '\r') token.pop_back();
+    }
+    return token;
 }
 
 [[nodiscard]] std::string expand_ssh_alias(const std::string& alias) {
@@ -3590,6 +3742,7 @@ struct ResolvedSessionCommand {
     f << "mesh.ping_interval_secs " << cfg.ping_interval_secs << "\n";
     f << "mesh.pong_timeout_secs " << cfg.pong_timeout_secs << "\n";
     f << "mesh.require_seed_pins " << (cfg.require_seed_pins ? "true" : "false") << "\n";
+    f << "mesh.mdns_enabled " << (cfg.mdns_enabled ? "true" : "false") << "\n";
     f << "transfer.max_bytes " << cfg.transfer_max_bytes << "\n";
     f << "transport.webrtc_enabled " << (cfg.webrtc_enabled ? "true" : "false") << "\n";
     f << "dht.enabled " << (cfg.dht_enabled ? "true" : "false") << "\n";
@@ -3612,12 +3765,10 @@ struct ResolvedSessionCommand {
     }
     f << "\n";
 
-    // Discovered
-    f << "# ── Discovered peers (auto-populated) ──────────────\n";
-    for (const auto& d : cfg.discovered) {
-        write_peer_line(f, "discovered", d);
-    }
-    f << "\n";
+    // Discovered peers are runtime state learned via trusted mDNS/gossip.
+    // They are intentionally NOT persisted so untrusted LAN announcements cannot
+    // be written back to the operator's config file.
+    (void)cfg.discovered;
 
     // Sessions
     f << "# ── Session defaults ───────────────────────────────\n";
@@ -3737,6 +3888,17 @@ inline void configure_logger_home(const std::string& app_home) {
     state.app_home = app_home;
 }
 
+#ifdef BS_TESTING
+inline void reset_logger_for_test() {
+    auto& state = structured_logger_state();
+    std::lock_guard lock(state.mutex);
+    if (state.logger) state.logger->flush();
+    spdlog::drop("bs-mesh");
+    state.logger.reset();
+    state.app_home.clear();
+}
+#endif
+
 // Thread-safe JSON logger
 inline std::shared_ptr<spdlog::logger> get_logger() {
     auto& state = structured_logger_state();
@@ -3814,6 +3976,10 @@ class SessionRegistry {
                                         SessionState state) {
         auto peer_ids = std::move(target.peer_ids);
         auto scrollback = std::move(target.scrollback);
+#ifndef _WIN32
+        auto pending_input = std::move(target.pending_input);
+        const bool input_backpressured = target.input_backpressured;
+#endif
         const auto last_attach_at = target.last_attach_at;
         const bool auto_restart = target.auto_restart;
         const int restart_failures = target.restart_failures;
@@ -3823,6 +3989,10 @@ class SessionRegistry {
         new (&target) Session(std::move(spawned));
         target.peer_ids = std::move(peer_ids);
         target.scrollback = std::move(scrollback);
+#ifndef _WIN32
+        target.pending_input = std::move(pending_input);
+        target.input_backpressured = input_backpressured;
+#endif
         target.last_attach_at = last_attach_at;
         target.auto_restart = auto_restart;
         target.restart_failures = restart_failures;
@@ -4263,6 +4433,15 @@ inline void set_socket_timeouts(SOCKET fd, int ms) {
 #endif
 }
 
+inline bool socket_selectable(SOCKET fd) {
+    if (fd == INVALID_SOCKET) return false;
+#ifdef _WIN32
+    return true;
+#else
+    return fd >= 0 && fd < FD_SETSIZE;
+#endif
+}
+
 struct TimedConnectResult {
     bool connected = false;
     bool timed_out = false;
@@ -4272,7 +4451,7 @@ struct TimedConnectResult {
 [[nodiscard]] inline TimedConnectResult connect_socket_with_timeout(
     SOCKET fd, const sockaddr* address, socklen_t address_len, int timeout_ms) {
     TimedConnectResult result;
-    if (fd == INVALID_SOCKET || !address || timeout_ms < 0) {
+    if (!socket_selectable(fd) || !address || timeout_ms < 0) {
         result.error = EINVAL;
         return result;
     }
@@ -4409,8 +4588,11 @@ constexpr uint16_t kDefaultMeshCliPort = 19980;
     return static_cast<uint16_t>(parsed);
 }
 
-inline const uint16_t kMeshCliPort =
-    resolve_mesh_cli_port(std::getenv("BRIDGESESSIONS_IPC_PORT"));
+inline uint16_t mesh_cli_port() {
+    static const uint16_t port =
+        resolve_mesh_cli_port(std::getenv("BRIDGESESSIONS_IPC_PORT"));
+    return port;
+}
 
 // ── Base64 helpers (RFC 4648, no padding) ──────────────────────
 constexpr char kB64[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -4469,7 +4651,7 @@ inline ConnectFailReason classify_ssl_connect_fail(int ssl_err) {
 }
 
 inline bool wait_socket_ready(SOCKET fd, bool want_read, int timeout_ms) {
-    if (fd == INVALID_SOCKET) return false;
+    if (!socket_selectable(fd)) return false;
     fd_set rfds;
     fd_set wfds;
     FD_ZERO(&rfds);
@@ -4661,7 +4843,7 @@ inline bool stdin_is_terminal() {
 
 // ── TLS close_notify helper — clean TLS shutdown before closing socket ──
 inline void ssl_close(SSL* ssl, SOCKET sfd) {
-    if (ssl) {
+    if (ssl && socket_selectable(sfd)) {
         SSL_shutdown(ssl);
         // drain pending data for 1s
         fd_set fds; FD_ZERO(&fds); FD_SET(sfd, &fds);
@@ -4927,6 +5109,105 @@ public:
 
 #endif // BS_NO_NAT
 
+// ── Long-operation worker pool (v2.0.6) ─────────────────────────────
+// Moves FILE_SEND/RECV wait, EDIT_DL/UP, VFOLDER_SYNC, and remote FileRequest
+// work off the MeshController event loop. Each task runs on a fixed-size pool
+// of joinable worker threads. The handler receives the IPC socket for wait-style
+// operations so progress/final responses can stream without blocking the daemon.
+
+struct LongOperationTask {
+    enum class Type {
+        FileSendWait,
+        FileRecvWait,
+        EditDownload,
+        EditUpload,
+        VFolderSync,
+        RemoteFileRequest,
+    };
+    Type type;
+    std::string peer_name;
+    std::string path1;  // local path / remote path / vfolder name
+    std::string path2;  // local dest / local path
+    SSL* ssl = nullptr;
+    SOCKET sock_fd = INVALID_SOCKET;
+    std::shared_ptr<std::atomic<bool>> exec_busy;
+    std::shared_ptr<std::atomic<bool>> exec_completed;
+    SOCKET ipc_fd = INVALID_SOCKET;  // owned by worker for wait-style ops
+    std::shared_ptr<std::atomic<bool>> cancelled;
+};
+
+class LongOperationWorkerPool {
+public:
+    using Handler = std::function<void(const LongOperationTask&)>;
+
+    explicit LongOperationWorkerPool(size_t thread_count, Handler handler)
+        : handler_(std::move(handler)) {
+        for (size_t i = 0; i < thread_count; ++i) {
+            workers_.emplace_back([this] { worker_loop(); });
+        }
+    }
+
+    ~LongOperationWorkerPool() { shutdown(); }
+
+    void enqueue(LongOperationTask task) {
+        {
+            std::lock_guard lock(mutex_);
+            if (shutdown_) return;
+            queue_.push(std::move(task));
+        }
+        cv_.notify_one();
+    }
+
+    void shutdown() {
+        {
+            std::lock_guard lock(mutex_);
+            shutdown_ = true;
+        }
+        cv_.notify_all();
+        for (auto& t : workers_) {
+            if (t.joinable()) t.join();
+        }
+    }
+
+    size_t pending_count() const {
+        std::lock_guard lock(mutex_);
+        return queue_.size();
+    }
+
+private:
+    void worker_loop() {
+        while (true) {
+            LongOperationTask task;
+            {
+                std::unique_lock lock(mutex_);
+                cv_.wait(lock, [this] { return shutdown_ || !queue_.empty(); });
+                if (shutdown_ && queue_.empty()) return;
+                task = std::move(queue_.front());
+                queue_.pop();
+            }
+            if (!task.cancelled || !task.cancelled->load()) {
+                try {
+                    handler_(task);
+                } catch (...) {
+                    // Worker errors are returned to the IPC client or logged by handler.
+                }
+            }
+            if (task.exec_completed) task.exec_completed->store(true);
+            if (task.exec_busy) task.exec_busy->store(false);
+            if (task.ipc_fd != INVALID_SOCKET) {
+                CLOSESOCK(task.ipc_fd);
+            }
+        }
+    }
+
+    std::vector<std::thread> workers_;
+    mutable std::mutex mutex_;
+    std::condition_variable cv_;
+    std::queue<LongOperationTask> queue_;
+    bool shutdown_ = false;
+    Handler handler_;
+};
+
 class MeshController {
 public:
     enum class ConnectionPurpose : uint8_t {
@@ -4971,6 +5252,7 @@ public:
         // long-running exec doesn't get treated as a stalled peer.
         std::shared_ptr<std::atomic<bool>> exec_busy = std::make_shared<std::atomic<bool>>(false);
         std::shared_ptr<std::atomic<bool>> exec_completed = std::make_shared<std::atomic<bool>>(false);
+        std::shared_ptr<std::atomic<bool>> exec_cancelled = std::make_shared<std::atomic<bool>>(false);
         bool heartbeat_suspended_for_busy = false;
         // A detached exec worker may own ssl/sock_fd. Close paths mark this
         // and defer destruction until exec_busy is released.
@@ -4980,6 +5262,10 @@ public:
         std::chrono::steady_clock::time_point exec_started_at = {};
         bool close_requested = false;
         FileReceiveState file_receive;
+        std::string pending_recv_dir;
+        // Initial handshake Hello. Later Hello frames are ignored only if
+        // identical; any mismatch closes the connection.
+        std::optional<HelloMsg> initial_hello;
     };
 
     // Return 0 to drop the older connection (i), 1 to drop the newer one (j).
@@ -5055,8 +5341,8 @@ private:
 
     // R8.4: `conns_` is touched only from MeshController::run()'s single-threaded
     // event loop and from CLI methods that run before/after the loop — never
-    // concurrently from multiple threads. Do not read/write from worker threads
-    // without adding a mutex.
+    // concurrently from multiple threads. Long-operation workers (v2.0.6) capture
+    // SSL* / SOCKET while exec_busy is set; the event loop skips busy conns.
     std::vector<Conn> conns_;
     static constexpr size_t kMaxConnections = 64;
 
@@ -5072,6 +5358,35 @@ private:
     static constexpr int kTieBreakAcceptWindowMs = 12000;
     static constexpr int kForcedReconnectDeadlineMs = 20000;
 
+    // ── Non-blocking TLS + Hello handshake state ────────────────────
+    struct PendingHandshake {
+        enum class State {
+            TcpConnect,
+            TlsHandshake,
+            ReadHello,
+            WriteHello,   // outbound: sent our Hello, waiting for reply
+            Done,
+            Failed
+        };
+        SOCKET sock_fd = INVALID_SOCKET;
+        SslPtr ssl;
+        bool server_side = false;
+        State state = State::TlsHandshake;
+        std::chrono::steady_clock::time_point deadline;
+        std::string expected_addr;        // for outbound: seed addr
+        std::string expected_pubkey;      // for outbound: pinned pubkey
+        std::string expected_name;        // for outbound: pinned name
+        std::vector<uint8_t> rx_buffer;
+        std::vector<uint8_t> tx_buffer;   // buffered outbound Hello
+        HelloMsg outbound_hello;          // client side: our Hello already built
+        HelloMsg peer_hello;              // authenticated peer Hello retained across partial writes
+        std::string peer_pk;              // cert pubkey once TLS completes
+        bool want_read = true;
+        bool want_write = false;
+    };
+    std::vector<PendingHandshake> pending_handshakes_;
+    static constexpr size_t kMaxPendingHandshakes = 16;
+
 
     // Shutdown flag for event loop
     std::atomic<bool> running_{false};
@@ -5080,6 +5395,7 @@ private:
     std::chrono::steady_clock::time_point last_ping_time_;
     std::chrono::steady_clock::time_point last_gossip_time_;
     std::chrono::steady_clock::time_point last_mdns_time_;
+    std::chrono::steady_clock::time_point last_session_prune_time_{};
     std::chrono::steady_clock::time_point started_at_ = std::chrono::steady_clock::now();
     // mDNS LAN discovery
     SOCKET mdns_fd_ = INVALID_SOCKET;
@@ -5088,14 +5404,18 @@ private:
 
     // Listen socket
     SOCKET listen_fd_ = INVALID_SOCKET;
+    std::atomic<uint16_t> actual_listen_port_{0};
 
     std::string config_file_path_;
     std::chrono::steady_clock::time_point last_config_reload_check_{};
+    std::chrono::steady_clock::time_point last_authorization_check_{};
     std::filesystem::file_time_type config_mtime_{};
     bool config_mtime_set_ = false;
 
     int outbound_connect_timeout_ms_ = kConnectTimeoutMs;
     SOCKET cli_listen_fd_ = INVALID_SOCKET;
+    std::string ipc_token_;
+    std::string ipc_token_path_;
 
     // D15: WebRTC transport
 #ifndef BS_NO_WEBRTC
@@ -5113,6 +5433,104 @@ private:
 #ifndef BS_NO_NAT
     UpnpNat upnp_;
     std::string external_addr_;
+#endif
+
+    // v2.0.6: bounded worker pool for long file/edit/vfolder operations.
+    std::optional<LongOperationWorkerPool> worker_pool_;
+    static constexpr size_t kLongOperationWorkers = 2;
+
+#ifdef _WIN32
+    struct WindowsPtyWriteTask {
+        HANDLE handle = nullptr;
+        std::string data;
+    };
+    std::mutex windows_pty_mutex_;
+    std::condition_variable windows_pty_cv_;
+    std::queue<WindowsPtyWriteTask> windows_pty_queue_;
+    std::thread windows_pty_writer_;
+    bool windows_pty_stop_ = false;
+    std::atomic<size_t> windows_pty_pending_bytes_{0};
+    static constexpr size_t kWindowsPtyInputHighWater = 64 * 1024;
+    static constexpr size_t kWindowsPtyInputMax = 256 * 1024;
+
+    void windows_pty_writer_loop() {
+        for (;;) {
+            WindowsPtyWriteTask task;
+            {
+                std::unique_lock lock(windows_pty_mutex_);
+                windows_pty_cv_.wait(lock, [this] {
+                    return windows_pty_stop_ || !windows_pty_queue_.empty();
+                });
+                if (windows_pty_stop_) return;
+                task = std::move(windows_pty_queue_.front());
+                windows_pty_queue_.pop();
+            }
+            size_t offset = 0;
+            while (offset < task.data.size()) {
+                DWORD wrote = 0;
+                if (!WriteFile(task.handle, task.data.data() + offset,
+                               static_cast<DWORD>(task.data.size() - offset),
+                               &wrote, nullptr) || wrote == 0) {
+                    break;
+                }
+                offset += wrote;
+            }
+            windows_pty_pending_bytes_.fetch_sub(task.data.size());
+            CloseHandle(task.handle);
+        }
+    }
+
+    bool enqueue_windows_pty_input(Session& session, std::string_view data) {
+        if (!session.write_handle || data.empty()) return data.empty();
+        const size_t pending = windows_pty_pending_bytes_.load();
+        if (data.size() > kWindowsPtyInputMax ||
+            pending > kWindowsPtyInputMax - data.size()) {
+            log_event("pty_input_overflow", session.name);
+            return false;
+        }
+        HANDLE duplicate = nullptr;
+        if (!DuplicateHandle(GetCurrentProcess(), session.write_handle,
+                             GetCurrentProcess(), &duplicate, 0, FALSE,
+                             DUPLICATE_SAME_ACCESS)) {
+            log_event("pty_input_duplicate_failed", session.name);
+            return false;
+        }
+        {
+            std::lock_guard lock(windows_pty_mutex_);
+            if (windows_pty_stop_) {
+                CloseHandle(duplicate);
+                return false;
+            }
+            windows_pty_pending_bytes_.fetch_add(data.size());
+            windows_pty_queue_.push(WindowsPtyWriteTask{
+                duplicate, std::string(data)});
+            if (!windows_pty_writer_.joinable()) {
+                windows_pty_writer_ = std::thread([this] {
+                    windows_pty_writer_loop();
+                });
+            }
+        }
+        windows_pty_cv_.notify_one();
+        return true;
+    }
+
+    void shutdown_windows_pty_writer() {
+        {
+            std::lock_guard lock(windows_pty_mutex_);
+            windows_pty_stop_ = true;
+        }
+        windows_pty_cv_.notify_all();
+        if (windows_pty_writer_.joinable()) {
+            CancelSynchronousIo(reinterpret_cast<HANDLE>(
+                windows_pty_writer_.native_handle()));
+            windows_pty_writer_.join();
+        }
+        while (!windows_pty_queue_.empty()) {
+            CloseHandle(windows_pty_queue_.front().handle);
+            windows_pty_queue_.pop();
+        }
+        windows_pty_pending_bytes_.store(0);
+    }
 #endif
 
     // ── Internal helpers ───────────────────────────────────────
@@ -5198,6 +5616,7 @@ private:
             }
         }
         for (const auto& d : config_.discovered) {
+            if (!is_trusted_pubkey_cached(d.pubkey_hex)) continue;
             if ((!pubkey_hex.empty() && d.pubkey_hex == pubkey_hex) ||
                 (!peer_name.empty() && peer_name_eq(d.name, peer_name))) {
                 return d.addr;
@@ -5283,6 +5702,7 @@ private:
             return false;
         }
         c.close_requested = false;
+        c.pending_recv_dir.clear();
         if (c.file_receive.active) {
             c.file_receive.file.close();
             std::error_code ec;
@@ -5321,9 +5741,9 @@ private:
             h.known_peers.push_back(std::move(pi));
         }
 
-        // Add discovered peers
+        // Add discovered peers only while their key remains explicitly trusted.
         for (auto& d : config_.discovered) {
-            if (d.pubkey_hex.empty()) continue;
+            if (!is_trusted_pubkey_cached(d.pubkey_hex)) continue;
             PeerInfo pi;
             pi.name = d.name;
             pi.addr = d.addr;
@@ -5347,60 +5767,98 @@ private:
         return h;
     }
 
-    // Merge peers from Hello or Gossip into discovered
+    // Cached trust check for const/read-only paths. Runtime discovery paths call
+    // is_trusted_pubkey(), which reloads authorized_keys first so revocations
+    // take effect before accepting an address update.
+    bool is_trusted_pubkey_cached(const std::string& pubkey_hex) const {
+        if (pubkey_hex.empty()) return false;
+        for (const auto& s : config_.seeds) {
+            if (!s.pubkey_hex.empty() && s.pubkey_hex == pubkey_hex) return true;
+        }
+        std::vector<uint8_t> raw = hex_decode(pubkey_hex);
+        if (raw.size() == 32 && authorized_keys_.contains(raw)) return true;
+        return false;
+    }
+
+    bool is_trusted_pubkey(const std::string& pubkey_hex) {
+        authorized_keys_.reload();
+        return is_trusted_pubkey_cached(pubkey_hex);
+    }
+
+    void prune_revoked_connections() {
+        authorized_keys_.reload();
+        for (auto& c : conns_) {
+            if (c.sock_fd == INVALID_SOCKET || c.peer_pubkey.empty() ||
+                is_trusted_pubkey_cached(c.peer_pubkey)) {
+                continue;
+            }
+            if (c.exec_cancelled) c.exec_cancelled->store(true);
+            log_event("mesh_peer_revoked", c.peer_name);
+            close_conn(c);
+        }
+    }
+
+    void maybe_prune_revoked_connections() {
+        const auto now = std::chrono::steady_clock::now();
+        if (now - last_authorization_check_ < std::chrono::seconds(1)) return;
+        last_authorization_check_ = now;
+        prune_revoked_connections();
+    }
+
+    static uint64_t now_unix_seconds() {
+        return static_cast<uint64_t>(
+            std::chrono::system_clock::to_time_t(std::chrono::system_clock::now()));
+    }
+
+    // Merge peers from Hello or Gossip into discovered. New peers are added only
+    // when their announced pubkey is explicitly trusted (pinned seed or
+    // authorized_keys). Existing discovered entries are updated only while the
+    // pubkey remains trusted. Untrusted announcements are dropped and never
+    // persisted.
     void merge_peers(const std::vector<PeerInfo>& peers) {
-        bool changed = false;
         for (auto& p : peers) {
-            // Skip self
-            if (p.pubkey_hex == our_pubkey_) continue;
-            // Skip already known seeds
+            if (p.pubkey_hex.empty()) continue;          // require identity
+            if (p.pubkey_hex == our_pubkey_) continue;   // skip self
+
+            if (!is_trusted_pubkey(p.pubkey_hex)) continue;
+
+            // A seed is trusted only when its configured pin exactly matches.
+            // Never learn a missing seed pin from gossip/Hello.
             bool is_seed = false;
             for (auto& s : config_.seeds) {
-                if (s.name == p.name || (!p.pubkey_hex.empty() && s.pubkey_hex == p.pubkey_hex)) {
+                if (!s.pubkey_hex.empty() && s.pubkey_hex == p.pubkey_hex) {
                     is_seed = true;
-                    // Update pubkey if missing
-                    if (s.pubkey_hex.empty() && !p.pubkey_hex.empty()) {
-                        s.pubkey_hex = p.pubkey_hex;
-                        changed = true;
-                    }
+                    if (!p.addr.empty()) s.addr = p.addr;
+                    s.last_seen = now_unix_seconds();
                     break;
                 }
+                if (peer_name_eq(s.name, p.name) && s.pubkey_hex != p.pubkey_hex)
+                    is_seed = true;  // name collision: reject the announcement
             }
             if (is_seed) continue;
 
-            // Check if already in discovered
+            // Existing discovered entry: identity is the key, not the name.
             bool found = false;
             for (auto& d : config_.discovered) {
-                if (d.name == p.name || (!p.pubkey_hex.empty() && d.pubkey_hex == p.pubkey_hex)) {
+                if (d.pubkey_hex == p.pubkey_hex) {
                     found = true;
-                    if (!p.addr.empty() && d.addr.empty()) {
-                        d.addr = p.addr;
-                        changed = true;
-                    }
-                    if (!p.pubkey_hex.empty() && d.pubkey_hex.empty()) {
-                        d.pubkey_hex = p.pubkey_hex;
-                        changed = true;
-                    }
-                    d.last_seen = static_cast<uint64_t>(
-                        std::chrono::system_clock::to_time_t(std::chrono::system_clock::now()));
+                    if (!p.addr.empty()) d.addr = p.addr;
+                    if (!p.name.empty()) d.name = p.name;
+                    d.last_seen = now_unix_seconds();
                     break;
                 }
+                if (peer_name_eq(d.name, p.name) && d.pubkey_hex != p.pubkey_hex)
+                    found = true;  // name collision: reject the announcement
             }
-            if (!found) {
-                PeerEntry pe;
-                pe.name = p.name;
-                pe.addr = p.addr;
-                pe.pubkey_hex = p.pubkey_hex;
-                pe.last_seen = static_cast<uint64_t>(
-                    std::chrono::system_clock::to_time_t(std::chrono::system_clock::now()));
-                config_.discovered.push_back(std::move(pe));
-                changed = true;
-            }
+            if (found) continue;
+
+            PeerEntry pe;
+            pe.name = p.name;
+            pe.addr = p.addr;
+            pe.pubkey_hex = p.pubkey_hex;
+            pe.last_seen = now_unix_seconds();
+            config_.discovered.push_back(std::move(pe));
         }
-        // Discovered peers are runtime state only — never persist them. Writing the
-        // config here on every Hello bumps the file mtime, which retriggers
-        // reload_seeds_from_disk in a tight loop and starves the event loop.
-        (void)changed;
     }
 
     // R4.2/R4.3: reload SEED list when config file changes on disk.
@@ -5473,6 +5931,8 @@ private:
     }
 
     // ── Accept new inbound connection ──────────────────────────
+    // v2.0.6: accept is now non-blocking. The TLS handshake and Hello exchange
+    // happen incrementally in advance_handshakes() driven by select() readiness.
 
     void accept_inbound() {
         sockaddr_in peer_addr{};
@@ -5480,92 +5940,362 @@ private:
         SOCKET cfd = accept(listen_fd_, reinterpret_cast<sockaddr*>(&peer_addr), &addr_len);
         if (cfd == INVALID_SOCKET) return;
 
-        if (conns_.size() >= kMaxConnections) {
+        const std::string source_ip = inet_ntoa(peer_addr.sin_addr);
+        size_t pending_from_source = 0;
+        for (const auto& ph : pending_handshakes_) {
+            if (ph.server_side &&
+                ph.expected_addr.rfind(source_ip + ":", 0) == 0) {
+                ++pending_from_source;
+            }
+        }
+        if (pending_from_source >= 2) {
+            log_event("handshake_source_limit", source_ip);
             ssl_close(nullptr, cfd);
             return;
         }
 
-        // TLS handshake (server side)
-        auto ssl = SslPtr(SSL_new(tls_listen_.get()));
-        if (!ssl) { ssl_close(nullptr, cfd); return; }
-        SSL_set_fd(ssl.get(), static_cast<int>(cfd));
-
-        // Short timeout during handshake + Hello so a peer that completes TLS but
-        // stalls before sending Hello (or a rogue/incompatible client) cannot block
-        // the single-threaded event loop for long. A blocked accept here freezes
-        // peer reads → missed pongs → false pong_timeouts → mesh flap, and freezes
-        // the CLI IPC handler → `health` times out. Keep this tight.
-        set_socket_timeouts(cfd, kAcceptHandshakeTimeoutMs);
-        int ret = ssl_accept_blocking(ssl.get(), cfd, kAcceptHandshakeTimeoutMs);
-        if (ret <= 0) {
-            // R1: capture error before ssl_close drains the queue
-            int ssl_err = SSL_get_error(ssl.get(), ret);
-            char errbuf[256] = {};
-            unsigned long e = ERR_get_error();
-            if (e) ERR_error_string_n(e, errbuf, sizeof(errbuf));
-            log_event("tls_accept_failed",
-                      "ssl_err=" + std::to_string(ssl_err) +
-                      (errbuf[0] ? std::string(" ") + errbuf : ""));
-            ssl_close(ssl.get(), cfd);
+        if (conns_.size() + pending_handshakes_.size() >= kMaxConnections) {
+            ssl_close(nullptr, cfd);
+            return;
+        }
+        if (pending_handshakes_.size() >= kMaxPendingHandshakes) {
+            log_event("handshake_pending_limit", "dropped inbound, pending=" +
+                      std::to_string(pending_handshakes_.size()));
+            ssl_close(nullptr, cfd);
             return;
         }
 
-        // Get peer's pubkey
-        std::string peer_pk = peer_public_key_hex(ssl.get());
-        if (peer_pk.empty()) { ssl_close(ssl.get(), cfd); return; }
+        // Make socket non-blocking so the handshake state machine never blocks.
+#ifdef _WIN32
+        u_long nb = 1;
+        ioctlsocket(cfd, FIONBIO, &nb);
+#else
+        int fl = fcntl(cfd, F_GETFL, 0);
+        if (fl >= 0) fcntl(cfd, F_SETFL, fl | O_NONBLOCK);
+#endif
 
-        // Read Hello from peer
-        try {
-            Message msg = read_frame(ssl.get());
-            if (!std::holds_alternative<HelloMsg>(msg)) {
-                ssl_close(ssl.get(), cfd);
-                return;
-            }
-            auto& hello = std::get<HelloMsg>(msg);
+        auto ssl = SslPtr(SSL_new(tls_listen_.get()));
+        if (!ssl) { ssl_close(nullptr, cfd); return; }
+        SSL_set_fd(ssl.get(), static_cast<int>(cfd));
+        SSL_set_accept_state(ssl.get());
 
-            // Bind the application identity to the authorized client
-            // certificate and reject configured name/key collisions.
-            const auto identity = verify_inbound_peer_identity(
-                config_, peer_pk, hello.pubkey_hex, hello.node_name);
-            if (!identity.ok) {
-                log_event("hello_identity_rejected",
-                          hello.node_name + " reason=" + identity.reason);
-                ssl_close(ssl.get(), cfd);
-                return;
-            }
+        PendingHandshake ph;
+        ph.sock_fd = cfd;
+        ph.ssl = std::move(ssl);
+        ph.server_side = true;
+        ph.state = PendingHandshake::State::TlsHandshake;
+        ph.expected_addr = std::string(inet_ntoa(peer_addr.sin_addr)) + ":" +
+                           std::to_string(ntohs(peer_addr.sin_port));
+        ph.want_read = true;
+        ph.want_write = false;
+        ph.deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(kAcceptHandshakeTimeoutMs);
+        pending_handshakes_.push_back(std::move(ph));
+        log_event("inbound_accepted", std::string(inet_ntoa(peer_addr.sin_addr)) + ":" +
+                  std::to_string(ntohs(peer_addr.sin_port)));
+    }
 
-            Conn c;
-            c.peer_name = hello.node_name;
-            c.peer_pubkey = peer_pk;
-            c.peer_addr = std::string(inet_ntoa(peer_addr.sin_addr)) + ":" +
-                          std::to_string(ntohs(peer_addr.sin_port));
-            std::string subj = peer_cert_subject_oneline(ssl.get());  // R1.4 before move
-            c.ssl = std::move(ssl);
-            c.sock_fd = cfd;
-            c.is_outbound = false;
-            c.purpose = ConnectionPurpose::Unknown;
-            c.last_pong = std::chrono::steady_clock::now();
-            // Replace the tight handshake timeout with the steady-state recv
-            // timeout so a mid-frame stall bails (drop+reconnect) instead of
-            // freezing the event loop. See kPeerRecvTimeoutMs.
-            set_socket_timeouts(cfd, kPeerRecvTimeoutMs);
+    // ── Incremental TLS + Hello handshake ─────────────────────
 
-            // Merge known peers from Hello
-            merge_peers(hello.known_peers);
-
-            // Send our Hello back
-            write_frame(c.ssl.get(), build_hello(), CONTROL_STREAM_ID);
-
-            // Check duplicate resolution
-            conns_.push_back(std::move(c));
-            resolve_duplicates();
-            clear_accept_only_for(hello.node_name, "", peer_pk);
-
-            log_event("mesh_peer_connected", hello.node_name + " pubkey=" + peer_pk.substr(0, 16) + "..."
-                      + " subject=" + subj);  // R1.4
-        } catch (...) {
-            ssl_close(ssl.get(), cfd);
+    // Called once when TLS completes to verify the peer certificate pubkey.
+    bool handshake_verify_cert_pubkey(PendingHandshake& ph) {
+        ph.peer_pk = peer_public_key_hex(ph.ssl.get());
+        if (ph.peer_pk.empty()) {
+            log_event("handshake_no_cert_pubkey", ph.server_side ? "inbound" : "outbound");
+            return false;
         }
+        return true;
+    }
+
+    // Promote a completed handshake to a live Conn.
+    void promote_handshake_to_conn(PendingHandshake& ph, const HelloMsg& hello) {
+        Conn c;
+        c.peer_name = hello.node_name;
+        c.peer_pubkey = ph.peer_pk;
+        c.peer_addr = ph.expected_addr;
+        c.initial_hello = hello;
+        c.ssl = std::move(ph.ssl);
+        c.sock_fd = ph.sock_fd;
+        c.rx_buffer = std::move(ph.rx_buffer);
+        c.is_outbound = !ph.server_side;
+        c.purpose = ConnectionPurpose::Unknown;
+        c.last_pong = std::chrono::steady_clock::now();
+        // Steady-state recv timeout for established links.
+        set_socket_timeouts(ph.sock_fd, kPeerRecvTimeoutMs);
+
+        merge_peers(hello.known_peers);
+        conns_.push_back(std::move(c));
+        resolve_duplicates();
+        clear_accept_only_for(hello.node_name, ph.expected_addr, ph.peer_pk);
+
+        log_event(ph.server_side ? "mesh_peer_connected" : "mesh_peer_connected_outbound",
+                  hello.node_name + " addr=" + (ph.server_side ? "inbound" : ph.expected_addr) +
+                  " pubkey=" + ph.peer_pk.substr(0, 16) + "...");
+
+        // Handshake object will be erased; mark fd moved so ssl_close isn't called twice.
+        ph.sock_fd = INVALID_SOCKET;
+        ph.state = PendingHandshake::State::Done;
+    }
+
+    void advance_handshakes() {
+        auto now = std::chrono::steady_clock::now();
+        std::vector<size_t> to_erase;
+
+        for (size_t i = 0; i < pending_handshakes_.size(); ++i) {
+            auto& ph = pending_handshakes_[i];
+            if (now > ph.deadline) {
+                log_event("handshake_deadline", ph.server_side ? "inbound" : ph.expected_addr);
+                ph.state = PendingHandshake::State::Failed;
+                to_erase.push_back(i);
+                continue;
+            }
+            if (!socket_selectable(ph.sock_fd)) {
+                log_event("handshake_fd_not_selectable", std::to_string(ph.sock_fd));
+                ph.state = PendingHandshake::State::Failed;
+                to_erase.push_back(i);
+                continue;
+            }
+
+            fd_set ready_read, ready_write;
+            FD_ZERO(&ready_read);
+            FD_ZERO(&ready_write);
+            if (ph.want_read) FD_SET(ph.sock_fd, &ready_read);
+            if (ph.want_write) FD_SET(ph.sock_fd, &ready_write);
+            timeval poll_tv{0, 0};
+            const int ready = select(static_cast<int>(ph.sock_fd) + 1,
+                                     &ready_read, &ready_write, nullptr, &poll_tv);
+            if (ready <= 0 && SSL_pending(ph.ssl.get()) <= 0) continue;
+
+            try {
+                switch (ph.state) {
+                case PendingHandshake::State::TcpConnect: {
+                    int so_error = 0;
+                    socklen_t len = sizeof(so_error);
+                    if (getsockopt(ph.sock_fd, SOL_SOCKET, SO_ERROR,
+                                   reinterpret_cast<char*>(&so_error), &len) != 0 || so_error != 0) {
+                        ph.state = PendingHandshake::State::Failed;
+                        to_erase.push_back(i);
+                        break;
+                    }
+                    ph.state = PendingHandshake::State::TlsHandshake;
+                    ph.want_read = true;
+                    ph.want_write = true;
+                    break;
+                }
+                case PendingHandshake::State::TlsHandshake: {
+                    int ret = ph.server_side ? SSL_accept(ph.ssl.get()) : SSL_connect(ph.ssl.get());
+                    if (ret > 0) {
+                        if (!handshake_verify_cert_pubkey(ph)) {
+                            ph.state = PendingHandshake::State::Failed;
+                            to_erase.push_back(i);
+                            break;
+                        }
+                        if (ph.server_side) {
+                            ph.state = PendingHandshake::State::ReadHello;
+                            ph.want_read = true;
+                            ph.want_write = false;
+                        } else {
+                            ph.outbound_hello = build_hello();
+                            ph.state = PendingHandshake::State::WriteHello;
+                            ph.want_read = false;
+                            ph.want_write = true;
+                        }
+                    } else {
+                        int err = SSL_get_error(ph.ssl.get(), ret);
+                        if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
+                            ph.want_read = err == SSL_ERROR_WANT_READ;
+                            ph.want_write = err == SSL_ERROR_WANT_WRITE;
+                        } else {
+                            log_event("tls_handshake_failed",
+                                      (ph.server_side ? "inbound ssl_err=" : "outbound ssl_err=") +
+                                      std::to_string(err));
+                            ph.state = PendingHandshake::State::Failed;
+                            to_erase.push_back(i);
+                        }
+                    }
+                    break;
+                }
+                case PendingHandshake::State::WriteHello: {
+                    int want = SSL_ERROR_WANT_WRITE;
+                    if (write_frame_nonblocking(ph.ssl.get(), ph.outbound_hello,
+                                                CONTROL_STREAM_ID, ph.tx_buffer, &want)) {
+                        ph.tx_buffer.clear();
+                        ph.state = ph.server_side
+                            ? PendingHandshake::State::Done
+                            : PendingHandshake::State::ReadHello;
+                        ph.want_read = !ph.server_side;
+                        ph.want_write = false;
+                        if (ph.state == PendingHandshake::State::Done) {
+                            promote_handshake_to_conn(ph, ph.peer_hello);
+                            to_erase.push_back(i);
+                        }
+                    } else {
+                        ph.want_read = want == SSL_ERROR_WANT_READ;
+                        ph.want_write = want == SSL_ERROR_WANT_WRITE;
+                    }
+                    break;
+                }
+                case PendingHandshake::State::ReadHello: {
+                    int want = SSL_ERROR_WANT_READ;
+                    auto msg_opt = read_frame_nonblocking(ph.ssl.get(), ph.rx_buffer, &want);
+                    ph.want_read = want == SSL_ERROR_WANT_READ;
+                    ph.want_write = want == SSL_ERROR_WANT_WRITE;
+                    if (!msg_opt) break;
+                    if (!std::holds_alternative<HelloMsg>(*msg_opt)) {
+                        log_event("handshake_expected_hello",
+                                  ph.server_side ? "inbound" : ph.expected_addr);
+                        ph.state = PendingHandshake::State::Failed;
+                        to_erase.push_back(i);
+                        break;
+                    }
+                    auto& hello = std::get<HelloMsg>(*msg_opt);
+                    ph.peer_hello = hello;
+
+                    if (ph.server_side) {
+                        auto identity = verify_inbound_peer_identity(
+                            config_, ph.peer_pk, hello.pubkey_hex, hello.node_name);
+                        if (!identity.ok) {
+                            log_event("hello_identity_rejected",
+                                      hello.node_name + " reason=" + identity.reason);
+                            ph.state = PendingHandshake::State::Failed;
+                            to_erase.push_back(i);
+                            break;
+                        }
+                        // Send Hello reply (possibly non-blocking).
+                        ph.outbound_hello = build_hello();
+                        ph.state = PendingHandshake::State::WriteHello;
+                        ph.want_read = false;
+                        ph.want_write = true;
+                        int write_want = SSL_ERROR_WANT_WRITE;
+                        if (write_frame_nonblocking(ph.ssl.get(), ph.outbound_hello,
+                                                    CONTROL_STREAM_ID, ph.tx_buffer, &write_want)) {
+                            ph.tx_buffer.clear();
+                            promote_handshake_to_conn(ph, ph.peer_hello);
+                            to_erase.push_back(i);
+                        } else {
+                            ph.want_read = write_want == SSL_ERROR_WANT_READ;
+                            ph.want_write = write_want == SSL_ERROR_WANT_WRITE;
+                        }
+                    } else {
+                        auto v = verify_outbound_peer_identity(
+                            ph.expected_pubkey, ph.peer_pk, hello.pubkey_hex,
+                            ph.expected_name, hello.node_name, config_.require_seed_pins);
+                        if (!v.ok) {
+                            log_event("mesh_peer_identity_rejected",
+                                      ph.expected_addr + " name=" + hello.node_name +
+                                      " reason=" + v.reason);
+                            ph.state = PendingHandshake::State::Failed;
+                            to_erase.push_back(i);
+                            break;
+                        }
+                        promote_handshake_to_conn(ph, hello);
+                        to_erase.push_back(i);
+                    }
+                    break;
+                }
+                case PendingHandshake::State::Done:
+                case PendingHandshake::State::Failed:
+                    to_erase.push_back(i);
+                    break;
+                }
+            } catch (const std::exception& e) {
+                log_event("handshake_exception",
+                          (ph.server_side ? "inbound " : ph.expected_addr + " ") + e.what());
+                ph.state = PendingHandshake::State::Failed;
+                to_erase.push_back(i);
+            } catch (...) {
+                log_event("handshake_exception",
+                          ph.server_side ? "inbound unknown" : ph.expected_addr + " unknown");
+                ph.state = PendingHandshake::State::Failed;
+                to_erase.push_back(i);
+            }
+        }
+
+        // Erase failed/done handshakes from back to front to keep indices stable.
+        for (auto it = to_erase.rbegin(); it != to_erase.rend(); ++it) {
+            auto& ph = pending_handshakes_[*it];
+            if (ph.sock_fd != INVALID_SOCKET) {
+                if (ph.ssl) SSL_set_quiet_shutdown(ph.ssl.get(), 1);
+                CLOSESOCK(ph.sock_fd);
+                ph.sock_fd = INVALID_SOCKET;
+                ph.ssl.reset();
+            }
+            pending_handshakes_.erase(pending_handshakes_.begin() + static_cast<std::ptrdiff_t>(*it));
+        }
+    }
+
+    // ── Start non-blocking outbound handshake to a seed/discovered peer ────
+    // Returns true if a handshake was started, false on immediate failure.
+    bool start_outbound_handshake(const PeerEntry& peer) {
+        for (const auto& ph : pending_handshakes_) {
+            if (!ph.server_side &&
+                (ph.expected_addr == peer.addr ||
+                 (!peer.pubkey_hex.empty() && ph.expected_pubkey == peer.pubkey_hex))) {
+                return false;
+            }
+        }
+        if (pending_handshakes_.size() >= kMaxPendingHandshakes) return false;
+        try {
+            auto sa = resolve_addr(peer.addr);
+            SOCKET sfd = socket(AF_INET, SOCK_STREAM, 0);
+            if (sfd == INVALID_SOCKET) return false;
+            { int o = 1; setsockopt(sfd, SOL_SOCKET, SO_REUSEADDR, (const char*)&o, sizeof(o)); }
+
+            // Non-blocking connect.
+#ifdef _WIN32
+            u_long nb = 1;
+            ioctlsocket(sfd, FIONBIO, &nb);
+#else
+            int fl = fcntl(sfd, F_GETFL, 0);
+            if (fl >= 0) fcntl(sfd, F_SETFL, fl | O_NONBLOCK);
+#endif
+            int rc = connect(sfd, reinterpret_cast<sockaddr*>(&sa), sizeof(sa));
+            bool connected_immediately = rc == 0;
+            if (rc != 0) {
+#ifdef _WIN32
+                int err = WSAGetLastError();
+                if (err != WSAEWOULDBLOCK && err != WSAEINPROGRESS) {
+                    CLOSESOCK(sfd); return false;
+                }
+#else
+                if (errno != EINPROGRESS) {
+                    CLOSESOCK(sfd); return false;
+                }
+#endif
+            }
+
+            auto ssl = SslPtr(SSL_new(tls_connect_.get()));
+            if (!ssl) { CLOSESOCK(sfd); return false; }
+            SSL_set_fd(ssl.get(), static_cast<int>(sfd));
+            SSL_set_connect_state(ssl.get());
+
+            PendingHandshake ph;
+            ph.sock_fd = sfd;
+            ph.ssl = std::move(ssl);
+            ph.server_side = false;
+            ph.state = connected_immediately
+                ? PendingHandshake::State::TlsHandshake
+                : PendingHandshake::State::TcpConnect;
+            ph.want_read = connected_immediately;
+            ph.want_write = true;
+            ph.deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(outbound_connect_timeout_ms_);
+            ph.expected_addr = peer.addr;
+            ph.expected_pubkey = peer.pubkey_hex;
+            ph.expected_name = peer.name;
+            pending_handshakes_.push_back(std::move(ph));
+            return true;
+        } catch (...) {
+            return false;
+        }
+    }
+
+    // Helper used by advance_handshakes to check if a non-blocking connect finished.
+    static bool socket_connect_finished(SOCKET fd) {
+        if (fd == INVALID_SOCKET) return false;
+        int so_error = 0;
+        socklen_t len = sizeof(so_error);
+        if (getsockopt(fd, SOL_SOCKET, SO_ERROR, reinterpret_cast<char*>(&so_error), &len) != 0)
+            return false;
+        return so_error == 0;
     }
 
     // ── Public API ──────────────────────────────────────────
@@ -5647,6 +6377,7 @@ private:
             c.peer_name = hello.node_name;
             c.peer_pubkey = peer_pk;
             c.peer_addr = addr;
+            c.initial_hello = hello;
             std::string subj_out = peer_cert_subject_oneline(ssl.get());  // R1.4 before move
             c.ssl = std::move(ssl);
             c.sock_fd = sfd;
@@ -5717,7 +6448,7 @@ private:
             g.peers.push_back(std::move(pi));
         }
         for (auto& d : config_.discovered) {
-            if (d.pubkey_hex.empty()) continue;
+            if (!is_trusted_pubkey_cached(d.pubkey_hex)) continue;
             PeerInfo pi;
             pi.name = d.name;
             pi.addr = d.addr;
@@ -5788,6 +6519,13 @@ private:
     void handle_file_meta(Conn& c, const FileMetaMsg& m) {
         // Prepare receive path — never trust raw remote filenames (P0-3).
         namespace fs = std::filesystem;
+
+        // v2.0.6: the destination directory was bound to this Conn by the async
+        // FILE_RECV request. Consume it now (one outstanding receive per Conn).
+        // Fall back to the global default only when no per-request dir is set.
+        std::string recv_dir = std::move(c.pending_recv_dir);
+        if (recv_dir.empty()) recv_dir = receive_dir_;
+
         auto safe_name = sanitize_transfer_filename(m.filename);
         if (!safe_name) {
             std::string err = "rejected unsafe filename";
@@ -5807,10 +6545,10 @@ private:
             return;
         }
         std::error_code ec;
-        fs::create_directories(receive_dir_, ec);
+        fs::create_directories(recv_dir, ec);
         if (ec) {
             std::string err = "cannot create receive directory";
-            log_event("file_recv_failed", receive_dir_ + " reason=" + ec.message());
+            log_event("file_recv_failed", recv_dir + " reason=" + ec.message());
             try { write_frame(c.ssl.get(), FileAckMsg{0, 0, true, err}, CONTROL_STREAM_ID); } catch (...) {}
             return;
         }
@@ -5823,8 +6561,8 @@ private:
             state.active = false;
         }
 
-        std::string out_path = (fs::path(receive_dir_) / *safe_name).string();
-        if (!path_is_inside_directory(out_path, receive_dir_)) {
+        std::string out_path = (fs::path(recv_dir) / *safe_name).string();
+        if (!path_is_inside_directory(out_path, recv_dir)) {
             std::string err = "path escapes receive directory";
             log_event("file_recv_rejected", *safe_name + " reason=path_escape");
             try { write_frame(c.ssl.get(), FileAckMsg{0, 0, true, err}, CONTROL_STREAM_ID); } catch (...) {}
@@ -5832,9 +6570,9 @@ private:
         }
         int suffix = 1;
         while (fs::exists(out_path) || fs::exists(out_path + ".part")) {
-            std::string alt = (fs::path(receive_dir_) /
+            std::string alt = (fs::path(recv_dir) /
                                (*safe_name + "." + std::to_string(suffix))).string();
-            if (!path_is_inside_directory(alt, receive_dir_)) break;
+            if (!path_is_inside_directory(alt, recv_dir)) break;
             out_path = alt;
             ++suffix;
         }
@@ -5994,8 +6732,13 @@ private:
         return true;
     }
 
-    std::string daemon_file_send_wait(const std::string& peer_name, const std::string& local_path,
-                                      const std::function<void(const std::string&)>& on_progress = {}) {
+    // v2.0.6: transport-agnostic file send-wait. Runs on the event loop or a
+    // worker thread; caller must ensure exclusive SSL transport access.
+    std::string file_send_wait_on_transport(
+            SSL* ssl, SOCKET sock_fd, const std::string& local_path,
+            const std::function<bool()>& is_cancelled = {},
+            const std::function<void(const std::string&)>& on_progress = {}) {
+        if (!socket_selectable(sock_fd)) return "ERROR socket exceeds select limit";
         namespace fs = std::filesystem;
         auto emit = [&](const std::string& line) {
             if (on_progress) on_progress(line);
@@ -6004,42 +6747,19 @@ private:
         if (!fs::exists(local_path) || fs::is_directory(local_path))
             return "ERROR file not found or is a directory: " + local_path;
 
-        Conn* target = nullptr;
-        for (auto& c : conns_) {
-            if (is_live_mesh_transport_for(c, peer_name)) {
-                target = &c; break;
-            }
-        }
-        if (!target) return "ERROR no conn to " + peer_name;
-        if (target->exec_busy->exchange(true)) return "ERROR peer busy with another transfer, retry";
-        target->exec_completed->store(false);
-        struct BusyGuard {
-            std::shared_ptr<std::atomic<bool>> busy;
-            std::shared_ptr<std::atomic<bool>> completed;
-            ~BusyGuard() {
-                if (completed) completed->store(true);
-                if (busy) busy->store(false);
-            }
-        } guard{target->exec_busy, target->exec_completed};
-        target->exec_started_at = std::chrono::steady_clock::now();
-
         uint64_t filesize = static_cast<uint64_t>(fs::file_size(local_path));
         const auto shape = calculate_transfer_metadata(filesize, config_.transfer_max_bytes);
         if (!shape.ok) return "ERROR " + shape.reason;
         std::string filename = fs::path(local_path).filename().string();
-        // Stream hash first (no full-file RAM).
         std::string checksum = sha256_file_stream(local_path);
         if (checksum.empty()) return "ERROR cannot hash " + local_path;
-
         const uint32_t total_chunks = shape.expected_chunks;
 
         try {
             FileMetaMsg meta;
-            meta.filename = filename;
-            meta.filesize = filesize;
-            meta.checksum = checksum;
-            meta.total_chunks = total_chunks;
-            write_frame(target->ssl.get(), meta, CONTROL_STREAM_ID);
+            meta.filename = filename; meta.filesize = filesize;
+            meta.checksum = checksum; meta.total_chunks = total_chunks;
+            write_frame(ssl, meta, CONTROL_STREAM_ID);
         } catch (const std::exception& e) {
             return "ERROR send meta: " + std::string(e.what());
         }
@@ -6051,14 +6771,15 @@ private:
         auto wait_ack = [&](uint32_t expected_next) -> std::string {
             while (std::chrono::steady_clock::now() < overall_deadline &&
                    std::chrono::steady_clock::now() < idle_deadline) {
-                if (SSL_pending(target->ssl.get()) <= 0) {
-                    fd_set rfds; FD_ZERO(&rfds); FD_SET(target->sock_fd, &rfds);
+                if (is_cancelled && is_cancelled()) return "ERROR cancelled";
+                if (SSL_pending(ssl) <= 0) {
+                    fd_set rfds; FD_ZERO(&rfds); FD_SET(sock_fd, &rfds);
                     timeval tv{2, 0};
-                    if (select(static_cast<int>(target->sock_fd) + 1, &rfds, nullptr, nullptr, &tv) <= 0)
+                    if (select(static_cast<int>(sock_fd) + 1, &rfds, nullptr, nullptr, &tv) <= 0)
                         continue;
                 }
                 try {
-                    Message resp = read_frame(target->ssl.get());
+                    Message resp = read_frame(ssl);
                     if (std::holds_alternative<FileAckMsg>(resp)) {
                         auto& ack = std::get<FileAckMsg>(resp);
                         if (ack.error) return "ERROR remote: " + ack.error_msg;
@@ -6068,7 +6789,7 @@ private:
                             return "OK";
                         }
                     } else if (std::holds_alternative<PingMsg>(resp)) {
-                        write_frame(target->ssl.get(), PongMsg{}, CONTROL_STREAM_ID);
+                        write_frame(ssl, PongMsg{}, CONTROL_STREAM_ID);
                     }
                 } catch (const std::exception& e) {
                     return "ERROR transfer ack: " + std::string(e.what());
@@ -6092,6 +6813,7 @@ private:
         std::vector<char> raw(kTransferChunkRawSize);
 
         for (uint32_t ci = 0; ci < total_chunks; ++ci) {
+            if (is_cancelled && is_cancelled()) return "ERROR cancelled";
             infile.read(raw.data(), static_cast<std::streamsize>(kTransferChunkRawSize));
             size_t chunk_sz = static_cast<size_t>(infile.gcount());
             std::vector<uint8_t> compressed;
@@ -6103,7 +6825,7 @@ private:
             chunk.chunk_index = ci;
             chunk.total_chunks = total_chunks;
             chunk.data = std::move(compressed);
-            try { write_frame(target->ssl.get(), chunk, CONTROL_STREAM_ID); }
+            try { write_frame(ssl, chunk, CONTROL_STREAM_ID); }
             catch (const std::exception& e) { return "ERROR send chunk: " + std::string(e.what()); }
             bytes_sent += chunk_sz;
             ack = wait_ack(ci + 1);
@@ -6128,40 +6850,71 @@ private:
         return "OK sent " + filename + " " + std::to_string(filesize) + " bytes sha256:" + checksum;
     }
 
-    // ── Daemon file request handler: peer asks us to send them a file ──
-    void handle_file_request(Conn& c, const FileRequestMsg& m) {
-        log_event("file_request_received", m.path + " from " + c.peer_name);
+    // v2.0.6: transport-agnostic remote file request fulfillment. Peer asked us
+    // to send <path>; this runs on a worker thread with exclusive SSL access.
+    std::string file_request_on_transport(
+            SSL* ssl, SOCKET sock_fd, const std::string& path,
+            const std::function<bool()>& is_cancelled = {},
+            const std::function<void(const std::string&)>& on_progress = {}) {
+        if (!socket_selectable(sock_fd)) return "ERROR socket exceeds select limit";
         namespace fs = std::filesystem;
-        if (!fs::exists(m.path) || fs::is_directory(m.path)) {
-            log_event("file_request_error", "not found: " + m.path);
-            try { write_frame(c.ssl.get(), FileAckMsg{0, 0, true, "file not found: " + m.path}, CONTROL_STREAM_ID); } catch (...) {}
-            return;
+        auto emit = [&](const std::string& line) {
+            if (on_progress) on_progress(line);
+            else std::cerr << line << "\n";
+        };
+
+        if (!fs::exists(path) || fs::is_directory(path)) {
+            log_event("file_request_error", "not found: " + path);
+            try { write_frame(ssl, FileAckMsg{0, 0, true, "file not found: " + path}, CONTROL_STREAM_ID); } catch (...) {}
+            return "ERROR file not found: " + path;
         }
-        uint64_t filesize = static_cast<uint64_t>(fs::file_size(m.path));
+        uint64_t filesize = static_cast<uint64_t>(fs::file_size(path));
         const auto shape = calculate_transfer_metadata(filesize, config_.transfer_max_bytes);
         if (!shape.ok) {
-            try { write_frame(c.ssl.get(), FileAckMsg{0, 0, true, shape.reason}, CONTROL_STREAM_ID); } catch (...) {}
-            return;
+            try { write_frame(ssl, FileAckMsg{0, 0, true, shape.reason}, CONTROL_STREAM_ID); } catch (...) {}
+            return "ERROR " + shape.reason;
         }
-        std::string filename = fs::path(m.path).filename().string();
-        std::string checksum = sha256_file_stream(m.path);
+        std::string filename = fs::path(path).filename().string();
+        std::string checksum = sha256_file_stream(path);
         if (checksum.empty()) {
-            log_event("file_request_error", "cannot hash " + m.path);
-            try { write_frame(c.ssl.get(), FileAckMsg{0, 0, true, "cannot hash file"}, CONTROL_STREAM_ID); } catch (...) {}
-            return;
+            log_event("file_request_error", "cannot hash " + path);
+            try { write_frame(ssl, FileAckMsg{0, 0, true, "cannot hash file"}, CONTROL_STREAM_ID); } catch (...) {}
+            return "ERROR cannot hash file";
         }
         const uint32_t total_chunks = shape.expected_chunks;
 
-        FileMetaMsg meta;
-        meta.filename = filename; meta.filesize = filesize;
-        meta.checksum = checksum; meta.total_chunks = total_chunks;
-        try { write_frame(c.ssl.get(), meta, CONTROL_STREAM_ID); } catch (...) { return; }
-        log_event("file_request_sending", filename + " to " + c.peer_name + " " + std::to_string(total_chunks) + " chunks");
+        try {
+            FileMetaMsg meta;
+            meta.filename = filename; meta.filesize = filesize;
+            meta.checksum = checksum; meta.total_chunks = total_chunks;
+            write_frame(ssl, meta, CONTROL_STREAM_ID);
+        } catch (const std::exception& e) {
+            return "ERROR send meta: " + std::string(e.what());
+        }
+        log_event("file_request_sending", filename + " " + std::to_string(total_chunks) + " chunks");
 
-        std::ifstream infile(m.path, std::ios::binary);
-        if (!infile) { log_event("file_request_error", "cannot open " + m.path); return; }
+        std::ifstream infile(path, std::ios::binary);
+        if (!infile) { log_event("file_request_error", "cannot open " + path); return "ERROR cannot open " + path; }
         std::vector<char> raw(kTransferChunkRawSize);
+
+        auto overall_deadline = std::chrono::steady_clock::now() + transfer_overall_timeout(filesize);
+        auto idle_deadline = std::chrono::steady_clock::now() +
+                             std::chrono::seconds(kTransferIdleTimeoutSec);
+
+        uint64_t bytes_sent = 0;
+        auto t0 = std::chrono::steady_clock::now();
+        auto last_progress = t0;
+
         for (uint32_t ci = 0; ci < total_chunks; ++ci) {
+            if (is_cancelled && is_cancelled()) {
+                try { write_frame(ssl, FileAckMsg{ci, ci, true, "cancelled"}, CONTROL_STREAM_ID); } catch (...) {}
+                return "ERROR cancelled";
+            }
+            if (std::chrono::steady_clock::now() >= overall_deadline)
+                return "ERROR transfer overall timeout at chunk " + std::to_string(ci);
+            if (std::chrono::steady_clock::now() >= idle_deadline)
+                return "ERROR transfer idle timeout at chunk " + std::to_string(ci);
+
             infile.read(raw.data(), static_cast<std::streamsize>(kTransferChunkRawSize));
             size_t chunk_sz = static_cast<size_t>(infile.gcount());
             std::vector<uint8_t> compressed;
@@ -6172,47 +6925,62 @@ private:
             FileChunkMsg chunk;
             chunk.chunk_index = ci; chunk.total_chunks = total_chunks;
             chunk.data = std::move(compressed);
-            try { write_frame(c.ssl.get(), chunk, CONTROL_STREAM_ID); } catch (...) {
+
+            // Wait for write readiness with bounded deadline so a throttled peer
+            // cannot stall the event loop indefinitely.
+            fd_set wfds; FD_ZERO(&wfds); FD_SET(sock_fd, &wfds);
+            fd_set rfds; FD_ZERO(&rfds); FD_SET(sock_fd, &rfds);
+            timeval tv;
+            auto remaining = idle_deadline - std::chrono::steady_clock::now();
+            if (remaining.count() <= 0) return "ERROR transfer idle timeout at chunk " + std::to_string(ci);
+            tv.tv_sec = static_cast<long>(std::chrono::duration_cast<std::chrono::seconds>(remaining).count());
+            tv.tv_usec = static_cast<long>(std::chrono::duration_cast<std::chrono::microseconds>(remaining).count() % 1000000);
+            int sel = select(static_cast<int>(sock_fd) + 1, &rfds, &wfds, nullptr, &tv);
+            if (sel < 0) return "ERROR select failed at chunk " + std::to_string(ci);
+            if (sel == 0) return "ERROR transfer idle timeout at chunk " + std::to_string(ci);
+
+            // Drain any pings before writing so the peer stays alive.
+            if (FD_ISSET(sock_fd, &rfds) || SSL_pending(ssl) > 0) {
+                try {
+                    Message resp = read_frame(ssl);
+                    if (std::holds_alternative<PingMsg>(resp)) {
+                        write_frame(ssl, PongMsg{}, CONTROL_STREAM_ID);
+                    } else if (std::holds_alternative<FileAckMsg>(resp)) {
+                        auto& ack = std::get<FileAckMsg>(resp);
+                        if (ack.error) return "ERROR remote: " + ack.error_msg;
+                    }
+                } catch (...) {}
+            }
+
+            try { write_frame(ssl, chunk, CONTROL_STREAM_ID); }
+            catch (const std::exception& e) {
                 log_event("file_request_error", "send chunk failed " + std::to_string(ci));
-                return;
+                return "ERROR send chunk " + std::to_string(ci) + ": " + e.what();
+            }
+            bytes_sent += chunk_sz;
+            idle_deadline = std::chrono::steady_clock::now() +
+                            std::chrono::seconds(kTransferIdleTimeoutSec);
+
+            auto now = std::chrono::steady_clock::now();
+            if (now - last_progress >= std::chrono::seconds(kTransferProgressIntervalSec) ||
+                ci + 1 == total_chunks) {
+                last_progress = now;
+                double elapsed = std::max(0.001, std::chrono::duration<double>(now - t0).count());
+                double rate = (static_cast<double>(bytes_sent) / elapsed) / (1024.0 * 1024.0);
+                int eta = 0;
+                if (rate > 0.001 && filesize > bytes_sent)
+                    eta = static_cast<int>((static_cast<double>(filesize - bytes_sent) /
+                                           (rate * 1024.0 * 1024.0)));
+                emit(format_transfer_progress("send", filename, ci + 1, total_chunks,
+                                              bytes_sent, filesize, rate, eta));
             }
         }
         log_event("file_request_complete", filename + " " + std::to_string(filesize) + " bytes");
+        return "OK sent " + filename + " " + std::to_string(filesize) + " bytes sha256:" + checksum;
     }
 
-    // ── Daemon file recv: send FileRequest to peer    // ── Daemon file recv: send FileRequest to peer (non-blocking, returns immediately)
-    std::string daemon_file_recv(const std::string& peer_name, const std::string& remote_path,
-                                 const std::string& local_dir = "") {
-        log_event("file_recv_request", remote_path + " from " + peer_name);
-        if (!local_dir.empty()) {
-            namespace fs = std::filesystem;
-            std::error_code ec;
-            fs::create_directories(local_dir, ec);
-            receive_dir_ = local_dir;
-        }
-        Conn* target = nullptr;
-        for (auto& c : conns_) {
-            if (is_live_mesh_transport_for(c, peer_name)) { target = &c; break; }
-        }
-        if (!target) return "ERROR no conn to " + peer_name;
-
-        FileRequestMsg req;
-        req.path = remote_path;
-        try { write_frame(target->ssl.get(), req, CONTROL_STREAM_ID); }
-        catch (const std::exception& e) { return "ERROR send request: " + std::string(e.what()); }
-
-        log_event("file_recv_request_sent", remote_path + " -> " + peer_name + " (async)");
-        return "request sent to " + peer_name + " for " + remote_path + " (arrives async in " + receive_dir_ + ")";
-    }
-
-    std::string daemon_file_recv_wait(const std::string& peer_name, const std::string& remote_path,
-                                      const std::string& local_dest,
+    std::string daemon_file_send_wait(const std::string& peer_name, const std::string& local_path,
                                       const std::function<void(const std::string&)>& on_progress = {}) {
-        namespace fs = std::filesystem;
-        auto emit = [&](const std::string& line) {
-            if (on_progress) on_progress(line);
-            else std::cerr << line << "\n";
-        };
         Conn* target = nullptr;
         for (auto& c : conns_) {
             if (is_live_mesh_transport_for(c, peer_name)) {
@@ -6231,39 +6999,181 @@ private:
             }
         } guard{target->exec_busy, target->exec_completed};
         target->exec_started_at = std::chrono::steady_clock::now();
+        return file_send_wait_on_transport(target->ssl.get(), target->sock_fd, local_path, {}, on_progress);
+    }
+
+    // v2.0.6: dispatch entry point for long-operation worker pool.
+    void execute_long_operation_task(const LongOperationTask& task) {
+        auto progress_to_ipc = [&](const std::string& line) {
+            if (task.ipc_fd != INVALID_SOCKET) {
+                std::string msg = line + "\n";
+                send(task.ipc_fd, msg.data(), (int)msg.size(), 0);
+            }
+        };
+
+        switch (task.type) {
+        case LongOperationTask::Type::FileSendWait: {
+            auto is_cancelled = [&]() { return task.cancelled && task.cancelled->load(); };
+            std::string result = file_send_wait_on_transport(
+                task.ssl, task.sock_fd, task.path1, is_cancelled, progress_to_ipc);
+            if (task.ipc_fd != INVALID_SOCKET) {
+                result += "\n";
+                send(task.ipc_fd, result.data(), (int)result.size(), 0);
+            } else {
+                log_event("file_send_worker_complete", task.peer_name + " " + result);
+            }
+            break;
+        }
+        case LongOperationTask::Type::FileRecvWait: {
+            auto is_cancelled = [&]() { return task.cancelled && task.cancelled->load(); };
+            std::string result = file_recv_wait_on_transport(
+                task.ssl, task.sock_fd, task.path1, task.path2, receive_dir_, is_cancelled, progress_to_ipc);
+            if (task.ipc_fd != INVALID_SOCKET) {
+                result += "\n";
+                send(task.ipc_fd, result.data(), (int)result.size(), 0);
+            }
+            break;
+        }
+        case LongOperationTask::Type::RemoteFileRequest: {
+            auto is_cancelled = [&]() { return task.cancelled && task.cancelled->load(); };
+            std::string result = file_request_on_transport(
+                task.ssl, task.sock_fd, task.path1, is_cancelled, progress_to_ipc);
+            if (task.ipc_fd != INVALID_SOCKET) {
+                result += "\n";
+                send(task.ipc_fd, result.data(), (int)result.size(), 0);
+            } else {
+                log_event("file_request_worker_complete", task.peer_name + " " + result);
+            }
+            break;
+        }
+        case LongOperationTask::Type::EditDownload:
+        case LongOperationTask::Type::EditUpload:
+        case LongOperationTask::Type::VFolderSync:
+            // v2.0.6: these paths remain synchronous on the event loop. They
+            // depend on temp-directory creation, directory traversal, and
+            // multiple request/response pairs that are not yet refactored into
+            // transport-agnostic worker-safe forms. Leave unchanged per the
+            // directive to avoid cosmetic workarounds.
+            log_event("worker_unimplemented", std::to_string(static_cast<int>(task.type)));
+            if (task.ipc_fd != INVALID_SOCKET) {
+                std::string err = "ERROR operation not yet offloaded to worker\n";
+                send(task.ipc_fd, err.data(), (int)err.size(), 0);
+            }
+            break;
+        }
+
+        // Clear busy/completed flags on the captured shared_ptrs.
+        if (task.exec_completed) task.exec_completed->store(true);
+        if (task.exec_busy) task.exec_busy->store(false);
+    }
+
+    // ── Daemon file request handler: peer asks us to send them a file ──
+    // v2.0.6: offload the long send to the worker pool so the event loop stays
+    // responsive. The worker exclusively owns this SSL transport while busy.
+    void handle_file_request(Conn& c, const FileRequestMsg& m) {
+        log_event("file_request_received", m.path + " from " + c.peer_name);
+        if (c.exec_busy->exchange(true)) {
+            log_event("file_request_busy", m.path + " from " + c.peer_name);
+            try { write_frame(c.ssl.get(), FileAckMsg{0, 0, true, "peer busy with another transfer"}, CONTROL_STREAM_ID); } catch (...) {}
+            return;
+        }
+        c.exec_completed->store(false);
+        c.exec_cancelled = std::make_shared<std::atomic<bool>>(false);
+        c.exec_started_at = std::chrono::steady_clock::now();
+
+        LongOperationTask task;
+        task.type = LongOperationTask::Type::RemoteFileRequest;
+        task.peer_name = c.peer_name;
+        task.path1 = m.path;
+        task.ssl = c.ssl.get();
+        task.sock_fd = c.sock_fd;
+        task.exec_busy = c.exec_busy;
+        task.exec_completed = c.exec_completed;
+        task.cancelled = c.exec_cancelled;
+        task.ipc_fd = INVALID_SOCKET;
+        worker_pool_->enqueue(std::move(task));
+    }
+
+    bool begin_async_receive(Conn& target, const std::string& dest_dir) {
+        if (!target.pending_recv_dir.empty() || target.file_receive.active) return false;
+        target.pending_recv_dir = dest_dir;
+        return true;
+    }
+
+    // ── Daemon file recv: send FileRequest to peer (non-blocking) ──
+    std::string daemon_file_recv(const std::string& peer_name, const std::string& remote_path,
+                                 const std::string& local_dir = "") {
+        log_event("file_recv_request", remote_path + " from " + peer_name);
+        std::string dest_dir = local_dir.empty() ? receive_dir_ : local_dir;
+        if (!local_dir.empty()) {
+            namespace fs = std::filesystem;
+            std::error_code ec;
+            fs::create_directories(local_dir, ec);
+            if (ec) return "ERROR cannot create receive directory " + local_dir;
+        }
+        Conn* target = nullptr;
+        for (auto& c : conns_) {
+            if (is_live_mesh_transport_for(c, peer_name)) { target = &c; break; }
+        }
+        if (!target) return "ERROR no conn to " + peer_name;
+        if (!begin_async_receive(*target, dest_dir))
+            return "ERROR receive already pending for " + peer_name;
+
+        FileRequestMsg req;
+        req.path = remote_path;
+        try { write_frame(target->ssl.get(), req, CONTROL_STREAM_ID); }
+        catch (const std::exception& e) {
+            target->pending_recv_dir.clear();
+            return "ERROR send request: " + std::string(e.what());
+        }
+
+        log_event("file_recv_request_sent", remote_path + " -> " + peer_name + " (async)");
+        return "request sent to " + peer_name + " for " + remote_path + " (arrives async in " + dest_dir + ")";
+    }
+
+    // v2.0.6: transport-agnostic file recv-wait. Caller must ensure exclusive SSL transport access.
+    std::string file_recv_wait_on_transport(
+            SSL* ssl, SOCKET sock_fd, const std::string& remote_path,
+            const std::string& local_dest, const std::string& receive_dir,
+            const std::function<bool()>& is_cancelled = {},
+            const std::function<void(const std::string&)>& on_progress = {}) {
+        if (!socket_selectable(sock_fd)) return "ERROR socket exceeds select limit";
+        namespace fs = std::filesystem;
+        auto emit = [&](const std::string& line) {
+            if (on_progress) on_progress(line);
+            else std::cerr << line << "\n";
+        };
 
         try {
             FileRequestMsg req;
             req.path = remote_path;
-            write_frame(target->ssl.get(), req, CONTROL_STREAM_ID);
+            write_frame(ssl, req, CONTROL_STREAM_ID);
         } catch (const std::exception& e) {
             return "ERROR send request: " + std::string(e.what());
         }
 
-        // Meta may arrive after peer hashes; allow long idle for first byte of large files.
         auto overall_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(7200);
-        auto idle_deadline = std::chrono::steady_clock::now() +
-                             std::chrono::seconds(kTransferIdleTimeoutSec);
+        auto idle_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(kTransferIdleTimeoutSec);
         std::optional<FileMetaMsg> meta;
         while (!meta && std::chrono::steady_clock::now() < overall_deadline &&
                std::chrono::steady_clock::now() < idle_deadline) {
-            if (SSL_pending(target->ssl.get()) <= 0) {
-                fd_set rfds; FD_ZERO(&rfds); FD_SET(target->sock_fd, &rfds);
+            if (is_cancelled && is_cancelled()) return "ERROR cancelled";
+            if (SSL_pending(ssl) <= 0) {
+                fd_set rfds; FD_ZERO(&rfds); FD_SET(sock_fd, &rfds);
                 timeval tv{2, 0};
-                if (select(static_cast<int>(target->sock_fd) + 1, &rfds, nullptr, nullptr, &tv) <= 0)
+                if (select(static_cast<int>(sock_fd) + 1, &rfds, nullptr, nullptr, &tv) <= 0)
                     continue;
             }
             try {
-                Message resp = read_frame(target->ssl.get());
+                Message resp = read_frame(ssl);
                 if (std::holds_alternative<FileMetaMsg>(resp)) {
                     meta = std::get<FileMetaMsg>(resp);
-                    idle_deadline = std::chrono::steady_clock::now() +
-                                    std::chrono::seconds(kTransferIdleTimeoutSec);
+                    idle_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(kTransferIdleTimeoutSec);
                 } else if (std::holds_alternative<FileAckMsg>(resp)) {
                     auto& ack = std::get<FileAckMsg>(resp);
                     if (ack.error) return "ERROR remote: " + ack.error_msg;
                 } else if (std::holds_alternative<PingMsg>(resp)) {
-                    write_frame(target->ssl.get(), PongMsg{}, CONTROL_STREAM_ID);
+                    write_frame(ssl, PongMsg{}, CONTROL_STREAM_ID);
                 }
             } catch (const std::exception& e) {
                 return "ERROR receive meta: " + std::string(e.what());
@@ -6274,16 +7184,15 @@ private:
         const auto metadata = validate_transfer_metadata(
             meta->filesize, meta->total_chunks, config_.transfer_max_bytes);
         if (!metadata.ok) {
-            try { write_frame(target->ssl.get(), FileAckMsg{0, 0, true, metadata.reason}, CONTROL_STREAM_ID); } catch (...) {}
+            try { write_frame(ssl, FileAckMsg{0, 0, true, metadata.reason}, CONTROL_STREAM_ID); } catch (...) {}
             return "ERROR " + metadata.reason;
         }
-        overall_deadline = std::chrono::steady_clock::now() +
-                           transfer_overall_timeout(meta->filesize);
+        overall_deadline = std::chrono::steady_clock::now() + transfer_overall_timeout(meta->filesize);
 
         auto safe_name = sanitize_transfer_filename(meta->filename);
         if (!safe_name) return "ERROR rejected unsafe remote filename";
 
-        fs::path dest = local_dest.empty() ? fs::path(receive_dir_) : fs::path(local_dest);
+        fs::path dest = local_dest.empty() ? fs::path(receive_dir) : fs::path(local_dest);
         std::string dest_str = dest.string();
         bool dest_is_dir = dest_str.empty() || dest_str.back() == '/' || dest_str.back() == '\\';
         std::error_code ec;
@@ -6312,18 +7221,19 @@ private:
         uint64_t bytes_recv = 0;
         auto t0 = std::chrono::steady_clock::now();
         auto last_progress = t0;
-        try { write_frame(target->ssl.get(), FileAckMsg{0, 0, false, ""}, CONTROL_STREAM_ID); } catch (...) {}
+        try { write_frame(ssl, FileAckMsg{0, 0, false, ""}, CONTROL_STREAM_ID); } catch (...) {}
         while (chunks_recv < meta->total_chunks &&
                std::chrono::steady_clock::now() < overall_deadline &&
                std::chrono::steady_clock::now() < idle_deadline) {
-            if (SSL_pending(target->ssl.get()) <= 0) {
-                fd_set rfds; FD_ZERO(&rfds); FD_SET(target->sock_fd, &rfds);
+            if (is_cancelled && is_cancelled()) return "ERROR cancelled";
+            if (SSL_pending(ssl) <= 0) {
+                fd_set rfds; FD_ZERO(&rfds); FD_SET(sock_fd, &rfds);
                 timeval tv{2, 0};
-                if (select(static_cast<int>(target->sock_fd) + 1, &rfds, nullptr, nullptr, &tv) <= 0)
+                if (select(static_cast<int>(sock_fd) + 1, &rfds, nullptr, nullptr, &tv) <= 0)
                     continue;
             }
             try {
-                Message resp = read_frame(target->ssl.get());
+                Message resp = read_frame(ssl);
                 if (std::holds_alternative<FileChunkMsg>(resp)) {
                     auto& chunk = std::get<FileChunkMsg>(resp);
                     std::vector<uint8_t> data;
@@ -6333,7 +7243,7 @@ private:
                         meta->filesize, bytes_recv, chunks_recv, meta->total_chunks,
                         chunk.chunk_index, chunk.total_chunks, data.size());
                     if (!chunk_valid.ok) {
-                        try { write_frame(target->ssl.get(), FileAckMsg{
+                        try { write_frame(ssl, FileAckMsg{
                             chunk.chunk_index, chunks_recv, true, chunk_valid.reason},
                             CONTROL_STREAM_ID); } catch (...) {}
                         return "ERROR " + chunk_valid.reason;
@@ -6346,9 +7256,8 @@ private:
                         bytes_recv += data.size();
                     }
                     ++chunks_recv;
-                    idle_deadline = std::chrono::steady_clock::now() +
-                                    std::chrono::seconds(kTransferIdleTimeoutSec);
-                    write_frame(target->ssl.get(), FileAckMsg{chunk.chunk_index, chunks_recv, false, ""}, CONTROL_STREAM_ID);
+                    idle_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(kTransferIdleTimeoutSec);
+                    write_frame(ssl, FileAckMsg{chunk.chunk_index, chunks_recv, false, ""}, CONTROL_STREAM_ID);
 
                     auto now = std::chrono::steady_clock::now();
                     if (now - last_progress >= std::chrono::seconds(kTransferProgressIntervalSec) ||
@@ -6367,7 +7276,7 @@ private:
                     auto& ack = std::get<FileAckMsg>(resp);
                     if (ack.error) return "ERROR remote: " + ack.error_msg;
                 } else if (std::holds_alternative<PingMsg>(resp)) {
-                    write_frame(target->ssl.get(), PongMsg{}, CONTROL_STREAM_ID);
+                    write_frame(ssl, PongMsg{}, CONTROL_STREAM_ID);
                 }
             } catch (const std::exception& e) {
                 return "ERROR receive chunk: " + std::string(e.what());
@@ -6395,6 +7304,30 @@ private:
 
         log_event("file_recv_wait_complete", meta->filename + " -> " + dest.string());
         return "OK received " + dest.string() + " " + std::to_string(bytes_recv) + " bytes sha256:" + actual;
+    }
+
+    std::string daemon_file_recv_wait(const std::string& peer_name, const std::string& remote_path,
+                                      const std::string& local_dest,
+                                      const std::function<void(const std::string&)>& on_progress = {}) {
+        Conn* target = nullptr;
+        for (auto& c : conns_) {
+            if (is_live_mesh_transport_for(c, peer_name)) {
+                target = &c; break;
+            }
+        }
+        if (!target) return "ERROR no conn to " + peer_name;
+        if (target->exec_busy->exchange(true)) return "ERROR peer busy with another transfer, retry";
+        target->exec_completed->store(false);
+        struct BusyGuard {
+            std::shared_ptr<std::atomic<bool>> busy;
+            std::shared_ptr<std::atomic<bool>> completed;
+            ~BusyGuard() {
+                if (completed) completed->store(true);
+                if (busy) busy->store(false);
+            }
+        } guard{target->exec_busy, target->exec_completed};
+        target->exec_started_at = std::chrono::steady_clock::now();
+        return file_recv_wait_on_transport(target->ssl.get(), target->sock_fd, remote_path, local_dest, receive_dir_, {}, on_progress);
     }
 
     std::string daemon_reconnect_peer(const std::string& peer_name) {
@@ -6436,50 +7369,21 @@ private:
         }
 
         backoffs_.erase(addr);
-        auto started = std::chrono::steady_clock::now();
-        auto deadline = started + std::chrono::milliseconds(kForcedReconnectDeadlineMs);
-        const std::array<int, 5> retry_delays_ms{0, 150, 350, 700, 1200};
-        bool ok = false;
-        int attempts = 0;
         PeerEntry target_peer{peer_name, addr, pubkey};
         if (should_accept_only_for(target_peer)) {
-            auto accept_deadline = started + std::chrono::milliseconds(kTieBreakAcceptWindowMs);
+            auto accept_deadline = std::chrono::steady_clock::now() +
+                                   std::chrono::milliseconds(kTieBreakAcceptWindowMs);
             accept_only_until_[addr] = accept_deadline;
             log_event("peer_reconnect_defer_dial",
                       peer_name + " addr=" + addr + " accept_only_ms=" +
                       std::to_string(kTieBreakAcceptWindowMs));
-            while (std::chrono::steady_clock::now() < accept_deadline) {
-                if (has_conn_for_peer(peer_name, addr, pubkey)) {
-                    ok = true;
-                    break;
-                }
-                service_reconnect_wait_once(250);
-            }
+            return "OK reconnect waiting for inbound peer " + peer_name;
         }
-        if (!ok) {
-            for (int delay_ms : retry_delays_ms) {
-                if (delay_ms > 0) {
-                    auto now = std::chrono::steady_clock::now();
-                    if (now >= deadline) break;
-                    auto sleep_for = std::min(std::chrono::milliseconds(delay_ms),
-                                              std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now));
-                    if (sleep_for.count() > 0)
-                        std::this_thread::sleep_for(sleep_for);
-                }
-                if (std::chrono::steady_clock::now() >= deadline && attempts > 0) break;
-                ++attempts;
-                ok = connect_to_peer_impl(addr);
-                if (ok) break;
-            }
-        }
-        auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::steady_clock::now() - started).count();
-        log_event("peer_reconnect", peer_name + " removed=" + std::to_string(removed)
-                  + " attempts=" + std::to_string(attempts)
-                  + " elapsed_ms=" + std::to_string(elapsed_ms)
-                  + (ok ? " reconnected" : " reconnect_failed"));
-        return ok ? ("OK reconnect ok for " + peer_name + " (" + std::to_string(elapsed_ms) + "ms)")
-                  : ("ERROR reconnect failed for " + peer_name);
+        if (!start_outbound_handshake(target_peer))
+            return "ERROR reconnect already pending or could not start for " + peer_name;
+        log_event("peer_reconnect", peer_name + " removed=" + std::to_string(removed) +
+                  " async_started");
+        return "OK reconnecting " + peer_name;
     }
 
     void service_reconnect_wait_once(int timeout_ms) {
@@ -6488,8 +7392,9 @@ private:
             return;
         }
 
-        fd_set read_fds;
+        fd_set read_fds, write_fds;
         FD_ZERO(&read_fds);
+        FD_ZERO(&write_fds);
         FD_SET(listen_fd_, &read_fds);
         SOCKET max_fd = listen_fd_;
         for (const auto& c : conns_) {
@@ -6498,11 +7403,17 @@ private:
             FD_SET(c.sock_fd, &read_fds);
             if (c.sock_fd > max_fd) max_fd = c.sock_fd;
         }
+        for (auto& ph : pending_handshakes_) {
+            if (ph.sock_fd == INVALID_SOCKET) continue;
+            if (ph.want_read) FD_SET(ph.sock_fd, &read_fds);
+            if (ph.want_write) FD_SET(ph.sock_fd, &write_fds);
+            if (ph.sock_fd > max_fd) max_fd = ph.sock_fd;
+        }
 
         timeval tv{};
         tv.tv_sec = timeout_ms / 1000;
         tv.tv_usec = (timeout_ms % 1000) * 1000;
-        int nfds = select(static_cast<int>(max_fd) + 1, &read_fds, nullptr, nullptr, &tv);
+        int nfds = select(static_cast<int>(max_fd) + 1, &read_fds, &write_fds, nullptr, &tv);
         if (nfds <= 0) return;
 
         if (FD_ISSET(listen_fd_, &read_fds)) {
@@ -6516,6 +7427,9 @@ private:
                 --nfds;
             }
         }
+
+        // v2.0.6: advance outbound handshakes while waiting for reconnect.
+        advance_handshakes();
 
         check_stale_exec();
         check_pong_timeouts();
@@ -6831,10 +7745,20 @@ private:
             c.last_pong = std::chrono::steady_clock::now();
         }
         else if (std::holds_alternative<HelloMsg>(msg)) {
-            // Duplicate Hello — update peer info
             auto& h = std::get<HelloMsg>(msg);
-            c.peer_name = h.node_name;
-            merge_peers(h.known_peers);
+            if (!c.initial_hello.has_value()) {
+                // Should normally be set during handshake, but handle defensively.
+                c.initial_hello = h;
+                c.peer_name = h.node_name;
+                merge_peers(h.known_peers);
+            } else if (*c.initial_hello == h) {
+                // Identical retransmission: ignore silently.
+                log_event("hello_duplicate_ignored", c.peer_name);
+            } else {
+                // Mismatched follow-up Hello: close the connection.
+                log_event("hello_mismatch_close", c.peer_name);
+                c.close_requested = true;
+            }
         }
         else if (std::holds_alternative<GossipMsg>(msg)) {
             auto& g = std::get<GossipMsg>(msg);
@@ -6890,37 +7814,115 @@ public:
     // Phase 6: Session message handlers (public for tests)
     // ────────────────────────────────────────────────────────────────
 
-    // write_all — write all bytes to a HANDLE (Windows) or fd (POSIX)
-    // For PTY writes (child stdin). Stripped-down version for ConPTY.
-    bool write_all(void* handle, const void* data, size_t len) {
-        if (!handle || !data || len == 0) return true;
+    // write_pty_input — write terminal input to a session's PTY stdin.
+    // Windows: duplicate the ConPTY input handle and enqueue to a bounded
+    //          dedicated writer so blocking WriteFile never stalls the loop.
+    // POSIX:  PTY master is nonblocking. Write as much as possible immediately,
+    //         then queue the remainder in session.pending_input. The event loop
+    //         drains the queue when the PTY becomes writable. Returns false only
+    //         on a hard write error or if the pending queue would exceed its
+    //         bounded maximum (no silent overflow).
+    bool write_pty_input(Session& session, const void* data, size_t len) {
+        if (!data || len == 0) return true;
+        if (!session.is_valid()) return false;
 #ifdef _WIN32
-        HANDLE h = reinterpret_cast<HANDLE>(handle);
-        const char* p = static_cast<const char*>(data);
-        size_t remaining = len;
-        while (remaining > 0) {
-            DWORD written = 0;
-            if (!WriteFile(h, p, static_cast<DWORD>(std::min(remaining, size_t(4096))),
-                           &written, nullptr)) {
+        return enqueue_windows_pty_input(
+            session, std::string_view(static_cast<const char*>(data), len));
+#else
+        if (session.master_fd < 0) return false;
+
+        // If the child is already backlogged above the high-water mark, do not
+        // accept more input now. The event-loop backpressure path will resume
+        // reading from the peer once the queue drains below low water.
+        if (session.input_backpressured ||
+            session.pending_input.size() >= Session::kPtyInputHighWater) {
+            if (session.pending_input.size() + len > Session::kPtyInputMax) {
+                log_event("pty_input_overflow", session.name);
                 return false;
             }
-            p += written;
-            remaining -= written;
+            session.pending_input.append(static_cast<const char*>(data), len);
+            session.input_backpressured = true;
+            return true;
         }
-        return true;
-#else
-        int fd = reinterpret_cast<intptr_t>(handle);
+
+        // Try to drain any previously queued bytes first, in order.
+        if (!session.pending_input.empty()) {
+            const ssize_t n = ::write(session.master_fd,
+                                      session.pending_input.data(),
+                                      session.pending_input.size());
+            if (n > 0) {
+                session.pending_input.erase(0, static_cast<size_t>(n));
+            } else if (n < 0 && errno != EINTR && errno != EAGAIN && errno != EWOULDBLOCK) {
+                session.state = SessionState::Died;
+                return false;
+            }
+            // Preserve ordering: if old input remains queued, append new input
+            // behind it instead of writing the new bytes ahead of the backlog.
+            if (!session.pending_input.empty()) {
+                if (session.pending_input.size() + len > Session::kPtyInputMax) {
+                    log_event("pty_input_overflow", session.name);
+                    return false;
+                }
+                session.pending_input.append(static_cast<const char*>(data), len);
+                if (session.pending_input.size() >= Session::kPtyInputHighWater)
+                    session.input_backpressured = true;
+                return true;
+            }
+        }
+
+        // Immediate write of the new bytes; queue whatever the kernel refuses.
         const char* p = static_cast<const char*>(data);
         size_t remaining = len;
         while (remaining > 0) {
-            ssize_t n = write(fd, p, remaining);
-            if (n <= 0) return false;
-            p += n;
-            remaining -= static_cast<size_t>(n);
+            const ssize_t n = ::write(session.master_fd, p, remaining);
+            if (n > 0) {
+                p += n;
+                remaining -= static_cast<size_t>(n);
+                continue;
+            }
+            if (n < 0 && (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK)) {
+                if (session.pending_input.size() + remaining > Session::kPtyInputMax) {
+                    log_event("pty_input_overflow", session.name);
+                    return false;
+                }
+                session.pending_input.append(p, remaining);
+                if (session.pending_input.size() >= Session::kPtyInputHighWater)
+                    session.input_backpressured = true;
+                return true;
+            }
+            session.state = SessionState::Died;
+            return false;
         }
         return true;
 #endif
     }
+
+#ifndef _WIN32
+    // drain_pending_pty_input — called from the event loop when the PTY master
+    // is writable. Writes queued input and returns true if the queue dropped
+    // below the low-water mark (peer reads may resume).
+    bool drain_pending_pty_input(Session& session) {
+        if (session.master_fd < 0 || session.pending_input.empty()) return true;
+        while (!session.pending_input.empty()) {
+            const ssize_t n = ::write(session.master_fd,
+                                      session.pending_input.data(),
+                                      session.pending_input.size());
+            if (n > 0) {
+                session.pending_input.erase(0, static_cast<size_t>(n));
+                continue;
+            }
+            if (n < 0 && (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK)) {
+                break;
+            }
+            log_event("pty_input_drain_failed", session.name);
+            session.state = SessionState::Died;
+            return false;
+        }
+        if (session.pending_input.size() <= Session::kPtyInputLowWater)
+            session.input_backpressured = false;
+        return !session.input_backpressured;
+    }
+#endif
 
     // 1. handle_inbound_session — messages from a remote peer
     //    operating on OUR local sessions
@@ -6965,14 +7967,11 @@ public:
         if (std::holds_alternative<KeystrokeMsg>(msg)) {
             auto& ks = std::get<KeystrokeMsg>(msg);
             if (conn.attached_session && conn.attached_session->is_valid()) {
-#ifdef _WIN32
-                write_all(conn.attached_session->write_handle,
-                          ks.data.data(), ks.data.size());
-#else
-                write_all(reinterpret_cast<void*>(
-                    static_cast<intptr_t>(conn.attached_session->master_fd)),
-                    ks.data.data(), ks.data.size());
-#endif
+                if (!write_pty_input(*conn.attached_session,
+                                     ks.data.data(), ks.data.size())) {
+                    log_event("pty_input_rejected", conn.attached_session->name);
+                    conn.close_requested = true;
+                }
             }
             return;
         }
@@ -7082,6 +8081,8 @@ public:
                         close(sess->master_fd);
                         sess->master_fd = -1;
                     }
+                    sess->pending_input.clear();
+                    sess->input_backpressured = false;
 #endif
                     // Spawn the replacement. Session storage remains in place so
                     // attached transports retain a stable pointer.
@@ -7122,14 +8123,11 @@ public:
             if (conn.attached_session && conn.attached_session->is_valid()) {
                 // Write bracketed paste: ESC[200~ <data> ESC[201~
                 std::string paste = "\x1b[200~" + cb.text + "\x1b[201~";
-#ifdef _WIN32
-                write_all(conn.attached_session->write_handle,
-                          paste.data(), paste.size());
-#else
-                write_all(reinterpret_cast<void*>(
-                    static_cast<intptr_t>(conn.attached_session->master_fd)),
-                    paste.data(), paste.size());
-#endif
+                if (!write_pty_input(*conn.attached_session,
+                                     paste.data(), paste.size())) {
+                    log_event("pty_input_rejected", conn.attached_session->name);
+                    conn.close_requested = true;
+                }
                 // Echo hash back
                 if (!cb.hash.empty()) {
                     ClipboardEchoMsg echo;
@@ -7241,15 +8239,11 @@ public:
 
     // 4. pty_output_poller — poll PTY output for each attached session
     void pty_output_poller() {
-        std::vector<Session*> processed_sessions;
-        for (auto& conn : conns_) {
-            auto* s = conn.attached_session;
+        // Drain every live PTY, including detached sessions, so the child never
+        // blocks on a full PTY buffer and select() cannot spin on unread output.
+        for (const auto& info : sessions_.list()) {
+            auto* s = sessions_.get(info.name);
             if (!s || !s->is_pollable()) continue;
-            if (std::find(processed_sessions.begin(), processed_sessions.end(), s) !=
-                processed_sessions.end()) {
-                continue;
-            }
-            processed_sessions.push_back(s);
 
             auto fanout = [&](const auto& message) {
                 for (auto& target : conns_) {
@@ -7257,6 +8251,7 @@ public:
                         !target.ssl) {
                         continue;
                     }
+                    if (target.exec_busy && target.exec_busy->load()) continue;
                     try { write_frame(target.ssl.get(), message, 0); } catch (...) {}
                 }
             };
@@ -7319,6 +8314,7 @@ public:
                     int targets = 0;
                     for (auto& target : conns_) {
                         if (target.sock_fd == INVALID_SOCKET || !target.ssl) continue;
+                        if (target.exec_busy && target.exec_busy->load()) continue;
                         // Prefer attached_session match; also any DirectSession
                         // peer (one-shot shell uses a dedicated TLS conn).
                         const bool match =
@@ -7407,6 +8403,7 @@ public:
                 for (auto& target : conns_) {
                     if (target.attached_session != s || target.sock_fd == INVALID_SOCKET ||
                         !target.ssl) continue;
+                    if (target.exec_busy && target.exec_busy->load()) continue;
                     try {
                         write_frame(target.ssl.get(), sdm, CONTROL_STREAM_ID);
                     } catch (...) {}
@@ -7542,9 +8539,9 @@ private:
             auto& bo = backoffs_[s.addr];
             if (bo.attempt > 0 && now < bo.next_attempt) continue;
 
-            // Attempt connect
-            bool ok = connect_to_peer_impl(s.addr);
-            if (ok) {
+            // Attempt connect (non-blocking; handshake completes in event loop).
+            bool started = start_outbound_handshake(s);
+            if (started) {
                 backoffs_.erase(s.addr);
             } else {
                 bo.attempt++;
@@ -7561,6 +8558,7 @@ private:
             auto discovered_snap = config_.discovered;
             for (auto& d : discovered_snap) {
                 if (d.addr.empty()) continue;
+                if (!is_trusted_pubkey(d.pubkey_hex)) continue;
                 if (has_conn_for_addr(d.addr)) continue;
                 if (!d.pubkey_hex.empty() && has_conn_for_pubkey(d.pubkey_hex)) continue;
                 if (config_.require_seed_pins && d.pubkey_hex.empty()) continue;
@@ -7569,8 +8567,8 @@ private:
 
                 auto& bo = backoffs_[d.addr];
                 if (bo.attempt > 0 && now < bo.next_attempt) continue;
-                bool ok = connect_to_peer_impl(d.addr);
-                if (ok) {
+                bool started = start_outbound_handshake(d);
+                if (started) {
                     backoffs_.erase(d.addr);
                 } else {
                     bo.attempt++;
@@ -7637,24 +8635,25 @@ private:
         }
     }
 
-    // v2.0.1 (BUG-1): force-release a stuck exec_busy flag. If a CLI
-    // `shell --cmd` / file transfer times out client-side, the daemon's
-    // background worker keeps running (up to its own 60s deadline) and
-    // exec_busy stays set, blocking all IPC to that peer with
-    // "ERROR peer busy" until a daemon restart. After kExecWatchdogSecs
-    // we treat the exec as dead and clear the flag + request close.
+    // Cancel a transport worker that has exceeded the longest legitimate
+    // transfer deadline. Never clear exec_busy here: the worker owns SSL until
+    // it exits and clears that flag itself.
     void check_stale_exec() {
         static constexpr auto kExecWatchdogSecs =
-            std::chrono::seconds(90);
+            std::chrono::seconds(7500);
         auto now = std::chrono::steady_clock::now();
         for (auto& c : conns_) {
             if (!c.exec_busy || !c.exec_busy->load()) continue;
             if (c.exec_started_at == std::chrono::steady_clock::time_point{}) continue;
             if (now - c.exec_started_at > kExecWatchdogSecs) {
                 log_event("exec_watchdog_timeout", c.peer_name);
-                c.exec_busy->store(false);
-                if (c.exec_completed) c.exec_completed->store(true);
+                if (c.exec_cancelled) c.exec_cancelled->store(true);
                 c.close_requested = true;
+#ifdef _WIN32
+                if (c.sock_fd != INVALID_SOCKET) ::shutdown(c.sock_fd, SD_BOTH);
+#else
+                if (c.sock_fd != INVALID_SOCKET) ::shutdown(c.sock_fd, SHUT_RDWR);
+#endif
             }
         }
     }
@@ -7699,6 +8698,7 @@ public:
             app_home.pop_back();
         }
         home_dir_ = app_home;
+        ipc_token_path_ = ipc_token_path(app_home);
         configure_logger_home(app_home);
         AppPaths paths = make_app_paths(app_home);
         apply_app_home_defaults(config_, app_home);
@@ -7756,6 +8756,11 @@ public:
             }
         }
 #endif
+
+        // v2.0.6: start long-operation worker pool. Handlers run on worker threads
+        // and borrow mesh transports while exec_busy is set.
+        worker_pool_.emplace(kLongOperationWorkers,
+            [this](const LongOperationTask& task) { execute_long_operation_task(task); });
     }
 
 #ifdef BS_TESTING
@@ -7770,17 +8775,99 @@ public:
         return result.fail == ConnectFailReason::TlsRejected &&
                result.fail_detail == "peer key not pinned";
     }
+    // Actual listen port when config asked for 0 (ephemeral). 0 if not listening.
+    [[nodiscard]] uint16_t actual_listen_port_for_test() const {
+        return actual_listen_port_.load();
+    }
+    [[nodiscard]] size_t pending_handshake_count_for_test() const {
+        return pending_handshakes_.size();
+    }
+    [[nodiscard]] size_t worker_queue_depth_for_test() const {
+        return worker_pool_ ? worker_pool_->pending_count() : 0;
+    }
+    size_t add_connection_for_test(Conn&& conn) {
+        conns_.push_back(std::move(conn));
+        return conns_.size() - 1;
+    }
+    void prune_revoked_connections_for_test() { prune_revoked_connections(); }
+    bool connection_open_for_test(size_t index) const {
+        return index < conns_.size() && conns_[index].sock_fd != INVALID_SOCKET;
+    }
+    bool connection_closed_for_test(size_t index) const {
+        return !connection_open_for_test(index);
+    }
+    void expire_exec_watchdog_for_test(size_t index) {
+        auto& c = conns_.at(index);
+        c.exec_busy->store(true);
+        c.exec_cancelled->store(false);
+        c.exec_started_at = std::chrono::steady_clock::now() -
+                            std::chrono::seconds(7501);
+        check_stale_exec();
+    }
+    bool exec_busy_for_test(size_t index) const {
+        return index < conns_.size() && conns_[index].exec_busy->load();
+    }
+    bool exec_cancelled_for_test(size_t index) const {
+        return index < conns_.size() && conns_[index].exec_cancelled->load();
+    }
+    [[nodiscard]] bool conn_busy_for_test(const std::string& peer_name) const {
+        for (const auto& c : conns_) {
+            if (peer_name_eq(c.peer_name, peer_name) && c.exec_busy)
+                return c.exec_busy->load();
+        }
+        return false;
+    }
+    [[nodiscard]] bool conn_close_requested_for_test(const std::string& peer_name) const {
+        for (const auto& c : conns_) {
+            if (peer_name_eq(c.peer_name, peer_name) && c.close_requested)
+                return c.close_requested;
+        }
+        return false;
+    }
+    [[nodiscard]] std::vector<std::string> conn_peer_names_for_test() const {
+        std::vector<std::string> names;
+        for (const auto& c : conns_) names.push_back(c.peer_name);
+        return names;
+    }
 #endif
 
     // ── Destructor ────────────────────────────────────────────
 
     ~MeshController() {
         running_ = false;
+#ifdef _WIN32
+        shutdown_windows_pty_writer();
+#endif
+        // v2.0.6: join long-operation workers before tearing down SSL transports
+        // so no worker touches a Conn after the destructor begins. Cancel active
+        // workers and shut down their sockets so blocked selects/reads return.
+        if (worker_pool_) {
+            for (auto& c : conns_) {
+                if (c.exec_cancelled) c.exec_cancelled->store(true);
+                if (c.sock_fd != INVALID_SOCKET) {
+#ifdef _WIN32
+                    ::shutdown(c.sock_fd, SD_BOTH);
+#else
+                    ::shutdown(c.sock_fd, SHUT_RDWR);
+#endif
+                }
+            }
+            worker_pool_->shutdown();
+        }
 #ifndef BS_NO_NAT
         if (config_.upnp_enabled) {
             upnp_.cleanup();
         }
 #endif
+        for (auto& ph : pending_handshakes_) {
+            if (ph.ssl) SSL_set_quiet_shutdown(ph.ssl.get(), 1);
+            if (ph.sock_fd != INVALID_SOCKET) {
+                CLOSESOCK(ph.sock_fd);
+                ph.sock_fd = INVALID_SOCKET;
+            }
+            ph.ssl.reset();
+        }
+        pending_handshakes_.clear();
         for (auto& c : conns_) {
             (void)close_conn(c);
         }
@@ -7800,11 +8887,27 @@ public:
         sockaddr_in sa{};
         sa.sin_family = AF_INET;
         sa.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-        sa.sin_port = htons(kMeshCliPort);
+        sa.sin_port = htons(mesh_cli_port());
         if (bind(cli_listen_fd_, (sockaddr*)&sa, sizeof(sa)) == SOCKET_ERROR) {
             CLOSESOCK(cli_listen_fd_); cli_listen_fd_ = INVALID_SOCKET; return false;
         }
         if (listen(cli_listen_fd_, 8) == SOCKET_ERROR) {
+            CLOSESOCK(cli_listen_fd_); cli_listen_fd_ = INVALID_SOCKET; return false;
+        }
+#ifndef _WIN32
+        if (cli_listen_fd_ >= FD_SETSIZE) {
+            CLOSESOCK(cli_listen_fd_); cli_listen_fd_ = INVALID_SOCKET; return false;
+        }
+#endif
+        // Generate a fresh CSPRNG IPC token only after successfully binding the
+        // socket. Write it owner-only under the app home.
+        try {
+            ipc_token_ = generate_ipc_token();
+        } catch (...) {
+            CLOSESOCK(cli_listen_fd_); cli_listen_fd_ = INVALID_SOCKET; return false;
+        }
+        if (!write_private_text_file(ipc_token_path_, ipc_token_)) {
+            ipc_token_.clear();
             CLOSESOCK(cli_listen_fd_); cli_listen_fd_ = INVALID_SOCKET; return false;
         }
 #ifdef _WIN32
@@ -7814,7 +8917,7 @@ public:
         int fl = fcntl(cli_listen_fd_, F_GETFL, 0);
         fcntl(cli_listen_fd_, F_SETFL, fl | O_NONBLOCK);
 #endif
-        log_event("mesh_cli_ipc_listen", std::to_string(kMeshCliPort));
+        log_event("mesh_cli_ipc_listen", std::to_string(mesh_cli_port()));
         return true;
     }
 
@@ -7823,6 +8926,14 @@ public:
             CLOSESOCK(cli_listen_fd_);
             cli_listen_fd_ = INVALID_SOCKET;
         }
+        // Best-effort remove the daemon's IPC token so a stale token cannot be
+        // replayed after the daemon exits. A new daemon always generates a fresh
+        // token and overwrites any existing file on bind.
+        if (!ipc_token_path_.empty()) {
+            std::error_code ec;
+            std::filesystem::remove(ipc_token_path_, ec);
+        }
+        ipc_token_.clear();
     }
 
     void cli_ipc_accept_one() {
@@ -7831,22 +8942,62 @@ public:
         socklen_t plen = sizeof(peer);
         SOCKET cfd = accept(cli_listen_fd_, (sockaddr*)&peer, &plen);
         if (cfd == INVALID_SOCKET) return;
+        // Normalize accepted IPC sockets to blocking mode. macOS can inherit
+        // O_NONBLOCK from the listener; without this, a fragmented request may
+        // return EAGAIN between the token and command and be parsed as empty.
+#ifdef _WIN32
+        { u_long blocking = 0; ioctlsocket(cfd, FIONBIO, &blocking); }
+#else
+        {
+            int flags = fcntl(cfd, F_GETFL, 0);
+            if (flags >= 0) fcntl(cfd, F_SETFL, flags & ~O_NONBLOCK);
+        }
+#endif
         // CRITICAL: bound the recv. The accepted socket does not reliably inherit
         // the listen socket's non-blocking flag (esp. on macOS), so a client that
         // connects but sends no data would block recv() here and stall the ENTIRE
         // daemon event loop — no peer reads, missed pongs, false pong_timeouts, and
-        // the whole mesh collapses. A 2s recv timeout makes the IPC handler
-        // self-limiting and keeps the loop responsive.
-        set_socket_timeouts(cfd, 2000);
+        // the whole mesh collapses. Use a short per-read timeout plus an
+        // absolute two-second framing deadline so slow trickle clients cannot
+        // multiply the timeout by the 1023-byte request cap.
+        set_socket_timeouts(cfd, 250);
         char buf[1024] = {};
-        int n = recv(cfd, buf, sizeof(buf) - 1, 0);
+        int n = 0;
+        const auto request_deadline = std::chrono::steady_clock::now() +
+                                      std::chrono::seconds(2);
+        while (n < static_cast<int>(sizeof(buf) - 1) &&
+               std::chrono::steady_clock::now() < request_deadline) {
+            int got = recv(cfd, buf + n,
+                           static_cast<int>(sizeof(buf) - 1) - n, 0);
+            if (got <= 0) break;
+            n += got;
+            if (std::memchr(buf, '\n', static_cast<size_t>(n)) != nullptr) break;
+        }
         std::string response = "ERROR bad request\n";
+        bool response_sent = false;
         if (n > 0) {
             buf[n] = '\0';
             std::string line(buf);
             while (!line.empty() && (line.back() == '\r' || line.back() == '\n'))
                 line.pop_back();
-            if (line.rfind("HEALTH ", 0) == 0) {
+            const bool authorized = !ipc_token_.empty() &&
+                line.size() > ipc_token_.size() &&
+                line.compare(0, ipc_token_.size(), ipc_token_) == 0 &&
+                (line[ipc_token_.size()] == ' ' || line[ipc_token_.size()] == '\t');
+            if (!authorized) {
+                log_event("ipc_auth_rejected", "unauthorized local IPC request");
+                response = "ERROR unauthorized\n";
+                send(cfd, response.data(), static_cast<int>(response.size()), 0);
+                CLOSESOCK(cfd);
+                return;
+            }
+            line.erase(0, ipc_token_.size());
+            while (!line.empty() && (line.front() == ' ' || line.front() == '\t'))
+                line.erase(line.begin());
+            if (line == "DAEMON_PROBE") {
+                response = "OK bridgesessions\n";
+            }
+            else if (line.rfind("HEALTH ", 0) == 0) {
                 std::string peer_name = line.substr(7);
                 std::string want_addr = find_peer_addr(peer_name);
                 bool found = false, ok = false;
@@ -7889,10 +9040,30 @@ public:
                 } else {
                     std::string peer_name = rest.substr(0, sp);
                     std::string path = rest.substr(sp + 1);
-                    // Send the file over the existing mesh connection to this peer
-                    bool ok = daemon_file_send(peer_name, path);
-                    response = ok ? ("OK sent to " + peer_name + "\n")
-                                  : ("ERROR failed to send to " + peer_name + "\n");
+                    Conn* target = nullptr;
+                    for (auto& c : conns_) {
+                        if (is_live_mesh_transport_for(c, peer_name, false)) { target = &c; break; }
+                    }
+                    if (!target) {
+                        response = "ERROR no conn to " + peer_name + "\n";
+                    } else if (target->exec_busy->exchange(true)) {
+                        response = "ERROR peer busy with another transfer, retry\n";
+                    } else {
+                        target->exec_completed->store(false);
+                        target->exec_cancelled = std::make_shared<std::atomic<bool>>(false);
+                        target->exec_started_at = std::chrono::steady_clock::now();
+                        LongOperationTask task;
+                        task.type = LongOperationTask::Type::FileSendWait;
+                        task.peer_name = peer_name;
+                        task.path1 = path;
+                        task.ssl = target->ssl.get();
+                        task.sock_fd = target->sock_fd;
+                        task.exec_busy = target->exec_busy;
+                        task.exec_completed = target->exec_completed;
+                        task.cancelled = target->exec_cancelled;
+                        worker_pool_->enqueue(std::move(task));
+                        response = "OK queued send to " + peer_name + "\n";
+                    }
                 }
             }
             else if (line.rfind("FILE_SEND_WAIT_B64 ", 0) == 0) {
@@ -7903,13 +9074,35 @@ public:
                 } else {
                     std::string peer_name = rest.substr(0, sp);
                     std::string path = b64dec(rest.substr(sp + 1));
-                    // Long transfer: lift the 2s IPC socket timeout; stream PROGRESS lines.
-                    set_socket_timeouts(cfd, 7200000);
-                    auto prog = [&](const std::string& pline) {
-                        std::string msg = pline + "\n";
-                        send(cfd, msg.data(), (int)msg.size(), 0);
-                    };
-                    response = daemon_file_send_wait(peer_name, path, prog) + "\n";
+                    // v2.0.6: offload the long transfer to a worker thread. The
+                    // worker owns the IPC socket and streams PROGRESS + final response.
+                    Conn* target = nullptr;
+                    for (auto& c : conns_) {
+                        if (is_live_mesh_transport_for(c, peer_name, false)) { target = &c; break; }
+                    }
+                    if (!target) {
+                        response = "ERROR no conn to " + peer_name + "\n";
+                    } else if (target->exec_busy->exchange(true)) {
+                        response = "ERROR peer busy with another transfer, retry\n";
+                    } else {
+                        target->exec_completed->store(false);
+                        target->exec_cancelled = std::make_shared<std::atomic<bool>>(false);
+                        target->exec_started_at = std::chrono::steady_clock::now();
+                        LongOperationTask task;
+                        task.type = LongOperationTask::Type::FileSendWait;
+                        task.peer_name = peer_name;
+                        task.path1 = path;
+                        task.ssl = target->ssl.get();
+                        task.sock_fd = target->sock_fd;
+                        task.exec_busy = target->exec_busy;
+                        task.exec_completed = target->exec_completed;
+                        task.cancelled = target->exec_cancelled;
+                        task.ipc_fd = cfd;
+                        worker_pool_->enqueue(std::move(task));
+                        // IPC socket ownership transferred; do not send/close here.
+                        response.clear();
+                        response_sent = true;
+                    }
                 }
             }
             else if (line.rfind("FILE_RECV ", 0) == 0) {
@@ -7947,12 +9140,34 @@ public:
                     std::string peer_name = rest.substr(0, sp1);
                     std::string path = b64dec(rest.substr(sp1 + 1, sp2 - sp1 - 1));
                     std::string local_dest = b64dec(rest.substr(sp2 + 1));
-                    set_socket_timeouts(cfd, 7200000);
-                    auto prog = [&](const std::string& pline) {
-                        std::string msg = pline + "\n";
-                        send(cfd, msg.data(), (int)msg.size(), 0);
-                    };
-                    response = daemon_file_recv_wait(peer_name, path, local_dest, prog) + "\n";
+                    // v2.0.6: offload to worker thread; worker owns IPC socket.
+                    Conn* target = nullptr;
+                    for (auto& c : conns_) {
+                        if (is_live_mesh_transport_for(c, peer_name, false)) { target = &c; break; }
+                    }
+                    if (!target) {
+                        response = "ERROR no conn to " + peer_name + "\n";
+                    } else if (target->exec_busy->exchange(true)) {
+                        response = "ERROR peer busy with another transfer, retry\n";
+                    } else {
+                        target->exec_completed->store(false);
+                        target->exec_cancelled = std::make_shared<std::atomic<bool>>(false);
+                        target->exec_started_at = std::chrono::steady_clock::now();
+                        LongOperationTask task;
+                        task.type = LongOperationTask::Type::FileRecvWait;
+                        task.peer_name = peer_name;
+                        task.path1 = path;
+                        task.path2 = local_dest;
+                        task.ssl = target->ssl.get();
+                        task.sock_fd = target->sock_fd;
+                        task.exec_busy = target->exec_busy;
+                        task.exec_completed = target->exec_completed;
+                        task.cancelled = target->exec_cancelled;
+                        task.ipc_fd = cfd;
+                        worker_pool_->enqueue(std::move(task));
+                        response.clear();
+                        response_sent = true;
+                    }
                 }
             }
             else if (line.rfind("SHELL ", 0) == 0) {
@@ -7961,22 +9176,35 @@ public:
                 // connection's SSL object from the event loop.
                 response = shell_ipc_relay_policy_response();
             }
-            else if (line.rfind("EDIT_DL ", 0) == 0) {
-                auto rest = line.substr(8);
-                auto sp = rest.find(' ');
-                if (sp == std::string::npos) {
-                    response = "ERROR usage: EDIT_DL <peer> <remote-path>\n";
+            else if (line.rfind("CANCEL ", 0) == 0) {
+                std::string peer_name = line.substr(7);
+                Conn* target = nullptr;
+                // Allow cancelling a busy transport; the worker exclusively owns it
+                // while exec_busy is set, so require_idle must be false.
+                for (auto& c : conns_) {
+                    if (is_live_mesh_transport_for(c, peer_name, false)) { target = &c; break; }
+                }
+                if (!target) {
+                    response = "ERROR no conn to " + peer_name + "\n";
+                } else if (!target->exec_busy || !target->exec_busy->load()) {
+                    response = "OK no active operation on " + peer_name + "\n";
                 } else {
-                    std::string peer_name = rest.substr(0, sp);
-                    std::string path = rest.substr(sp + 1);
-                    std::string result = daemon_edit_dl(peer_name, path);
-                    response = result + "\n";
+                    if (target->exec_cancelled) target->exec_cancelled->store(true);
+                    if (target->sock_fd != INVALID_SOCKET) {
+#ifdef _WIN32
+                        ::shutdown(target->sock_fd, SD_BOTH);
+#else
+                        ::shutdown(target->sock_fd, SHUT_RDWR);
+#endif
+                    }
+                    response = "OK cancelling operation on " + peer_name + "\n";
                 }
             }
+            else if (line.rfind("EDIT_DL ", 0) == 0) {
+                response = "ERROR edit disabled in 2.0.6 until dedicated transfer transport is available\n";
+            }
             else if (line.rfind("VFOLDER_SYNC ", 0) == 0) {
-                std::string name = line.substr(13);
-                std::string result = daemon_vfolder_sync(name);
-                response = result + "\n";
+                response = "ERROR vfolder sync disabled in 2.0.6 until dedicated transfer transport is available\n";
             }
             else if (line.rfind("VFOLDER_LIST", 0) == 0) {
                 std::string result = "[";
@@ -7988,39 +9216,37 @@ public:
                 response = result + "\n";
             }
             else if (line.rfind("EDIT_UP ", 0) == 0) {
-                auto rest = line.substr(8);
-                auto sp1 = rest.find(' ');
-                if (sp1 == std::string::npos) { response = "ERROR usage\n"; }
-                else {
-                    auto sp2 = rest.find(' ', sp1 + 1);
-                    if (sp2 == std::string::npos) { response = "ERROR usage\n"; }
-                    else {
-                        std::string peer_name = rest.substr(0, sp1);
-                        std::string remote_path = rest.substr(sp1 + 1, sp2 - sp1 - 1);
-                        std::string local_path = rest.substr(sp2 + 1);
-                        std::string result = daemon_edit_up(peer_name, remote_path, local_path);
-                        response = result + "\n";
-                    }
-                }
+                response = "ERROR edit disabled in 2.0.6 until dedicated transfer transport is available\n";
+            }
+            if (response == "ERROR bad request\n") {
+                auto separator = line.find(' ');
+                log_event("ipc_bad_request",
+                          "verb=" + line.substr(0, separator) +
+                          " bytes=" + std::to_string(line.size()));
             }
         }
-        send(cfd, response.data(), (int)response.size(), 0);
-        CLOSESOCK(cfd);
+        if (!response_sent) {
+            send(cfd, response.data(), (int)response.size(), 0);
+            CLOSESOCK(cfd);
+        }
+        // else: worker owns cfd and will close it after streaming the response.
     }
 
     std::string daemon_health_via_ipc(const std::string& peer_name, int wait_ms) {
+        std::string token = load_ipc_token(home_dir_);
+        if (token.empty()) return "";
         SOCKET sfd = socket(AF_INET, SOCK_STREAM, 0);
         if (sfd == INVALID_SOCKET) return "";
         sockaddr_in sa{};
         sa.sin_family = AF_INET;
         sa.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-        sa.sin_port = htons(kMeshCliPort);
+        sa.sin_port = htons(mesh_cli_port());
         // Bound connect + recv so a stalled/dead daemon can never hang the CLI.
         set_socket_timeouts(sfd, wait_ms > 0 ? wait_ms : 8000);
         if (connect(sfd, (sockaddr*)&sa, sizeof(sa)) == SOCKET_ERROR) {
             CLOSESOCK(sfd); return "";
         }
-        std::string req = "HEALTH " + peer_name + "\n";
+        std::string req = token + " HEALTH " + peer_name + "\n";
         send(sfd, req.data(), (int)req.size(), 0);
         char buf[256] = {};
         int total = 0;
@@ -8049,20 +9275,22 @@ public:
     // blocks for response with longer wait_ms to cover transfer time).
     std::string daemon_send_via_ipc(const std::string& peer_name, const std::string& path,
                                     int wait_ms, bool wait_for_completion = false) {
+        std::string token = load_ipc_token(home_dir_);
+        if (token.empty()) return "";
         SOCKET sfd = socket(AF_INET, SOCK_STREAM, 0);
         if (sfd == INVALID_SOCKET) return "";
         sockaddr_in sa{};
         sa.sin_family = AF_INET;
         sa.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-        sa.sin_port = htons(kMeshCliPort);
+        sa.sin_port = htons(mesh_cli_port());
         int to = wait_for_completion ? std::max(wait_ms, 7200000) : (wait_ms > 0 ? wait_ms : 120000);
         set_socket_timeouts(sfd, to);
         if (connect(sfd, (sockaddr*)&sa, sizeof(sa)) == SOCKET_ERROR) {
             CLOSESOCK(sfd); return "";
         }
-        std::string cmd = wait_for_completion
+        std::string cmd = token + " " + (wait_for_completion
             ? ("FILE_SEND_WAIT_B64 " + peer_name + " " + b64enc(path) + "\n")
-            : ("FILE_SEND " + peer_name + " " + path + "\n");
+            : ("FILE_SEND " + peer_name + " " + path + "\n"));
         send(sfd, cmd.data(), (int)cmd.size(), 0);
         std::string pending;
         char buf[8192];
@@ -8089,17 +9317,19 @@ public:
     int daemon_shell_via_ipc(const std::string& peer_name, const std::string& session_name,
                              const std::string& cmd, std::string* output,
                              int wait_ms = 60000) {
+        std::string token = load_ipc_token(home_dir_);
+        if (token.empty()) return -1;
         SOCKET sfd = socket(AF_INET, SOCK_STREAM, 0);
         if (sfd == INVALID_SOCKET) return -1;
         sockaddr_in sa{};
         sa.sin_family = AF_INET;
         sa.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-        sa.sin_port = htons(kMeshCliPort);
+        sa.sin_port = htons(mesh_cli_port());
         set_socket_timeouts(sfd, wait_ms > 0 ? wait_ms : 60000);
         if (connect(sfd, (sockaddr*)&sa, sizeof(sa)) == SOCKET_ERROR) {
             CLOSESOCK(sfd); return -1;
         }
-        std::string req = "SHELL " + peer_name + " "
+        std::string req = token + " SHELL " + peer_name + " "
                         + b64enc(session_name) + " "
                         + b64enc(cmd) + "\n";
         send(sfd, req.data(), (int)req.size(), 0);
@@ -8134,15 +9364,17 @@ public:
     // CLI-side: request a file from a peer via daemon IPC.
     // CLI-side: edit download via daemon IPC
     std::string daemon_edit_dl_via_ipc(const std::string& peer_name, const std::string& path, int wait_ms) {
+        std::string token = load_ipc_token(home_dir_);
+        if (token.empty()) return "";
         SOCKET sfd = socket(AF_INET, SOCK_STREAM, 0);
         if (sfd == INVALID_SOCKET) return "";
         sockaddr_in sa{};
         sa.sin_family = AF_INET;
         sa.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-        sa.sin_port = htons(kMeshCliPort);
+        sa.sin_port = htons(mesh_cli_port());
         set_socket_timeouts(sfd, wait_ms > 0 ? wait_ms : 120000);
         if (connect(sfd, (sockaddr*)&sa, sizeof(sa)) == SOCKET_ERROR) { CLOSESOCK(sfd); return ""; }
-        std::string cmd = "EDIT_DL " + peer_name + " " + path + "\n";
+        std::string cmd = token + " EDIT_DL " + peer_name + " " + path + "\n";
         send(sfd, cmd.data(), (int)cmd.size(), 0);
         char buf[4096] = {}; int total = 0;
         while (total < (int)sizeof(buf) - 1) {
@@ -8158,15 +9390,17 @@ public:
 
     // CLI-side: edit upload via daemon IPC
     std::string daemon_edit_up_via_ipc(const std::string& peer_name, const std::string& remote_path, const std::string& local_path, int wait_ms) {
+        std::string token = load_ipc_token(home_dir_);
+        if (token.empty()) return "ERROR no daemon";
         SOCKET sfd = socket(AF_INET, SOCK_STREAM, 0);
         if (sfd == INVALID_SOCKET) return "ERROR socket";
         sockaddr_in sa{};
         sa.sin_family = AF_INET;
         sa.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-        sa.sin_port = htons(kMeshCliPort);
+        sa.sin_port = htons(mesh_cli_port());
         set_socket_timeouts(sfd, wait_ms > 0 ? wait_ms : 120000);
         if (connect(sfd, (sockaddr*)&sa, sizeof(sa)) == SOCKET_ERROR) { CLOSESOCK(sfd); return "ERROR no daemon"; }
-        std::string cmd = "EDIT_UP " + peer_name + " " + remote_path + " " + local_path + "\n";
+        std::string cmd = token + " EDIT_UP " + peer_name + " " + remote_path + " " + local_path + "\n";
         send(sfd, cmd.data(), (int)cmd.size(), 0);
         char buf[4096] = {}; int total = 0;
         while (total < (int)sizeof(buf) - 1) {
@@ -8183,21 +9417,23 @@ public:
     std::string daemon_recv_via_ipc(const std::string& peer_name, const std::string& path,
                                     const std::string& local_dest, int wait_ms,
                                     bool wait_for_completion = false) {
+        std::string token = load_ipc_token(home_dir_);
+        if (token.empty()) return "";
         SOCKET sfd = socket(AF_INET, SOCK_STREAM, 0);
         if (sfd == INVALID_SOCKET) return "";
         sockaddr_in sa{};
         sa.sin_family = AF_INET;
         sa.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-        sa.sin_port = htons(kMeshCliPort);
+        sa.sin_port = htons(mesh_cli_port());
         // Large transfers stream PROGRESS lines then final OK/ERROR; allow hours.
         int to = wait_for_completion ? std::max(wait_ms, 7200000) : (wait_ms > 0 ? wait_ms : 120000);
         set_socket_timeouts(sfd, to);
         if (connect(sfd, (sockaddr*)&sa, sizeof(sa)) == SOCKET_ERROR) {
             CLOSESOCK(sfd); return "";
         }
-        std::string cmd = wait_for_completion
+        std::string cmd = token + " " + (wait_for_completion
             ? ("FILE_RECV_WAIT_B64 " + peer_name + " " + b64enc(path) + " " + b64enc(local_dest) + "\n")
-            : ("FILE_RECV_B64 " + peer_name + " " + b64enc(path) + " " + b64enc(local_dest) + "\n");
+            : ("FILE_RECV_B64 " + peer_name + " " + b64enc(path) + " " + b64enc(local_dest) + "\n"));
         send(sfd, cmd.data(), (int)cmd.size(), 0);
         std::string acc;
         char buf[8192];
@@ -8240,19 +9476,32 @@ public:
     }
 
     // Returns true if another bridgesessions daemon is already running locally
-    // (its CLI IPC port answers a PING). Used as a single-instance guard so a
+    // and proves possession of the owner-only IPC token. Used as a single-instance guard so a
     // double-click / second `bsmesh` launch cannot squat ports and split the mesh.
     bool another_daemon_running() {
+        const std::string token = load_ipc_token(home_dir_);
+        if (token.empty()) return false;
         SOCKET sfd = socket(AF_INET, SOCK_STREAM, 0);
         if (sfd == INVALID_SOCKET) return false;
         sockaddr_in sa{};
         sa.sin_family = AF_INET;
         sa.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-        sa.sin_port = htons(kMeshCliPort);
+        sa.sin_port = htons(mesh_cli_port());
         set_socket_timeouts(sfd, 1500);
-        bool alive = (connect(sfd, (sockaddr*)&sa, sizeof(sa)) != SOCKET_ERROR);
+        if (connect(sfd, (sockaddr*)&sa, sizeof(sa)) == SOCKET_ERROR) {
+            CLOSESOCK(sfd);
+            return false;
+        }
+        const std::string probe = token + " DAEMON_PROBE\n";
+        if (send(sfd, probe.data(), static_cast<int>(probe.size()), 0) <= 0) {
+            CLOSESOCK(sfd);
+            return false;
+        }
+        char reply[64] = {};
+        int n = recv(sfd, reply, static_cast<int>(sizeof(reply) - 1), 0);
         CLOSESOCK(sfd);
-        return alive;
+        return n > 0 && std::string_view(reply, static_cast<size_t>(n)).find(
+                            "OK bridgesessions") != std::string_view::npos;
     }
 
     // ── Main event loop ───────────────────────────────────────
@@ -8269,9 +9518,9 @@ public:
         if (another_daemon_running()) {
             log_event("mesh_already_running",
                       "another daemon is listening on CLI IPC port "
-                      + std::to_string(kMeshCliPort) + "; refusing to start");
+                      + std::to_string(mesh_cli_port()) + "; refusing to start");
             std::cerr << "bridgesessions: another daemon already running (IPC port "
-                      << kMeshCliPort << "). Refusing to start a second instance.\n";
+                      << mesh_cli_port() << "). Refusing to start a second instance.\n";
             running_ = false;
             return;
         }
@@ -8322,19 +9571,44 @@ public:
             return;
         }
 
+        sockaddr_in actual_addr{};
+        socklen_t actual_len = sizeof(actual_addr);
+        if (getsockname(listen_fd_, reinterpret_cast<sockaddr*>(&actual_addr), &actual_len) == 0)
+            actual_listen_port_.store(ntohs(actual_addr.sin_port));
+
+        // Make listen socket non-blocking so accept() never blocks the loop.
+#ifdef _WIN32
+        { u_long nb = 1; ioctlsocket(listen_fd_, FIONBIO, &nb); }
+#else
+        { int fl = fcntl(listen_fd_, F_GETFL, 0); if (fl >= 0) fcntl(listen_fd_, F_SETFL, fl | O_NONBLOCK); }
+        if (listen_fd_ >= FD_SETSIZE) {
+            log_event("mesh_listen_fd_too_high", std::to_string(listen_fd_));
+            CLOSESOCK(listen_fd_);
+            listen_fd_ = INVALID_SOCKET;
+            return;
+        }
+#endif
+
         log_event("mesh_listening", config_.listen_addr + ":" + std::to_string(config_.listen_port));
 
-        (void)cli_ipc_init();
+        if (!cli_ipc_init()) {
+            log_event("mesh_cli_ipc_failed", "daemon startup aborted");
+            running_ = false;
+            CLOSESOCK(listen_fd_);
+            listen_fd_ = INVALID_SOCKET;
+            return;
+        }
 
-        mdns_init();
+        if (config_.mdns_enabled) mdns_init();
         last_ping_time_ = std::chrono::steady_clock::now();
         last_gossip_time_ = std::chrono::steady_clock::now();
         last_mdns_time_ = std::chrono::steady_clock::now();
 
         while (running_) {
             // 1. Build fd_set for select()
-            fd_set read_fds;
+            fd_set read_fds, write_fds;
             FD_ZERO(&read_fds);
+            FD_ZERO(&write_fds);
             FD_SET(listen_fd_, &read_fds);
 
             SOCKET max_fd = listen_fd_;
@@ -8352,7 +9626,22 @@ public:
                 // background daemon_shell_exec thread (v1.7 async exec fix,
                 // Known Issue #2) — reading here would race the thread.
                 if (c.exec_busy && c.exec_busy->load()) continue;
+#ifdef _WIN32
+                if (c.attached_session &&
+                    windows_pty_pending_bytes_.load() >= kWindowsPtyInputHighWater)
+                    continue;
+#else
+                if (c.attached_session && c.attached_session->input_backpressured)
+                    continue;
+#endif
                 if (c.sock_fd != INVALID_SOCKET) {
+#ifndef _WIN32
+                    if (c.sock_fd >= FD_SETSIZE) {
+                        log_event("mesh_peer_fd_too_high", c.peer_name);
+                        close_conn(c);
+                        continue;
+                    }
+#endif
                     FD_SET(c.sock_fd, &read_fds);
                     if (c.sock_fd > max_fd) max_fd = c.sock_fd;
                 }
@@ -8368,11 +9657,45 @@ public:
                     continue;
                 FD_SET(session->master_fd, &read_fds);
                 if (session->master_fd > max_fd) max_fd = session->master_fd;
+                // If the child is not consuming input fast enough, watch for
+                // writability so we can drain the pending queue.
+                if (!session->pending_input.empty()) {
+                    FD_SET(session->master_fd, &write_fds);
+                }
             }
 #endif
             if (mdns_fd_ != INVALID_SOCKET) {
+#ifndef _WIN32
+                if (mdns_fd_ >= FD_SETSIZE) {
+                    log_event("mdns_fd_too_high", std::to_string(mdns_fd_));
+                    CLOSESOCK(mdns_fd_);
+                    mdns_fd_ = INVALID_SOCKET;
+                } else
+#endif
+                {
                 FD_SET(mdns_fd_, &read_fds);
                 if (mdns_fd_ > max_fd) max_fd = mdns_fd_;
+                }
+            }
+
+            // v2.0.6: include pending TLS+Hello handshakes. A handshake may need
+            // both read and write readiness depending on OpenSSL state, so include
+            // pending sockets in both sets; advance_handshakes() is non-blocking.
+            for (auto& ph : pending_handshakes_) {
+                if (ph.sock_fd == INVALID_SOCKET) continue;
+#ifndef _WIN32
+                if (ph.sock_fd >= FD_SETSIZE) {
+                    log_event("handshake_fd_too_high", std::to_string(ph.sock_fd));
+                    if (ph.ssl) SSL_set_quiet_shutdown(ph.ssl.get(), 1);
+                    CLOSESOCK(ph.sock_fd);
+                    ph.sock_fd = INVALID_SOCKET;
+                    ph.state = PendingHandshake::State::Failed;
+                    continue;
+                }
+#endif
+                if (ph.want_read) FD_SET(ph.sock_fd, &read_fds);
+                if (ph.want_write) FD_SET(ph.sock_fd, &write_fds);
+                if (ph.sock_fd > max_fd) max_fd = ph.sock_fd;
             }
 
             // 2. select(): POSIX PTYs wake this set immediately. Windows pipe
@@ -8382,7 +9705,7 @@ public:
 #else
             timeval tv{3, 0};
 #endif
-            int nfds = select(static_cast<int>(max_fd) + 1, &read_fds, nullptr, nullptr, &tv);
+            int nfds = select(static_cast<int>(max_fd) + 1, &read_fds, &write_fds, nullptr, &tv);
 
             if (nfds < 0) {
 #ifdef _WIN32
@@ -8395,6 +9718,12 @@ public:
 
             auto now = std::chrono::steady_clock::now();
             maybe_reload_config_seeds();
+            maybe_prune_revoked_connections();
+            if (config_.idle_timeout_hours > 0 &&
+                now - last_session_prune_time_ >= std::chrono::minutes(1)) {
+                sessions_.prune_idle(std::chrono::hours(config_.idle_timeout_hours));
+                last_session_prune_time_ = now;
+            }
 #ifndef _WIN32
             if (g_config_reload_requested.exchange(false))
                 reload_seeds_from_disk();
@@ -8419,12 +9748,18 @@ public:
 
             // 4. Read from established connections
             for (int i = 0; i < static_cast<int>(conns_.size()) && nfds > 0; ++i) {
-                if (conns_[static_cast<size_t>(i)].sock_fd != INVALID_SOCKET &&
-                    FD_ISSET(conns_[static_cast<size_t>(i)].sock_fd, &read_fds)) {
+                auto& conn = conns_[static_cast<size_t>(i)];
+                if (conn.exec_busy && conn.exec_busy->load()) continue;
+                if (conn.sock_fd != INVALID_SOCKET &&
+                    FD_ISSET(conn.sock_fd, &read_fds)) {
                     check_conn_read(i);
                     --nfds;
                 }
             }
+
+            // 4.5. Advance non-blocking TLS + Hello handshakes.
+            // Run unconditionally: progress may be driven by SSL buffered data too.
+            advance_handshakes();
 
             // 5. Connect to seeds / discovered peers
             try_connect_to_seeds();
@@ -8459,6 +9794,16 @@ public:
 
             // 9.5. Poll PTY output for all attached sessions
             pty_output_poller();
+
+#ifndef _WIN32
+            for (const auto& info : sessions_.list()) {
+                Session* session = sessions_.get(info.name);
+                if (!session || session->pending_input.empty() || session->master_fd < 0)
+                    continue;
+                if (FD_ISSET(session->master_fd, &write_fds))
+                    (void)drain_pending_pty_input(*session);
+            }
+#endif
 
             // 10. Reap dead sessions
             sessions_.reap_dead();
@@ -8508,6 +9853,35 @@ public:
         sendto(mdns_fd_, payload.data(), (int)payload.size(), 0, (sockaddr*)&dest, sizeof(dest));
     }
 
+    void process_mdns_announcement(const std::string& name,
+                                   const std::string& addr,
+                                   const std::string& pubkey) {
+        if (pubkey.empty() || pubkey == our_pubkey_) return;
+        if (!is_trusted_pubkey(pubkey)) return;
+        for (auto& s : config_.seeds) {
+            if (!s.pubkey_hex.empty() && s.pubkey_hex == pubkey) {
+                if (!addr.empty()) s.addr = addr;
+                s.last_seen = now_unix_seconds();
+                log_event("mdns_address_update", s.name + " " + addr);
+                return;
+            }
+            if (peer_name_eq(s.name, name) && s.pubkey_hex != pubkey) return;
+        }
+        for (auto& d : config_.discovered) {
+            if (d.pubkey_hex == pubkey) {
+                if (!addr.empty()) d.addr = addr;
+                if (!name.empty()) d.name = name;
+                d.last_seen = now_unix_seconds();
+                log_event("mdns_address_update", d.name + " " + addr);
+                return;
+            }
+            if (peer_name_eq(d.name, name) && d.pubkey_hex != pubkey) return;
+        }
+        PeerEntry pe{name, addr, pubkey, now_unix_seconds()};
+        config_.discovered.push_back(std::move(pe));
+        log_event("mdns_discovered", name + " " + addr);
+    }
+
     void mdns_check() {
         if (mdns_fd_ == INVALID_SOCKET) return;
         char buf[2048]; sockaddr_in from{}; socklen_t from_len = sizeof(from);
@@ -8520,12 +9894,7 @@ public:
             if (pubkey == our_pubkey_) return;
             char ip_str[64]; inet_ntop(AF_INET, &from.sin_addr, ip_str, sizeof(ip_str));
             std::string addr = std::string(ip_str) + ":" + std::to_string(j["port"].get<int>());
-            for (auto& s : config_.seeds) if (s.name == name || s.pubkey_hex == pubkey) return;
-            for (auto& d : config_.discovered) if (d.name == name || d.pubkey_hex == pubkey) return;
-            PeerEntry pe{name, addr, pubkey}; config_.discovered.push_back(pe);
-            log_event("mdns_discovered", name + " " + addr);
-            // Discovered peers are runtime state; do not persist to the config file
-            // (would churn config_reload and starve the event loop).
+            process_mdns_announcement(name, addr, pubkey);
         } catch (...) {}
     }
 
@@ -9386,6 +10755,68 @@ public:
         }
         return ms;
     }
+
+    // Trust-filter tests.
+    bool is_trusted_pubkey_for_test(const std::string& pk) {
+        return is_trusted_pubkey(pk);
+    }
+    std::string configured_peer_addr_for_test(const std::string& name) const {
+        for (const auto& s : config_.seeds)
+            if (peer_name_eq(s.name, name)) return s.addr;
+        for (const auto& d : config_.discovered)
+            if (peer_name_eq(d.name, name)) return d.addr;
+        return {};
+    }
+    void process_mdns_announcement_for_test(const std::string& name,
+                                            const std::string& addr,
+                                            const std::string& pubkey) {
+        process_mdns_announcement(name, addr, pubkey);
+    }
+
+    // Hello duplicate-policy tests.
+    void test_set_initial_hello_for_test(Conn& c, const HelloMsg& h) {
+        c.initial_hello = h;
+    }
+    bool test_handle_hello_for_test(Conn& c, const HelloMsg& h) {
+        if (!c.initial_hello.has_value()) {
+            c.initial_hello = h;
+            c.peer_name = h.node_name;
+            merge_peers(h.known_peers);
+            return true;
+        }
+        if (*c.initial_hello == h) return true;
+        c.close_requested = true;
+        return false;
+    }
+
+    // IPC token tests.
+    void set_ipc_token_for_test(const std::string& token) { ipc_token_ = token; }
+    std::string ipc_token_for_test() const { return ipc_token_; }
+    std::string ipc_token_path_for_test() const { return ipc_token_path_; }
+    bool ipc_request_is_authorized_for_test(const std::string& line) const {
+        return !ipc_token_.empty() && line.size() > ipc_token_.size() &&
+               line.compare(0, ipc_token_.size(), ipc_token_) == 0 &&
+               (line[ipc_token_.size()] == ' ' || line[ipc_token_.size()] == '\t');
+    }
+    bool another_daemon_running_for_test() { return another_daemon_running(); }
+    void inject_file_meta_for_test(Conn& c, const FileMetaMsg& m) { handle_file_meta(c, m); }
+    void inject_file_chunk_for_test(Conn& c, const FileChunkMsg& m) { handle_file_chunk(c, m); }
+    const std::string& pending_recv_dir_for_test(const Conn& c) const { return c.pending_recv_dir; }
+    bool begin_async_receive_for_test(Conn& c, const std::string& dir) {
+        return begin_async_receive(c, dir);
+    }
+    const FileReceiveState& file_receive_for_test(const Conn& c) const { return c.file_receive; }
+    bool write_pty_input_for_test(Session& s, const void* data, size_t len) {
+        return write_pty_input(s, data, len);
+    }
+#ifndef _WIN32
+    bool drain_pending_pty_input_for_test(Session& s) {
+        return drain_pending_pty_input(s);
+    }
+    const std::string& pending_input_for_test(const Session& s) const {
+        return s.pending_input;
+    }
+#endif
 #endif
 };
 
@@ -9768,7 +11199,10 @@ int cmd_keygen(const std::string& app_home) {
 }
 
 // Free-function wrappers for IPC (used by main dispatch)
-static std::string daemon_simple_ipc(const std::string& cmd, int wait_ms) {
+static std::string daemon_simple_ipc(const std::string& cmd, int wait_ms,
+                                     const std::string& app_home) {
+    std::string token = bs::mesh::load_ipc_token(app_home);
+    if (token.empty()) return "";
     SOCKET sfd = socket(AF_INET, SOCK_STREAM, 0);
     if (sfd == INVALID_SOCKET) return "";
     sockaddr_in sa{};
@@ -9785,7 +11219,7 @@ static std::string daemon_simple_ipc(const std::string& cmd, int wait_ms) {
     setsockopt(sfd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 #endif
     if (connect(sfd, (sockaddr*)&sa, sizeof(sa)) == SOCKET_ERROR) { CLOSESOCK(sfd); return ""; }
-    std::string full = cmd + "\n";
+    std::string full = token + " " + cmd + "\n";
     send(sfd, full.data(), (int)full.size(), 0);
     char buf[4096] = {}; int total = 0;
     while (total < (int)sizeof(buf) - 1) {
@@ -9897,7 +11331,7 @@ int cmd_doctor(const std::string& config_path, const std::string& app_home) {
     else warn("systemd unit", unit.string());
 #endif
 
-    std::string ipc = daemon_simple_ipc("HEALTH __doctor_nonexistent__", 1500);
+    std::string ipc = daemon_simple_ipc("HEALTH __doctor_nonexistent__", 1500, app_home);
     if (!ipc.empty()) pass("daemon IPC", "port 19980 answered");
     else warn("daemon IPC", "port 19980 did not answer");
 
@@ -10114,7 +11548,7 @@ int main(int argc, char** argv) {
     }
     if (sessions_cmd_app->parsed()) {
         if (sessions_peer.empty()) {
-            std::string ipc = daemon_simple_ipc("SESSIONS", 3000);
+            std::string ipc = daemon_simple_ipc("SESSIONS", 3000, home_dir);
             if (!ipc.empty() && ipc.rfind("ERROR", 0) != 0) {
                 std::cout << ipc << "\n";
                 return 0;
@@ -10171,7 +11605,7 @@ int main(int argc, char** argv) {
         return ok ? 0 : 1;
     }
     if (reconnect_cmd_app->parsed()) {
-        std::string result = daemon_simple_ipc("RECONNECT " + reconnect_peer, 25000);
+        std::string result = daemon_simple_ipc("RECONNECT " + reconnect_peer, 25000, home_dir);
         if (result.empty()) {
             std::cerr << "ERROR no daemon running\n";
             return 1;
@@ -10190,7 +11624,7 @@ int main(int argc, char** argv) {
     if (stats_cmd_app->parsed()) {
         bs::mesh::MeshConfig cfg = bs::mesh::load_config(config_path);
         bs::mesh::MeshController mc(cfg, home_dir);
-        std::string ipc = daemon_simple_ipc("STATS", 3000);
+        std::string ipc = daemon_simple_ipc("STATS", 3000, home_dir);
         if (!ipc.empty() && ipc.rfind("ERROR", 0) != 0) {
             std::cout << ipc << "\n";
             return 0;
@@ -10272,7 +11706,7 @@ int main(int argc, char** argv) {
     }
     if (vfolder_sync->parsed()) {
         bs::mesh::bootstrap_identity(home_dir);
-        std::string ipc = daemon_simple_ipc("VFOLDER_SYNC " + vfolder_name, 300000);
+        std::string ipc = daemon_simple_ipc("VFOLDER_SYNC " + vfolder_name, 300000, home_dir);
         if (ipc.empty()) { std::cerr << "no daemon running\n"; return 1; }
         std::cout << ipc << "\n";
         return ipc.rfind("ERROR", 0) == 0 ? 1 : 0;

@@ -3,7 +3,7 @@
 BridgeSessions is a **secure mesh terminal system** that replaces the usual
 stack of remote-work tools with one binary, one protocol (`bs://`), and one
 session model. It is built for humans *and* AI agents: long-lived shells,
-images and video on the wire, file transfer, Windows automation, and a
+file transfer for image/video artifacts, Windows automation, and a
 document surface (Bridge Panel) for reviewing Markdown with your agent.
 
 > One mesh. Persistent PTYs. Mutual TLS. AI-friendly media and files.
@@ -109,7 +109,7 @@ historically lived on a different planet from Linux SSH workflows.
 BridgeSessions peers include **Windows nodes** in the same mesh:
 
 - shell / exec paths for Windows peers  
-- file and image transfer for screenshots and recordings  
+- file transfer for screenshots and recordings
 - gameplay / desktop capture patterns for vision agents  
 - one identity and config model across Linux, macOS, and Windows  
 
@@ -144,16 +144,16 @@ An agent TUI (`hermes --tui`, coding agents, long jobs) lives in a named
 session. If the agent process or network restarts, reattach — do not restart
 the world.
 
-### Images on the wire
-Protocol types for **static images** and **animated frames** (PNG/JPEG/GIF
-path), with caps and acks. Terminals can render via local helpers; agents can
-consume pixels for **vision**.
+### Media through file transfer
+Image message IDs are reserved, but 2.0.6 does not implement large-image
+fragmentation or receiver rendering. Send PNG/JPEG/GIF/video artifacts through
+the bounded file-transfer protocol, then render or analyze them locally.
 
 ### Screenshots & video for vision analysis
 Typical AI loop:
 
 1. Windows peer captures a screenshot or MP4 (desktop / game / UI).  
-2. File or image transfer crosses the mesh.  
+2. File transfer carries the artifact across the mesh.
 3. Linux/macOS agent loads the artifact and runs **vision analysis**.  
 4. Agent writes findings as Markdown into Bridge Panel for human review.
 
@@ -224,7 +224,7 @@ bridgesessions pane publish ./report.md \
   --session default --type documents --title "Vision report"
 
 # File / media movement lives on the same mesh as the shell
-# (image and file message types on bs:// — see docs/protocol.md)
+# (the file protocol carries media; image IDs remain reserved in 2.0.6)
 ```
 
 ---

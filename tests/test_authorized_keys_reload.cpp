@@ -27,7 +27,7 @@
 #undef max
 #endif
 
-#include "bridgesessions.cpp"
+#include "../bridgesessions.cpp"
 
 #ifdef _WIN32
 #define CLOSESOCK closesocket

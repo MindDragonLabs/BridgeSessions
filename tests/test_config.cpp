@@ -1,6 +1,6 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/catch_session.hpp>
-#include "bridgesessions.cpp"
+#include "../bridgesessions.cpp"
 
 #include <cstdio>
 #include <fstream>
@@ -89,7 +89,7 @@ TEST_CASE("expand_home expands tilde to USERPROFILE or HOME", "[config]") {
 
     // No tilde: no change
     REQUIRE(expand_home("/etc/hosts") == "/etc/hosts");
-    REQUIRE(expand_home("C:\\Users\\Shadow\\test") == "C:\\Users\\Shadow\\test");
+    REQUIRE(expand_home("C:\\Users\\Example\\test") == "C:\\Users\\Example\\test");
 }
 
 // ── Test 4: missing file returns defaults ──────────────────────────
@@ -127,9 +127,9 @@ TEST_CASE("load_config duplicate seed name overwrites", "[config]") {
     fs::remove_all(fs::path(cfg_path).parent_path());
 }
 
-// ── Test 6: round-trip — save + reload preserves discovered ────────
+// ── Test 6: round-trip — discovered peers are runtime state only ────
 
-TEST_CASE("round-trip: save and reload preserves discovered peers", "[config]") {
+TEST_CASE("round-trip: save does not persist discovered peers", "[config][security]") {
     auto cfg_path = write_temp_config(
         "node.name testnode\n"
         "seed test-pc1 203.0.113.10:9948\n"
@@ -140,7 +140,7 @@ TEST_CASE("round-trip: save and reload preserves discovered peers", "[config]") 
     REQUIRE(cfg.node_name == "testnode");
     REQUIRE(cfg.seeds.size() == 1);
 
-    // Add discovered peers
+    // Add discovered peers (as would happen from mDNS/gossip)
     PeerEntry p1;
     p1.name = "corp-net";
     p1.addr = "10.0.0.5:19948";
@@ -152,16 +152,12 @@ TEST_CASE("round-trip: save and reload preserves discovered peers", "[config]") 
     bool ok = save_config(cfg_path, cfg);
     REQUIRE(ok);
 
-    // Reload
+    // Reload: discovered peers must not be persisted (runtime state only).
     MeshConfig cfg2 = load_config(cfg_path);
     REQUIRE(cfg2.node_name == "testnode");
     REQUIRE(cfg2.seeds.size() == 1);
     REQUIRE(cfg2.seeds[0].name == "test-pc1");
-    REQUIRE(cfg2.discovered.size() == 1);
-    REQUIRE(cfg2.discovered[0].name == "corp-net");
-    REQUIRE(cfg2.discovered[0].addr == "10.0.0.5:19948");
-    REQUIRE(cfg2.discovered[0].pubkey_hex == "abc123");
-    REQUIRE(cfg2.discovered[0].last_seen == 1234567890);
+    REQUIRE(cfg2.discovered.empty());
 
     fs::remove_all(fs::path(cfg_path).parent_path());
 }
@@ -623,6 +619,7 @@ TEST_CASE("private text files are created owner-only",
     std::ifstream in(path);
     std::string content((std::istreambuf_iterator<char>(in)), {});
     REQUIRE(content == "secret\nnext\n");
+    in.close();
 
     fs::remove_all(root);
 }
@@ -675,6 +672,7 @@ TEST_CASE("structured logger honors configured app home",
     log_event("alpha2_logger_isolation");
     REQUIRE(fs::exists(root / "bs-mesh.log"));
 
+    reset_logger_for_test();
     fs::remove_all(root);
 }
 
@@ -701,9 +699,9 @@ TEST_CASE("bounded TCP connect does not exceed its deadline",
 #endif
 }
 
-TEST_CASE("release and mesh Hello share the canonical alpha2 version",
-          "[config][release][version][alpha2]") {
-    REQUIRE(std::string(kBridgeSessionsVersion) == "2.0.5-alpha2");
+TEST_CASE("release and mesh Hello share the canonical version",
+          "[config][release][version]") {
+    REQUIRE(std::string(kBridgeSessionsVersion) == "2.0.6");
 
     namespace fs = std::filesystem;
     auto root = fs::temp_directory_path() /
@@ -814,15 +812,19 @@ int main(int argc, char* argv[]) {
 }
 
 TEST_CASE("make_app_paths isolates under custom root", "[config][security][config-dir]") {
-    auto p = make_app_paths("/tmp/bs-isolated-home");
-    REQUIRE(p.root == "/tmp/bs-isolated-home");
-    REQUIRE(p.config == "/tmp/bs-isolated-home/config");
-    REQUIRE(p.received == "/tmp/bs-isolated-home/received");
-    REQUIRE(p.authorized_keys == "/tmp/bs-isolated-home/authorized_keys");
-    REQUIRE(p.key_pem.find("/tmp/bs-isolated-home/") == 0);
+    namespace fs = std::filesystem;
+    const auto root = fs::temp_directory_path() / "bs-isolated-home";
+    auto p = make_app_paths(root.string());
+    REQUIRE(p.root == root.string());
+    REQUIRE(p.config == (root / "config").string());
+    REQUIRE(p.received == (root / "received").string());
+    REQUIRE(p.authorized_keys == (root / "authorized_keys").string());
+    REQUIRE(p.key_pem == (root / "id_ed25519.pem").string());
     REQUIRE(resolve_under_app_home("~/.bridgesessions/authorized_keys", p.root) ==
             p.authorized_keys);
-    REQUIRE(resolve_under_app_home("/abs/other", p.root) == "/abs/other");
+    const auto absolute_other = fs::temp_directory_path() / "bs-absolute-other";
+    REQUIRE(resolve_under_app_home(absolute_other.string(), p.root) ==
+            absolute_other.string());
     MeshConfig cfg;
     apply_app_home_defaults(cfg, p.root);
     REQUIRE(cfg.authorized_keys_path == p.authorized_keys);
@@ -861,4 +863,43 @@ TEST_CASE("attacker empty pin refused when require_pin",
     auto r = verify_outbound_peer_identity(
         "", "some_cert", "some_cert", "", "x", true);
     REQUIRE_FALSE(r.ok);
+}
+
+TEST_CASE("load_config defaults mdns_enabled to false", "[config][mdns][security]") {
+    auto cfg_path = write_temp_config("# empty\n");
+    MeshConfig cfg = load_config(cfg_path);
+    REQUIRE_FALSE(cfg.mdns_enabled);
+    fs::remove_all(fs::path(cfg_path).parent_path());
+}
+
+TEST_CASE("load_config parses mesh.mdns_enabled", "[config][mdns][security]") {
+    auto cfg_path = write_temp_config("mesh.mdns_enabled true\n");
+    MeshConfig cfg = load_config(cfg_path);
+    REQUIRE(cfg.mdns_enabled);
+    fs::remove_all(fs::path(cfg_path).parent_path());
+}
+
+TEST_CASE("save_config round-trips mdns_enabled", "[config][mdns][security]") {
+    auto cfg_path = write_temp_config("node.name x\n");
+    MeshConfig cfg = load_config(cfg_path);
+    cfg.mdns_enabled = true;
+    REQUIRE(save_config(cfg_path, cfg));
+    MeshConfig reloaded = load_config(cfg_path);
+    REQUIRE(reloaded.mdns_enabled);
+    fs::remove_all(fs::path(cfg_path).parent_path());
+}
+
+TEST_CASE("save_config does not persist untrusted discovered peers",
+          "[config][security][mdns]") {
+    auto cfg_path = write_temp_config("node.name x\n");
+    MeshConfig cfg = load_config(cfg_path);
+    PeerEntry p;
+    p.name = "untrusted";
+    p.addr = "10.0.0.1:19949";
+    p.pubkey_hex = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    cfg.discovered.push_back(p);
+    REQUIRE(save_config(cfg_path, cfg));
+    MeshConfig reloaded = load_config(cfg_path);
+    REQUIRE(reloaded.discovered.empty());
+    fs::remove_all(fs::path(cfg_path).parent_path());
 }

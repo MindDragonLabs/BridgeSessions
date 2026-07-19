@@ -3,7 +3,7 @@
 **Source review:** Independent Technical Review, base `b2742f5`, tag `v2.0.1`  
 **Security base:** identity + path + TLS policy (landed through 2.0.3-era work)  
 **Transfer/AI:** streaming hash, size-aware timeouts, PROGRESS (2.0.4-era)  
-**Public candidate:** **v2.0.5-alpha2** (audit closeout + release hardening + multi-platform artifacts)
+**Current candidate:** **v2.0.6** (trust-boundary, event-loop, IPC, PTY, and provenance hardening)
 
 | Doc | Scope |
 |------|--------|
@@ -16,13 +16,13 @@
 | [TODO-AI-WINDOWS-OPS.md](./TODO-AI-WINDOWS-OPS.md) | Command stacking + Windows reminders |
 | [PHASES.md](./PHASES.md) | Phase order |
 
-### Quick status (2.0.5-alpha2)
+### Quick status (2.0.6)
 
 | Area | State |
 |------|--------|
 | Mesh pin/Hello/path | Fixed + unit/attacker tests |
-| Large transfer + PROGRESS | Fixed + soak evidence |
+| Large transfer + PROGRESS | Worker-isolated + Linux/macOS regression coverage |
 | BridgePanel auth/body limit | Fixed |
 | VERSION / provenance | Single `VERSION` drives CLI, CMake, checksums, SBOM |
-| Platform artifacts | Linux x86_64, Windows x86_64, macOS arm64 from this source |
+| Platform gates | Linux and macOS native suites pass; Windows native gate still required before release |
 | Production-secure claim | **Not yet** — public alpha only |

@@ -16,7 +16,7 @@
 #undef max
 #endif
 
-#include "bridgesessions.cpp"
+#include "../bridgesessions.cpp"
 
 #ifdef _WIN32
 #define CLOSESOCK closesocket
@@ -27,6 +27,11 @@ static WsaInit _wsa;
 #include <thread>
 #include <atomic>
 #include <chrono>
+
+#ifndef _WIN32
+#include <unistd.h>
+#include <cerrno>
+#endif
 
 using namespace bs::mesh;
 
@@ -63,13 +68,35 @@ static MeshConfig make_test_config(const std::string& node_name) {
     return c;
 }
 
+// ── Helpers ─────────────────────────────────────────────────────────
+
+#ifndef _WIN32
+static std::string read_pty_output(Session& sess, uint32_t timeout_ms = 3000) {
+    std::string result;
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
+    while (std::chrono::steady_clock::now() < deadline) {
+        char buf[4096];
+        ssize_t n = ::read(sess.master_fd, buf, sizeof(buf));
+        if (n > 0) {
+            result.append(buf, static_cast<size_t>(n));
+            continue;
+        }
+        if (n == 0) break;
+        if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+            continue;
+        }
+        break;
+    }
+    return result;
+}
+#endif
+
 // ── Test 1: KeystrokeMsg → writes to PTY, verifies scrollback ─────
 TEST_CASE("KeystrokeMsg writes to session PTY via handle_inbound_session", "[relay][keystroke]") {
-    // Create MeshController and a local session
     auto cfg = make_test_config("test-node-1");
     MeshController mc(cfg);
 
-    // Create a local session
     auto* s = mc.sessions().attach("test-sess", cfg.default_shell, 80, 24, "xterm-256color");
     REQUIRE(s != nullptr);
     REQUIRE(s->is_valid());
@@ -77,20 +104,16 @@ TEST_CASE("KeystrokeMsg writes to session PTY via handle_inbound_session", "[rel
     SimulatedConn sc;
     sc.conn.attached_session = s;
 
-    // Build a KeystrokeMsg and handle it
+    // Send a unique marker command and verify it reaches the PTY output.
+    const std::string marker = "BS_RELAY_MARKER_42";
     KeystrokeMsg ks;
-    ks.data = "echo hello\r\n";  // typical terminal input
-
+    ks.data = "echo " + marker + "\r\n";
     Message msg = ks;
-
-    // Call handle_inbound_session — this is public now
     mc.handle_inbound_session(sc.conn, msg);
 
-    // The keystrokes should have been written to the PTY.
-    // Wait a moment for the shell to echo, then poll output
-    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+    // Wait for the shell to echo/execute and capture output.
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
 
-    // Poll the PTY and check scrollback has data
 #ifdef _WIN32
     DWORD bytes_avail = 0;
     if (PeekNamedPipe(s->master_fd, nullptr, 0, nullptr, &bytes_avail, nullptr) && bytes_avail > 0) {
@@ -100,15 +123,18 @@ TEST_CASE("KeystrokeMsg writes to session PTY via handle_inbound_session", "[rel
         buf.resize(bytes_read);
         s->scrollback.write(std::string_view(buf));
     }
-#endif
-
     auto sb = s->scrollback.snapshot();
-    // On Windows, the ConPTY should have spun up cmd.exe and echoed something
-    // Even if it's just a prompt, the scrollback should be non-empty after keystrokes
-    WARN("Scrollback size after keystrokes: " << sb.size());
-    // Weak assertion — ConPTY might not echo instantly in test environment
-    // But the write_all path was exercised (no crash, no exception)
-    REQUIRE(true);  // basic smoke test passes
+    WARN("Windows scrollback size: " << sb.size());
+    // ConPTY timing is variable; at minimum exercise the write path.
+    REQUIRE(!ks.data.empty());
+#else
+    std::string output = read_pty_output(*s, 3000);
+    s->scrollback.write(std::string_view(output));
+    auto sb = s->scrollback.snapshot();
+    std::string_view sb_view(sb.data(), sb.size());
+    INFO("PTY output: [" << output << "]");
+    REQUIRE(sb_view.find(marker) != std::string_view::npos);
+#endif
 }
 
 // ── Test 2: AttachMsg → session created, attached_session set ────────

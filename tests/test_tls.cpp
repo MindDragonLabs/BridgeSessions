@@ -1,6 +1,6 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/catch_session.hpp>
-#include "bridgesessions.cpp"
+#include "../bridgesessions.cpp"
 
 #ifdef _WIN32
 #include <winsock2.h>

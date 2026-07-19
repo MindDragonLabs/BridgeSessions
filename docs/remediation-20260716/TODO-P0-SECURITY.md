@@ -1,5 +1,8 @@
 # TODO — P0 Security Blockers (Review 2026-07-16)
 
+> Archived planning input from the 2.0.3/2.0.5 cycle. Current 2.0.6 closure
+> status lives in `TODO-AUDIT-CLOSURE.md`.
+
 **Status:** PARTIAL — core remediations landed in **v2.0.3** (2026-07-17)  
 **Evidence:** unit tests `[security]` + MoA systems sweep `.audit/20260717-v203-security/AUDIT.md`
 

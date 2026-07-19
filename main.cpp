@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: BSL-1.1
+// SPDX-License-Identifier: BUSL-1.1
 // Copyright (c) Mind-Dragon. Licensed under the Business Source License 1.1.
 // bs-client: bridgesessions terminal relay agent
 // Phase 12 — CLI11 argparse

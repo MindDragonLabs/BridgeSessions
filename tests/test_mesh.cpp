@@ -18,7 +18,7 @@
 #undef max
 #endif
 
-#include "bridgesessions.cpp"
+#include "../bridgesessions.cpp"
 
 #ifdef _WIN32
 #define CLOSESOCK closesocket
@@ -701,6 +701,260 @@ TEST_CASE("MeshController: connect_to_peer establishes TLS connection", "[mesh][
     std::remove((bs_dir + "/server-cert.pem").c_str());
     std::remove((bs_dir + "/server-key.pem").c_str());
     std::remove(ak_path.c_str());
+}
+
+TEST_CASE("MeshController: mdns_enabled defaults false and is configurable",
+          "[mesh][mdns][security]") {
+    MeshConfig cfg;
+    REQUIRE_FALSE(cfg.mdns_enabled);
+    cfg.mdns_enabled = true;
+    REQUIRE(cfg.mdns_enabled);
+}
+
+TEST_CASE("MeshController: gossip merge filters untrusted pubkeys",
+          "[mesh][security][gossip]") {
+    namespace fs = std::filesystem;
+    auto home = std::string("/tmp/bs_test_gossip_") +
+                std::to_string(std::chrono::steady_clock::now().time_since_epoch().count());
+    REQUIRE(ensure_private_directory(home));
+
+    auto ck = generate_cert_key_pair("test");
+    std::string seed_pk = pubkey_hex_from_pem(ck.second);
+    std::string trusted_pk(64, 'b');
+    std::string untrusted_pk(64, 'c');
+
+    std::string ak_path = home + "/authorized_keys";
+    REQUIRE(write_private_text_file(ak_path, trusted_pk + "\n"));
+
+    MeshConfig cfg;
+    cfg.node_name = "test";
+    cfg.authorized_keys_path = ak_path;
+    cfg.seeds.push_back(
+        PeerEntry{.name = "seed-peer", .addr = "10.0.0.1:19949", .pubkey_hex = seed_pk});
+
+    MeshController mc(cfg, home);
+
+    GossipMsg g;
+    g.peers.push_back(PeerInfo{
+        .name = "untrusted-node",
+        .addr = "10.0.0.2:19949",
+        .pubkey_hex = untrusted_pk,
+        .last_seen = 1});
+    g.peers.push_back(PeerInfo{
+        .name = "trusted-node",
+        .addr = "10.0.0.3:19949",
+        .pubkey_hex = trusted_pk,
+        .last_seen = 2});
+
+    mc.inject_gossip(g);
+
+    auto discovered = mc.discovered_peers();
+    REQUIRE(discovered.size() == 1);
+    REQUIRE(discovered[0].name == "trusted-node");
+    REQUIRE(discovered[0].pubkey_hex == trusted_pk);
+
+    fs::remove_all(home);
+}
+
+TEST_CASE("MeshController: mDNS only adds trusted announcements",
+          "[mesh][security][mdns]") {
+    namespace fs = std::filesystem;
+    auto home = std::string("/tmp/bs_test_mdns_") +
+                std::to_string(std::chrono::steady_clock::now().time_since_epoch().count());
+    REQUIRE(ensure_private_directory(home));
+
+    auto ck = generate_cert_key_pair("test");
+    std::string seed_pk = pubkey_hex_from_pem(ck.second);
+    std::string trusted_pk(64, 'b');
+    std::string untrusted_pk(64, 'c');
+
+    std::string ak_path = home + "/authorized_keys";
+    REQUIRE(write_private_text_file(ak_path, trusted_pk + "\n"));
+
+    MeshConfig cfg;
+    cfg.node_name = "test";
+    cfg.authorized_keys_path = ak_path;
+    cfg.seeds.push_back(
+        PeerEntry{.name = "seed-peer", .addr = "10.0.0.1:19949", .pubkey_hex = seed_pk});
+
+    MeshController mc(cfg, home);
+
+    mc.process_mdns_announcement_for_test(
+        "untrusted-mdns", "10.0.0.5:19949", untrusted_pk);
+    mc.process_mdns_announcement_for_test(
+        "trusted-mdns", "10.0.0.6:19949", trusted_pk);
+
+    auto discovered = mc.discovered_peers();
+    REQUIRE(discovered.size() == 1);
+    REQUIRE(discovered[0].name == "trusted-mdns");
+    REQUIRE(discovered[0].pubkey_hex == trusted_pk);
+
+    reset_logger_for_test();
+    fs::remove_all(home);
+}
+
+TEST_CASE("MeshController: discovery never learns a missing seed pin and trusted mDNS updates address",
+          "[mesh][security][mdns][gossip]") {
+    namespace fs = std::filesystem;
+    auto home = std::string("/tmp/bs_test_discovery_pin_") +
+                std::to_string(std::chrono::steady_clock::now().time_since_epoch().count());
+    REQUIRE(ensure_private_directory(home));
+
+    std::string trusted_pk(64, 'd');
+    std::string attacker_pk(64, 'e');
+    std::string ak_path = home + "/authorized_keys";
+    REQUIRE(write_private_text_file(ak_path, trusted_pk + "\n"));
+
+    MeshConfig cfg;
+    cfg.node_name = "test";
+    cfg.authorized_keys_path = ak_path;
+    cfg.seeds.push_back(PeerEntry{.name = "unpinned", .addr = "10.0.0.1:19949"});
+    cfg.seeds.push_back(PeerEntry{
+        .name = "trusted-seed", .addr = "10.0.0.2:19949", .pubkey_hex = trusted_pk});
+    MeshController mc(cfg, home);
+
+    GossipMsg forged;
+    forged.peers.push_back(PeerInfo{
+        .name = "unpinned", .addr = "10.0.0.99:19949", .pubkey_hex = attacker_pk});
+    mc.inject_gossip(forged);
+    REQUIRE(mc.discovered_peers().empty());
+    REQUIRE(mc.configured_peer_addr_for_test("unpinned") == "10.0.0.1:19949");
+
+    mc.process_mdns_announcement_for_test(
+        "trusted-seed", "10.0.0.22:19949", trusted_pk);
+    REQUIRE(mc.configured_peer_addr_for_test("trusted-seed") == "10.0.0.22:19949");
+
+    reset_logger_for_test();
+    fs::remove_all(home);
+}
+
+TEST_CASE("MeshController: identical duplicate Hello is ignored, different Hello closes",
+          "[mesh][security][hello]") {
+    namespace fs = std::filesystem;
+    auto home = std::string("/tmp/bs_test_hello_") +
+                std::to_string(std::chrono::steady_clock::now().time_since_epoch().count());
+    REQUIRE(ensure_private_directory(home));
+
+    MeshConfig cfg;
+    cfg.node_name = "test";
+    MeshController mc(cfg, home);
+
+    MeshController::Conn c;
+    HelloMsg h;
+    h.node_name = "peer";
+    h.pubkey_hex = std::string(64, 'a');
+    h.version = std::string(kBridgeSessionsVersion);
+
+    mc.test_set_initial_hello_for_test(c, h);
+    REQUIRE(mc.test_handle_hello_for_test(c, h)); // identical -> ignored
+    REQUIRE_FALSE(c.close_requested);
+
+    HelloMsg h2 = h;
+    h2.node_name = "attacker";
+    REQUIRE_FALSE(mc.test_handle_hello_for_test(c, h2)); // different -> close
+    REQUIRE(c.close_requested);
+
+    fs::remove_all(home);
+}
+
+TEST_CASE("IPC token: generate, write, load round-trip",
+          "[ipc][security][token]") {
+    namespace fs = std::filesystem;
+    auto home = std::string("/tmp/bs_test_ipctoken_") +
+                std::to_string(std::chrono::steady_clock::now().time_since_epoch().count());
+    REQUIRE(ensure_private_directory(home));
+
+    std::string token = generate_ipc_token();
+    REQUIRE(token.size() == 64);
+    REQUIRE(std::all_of(token.begin(), token.end(),
+                        [](char c) { return std::isxdigit(static_cast<unsigned char>(c)); }));
+
+    REQUIRE(write_ipc_token_file(home, token));
+    REQUIRE(load_ipc_token(home) == token);
+
+    fs::remove_all(home);
+}
+
+TEST_CASE("MeshController: IPC request requires valid token",
+          "[ipc][security][token]") {
+    namespace fs = std::filesystem;
+    auto home = std::string("/tmp/bs_test_ipcauth_") +
+                std::to_string(std::chrono::steady_clock::now().time_since_epoch().count());
+    REQUIRE(ensure_private_directory(home));
+
+    MeshConfig cfg;
+    cfg.node_name = "test";
+    MeshController mc(cfg, home);
+
+    mc.set_ipc_token_for_test("deadbeef");
+    REQUIRE(mc.ipc_request_is_authorized_for_test("deadbeef HEALTH x"));
+    REQUIRE_FALSE(mc.ipc_request_is_authorized_for_test("deadbeefx HEALTH x"));
+    REQUIRE_FALSE(mc.ipc_request_is_authorized_for_test("deadbeef"));
+    REQUIRE_FALSE(mc.ipc_request_is_authorized_for_test("badbeef HEALTH x"));
+    REQUIRE_FALSE(mc.ipc_request_is_authorized_for_test("HEALTH x"));
+    REQUIRE_FALSE(mc.ipc_request_is_authorized_for_test(""));
+
+    fs::remove_all(home);
+}
+
+TEST_CASE("MeshController: revoked authorized key closes an existing connection",
+          "[mesh][security][revocation]") {
+#ifdef _WIN32
+    SUCCEED("covered by the platform-neutral trust check; socketpair is POSIX-only");
+#else
+    auto peer = CertKeyTemp(generate_cert_key_pair("revoked-peer"), "bs_rev");
+    std::string authorized = write_authorized_keys(peer.pubkey_hex, peer.pubkey_hex);
+
+    MeshConfig cfg;
+    cfg.node_name = "revocation-test";
+    cfg.authorized_keys_path = authorized;
+    MeshController mc(cfg);
+
+    int fds[2] = {-1, -1};
+    REQUIRE(socketpair(AF_UNIX, SOCK_STREAM, 0, fds) == 0);
+    MeshController::Conn conn;
+    conn.peer_name = "revoked-peer";
+    conn.peer_pubkey = peer.pubkey_hex;
+    conn.sock_fd = fds[0];
+    const size_t index = mc.add_connection_for_test(std::move(conn));
+
+    mc.prune_revoked_connections_for_test();
+    REQUIRE_FALSE(mc.connection_closed_for_test(index));
+
+    { std::ofstream revoked(authorized, std::ios::trunc); }
+    mc.prune_revoked_connections_for_test();
+    REQUIRE(mc.connection_closed_for_test(index));
+
+    CLOSESOCK(fds[1]);
+    std::remove(authorized.c_str());
+#endif
+}
+
+TEST_CASE("MeshController: transfer watchdog cancels without releasing SSL ownership",
+          "[mesh][security][worker]") {
+    MeshConfig cfg;
+    cfg.node_name = "watchdog-test";
+    MeshController mc(cfg, "/tmp/bs-watchdog-test");
+
+    MeshController::Conn conn;
+    conn.peer_name = "busy-peer";
+    conn.peer_pubkey = std::string(64, 'e');
+    const size_t index = mc.add_connection_for_test(std::move(conn));
+
+    mc.expire_exec_watchdog_for_test(index);
+    REQUIRE(mc.exec_busy_for_test(index));
+    REQUIRE(mc.exec_cancelled_for_test(index));
+}
+
+TEST_CASE("select descriptor guard rejects out-of-range POSIX descriptors",
+          "[mesh][security][fdset]") {
+#ifdef _WIN32
+    SUCCEED("Winsock fd_set stores SOCKET handles rather than POSIX fd indices");
+#else
+    REQUIRE(socket_selectable(0));
+    REQUIRE_FALSE(socket_selectable(FD_SETSIZE));
+    REQUIRE_FALSE(socket_selectable(INVALID_SOCKET));
+#endif
 }
 
 int main(int argc, char* argv[]) {

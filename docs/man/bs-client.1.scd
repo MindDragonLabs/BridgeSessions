@@ -13,6 +13,12 @@ bs-client - bridgesessions terminal relay agent
 *bs-client* *host* *list*
 *bs-client* *host* *remove* _name_
 
+# LEGACY NOTICE
+
+BridgeSessions 2.0.6 ships the single *bridgesessions*(1) monolith. This modular
+*bs-client* interface is not built or installed by the shipping CMake target;
+use *bridgesessions --help*.
+
 # DESCRIPTION
 
 *bs-client* is the macOS terminal relay agent for the bridgesessions system. It

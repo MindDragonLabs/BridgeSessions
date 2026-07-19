@@ -6,10 +6,27 @@
 One protocol. One binary. One mesh. No SSH. No mosh. No zellij.
 
 **Language:** C++23 (gcc 14+ / clang 18+)
-**Transport:** TLS 1.3 over TCP (v1), QUIC via msquic (v2)
+**Transport:** TLS 1.2+ over TCP (prefer 1.3)
 **Compression:** zstd per-frame
-**Auth:** ed25519 mutual TLS + TOFU
+**Auth:** ed25519 mutual TLS + explicit pins/authorized keys
 **Build:** CMake 3.25+
+
+---
+
+## Shipping 2.0.6 reality
+
+The canonical implementation is the single `bridgesessions.cpp` monolith.
+`MeshController::run` owns established connections and PTYs on one select loop;
+TLS/initial-Hello handshakes are incremental, nonblocking, deadline-bounded, and
+limited to 16 pending sockets. Long file-transfer operations borrow exactly one
+established TLS transport through a bounded two-thread joinable worker pool while
+the loop continues serving other peers. Local loopback IPC is authenticated with
+a fresh owner-only token under the selected app home. mDNS is disabled by default
+and may update addresses only for already trusted keys.
+
+Remote edit/vfolder sync and large image-on-wire claims are intentionally disabled
+for 2.0.6 until they have dedicated nonblocking transports. This section overrides
+older aspirational v1/v2 text below where the two conflict.
 
 ---
 

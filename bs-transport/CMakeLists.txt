@@ -16,7 +16,7 @@ add_executable(bs-transport-tests
 target_include_directories(bs-transport-tests PRIVATE include)
 target_link_libraries(bs-transport-tests PRIVATE bs-transport Catch2::Catch2WithMain)
 
-option(BUILD_REMOTE_E2E "Build machine-specific remote test-pc1 E2E test" OFF)
+option(BUILD_REMOTE_E2E "Build the opt-in, environment-configured remote E2E test" OFF)
 if(BUILD_REMOTE_E2E)
     add_executable(bs-remote-e2e
         tests/remote_e2e_test.cpp

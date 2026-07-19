@@ -10,6 +10,12 @@ bs-server - bridgesessions session daemon
 *bs-server* *authorize* _pubkey_
 *bs-server* *keygen*
 
+# LEGACY NOTICE
+
+BridgeSessions 2.0.6 ships the single *bridgesessions*(1) monolith on TCP
+19949. This modular *bs-server* interface is not built or installed by the
+shipping CMake target.
+
 # DESCRIPTION
 
 *bs-server* is the remote session daemon for the bridgesessions system. It runs

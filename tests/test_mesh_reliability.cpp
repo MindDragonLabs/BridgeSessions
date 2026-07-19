@@ -29,7 +29,7 @@
 #undef max
 #endif
 
-#include "bridgesessions.cpp"
+#include "../bridgesessions.cpp"
 
 #ifdef _WIN32
 #define CLOSESOCK closesocket
@@ -201,13 +201,22 @@ TEST_CASE("pong_timeout: conn exactly at boundary uses pong_timeout_secs config"
 // Requires mc.handle_gossip(msg) and mc.discovered_peers() to be public/exposed.
 
 TEST_CASE("gossip: received GossipMsg adds new peer to discovered list", "[mesh_reliability][gossip]") {
+    namespace fs = std::filesystem;
+    auto home = std::string("/tmp/bs_reliability_gossip1_") +
+                std::to_string(std::chrono::steady_clock::now().time_since_epoch().count());
+    REQUIRE(ensure_private_directory(home));
+
+    std::string newcomer_pk(64, '1');
+    REQUIRE(write_private_text_file(home + "/authorized_keys", newcomer_pk + "\n"));
+
     auto cfg = mesh_cfg("gossip1");
-    MeshController mc(cfg);
+    cfg.authorized_keys_path = home + "/authorized_keys";
+    MeshController mc(cfg, home);
 
     PeerInfo newcomer;
     newcomer.name       = "corp-net";
     newcomer.addr       = "10.0.0.50:19948";
-    newcomer.pubkey_hex = std::string(64, '1');
+    newcomer.pubkey_hex = newcomer_pk;
     newcomer.last_seen  = 1000000;
 
     GossipMsg g;
@@ -220,16 +229,27 @@ TEST_CASE("gossip: received GossipMsg adds new peer to discovered list", "[mesh_
         if (p.name == "corp-net" && p.addr == "10.0.0.50:19948") { found = true; break; }
     }
     REQUIRE(found);
+
+    fs::remove_all(home);
 }
 
 TEST_CASE("gossip: duplicate peer in gossip does not create duplicates in discovered", "[mesh_reliability][gossip]") {
+    namespace fs = std::filesystem;
+    auto home = std::string("/tmp/bs_reliability_gossip2_") +
+                std::to_string(std::chrono::steady_clock::now().time_since_epoch().count());
+    REQUIRE(ensure_private_directory(home));
+
+    std::string dup_pk(64, '2');
+    REQUIRE(write_private_text_file(home + "/authorized_keys", dup_pk + "\n"));
+
     auto cfg = mesh_cfg("gossip2");
-    MeshController mc(cfg);
+    cfg.authorized_keys_path = home + "/authorized_keys";
+    MeshController mc(cfg, home);
 
     PeerInfo peer;
     peer.name       = "dup-peer";
     peer.addr       = "10.0.0.1:19948";
-    peer.pubkey_hex = std::string(64, '2');
+    peer.pubkey_hex = dup_pk;
     peer.last_seen  = 1000;
 
     GossipMsg g1, g2;
@@ -243,9 +263,11 @@ TEST_CASE("gossip: duplicate peer in gossip does not create duplicates in discov
     auto discovered = mc.discovered_peers();
     int count = 0;
     for (auto& p : discovered) {
-        if (p.pubkey_hex == std::string(64, '2')) count++;
+        if (p.pubkey_hex == dup_pk) count++;
     }
     REQUIRE(count == 1); // deduplicated
+
+    fs::remove_all(home);
 }
 
 TEST_CASE("gossip: own node not added to discovered from gossip", "[mesh_reliability][gossip]") {

@@ -23,7 +23,9 @@ flags: bit 0 = compressed (zstd), bit 1 = control frame (stream 0 only)
 - Binary framing, not newline-delimited JSON.
 - zstd on frames > 256 bytes (Output, Clipboard, Scrollback).
 - Never compressed: Keystroke, Ping/Pong (too small).
-- Max frame size 65535 bytes (u16); larger payloads are chunked.
+- Max frame size 65535 bytes (u16). File transfer uses its own chunk protocol.
+  Reserved image message types are not a large-payload transport in 2.0.6 and
+  have no fragmentation/reassembly or receiver rendering path.
 
 ## Stream multiplexing
 
@@ -56,7 +58,7 @@ Sessions live 7 days. Stream IDs are scoped to a single TCP connection
 | s→c | SessionList | [{name, state, uptime}] |
 | s→c | ServerInfo | {hostname, version, load} |
 | both | Ping/Pong | Keepalive (every 5 s) |
-| s→c | Scrollback | Last N lines on attach (chunked) |
+| s→c | Scrollback | Last N lines on attach (single bounded frame in 2.0.6) |
 | c→s | Signal | ^C, ^Z, ^\ → foreground process |
 | s→c | ExitCode | Foreground process exited {code} |
 | c→s | ScrollbackAck | Client ready for next scrollback chunk |

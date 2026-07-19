@@ -3,10 +3,10 @@
 **Mesh terminal relay** — one C++23 binary that replaces the usual remote stack
 (**SSH + MOSH + SCP + tmux/Zellij + WinRM**) with a single secure mesh
 (`bs://` over TLS 1.2+, prefer 1.3). Built for humans **and** AI agents: durable PTYs,
-file/image/video transfer, Windows CUA peers, and **Bridge Panel** for long
+file transfer for media artifacts, Windows CUA peers, and **Bridge Panel** for long
 Markdown reviews.
 
-> **Alpha status:** `2.0.5-alpha2` is a security-audited public alpha, not a
+> **Alpha status:** `2.0.6` is a security-audited public alpha, not a
 > production-secure SSH replacement. The canonical shipping implementation is
 > [`bridgesessions.cpp`](bridgesessions.cpp); see [LEGACY_CODE.md](LEGACY_CODE.md)
 > for the non-shipping modular experiment retained in the repository.
@@ -57,23 +57,25 @@ Install/refresh harness links: `./scripts/install-agent-skill.sh`.
 
 ## Install from binary
 
-Current release: **`2.0.5-alpha2`** — assets under `dist/` (and on the forge
-release page when published).
+Current release: **[`2.0.6`](https://codeberg.org/Mind-Dragon/BridgeSessions/releases/tag/v2.0.6)**.
+Download the complete release bundle from Codeberg. Platform binaries are also
+mirrored under `dist/`; source archives, checksums, and the SBOM are generated
+as release assets from the exact signed tag.
 
 | Platform | Artifact |
 |----------|----------|
 | Linux x86_64 | `bridgesessions-linux-x86_64` |
 | Windows x86_64 | `bridgesessions-windows-x86_64.exe` |
 | macOS arm64 | `bridgesessions-macos-arm64` |
-| Source | `bridgesessions-2.0.5-alpha2-source.tar.gz` |
+| Source | `bridgesessions-2.0.6-source.tar.gz`, `bridgesessions-2.0.6-source.zip` |
 
 ```bash
-cd dist
+cd /path/to/downloaded-release-assets
 sha256sum -c SHA256SUMS
 # Linux example
 install -m 0755 bridgesessions-linux-x86_64 ~/.local/bin/bridgesessions
 ln -sfn ~/.local/bin/bridgesessions ~/.local/bin/bs
-bridgesessions --version   # → 2.0.5-alpha2
+bridgesessions --version   # → 2.0.6
 bridgesessions keygen
 ```
 
@@ -84,7 +86,7 @@ bridgesessions keygen
 | macOS arm64 | Expects Homebrew OpenSSL/zstd/fmt/spdlog under `/opt/homebrew` (or rebuild) |
 
 Provenance and build notes: [docs/RELEASE-PROVENANCE.md](docs/RELEASE-PROVENANCE.md) ·  
-Release notes: [docs/RELEASE-NOTES-2.0.5-alpha2.md](docs/RELEASE-NOTES-2.0.5-alpha2.md)
+Release notes: [docs/RELEASE-NOTES-2.0.6.md](docs/RELEASE-NOTES-2.0.6.md)
 
 ## Build from source
 
@@ -92,7 +94,7 @@ Release notes: [docs/RELEASE-NOTES-2.0.5-alpha2.md](docs/RELEASE-NOTES-2.0.5-alp
 # Linux / macOS (needs OpenSSL, zstd, fmt, spdlog, CLI11, nlohmann-json)
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --parallel
-./build/bridgesessions --version  # → 2.0.5-alpha2
+./build/bridgesessions --version  # → 2.0.6
 ```
 
 Or: `./build.sh` on Linux. Windows MinGW and macOS flags:
@@ -113,7 +115,7 @@ bridgesessions --config ~/.bridgesessions/config
 
 ```ini
 node.name   my-laptop
-node.listen 192.168.1.28:19949
+node.listen 192.0.2.10:19949
 seed peer-a <seed-peer-host>:19949 pubkey=<64-hex-ed25519-public-key>
 sessions.default_shell /bin/bash -l
 ```
@@ -139,19 +141,19 @@ See [docs/usage.md](docs/usage.md) for the full command reference and
 | [docs/configuration.md](docs/configuration.md) | Config file reference. |
 | [docs/protocol.md](docs/protocol.md) | The `bs://` wire protocol. |
 | [docs/bridge-panel.md](docs/bridge-panel.md) | The Bridge Panel web surface. |
-| [docs/RELEASE-NOTES-2.0.5-alpha2.md](docs/RELEASE-NOTES-2.0.5-alpha2.md) | This release’s forge notes. |
-| [docs/AUDIT-2.0.5-alpha2.md](docs/AUDIT-2.0.5-alpha2.md) | Security/reliability audit for this tag. |
+| [docs/RELEASE-NOTES-2.0.6.md](docs/RELEASE-NOTES-2.0.6.md) | This release’s forge notes. |
+| [docs/AUDIT-2.0.5-alpha2.md](docs/AUDIT-2.0.5-alpha2.md) | Historical audit baseline that led to the 2.0.6 hardening work. |
 
 ## Releases
 
 Release candidates are accepted only when:
 
 1. Embedded version equals [`VERSION`](VERSION)
-2. `sha256sum -c dist/SHA256SUMS` passes
-3. `dist/SBOM-binaries.json` is valid CycloneDX 1.5
+2. `sha256sum -c SHA256SUMS` passes in the downloaded release bundle
+3. The downloaded `SBOM-binaries.json` is valid CycloneDX 1.5
 
-**2.0.5-alpha2** ships Linux x86_64, Windows x86_64, and macOS arm64 from this
-source. Prefer the annotated git tag `v2.0.5-alpha2` over floating branch tips.
+**2.0.6** ships Linux x86_64, Windows x86_64, and macOS arm64 from this
+source. Prefer the annotated git tag `v2.0.6` over floating branch tips.
 
 ## Contributing
 
