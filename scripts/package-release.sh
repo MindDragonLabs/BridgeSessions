@@ -2,7 +2,7 @@
 # Build a deterministic source archive from a git commit.
 #
 # Release mode (--release) is strict: the working tree must be clean, no
-# untracked files may be present, and HEAD must be exactly v2.0.6-alpha2.
+# untracked files may be present, and HEAD must be exactly v2.0.6.
 # For tests/development use --commit <sha> to archive an arbitrary commit.
 set -euo pipefail
 
@@ -21,11 +21,11 @@ COMMIT_OVERRIDE=""
 
 usage() {
   cat <<'EOF'
-Usage: package-release.sh [OPTIONS]
+Usage: package-release.sh [--release] [--commit <sha>] [-h]
 
 Options:
   --release          Strict release mode: clean tree, no untracked files,
-                     HEAD must be exactly v2.0.6-alpha2.
+                     HEAD must be exactly v2.0.6.
   --commit <sha>     Archive a specific commit (dev/test override).
   -h, --help         Show this help.
 EOF
@@ -65,8 +65,8 @@ fi
 ref="${COMMIT_OVERRIDE:-HEAD}"
 
 if [[ "$RELEASE_MODE" -eq 1 ]]; then
-  if [[ "$VERSION" != "2.0.6-alpha2" ]]; then
-    printf 'error: release mode requires VERSION 2.0.6-alpha2 (got %s)\n' "$VERSION" >&2
+  if [[ "$VERSION" != "2.0.6" ]]; then
+    printf 'error: release mode requires VERSION 2.0.6 (got %s)\n' "$VERSION" >&2
     exit 1
   fi
 

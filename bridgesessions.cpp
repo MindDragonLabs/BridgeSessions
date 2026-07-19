@@ -626,7 +626,7 @@ constexpr MessageType index_to_type[] = {
     MessageType::Pong,          // 10
     MessageType::Scrollback,    // 11
     MessageType::Signal,        // 12
-    MessageType::ProcExited,    // 13  (was 0x0E cast)
+    MessageType::ProcExited,    // 13  (0x0E wire, maps to ExitCodeMsg variant slot)
     MessageType::ScrollbackAck, // 14
     MessageType::SessionDied,   // 15
     MessageType::ImageData,     // 16
@@ -716,7 +716,7 @@ void serialize_msg(Serializer& s, const PingMsg&)          {}
 void serialize_msg(Serializer& s, const PongMsg&)          {}
 void serialize_msg(Serializer& s, const ScrollbackAckMsg&) {}
 void serialize_msg(Serializer& s, const SessionListMsg&  m) { for (auto& si : m.sessions) { s.str_prefixed(si.name); s.str_prefixed(si.state); s.u32be(si.uptime_seconds); } }
-void serialize_msg(Serializer& s, const ServerInfoMsg&   m) { s.str(m.hostname); s.u8('\n'); s.str(m.version); s.u8('\n'); s.bytes(reinterpret_cast<const uint8_t*>(&m.load), 8); }
+void serialize_msg(Serializer& s, const ServerInfoMsg&   m) { s.str_prefixed_u16(m.hostname); s.str_prefixed_u16(m.version); s.bytes(reinterpret_cast<const uint8_t*>(&m.load), 8); }
 void serialize_msg(Serializer& s, const ScrollbackMsg&   m) { s.u32be(m.total_lines); s.u32be(m.chunk_index); s.str(m.data); }
 void serialize_msg(Serializer& s, const SignalMsg&       m) { s.u8(static_cast<uint8_t>(m.signal)); s.str_prefixed_u16(m.process); }
 void serialize_msg(Serializer& s, const ExitCodeMsg&     m) { s.u32be(static_cast<uint32_t>(m.code)); }
@@ -1140,14 +1140,26 @@ Message decode(std::span<const uint8_t> raw) {
     }
     case 0x09: {
         ServerInfoMsg m;
+        // Try old newline-delimited format first (backward compat).
+        // If the hostname or version contains a literal newline, the old
+        // parse will fail and we fall through to the length-prefixed path.
+        const auto* saved = d.p;
         auto nl1 = std::find(d.p, d.end, static_cast<uint8_t>('\n'));
-        if (nl1 == d.end) throw std::runtime_error("ServerInfo truncated");
-        m.hostname = d.str_size(static_cast<size_t>(nl1 - d.p));
-        d.u8();
-        auto nl2 = std::find(d.p, d.end, static_cast<uint8_t>('\n'));
-        if (nl2 == d.end) throw std::runtime_error("ServerInfo truncated");
-        m.version = d.str_size(static_cast<size_t>(nl2 - d.p));
-        d.u8();
+        if (nl1 != d.end) {
+            m.hostname = d.str_size(static_cast<size_t>(nl1 - d.p));
+            d.u8();
+            auto nl2 = std::find(d.p, d.end, static_cast<uint8_t>('\n'));
+            if (nl2 != d.end) {
+                m.version = d.str_size(static_cast<size_t>(nl2 - d.p));
+                d.u8();
+                if (d.ok(8)) std::memcpy(&m.load, d.p, 8);
+                return m;
+            }
+        }
+        // Prefixed-u16 format (v2.0.7+).
+        d.p = saved;
+        m.hostname = d.str_prefixed_u16();
+        m.version = d.str_prefixed_u16();
         if (d.ok(8)) std::memcpy(&m.load, d.p, 8);
         return m;
     }
@@ -2236,7 +2248,7 @@ struct Session {
 #else
     int master_fd = -1;
     int child_pid = -1;
-    // v2.0.6-alpha2: bounded pending input queue for nonblocking PTY master writes.
+    // v2.0.6: bounded pending input queue for nonblocking PTY master writes.
     // Keystrokes/clipboard pasted faster than the child consumes are queued
     // here and drained by the event loop. High/low water marks apply
     // backpressure by temporarily skipping reads from the attached peer.
@@ -5109,7 +5121,7 @@ public:
 
 #endif // BS_NO_NAT
 
-// ── Long-operation worker pool (v2.0.6-alpha2) ─────────────────────────────
+// ── Long-operation worker pool (v2.0.6) ─────────────────────────────
 // Moves FILE_SEND/RECV wait, EDIT_DL/UP, VFOLDER_SYNC, and remote FileRequest
 // work off the MeshController event loop. Each task runs on a fixed-size pool
 // of joinable worker threads. The handler receives the IPC socket for wait-style
@@ -5341,7 +5353,7 @@ private:
 
     // R8.4: `conns_` is touched only from MeshController::run()'s single-threaded
     // event loop and from CLI methods that run before/after the loop — never
-    // concurrently from multiple threads. Long-operation workers (v2.0.6-alpha2) capture
+    // concurrently from multiple threads. Long-operation workers (v2.0.6) capture
     // SSL* / SOCKET while exec_busy is set; the event loop skips busy conns.
     std::vector<Conn> conns_;
     static constexpr size_t kMaxConnections = 64;
@@ -5435,7 +5447,7 @@ private:
     std::string external_addr_;
 #endif
 
-    // v2.0.6-alpha2: bounded worker pool for long file/edit/vfolder operations.
+    // v2.0.6: bounded worker pool for long file/edit/vfolder operations.
     std::optional<LongOperationWorkerPool> worker_pool_;
     static constexpr size_t kLongOperationWorkers = 2;
 
@@ -5931,7 +5943,7 @@ private:
     }
 
     // ── Accept new inbound connection ──────────────────────────
-    // v2.0.6-alpha2: accept is now non-blocking. The TLS handshake and Hello exchange
+    // v2.0.6: accept is now non-blocking. The TLS handshake and Hello exchange
     // happen incrementally in advance_handshakes() driven by select() readiness.
 
     void accept_inbound() {
@@ -6520,7 +6532,7 @@ private:
         // Prepare receive path — never trust raw remote filenames (P0-3).
         namespace fs = std::filesystem;
 
-        // v2.0.6-alpha2: the destination directory was bound to this Conn by the async
+        // v2.0.6: the destination directory was bound to this Conn by the async
         // FILE_RECV request. Consume it now (one outstanding receive per Conn).
         // Fall back to the global default only when no per-request dir is set.
         std::string recv_dir = std::move(c.pending_recv_dir);
@@ -6732,7 +6744,7 @@ private:
         return true;
     }
 
-    // v2.0.6-alpha2: transport-agnostic file send-wait. Runs on the event loop or a
+    // v2.0.6: transport-agnostic file send-wait. Runs on the event loop or a
     // worker thread; caller must ensure exclusive SSL transport access.
     std::string file_send_wait_on_transport(
             SSL* ssl, SOCKET sock_fd, const std::string& local_path,
@@ -6850,7 +6862,7 @@ private:
         return "OK sent " + filename + " " + std::to_string(filesize) + " bytes sha256:" + checksum;
     }
 
-    // v2.0.6-alpha2: transport-agnostic remote file request fulfillment. Peer asked us
+    // v2.0.6: transport-agnostic remote file request fulfillment. Peer asked us
     // to send <path>; this runs on a worker thread with exclusive SSL access.
     std::string file_request_on_transport(
             SSL* ssl, SOCKET sock_fd, const std::string& path,
@@ -7002,7 +7014,7 @@ private:
         return file_send_wait_on_transport(target->ssl.get(), target->sock_fd, local_path, {}, on_progress);
     }
 
-    // v2.0.6-alpha2: dispatch entry point for long-operation worker pool.
+    // v2.0.6: dispatch entry point for long-operation worker pool.
     void execute_long_operation_task(const LongOperationTask& task) {
         auto progress_to_ipc = [&](const std::string& line) {
             if (task.ipc_fd != INVALID_SOCKET) {
@@ -7049,7 +7061,7 @@ private:
         case LongOperationTask::Type::EditDownload:
         case LongOperationTask::Type::EditUpload:
         case LongOperationTask::Type::VFolderSync:
-            // v2.0.6-alpha2: these paths remain synchronous on the event loop. They
+            // v2.0.6: these paths remain synchronous on the event loop. They
             // depend on temp-directory creation, directory traversal, and
             // multiple request/response pairs that are not yet refactored into
             // transport-agnostic worker-safe forms. Leave unchanged per the
@@ -7068,7 +7080,7 @@ private:
     }
 
     // ── Daemon file request handler: peer asks us to send them a file ──
-    // v2.0.6-alpha2: offload the long send to the worker pool so the event loop stays
+    // v2.0.6: offload the long send to the worker pool so the event loop stays
     // responsive. The worker exclusively owns this SSL transport while busy.
     void handle_file_request(Conn& c, const FileRequestMsg& m) {
         log_event("file_request_received", m.path + " from " + c.peer_name);
@@ -7131,7 +7143,7 @@ private:
         return "request sent to " + peer_name + " for " + remote_path + " (arrives async in " + dest_dir + ")";
     }
 
-    // v2.0.6-alpha2: transport-agnostic file recv-wait. Caller must ensure exclusive SSL transport access.
+    // v2.0.6: transport-agnostic file recv-wait. Caller must ensure exclusive SSL transport access.
     std::string file_recv_wait_on_transport(
             SSL* ssl, SOCKET sock_fd, const std::string& remote_path,
             const std::string& local_dest, const std::string& receive_dir,
@@ -7428,7 +7440,7 @@ private:
             }
         }
 
-        // v2.0.6-alpha2: advance outbound handshakes while waiting for reconnect.
+        // v2.0.6: advance outbound handshakes while waiting for reconnect.
         advance_handshakes();
 
         check_stale_exec();
@@ -8630,6 +8642,36 @@ private:
             if (refresh_heartbeat_after_busy(c, now)) continue;
             if (now - c.last_pong > timeout) {
                 log_event("mesh_pong_timeout", c.peer_name + " " + c.peer_addr);
+                // Attempt graceful TLS shutdown before hard close (POSIX only).
+                // Best-effort: if shutdown fails or platform doesn't support it,
+                // close_conn still runs.
+#ifndef _WIN32
+                if (c.ssl && socket_selectable(c.sock_fd)) {
+                    int flags = fcntl(c.sock_fd, F_GETFL, 0);
+                    fcntl(c.sock_fd, F_SETFL, flags | O_NONBLOCK);
+                    auto dl = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+                    while (std::chrono::steady_clock::now() < dl) {
+                        int ret = SSL_shutdown(c.ssl.get());
+                        if (ret == 1) break;
+                        if (ret == 0) continue;
+                        int err = SSL_get_error(c.ssl.get(), ret);
+                        if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
+                            fd_set fds; FD_ZERO(&fds);
+                            timeval tv{0, 100'000};
+                            if (err == SSL_ERROR_WANT_READ) {
+                                FD_SET(c.sock_fd, &fds);
+                                select(static_cast<int>(c.sock_fd) + 1, &fds, nullptr, nullptr, &tv);
+                            } else {
+                                FD_SET(c.sock_fd, &fds);
+                                select(static_cast<int>(c.sock_fd) + 1, nullptr, &fds, nullptr, &tv);
+                            }
+                            continue;
+                        }
+                        break; // unrecoverable
+                    }
+                    fcntl(c.sock_fd, F_SETFL, flags); // restore blocking
+                }
+#endif
                 close_conn(c);
             }
         }
@@ -8757,7 +8799,7 @@ public:
         }
 #endif
 
-        // v2.0.6-alpha2: start long-operation worker pool. Handlers run on worker threads
+        // v2.0.6: start long-operation worker pool. Handlers run on worker threads
         // and borrow mesh transports while exec_busy is set.
         worker_pool_.emplace(kLongOperationWorkers,
             [this](const LongOperationTask& task) { execute_long_operation_task(task); });
@@ -8838,7 +8880,7 @@ public:
 #ifdef _WIN32
         shutdown_windows_pty_writer();
 #endif
-        // v2.0.6-alpha2: join long-operation workers before tearing down SSL transports
+        // v2.0.6: join long-operation workers before tearing down SSL transports
         // so no worker touches a Conn after the destructor begins. Cancel active
         // workers and shut down their sockets so blocked selects/reads return.
         if (worker_pool_) {
@@ -9074,7 +9116,7 @@ public:
                 } else {
                     std::string peer_name = rest.substr(0, sp);
                     std::string path = b64dec(rest.substr(sp + 1));
-                    // v2.0.6-alpha2: offload the long transfer to a worker thread. The
+                    // v2.0.6: offload the long transfer to a worker thread. The
                     // worker owns the IPC socket and streams PROGRESS + final response.
                     Conn* target = nullptr;
                     for (auto& c : conns_) {
@@ -9140,7 +9182,7 @@ public:
                     std::string peer_name = rest.substr(0, sp1);
                     std::string path = b64dec(rest.substr(sp1 + 1, sp2 - sp1 - 1));
                     std::string local_dest = b64dec(rest.substr(sp2 + 1));
-                    // v2.0.6-alpha2: offload to worker thread; worker owns IPC socket.
+                    // v2.0.6: offload to worker thread; worker owns IPC socket.
                     Conn* target = nullptr;
                     for (auto& c : conns_) {
                         if (is_live_mesh_transport_for(c, peer_name, false)) { target = &c; break; }
@@ -9201,10 +9243,10 @@ public:
                 }
             }
             else if (line.rfind("EDIT_DL ", 0) == 0) {
-                response = "ERROR edit disabled in 2.0.6-alpha2 until dedicated transfer transport is available\n";
+                response = "ERROR edit disabled in 2.0.6 until dedicated transfer transport is available\n";
             }
             else if (line.rfind("VFOLDER_SYNC ", 0) == 0) {
-                response = "ERROR vfolder sync disabled in 2.0.6-alpha2 until dedicated transfer transport is available\n";
+                response = "ERROR vfolder sync disabled in 2.0.6 until dedicated transfer transport is available\n";
             }
             else if (line.rfind("VFOLDER_LIST", 0) == 0) {
                 std::string result = "[";
@@ -9216,7 +9258,7 @@ public:
                 response = result + "\n";
             }
             else if (line.rfind("EDIT_UP ", 0) == 0) {
-                response = "ERROR edit disabled in 2.0.6-alpha2 until dedicated transfer transport is available\n";
+                response = "ERROR edit disabled in 2.0.6 until dedicated transfer transport is available\n";
             }
             if (response == "ERROR bad request\n") {
                 auto separator = line.find(' ');
@@ -9678,7 +9720,7 @@ public:
                 }
             }
 
-            // v2.0.6-alpha2: include pending TLS+Hello handshakes. A handshake may need
+            // v2.0.6: include pending TLS+Hello handshakes. A handshake may need
             // both read and write readiness depending on OpenSSL state, so include
             // pending sockets in both sets; advance_handshakes() is non-blocking.
             for (auto& ph : pending_handshakes_) {
@@ -9703,7 +9745,7 @@ public:
 #ifdef _WIN32
             timeval tv{0, 50'000};
 #else
-            timeval tv{3, 0};
+            timeval tv{0, 100'000};
 #endif
             int nfds = select(static_cast<int>(max_fd) + 1, &read_fds, &write_fds, nullptr, &tv);
 
