@@ -466,3 +466,150 @@ TEST_CASE("reconnect_backoff: delays increase exponentially and are capped", "[m
     REQUIRE(d3 > d2);
     REQUIRE(max_delay <= static_cast<long>(cfg.reconnect_backoff_max_secs) * 1000 * 2); // within 2× cap (jitter)
 }
+
+// ── D.1: exec_busy 90s watchdog ──────────────────────────────────────────
+// PLANS BUG-1: when a CLI shell --cmd times out, the background exec thread's
+// exec_busy flag can stay true, blocking all subsequent IPC to that peer.
+// v2.0.6 added check_stale_exec(): if exec_busy has been set for >90s, it sets
+// exec_cancelled and requests the conn close (shutdown() so the blocking worker
+// errors out and releases the flag). This test verifies that logic deterministically
+// by back-dating exec_started_at past the 90s window and invoking the watchdog.
+
+TEST_CASE("D.1: exec_busy watchdog force-releases a stuck flag after 90s", "[mesh_reliability][exec][watchdog]") {
+#ifndef _WIN32
+    auto cfg = mesh_cfg("exec-watchdog", 0);
+    MeshController mc(cfg);
+
+    int sockets[2] = {-1, -1};
+    REQUIRE(socketpair(AF_UNIX, SOCK_STREAM, 0, sockets) == 0);
+
+    MeshController::Conn c;
+    c.peer_name = "stuck-peer";
+    c.peer_pubkey = std::string(64, 'c');
+    c.sock_fd = sockets[0];
+    c.exec_busy = std::make_shared<std::atomic<bool>>(false);
+    c.exec_cancelled = std::make_shared<std::atomic<bool>>(false);
+    c.exec_completed = std::make_shared<std::atomic<bool>>(false);
+    c.close_requested = false;
+    size_t idx = mc.add_connection_for_test(std::move(c));
+
+    // Precondition: flag is FREE, nothing pending.
+    REQUIRE_FALSE(mc.exec_busy_for_test(idx));
+    REQUIRE_FALSE(mc.conn_close_requested_for_test("stuck-peer"));
+
+    // Simulate a CLI shell --cmd that timed out 7501s ago (>> 90s watchdog).
+    // expire_exec_watchdog_for_test() sets exec_busy=true, back-dates
+    // exec_started_at, and runs check_stale_exec().
+    mc.expire_exec_watchdog_for_test(idx);
+
+    // Postcondition: watchdog fired — flag marked cancelled and conn close requested,
+    // so the event loop will shut down the socket and the stalled worker releases
+    // exec_busy (unblocking future IPC to this peer).
+    REQUIRE(mc.exec_busy_for_test(idx));                 // still held (worker owns it)
+    REQUIRE(mc.exec_cancelled_for_test(idx));            // watchdog told worker to bail
+    REQUIRE(mc.conn_close_requested_for_test("stuck-peer"));
+
+    CLOSESOCK(sockets[1]);
+#else
+    SUCCEED("watchdog logic is OS-independent; covered by POSIX build");
+#endif
+}
+
+TEST_CASE("D.1: exec_busy watchdog does NOT fire for a fresh (sub-90s) op", "[mesh_reliability][exec][watchdog]") {
+#ifndef _WIN32
+    auto cfg = mesh_cfg("exec-watchdog-fresh", 0);
+    MeshController mc(cfg);
+
+    int sockets[2] = {-1, -1};
+    REQUIRE(socketpair(AF_UNIX, SOCK_STREAM, 0, sockets) == 0);
+
+    MeshController::Conn c;
+    c.peer_name = "fresh-peer";
+    c.peer_pubkey = std::string(64, 'f');
+    c.sock_fd = sockets[0];
+    c.exec_busy = std::make_shared<std::atomic<bool>>(true);  // actively busy
+    c.exec_cancelled = std::make_shared<std::atomic<bool>>(false);
+    c.exec_completed = std::make_shared<std::atomic<bool>>(false);
+    c.exec_started_at = std::chrono::steady_clock::now();      // just started
+    c.close_requested = false;
+    size_t idx = mc.add_connection_for_test(std::move(c));
+
+    // A busy op that only just started must NOT be force-cancelled.
+    mc.check_stale_exec_for_test();
+    REQUIRE_FALSE(mc.exec_cancelled_for_test(idx));
+    REQUIRE_FALSE(mc.conn_close_requested_for_test("fresh-peer"));
+
+    CLOSESOCK(sockets[1]);
+#else
+    SUCCEED("watchdog logic is OS-independent; covered by POSIX build");
+#endif
+}
+
+TEST_CASE("D.1: exec_busy watchdog does NOT fire for a transfer making recent progress", "[mesh_reliability][exec][watchdog]") {
+#ifndef _WIN32
+    auto cfg = mesh_cfg("exec-watchdog-progress", 0);
+    MeshController mc(cfg);
+
+    int sockets[2] = {-1, -1};
+    REQUIRE(socketpair(AF_UNIX, SOCK_STREAM, 0, sockets) == 0);
+
+    MeshController::Conn c;
+    c.peer_name = "big-xfer-peer";
+    c.peer_pubkey = std::string(64, 'b');
+    c.sock_fd = sockets[0];
+    c.exec_busy = std::make_shared<std::atomic<bool>>(true);
+    c.exec_cancelled = std::make_shared<std::atomic<bool>>(false);
+    c.exec_completed = std::make_shared<std::atomic<bool>>(false);
+    // The transfer started >90s ago (would have tripped the OLD watchdog)...
+    c.exec_started_at = std::chrono::steady_clock::now() - std::chrono::seconds(7501);
+    // ...but the worker has been streaming chunks and JUST refreshed progress.
+    c.exec_last_progress_at->store(
+        (std::chrono::steady_clock::now() - std::chrono::seconds(5))
+            .time_since_epoch().count());
+    c.close_requested = false;
+    size_t idx = mc.add_connection_for_test(std::move(c));
+
+    // Recent progress must keep a healthy long transfer alive past 90s.
+    mc.check_stale_exec_for_test();
+    REQUIRE_FALSE(mc.exec_cancelled_for_test(idx));
+    REQUIRE_FALSE(mc.conn_close_requested_for_test("big-xfer-peer"));
+
+    CLOSESOCK(sockets[1]);
+#else
+    SUCCEED("watchdog logic is OS-independent; covered by POSIX build");
+#endif
+}
+
+TEST_CASE("D.1: exec_busy watchdog fires for a STALLED transfer (no progress >90s)", "[mesh_reliability][exec][watchdog]") {
+#ifndef _WIN32
+    auto cfg = mesh_cfg("exec-watchdog-stalled", 0);
+    MeshController mc(cfg);
+
+    int sockets[2] = {-1, -1};
+    REQUIRE(socketpair(AF_UNIX, SOCK_STREAM, 0, sockets) == 0);
+
+    MeshController::Conn c;
+    c.peer_name = "stalled-xfer-peer";
+    c.peer_pubkey = std::string(64, 's');
+    c.sock_fd = sockets[0];
+    c.exec_busy = std::make_shared<std::atomic<bool>>(true);
+    c.exec_cancelled = std::make_shared<std::atomic<bool>>(false);
+    c.exec_completed = std::make_shared<std::atomic<bool>>(false);
+    // Transfer started a while ago AND last progress tick is also ancient.
+    c.exec_started_at = std::chrono::steady_clock::now() - std::chrono::seconds(7501);
+    c.exec_last_progress_at->store(
+        (std::chrono::steady_clock::now() - std::chrono::seconds(7501))
+            .time_since_epoch().count());
+    c.close_requested = false;
+    size_t idx = mc.add_connection_for_test(std::move(c));
+
+    // Stalled (no progress for >90s) must be force-released, preserving BUG-1.
+    mc.check_stale_exec_for_test();
+    REQUIRE(mc.exec_cancelled_for_test(idx));
+    REQUIRE(mc.conn_close_requested_for_test("stalled-xfer-peer"));
+
+    CLOSESOCK(sockets[1]);
+#else
+    SUCCEED("watchdog logic is OS-independent; covered by POSIX build");
+#endif
+}

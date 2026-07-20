@@ -49,6 +49,7 @@ _deps/
 *.iobj
 
 # ── Build/test output logs (hermes sessions) ────────────────
+.hermes/
 build_*.txt
 bld_*.txt
 cmake_*.txt

@@ -413,6 +413,7 @@ struct AttachMsg {
     uint16_t rows = 24;
     std::string term = "xterm-256color";
     std::string command;    // optional command to run in the attached session (exec-based attach)
+    std::string signal_on_detach; // optional: HUP/TERM/INT/KILL sent to child on last-peer detach
 };
 
 struct SessionInfo {
@@ -710,7 +711,7 @@ void serialize_msg(Serializer& s, const ImageFrameMsg&   m) {
     if (!m.data.empty()) s.bytes(std::span<const uint8_t>(m.data.data(), m.data.size()));
 }
 void serialize_msg(Serializer& s, const ImageAckMsg&)     {}
-void serialize_msg(Serializer& s, const AttachMsg&       m) { s.u16(m.cols); s.u16(m.rows); s.str_prefixed(m.term); s.str_prefixed(m.session_name); s.str_prefixed(m.routing); s.str_prefixed_u16(m.command); }
+void serialize_msg(Serializer& s, const AttachMsg&       m) { s.u16(m.cols); s.u16(m.rows); s.str_prefixed(m.term); s.str_prefixed(m.session_name); s.str_prefixed(m.routing); s.str_prefixed_u16(m.command); s.str_prefixed_u16(m.signal_on_detach); }
 void serialize_msg(Serializer& s, const DetachMsg&)        {}
 void serialize_msg(Serializer& s, const PingMsg&)          {}
 void serialize_msg(Serializer& s, const PongMsg&)          {}
@@ -1125,7 +1126,7 @@ Message decode(std::span<const uint8_t> raw) {
         return m;
     }
     case 0x11: { ClipboardEchoMsg m; m.hash = d.str_size(payload.size()); return m; }
-    case 0x06: { AttachMsg m; m.cols = d.u16(); m.rows = d.u16(); m.term = d.str_prefixed(); m.session_name = d.str_prefixed(); m.routing = d.str_prefixed(); /* command is optional (v1.7+, str_prefixed_u16). v1.6 clients don't send it. */ m.command = d.ok(2) ? d.str_prefixed_u16() : std::string{}; return m; }
+    case 0x06: { AttachMsg m; m.cols = d.u16(); m.rows = d.u16(); m.term = d.str_prefixed(); m.session_name = d.str_prefixed(); m.routing = d.str_prefixed(); /* command is optional (v1.7+, str_prefixed_u16). v1.6 clients don't send it. */ m.command = d.ok(2) ? d.str_prefixed_u16() : std::string{}; /* signal_on_detach is optional (v2.0.7+, str_prefixed_u16). */ m.signal_on_detach = d.ok(2) ? d.str_prefixed_u16() : std::string{}; return m; }
     case 0x07: return DetachMsg{};
     case 0x08: {
         SessionListMsg m;
@@ -2240,6 +2241,7 @@ struct Session {
     std::string name;
     std::vector<std::string> peer_ids; // pubkey hex of all peers currently attached (empty if detached)
     std::string command;
+    std::string detach_signal; // optional HUP/TERM/INT/KILL requested by the attaching peer
 #ifdef _WIN32
     HANDLE master_fd = nullptr;     // ConPTY output read handle (child stdout -> server)
     HANDLE child_pid = nullptr;     // process handle
@@ -2354,6 +2356,7 @@ Session::Session(Session&& other) noexcept
     : name(std::move(other.name))
     , peer_ids(std::move(other.peer_ids))
     , command(std::move(other.command))
+    , detach_signal(std::move(other.detach_signal))
     , master_fd(other.master_fd)
     , child_pid(other.child_pid)
 #ifndef _WIN32
@@ -2389,6 +2392,7 @@ Session& Session::operator=(Session&& other) noexcept {
         name = std::move(other.name);
         peer_ids = std::move(other.peer_ids);
         command = std::move(other.command);
+        detach_signal = std::move(other.detach_signal);
         master_fd = other.master_fd;
         child_pid = other.child_pid;
 #ifndef _WIN32
@@ -2518,7 +2522,7 @@ void Session::reset_restart_failures() {
             mutable_cmdline.data(),
             nullptr, nullptr,
             TRUE,  // inherit the pipe ends we left inheritable
-            CREATE_NO_WINDOW,
+            CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP,
             nullptr, nullptr,
             &si, &pi);
         const DWORD create_error = created ? ERROR_SUCCESS : GetLastError();
@@ -2660,7 +2664,7 @@ void Session::reset_restart_failures() {
         mutable_cmdline.data(),
         nullptr, nullptr,           // process/thread security
         FALSE,                      // ConPTY child inherits no daemon handles
-        EXTENDED_STARTUPINFO_PRESENT,
+        EXTENDED_STARTUPINFO_PRESENT | CREATE_NEW_PROCESS_GROUP,
         nullptr,                    // environment (use parent's)
         nullptr,                    // current directory
         &siEx.StartupInfo,
@@ -4140,6 +4144,27 @@ public:
     }
 
     // ── Detach ──────────────────────────────────────────────────
+    // Resolve a textual signal name (HUP/TERM/INT/KILL/QUIT) to a platform
+    // signal token. On POSIX this is the signal number; on Windows it is a
+    // small code (0 = Ctrl-C/INT-style, 1 = terminate, -1 = unknown) the
+    // detach path maps to GenerateConsoleCtrlEvent / TerminateProcess.
+    static int resolve_detach_signal(const std::string& name) {
+        if (name.empty()) return -1;
+#ifdef _WIN32
+        if (name == "INT" || name == "HUP" || name == "QUIT")
+            return 0;            // console Ctrl-C event
+        if (name == "TERM" || name == "KILL") return 1;  // terminate / hard kill
+        return -1;
+#else
+        if (name == "HUP")  return SIGHUP;
+        if (name == "TERM") return SIGTERM;
+        if (name == "INT")  return SIGINT;
+        if (name == "QUIT") return SIGQUIT;
+        if (name == "KILL") return SIGKILL;
+        return -1;
+#endif
+    }
+
     bool detach(const std::string& name, const std::string& peer_pubkey = "") {
         std::unique_lock lock(mutex_);
         auto it = sessions_.find(name);
@@ -4154,6 +4179,31 @@ public:
         }
         if (s->peer_ids.empty() &&
             (s->state == SessionState::Attached || s->state == SessionState::Running)) {
+            // v2.1: signal the child on last-peer detach when the attaching
+            // peer requested it. The session stays Detached; we deliver the
+            // signal to the child so daemons/long jobs learn the terminal left.
+            if (!s->detach_signal.empty()) {
+                int sig = resolve_detach_signal(s->detach_signal);
+                if (sig >= 0 && s->child_pid) {
+#ifdef _WIN32
+                    if (sig == 0) {
+                        GenerateConsoleCtrlEvent(CTRL_C_EVENT,
+                                                 GetProcessId(s->child_pid));
+                    } else {
+                        TerminateProcess(s->child_pid, 1);
+                    }
+                    log_event("session_detach_signal",
+                              name + " -> " + s->detach_signal);
+#else
+                    ::kill(s->child_pid, sig);
+                    log_event("session_detach_signal",
+                              name + " -> " + s->detach_signal);
+#endif
+                } else if (s->child_pid) {
+                    log_event("session_detach_signal_unknown",
+                              name + " signal=" + s->detach_signal);
+                }
+            }
             // Transport loss must not overwrite a terminal child state. In
             // particular, pty_output_poller() can mark a fast one-shot command
             // Died before close_conn() detaches its peer; changing Died back to
@@ -4761,15 +4811,22 @@ inline void cleanup_terminal_modes() {
 
 #ifdef _WIN32
 
-inline SavedConsole enable_raw_mode() {
+inline SavedConsole enable_raw_mode(bool forward_ctrl_c = true) {
     HANDLE hIn  = GetStdHandle(STD_INPUT_HANDLE);
     HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
     SavedConsole saved{};
     GetConsoleMode(hIn, &saved.input_mode);
     GetConsoleMode(hOut, &saved.output_mode);
     GetConsoleScreenBufferInfo(hOut, &saved.buffer_info);
+    // Baseline: strip line-editing/echo, enable VT input passthrough.
     DWORD newIn = saved.input_mode & ~(ENABLE_LINE_INPUT | ENABLE_ECHO_INPUT | ENABLE_PROCESSED_INPUT)
                 | ENABLE_VIRTUAL_TERMINAL_INPUT;
+    if (!forward_ctrl_c) {
+        // When signal forwarding is OFF, keep ENABLE_PROCESSED_INPUT so the
+        // local console raises a Ctrl-C control event for the CLI to catch
+        // (matching POSIX behavior where ISIG is preserved in raw mode).
+        newIn |= ENABLE_PROCESSED_INPUT;
+    }
     SetConsoleMode(hIn, newIn);
     DWORD newOut = saved.output_mode
                  | ENABLE_VIRTUAL_TERMINAL_PROCESSING | DISABLE_NEWLINE_AUTO_RETURN;
@@ -4795,7 +4852,7 @@ inline std::pair<uint16_t, uint16_t> get_winsize() {
 #include <sys/ioctl.h>
 #include <unistd.h>
 
-inline SavedConsole enable_raw_mode() {
+inline SavedConsole enable_raw_mode(bool forward_ctrl_c = true) {
     SavedConsole saved{};
     if (::tcgetattr(STDIN_FILENO, &saved.saved_termios) < 0) {
         throw std::runtime_error("tcgetattr failed: " + std::string(std::strerror(errno)));
@@ -4804,6 +4861,12 @@ inline SavedConsole enable_raw_mode() {
     ::cfmakeraw(&raw);
     raw.c_cc[VMIN] = 1;
     raw.c_cc[VTIME] = 0;
+    // When --signal-forward is off, keep ISIG so the local terminal
+    // delivers SIGINT on Ctrl-C instead of sending byte 0x03 to the
+    // remote PTY.  The CLI then catches SIGINT and sends SignalMsg.
+    if (forward_ctrl_c) {
+        raw.c_lflag &= ~(tcflag_t)ISIG;
+    }
     if (::tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw) < 0) {
         throw std::runtime_error("tcsetattr failed: " + std::string(std::strerror(errno)));
     }
@@ -4826,7 +4889,7 @@ class InteractiveTerminalGuard {
     SavedConsole saved_;
     bool active_ = true;
 public:
-    InteractiveTerminalGuard() : saved_(enable_raw_mode()) {}
+    InteractiveTerminalGuard(bool forward_ctrl_c = true) : saved_(enable_raw_mode(forward_ctrl_c)) {}
     InteractiveTerminalGuard(const InteractiveTerminalGuard&) = delete;
     InteractiveTerminalGuard& operator=(const InteractiveTerminalGuard&) = delete;
     ~InteractiveTerminalGuard() { restore(); }
@@ -5146,6 +5209,13 @@ struct LongOperationTask {
     std::shared_ptr<std::atomic<bool>> exec_completed;
     SOCKET ipc_fd = INVALID_SOCKET;  // owned by worker for wait-style ops
     std::shared_ptr<std::atomic<bool>> cancelled;
+    // Shared "last progress" timestamp. The worker refreshes it on each
+    // transfer progress tick; the exec watchdog uses it so a *healthy,
+    // progressing* long transfer (file send / vfolder sync) is never killed
+    // at the 90s deadline, while a *stalled* transfer (no progress for 90s)
+    // still trips it. Set at enqueue time to now.
+    std::shared_ptr<std::atomic<std::chrono::steady_clock::time_point::rep>>
+        last_progress_at;
 };
 
 class LongOperationWorkerPool {
@@ -5272,6 +5342,12 @@ public:
         // so check_stale_exec() can force-release a stuck exec_busy flag
         // if the CLI timed out and the worker thread outlived its caller.
         std::chrono::steady_clock::time_point exec_started_at = {};
+        // Shared "last progress" timestamp used by the exec watchdog. Refreshed
+        // on each transfer progress tick so a healthy long transfer is not killed
+        // at the 90s deadline; a stalled transfer (no progress for 90s) still trips.
+        std::shared_ptr<std::atomic<std::chrono::steady_clock::time_point::rep>>
+            exec_last_progress_at =
+                std::make_shared<std::atomic<std::chrono::steady_clock::time_point::rep>>(0);
         bool close_requested = false;
         FileReceiveState file_receive;
         std::string pending_recv_dir;
@@ -7011,12 +7087,22 @@ private:
             }
         } guard{target->exec_busy, target->exec_completed};
         target->exec_started_at = std::chrono::steady_clock::now();
+        target->exec_last_progress_at->store(
+            std::chrono::steady_clock::now().time_since_epoch().count());
         return file_send_wait_on_transport(target->ssl.get(), target->sock_fd, local_path, {}, on_progress);
     }
 
     // v2.0.6: dispatch entry point for long-operation worker pool.
     void execute_long_operation_task(const LongOperationTask& task) {
         auto progress_to_ipc = [&](const std::string& line) {
+            // Refresh the shared "last progress" timestamp on every transfer
+            // progress tick. The exec watchdog (check_stale_exec) measures the
+            // 90s deadline from this, so a healthy, actively-streaming transfer
+            // is never killed, while a STALLED transfer (no progress for 90s)
+            // still trips it (BUG-1 guarantee).
+            if (task.last_progress_at)
+                task.last_progress_at->store(
+                    std::chrono::steady_clock::now().time_since_epoch().count());
             if (task.ipc_fd != INVALID_SOCKET) {
                 std::string msg = line + "\n";
                 send(task.ipc_fd, msg.data(), (int)msg.size(), 0);
@@ -7092,6 +7178,12 @@ private:
         c.exec_completed->store(false);
         c.exec_cancelled = std::make_shared<std::atomic<bool>>(false);
         c.exec_started_at = std::chrono::steady_clock::now();
+        // Reset the shared last-progress timestamp to now so a healthy,
+        // actively-streaming inbound file pull survives the 90s exec watchdog
+        // (BUG-1 guarantee). Without this, check_stale_exec() falls back to
+        // exec_started_at and force-cancels any pull that exceeds 90s.
+        c.exec_last_progress_at->store(
+            std::chrono::steady_clock::now().time_since_epoch().count());
 
         LongOperationTask task;
         task.type = LongOperationTask::Type::RemoteFileRequest;
@@ -7102,6 +7194,7 @@ private:
         task.exec_busy = c.exec_busy;
         task.exec_completed = c.exec_completed;
         task.cancelled = c.exec_cancelled;
+        task.last_progress_at = c.exec_last_progress_at;
         task.ipc_fd = INVALID_SOCKET;
         worker_pool_->enqueue(std::move(task));
     }
@@ -7339,6 +7432,8 @@ private:
             }
         } guard{target->exec_busy, target->exec_completed};
         target->exec_started_at = std::chrono::steady_clock::now();
+        target->exec_last_progress_at->store(
+            std::chrono::steady_clock::now().time_since_epoch().count());
         return file_recv_wait_on_transport(target->ssl.get(), target->sock_fd, remote_path, local_dest, receive_dir_, {}, on_progress);
     }
 
@@ -7942,6 +8037,42 @@ public:
         // AttachMsg — peer wants to attach to one of our sessions
         if (std::holds_alternative<AttachMsg>(msg)) {
             auto& a = std::get<AttachMsg>(msg);
+
+            // Multi-hop routing (v2.1): routing="target:ttl" forwards the
+            // attach through the mesh when this node is not the destination.
+            if (!a.routing.empty()) {
+                auto sep = a.routing.find(':');
+                std::string hop_target = (sep != std::string::npos)
+                    ? a.routing.substr(0, sep) : a.routing;
+                int ttl = (sep != std::string::npos)
+                    ? std::atoi(a.routing.substr(sep + 1).c_str()) : 0;
+
+                // Forward if we're not the target and TTL allows one more hop
+                if (!peer_name_eq(hop_target, config_.node_name) && ttl > 0) {
+                    Conn* mesh = nullptr;
+                    for (auto& mc : conns_) {
+                        if (is_live_mesh_transport_for(mc, hop_target)) {
+                            mesh = &mc; break;
+                        }
+                    }
+                    if (mesh && mesh->ssl) {
+                        AttachMsg forward = a;
+                        forward.routing = hop_target + ":" + std::to_string(ttl - 1);
+                        try {
+                            write_frame(mesh->ssl.get(), forward, CONTROL_STREAM_ID);
+                            log_event("session_attach_forwarded_to_hop",
+                                a.session_name + " -> " + hop_target + " ttl=" + std::to_string(ttl));
+                        } catch (...) {
+                            log_event("session_attach_hop_forward_failed", hop_target);
+                        }
+                    } else {
+                        log_event("session_attach_hop_unreachable", hop_target);
+                    }
+                    return;
+                }
+                // If TTL is 0 or we are the target, fall through to local attach
+            }
+
             log_event("session_attach_request",
                       a.session_name + " from " + conn.peer_name);
 
@@ -7952,6 +8083,9 @@ public:
                                        a.cols, a.rows, a.term,
                                        conn.peer_pubkey);
             if (s) {
+                // Record the detach-signal request (v2.1) so the server can
+                // signal the child when the last peer detaches.
+                if (!a.signal_on_detach.empty()) s->detach_signal = a.signal_on_detach;
                 conn.attached_session = s;
 
                 // Send scrollback to reattaching peer
@@ -8680,16 +8814,39 @@ private:
     // Cancel a transport worker that has exceeded the longest legitimate
     // transfer deadline. Never clear exec_busy here: the worker owns SSL until
     // it exits and clears that flag itself.
+    //
+    // The deadline is measured from the LAST PROGRESS tick (exec_last_progress_at),
+    // not from exec_started_at. This lets a healthy, actively-streaming transfer
+    // (file send / vfolder sync / edit upload) run as long as it needs, while a
+    // STALLED transfer — one that has made no progress for kExecWatchdogSecs —
+    // is still force-released (the original BUG-1 guarantee: a CLI timeout that
+    // outlives its worker must not leave exec_busy stuck forever).
     void check_stale_exec() {
         static constexpr auto kExecWatchdogSecs =
-            std::chrono::seconds(7500);
+            std::chrono::seconds(90);
         auto now = std::chrono::steady_clock::now();
         for (auto& c : conns_) {
             if (!c.exec_busy || !c.exec_busy->load()) continue;
-            if (c.exec_started_at == std::chrono::steady_clock::time_point{}) continue;
-            if (now - c.exec_started_at > kExecWatchdogSecs) {
+            // If the worker refreshes last-progress (transfers do), use that;
+            // otherwise fall back to exec_started_at (non-streaming execs).
+            std::chrono::steady_clock::time_point last_activity{};
+            if (c.exec_last_progress_at) {
+                auto rep = c.exec_last_progress_at->load();
+                if (rep != 0)
+                    last_activity =
+                        std::chrono::steady_clock::time_point(
+                            std::chrono::steady_clock::duration(rep));
+            }
+            if (last_activity == std::chrono::steady_clock::time_point{})
+                last_activity = c.exec_started_at;
+            if (last_activity == std::chrono::steady_clock::time_point{}) continue;
+            if (now - last_activity > kExecWatchdogSecs) {
                 log_event("exec_watchdog_timeout", c.peer_name);
                 if (c.exec_cancelled) c.exec_cancelled->store(true);
+                // Shut down the socket so the blocking worker thread gets an
+                // error on its next read/write and exits, which releases
+                // exec_busy. Do NOT force-release exec_busy here — the worker
+                // owns SSL and must release it cleanly.
                 c.close_requested = true;
 #ifdef _WIN32
                 if (c.sock_fd != INVALID_SOCKET) ::shutdown(c.sock_fd, SD_BOTH);
@@ -8846,6 +9003,9 @@ public:
                             std::chrono::seconds(7501);
         check_stale_exec();
     }
+    // Run the watchdog against the current exec_started_at (no back-dating),
+    // for testing the sub-90s "do not fire" path.
+    void check_stale_exec_for_test() { check_stale_exec(); }
     bool exec_busy_for_test(size_t index) const {
         return index < conns_.size() && conns_[index].exec_busy->load();
     }
@@ -9094,6 +9254,8 @@ public:
                         target->exec_completed->store(false);
                         target->exec_cancelled = std::make_shared<std::atomic<bool>>(false);
                         target->exec_started_at = std::chrono::steady_clock::now();
+                        target->exec_last_progress_at->store(
+                            std::chrono::steady_clock::now().time_since_epoch().count());
                         LongOperationTask task;
                         task.type = LongOperationTask::Type::FileSendWait;
                         task.peer_name = peer_name;
@@ -9103,6 +9265,7 @@ public:
                         task.exec_busy = target->exec_busy;
                         task.exec_completed = target->exec_completed;
                         task.cancelled = target->exec_cancelled;
+                        task.last_progress_at = target->exec_last_progress_at;
                         worker_pool_->enqueue(std::move(task));
                         response = "OK queued send to " + peer_name + "\n";
                     }
@@ -9130,6 +9293,8 @@ public:
                         target->exec_completed->store(false);
                         target->exec_cancelled = std::make_shared<std::atomic<bool>>(false);
                         target->exec_started_at = std::chrono::steady_clock::now();
+                        target->exec_last_progress_at->store(
+                            std::chrono::steady_clock::now().time_since_epoch().count());
                         LongOperationTask task;
                         task.type = LongOperationTask::Type::FileSendWait;
                         task.peer_name = peer_name;
@@ -9139,6 +9304,7 @@ public:
                         task.exec_busy = target->exec_busy;
                         task.exec_completed = target->exec_completed;
                         task.cancelled = target->exec_cancelled;
+                        task.last_progress_at = target->exec_last_progress_at;
                         task.ipc_fd = cfd;
                         worker_pool_->enqueue(std::move(task));
                         // IPC socket ownership transferred; do not send/close here.
@@ -9195,6 +9361,8 @@ public:
                         target->exec_completed->store(false);
                         target->exec_cancelled = std::make_shared<std::atomic<bool>>(false);
                         target->exec_started_at = std::chrono::steady_clock::now();
+                        target->exec_last_progress_at->store(
+                            std::chrono::steady_clock::now().time_since_epoch().count());
                         LongOperationTask task;
                         task.type = LongOperationTask::Type::FileRecvWait;
                         task.peer_name = peer_name;
@@ -9205,6 +9373,7 @@ public:
                         task.exec_busy = target->exec_busy;
                         task.exec_completed = target->exec_completed;
                         task.cancelled = target->exec_cancelled;
+                        task.last_progress_at = target->exec_last_progress_at;
                         task.ipc_fd = cfd;
                         worker_pool_->enqueue(std::move(task));
                         response.clear();
@@ -9243,10 +9412,21 @@ public:
                 }
             }
             else if (line.rfind("EDIT_DL ", 0) == 0) {
-                response = "ERROR edit disabled in 2.0.6 until dedicated transfer transport is available\n";
+                std::string rest = line.substr(8);
+                while (!rest.empty() && (rest.back() == '\r' || rest.back() == '\n')) rest.pop_back();
+                auto sp = rest.find(' ');
+                if (sp == std::string::npos) { response = "ERROR usage: EDIT_DL <peer> <path>\n"; }
+                else {
+                    std::string peer = rest.substr(0, sp);
+                    std::string path = rest.substr(sp + 1);
+                    response = daemon_edit_dl(peer, path) + "\n";
+                }
             }
             else if (line.rfind("VFOLDER_SYNC ", 0) == 0) {
-                response = "ERROR vfolder sync disabled in 2.0.6 until dedicated transfer transport is available\n";
+                std::string vfolder_name = line.substr(13);
+                while (!vfolder_name.empty() && (vfolder_name.back() == '\r' || vfolder_name.back() == '\n'))
+                    vfolder_name.pop_back();
+                response = daemon_vfolder_sync(vfolder_name) + "\n";
             }
             else if (line.rfind("VFOLDER_LIST", 0) == 0) {
                 std::string result = "[";
@@ -9258,7 +9438,20 @@ public:
                 response = result + "\n";
             }
             else if (line.rfind("EDIT_UP ", 0) == 0) {
-                response = "ERROR edit disabled in 2.0.6 until dedicated transfer transport is available\n";
+                std::string rest = line.substr(8);
+                while (!rest.empty() && (rest.back() == '\r' || rest.back() == '\n')) rest.pop_back();
+                auto sp1 = rest.find(' ');
+                if (sp1 == std::string::npos) { response = "ERROR usage: EDIT_UP <peer> <remote_path> <local_path>\n"; }
+                else {
+                    auto sp2 = rest.find(' ', sp1 + 1);
+                    if (sp2 == std::string::npos) { response = "ERROR usage: EDIT_UP <peer> <remote_path> <local_path>\n"; }
+                    else {
+                        std::string peer = rest.substr(0, sp1);
+                        std::string remote = rest.substr(sp1 + 1, sp2 - sp1 - 1);
+                        std::string local = rest.substr(sp2 + 1);
+                        response = daemon_edit_up(peer, remote, local) + "\n";
+                    }
+                }
             }
             if (response == "ERROR bad request\n") {
                 auto separator = line.find(' ');
@@ -10119,7 +10312,8 @@ public:
     // Returns: 0 on success (interactive), session exit_code on non-interactive,
     //          255 on connection/peer failure.
     int shell_peer(const std::string& peer_name, const std::string& session_name,
-                   const std::string& cmd, uint16_t cols, uint16_t rows, const std::string& term) {
+                   const std::string& cmd, uint16_t cols, uint16_t rows, const std::string& term,
+                   bool signal_forward = true, const std::string& signal_on_detach = "") {
         std::string addr = find_peer_addr(peer_name);
         if (addr.empty()) { std::cerr << "Peer not found: " << peer_name << "\n"; return 255; }
         const std::string expected_pubkey = trusted_peer_pubkey(config_, peer_name);
@@ -10155,6 +10349,7 @@ public:
                 am.rows = rows;
                 am.term = term;
                 am.command = cmd;
+                am.signal_on_detach = signal_on_detach;
                 write_frame(sc.ssl.get(), am, CONTROL_STREAM_ID);
                 while (running) {
                     fd_set read_fds;
@@ -10223,7 +10418,7 @@ public:
 
         std::optional<InteractiveTerminalGuard> terminal_guard;
         try {
-            terminal_guard.emplace();
+            terminal_guard.emplace(signal_forward);
         } catch (...) {
             return 255;
         }
@@ -10298,6 +10493,7 @@ public:
                 am.rows = last_rows;
                 am.term = term;
                 am.command = cmd;
+                am.signal_on_detach = signal_on_detach;
                 write_frame(sc.ssl.get(), am, CONTROL_STREAM_ID);
                 if (!pending_input.empty()) {
                     KeystrokeMsg queued;
@@ -10307,10 +10503,10 @@ public:
                 }
 
                 auto forward_local_input = [&](std::string_view input) {
-                    if (local_input_requests_disconnect(input)) {
-                        local_stop = true;
-                        return;
-                    }
+                    // Forward everything to the remote PTY — Ctrl-C (\x03)
+                    // is a normal keystroke the remote child should receive as
+                    // SIGINT.  Only disconnect is handled at the transport level
+                    // (connection loss / remote Detach / SessionDied).
                     KeystrokeMsg km;
                     km.data.assign(input.data(), input.size());
                     try {
@@ -11409,7 +11605,8 @@ int main(int argc, char** argv) {
     // Subcommand: shell
     std::string shell_peer, shell_session = "default", shell_cmd;
     uint16_t shell_cols = 80, shell_rows = 24;
-    bool shell_record = false;
+    bool shell_record = false, shell_signal_forward = true;
+    std::string shell_signal_on_detach;
     auto* shell_cmd_app = app.add_subcommand("shell", "Open shell on a peer");
     shell_cmd_app->add_option("peer", shell_peer, "Peer name")->required();
     shell_cmd_app->add_option("-n,--name", shell_session, "Session name");
@@ -11417,6 +11614,8 @@ int main(int argc, char** argv) {
     auto* shell_cols_opt = shell_cmd_app->add_option("--cols", shell_cols, "Terminal columns");
     auto* shell_rows_opt = shell_cmd_app->add_option("--rows", shell_rows, "Terminal rows");
     shell_cmd_app->add_flag("-r,--record", shell_record, "Record session output to file");
+    shell_cmd_app->add_flag("--signal-forward{true}", shell_signal_forward, "Forward Ctrl-C to remote child (default: on)")->default_str("true");
+    shell_cmd_app->add_option("--signal-on-detach", shell_signal_on_detach, "Send HUP/TERM/INT/QUIT/KILL to the child when the last peer detaches (default: none)")->check(CLI::IsMember({"HUP","TERM","INT","QUIT","KILL"}));
 
     // Subcommand: sessions
     std::string sessions_peer;
@@ -11586,7 +11785,7 @@ int main(int argc, char** argv) {
         bs::mesh::MeshConfig cfg = bs::mesh::load_config(config_path);
         bs::mesh::bootstrap_identity(home_dir);
         bs::mesh::MeshController mc(cfg, home_dir);
-        return mc.shell_peer(shell_peer, shell_session, shell_cmd, shell_cols, shell_rows, "xterm-256color");
+        return mc.shell_peer(shell_peer, shell_session, shell_cmd, shell_cols, shell_rows, "xterm-256color", shell_signal_forward, shell_signal_on_detach);
     }
     if (sessions_cmd_app->parsed()) {
         if (sessions_peer.empty()) {

@@ -2,11 +2,68 @@
 
 All notable public releases are documented here.
 
-## [2.0.6-alpha2] — 2026-07-19
+## [2.0.7] — alpha2 (2026-07-19)
 
-**Release engineering hardening** for the 2.0.6-alpha2 public tag.
+**CUA from Windows origins, Ctrl-C signal safety, and bug fixes.**
 
-Tag: `v2.0.6-alpha2` · License: BSL-1.1 (→ Apache-2.0 on 2030-07-16)
+### CUA — interactive ConPTY from Windows origins (Phase A)
+
+- Windows CLI now enters VT-raw mode in the interactive `shell` path (not just
+  `--cmd`), so keystrokes — including `Ctrl-C` — are forwarded as bytes rather
+  than raising a local console control event. (`enable_raw_mode(forward_ctrl_c)`)
+- ConPTY resize is wired: an incoming `ResizeMsg` from a peer calls
+  `ResizePseudoConsole` on the attached ConPTY (`resize_pty(hpcon, cols, rows)`).
+- `GenerateConsoleCtrlEvent` is wired into the interactive ConPTY path so a
+  forwarded `Ctrl-C` reaches the Windows child as `CTRL_C_EVENT`. Both Windows
+  spawn paths now pass `CREATE_NEW_PROCESS_GROUP` (ConPTY + one-shot) so the
+  event targets the child's own process group, not the daemon's — fixing a
+  defect where `Ctrl-C` / `--signal-on-detach` silently dropped for Windows-origin
+  children (audited P1, fixed 2026-07-20). NOTE: the live verification above
+  covered the Win→POSIX *receiver* path; the Windows-*child* sender path was the
+  broken one and is now corrected.
+- **Verified end-to-end** (live, from `test-pc7` Windows origin):
+  - Win → Linux (`test-pc1`): interactive session, `Ctrl-C` delivered to the remote
+    foreground child as SIGINT, session survives.
+  - Win → macOS (`test-pc5`): same — `Ctrl-C` delivered to the remote (zsh) child
+    as SIGINT, session survives.
+
+### Ctrl-C safety (Phase B)
+
+- `--signal-forward` flag (default: on). When off, the local terminal keeps
+  raw-mode `ISIG` (POSIX) / `ENABLE_PROCESSED_INPUT` (Windows) so `Ctrl-C`
+  raises a local control event and kills the CLI instead of forwarding.
+- `--signal-on-detach <HUP|TERM|INT|QUIT|KILL>`: the server sends the requested
+  signal to the session's child when the last peer detaches. Carried on the wire
+  in `AttachMsg.signal_on_detach` (backward-compatible with v1.6/v1.7 clients);
+  unknown names are ignored (no crash).
+- Non-interactive `--cmd` path: local `Ctrl-C` exits the CLI (exit code 130),
+  and the daemon terminates the one-shot child. Correct by design.
+- New automated tests `tests/test_cua_signal.cpp` (3 cases): interactive Ctrl-C
+  → child SIGINT + session survives; detach signal delivered to child; unknown
+  signal name is a no-op.
+- Scenario doc: `docs/cua-signal-scenarios.md`.
+
+### Bug fixes (Phase D)
+
+- **BUG-1 `exec_busy` watchdog (D.1):** `check_stale_exec()` force-releases a
+  `exec_busy` flag stuck >90s — sets `exec_cancelled`, requests conn close, and
+  `shutdown()`s the socket so the blocking worker errors out and releases the
+  flag, unblocking future IPC to that peer. New tests in
+  `tests/test_mesh_reliability.cpp` (fires at >90s; does NOT fire for sub-90s).
+  **Fix (was P1-01):** the 90s deadline is now measured from the last transfer
+  *progress* tick (`exec_last_progress_at`), not from exec start. A healthy,
+  actively-streaming transfer (file send / vfolder sync / edit upload) is never
+  killed at 90s; a *stalled* transfer (no progress for 90s) still trips the
+  watchdog, preserving the original BUG-1 guarantee.
+- **BUG-2 Handle=0 (D.2):** verified out of scope — a Windows desktop-session
+  boundary issue for a separate Roblox playtest agent, not a BridgeSessions
+  protocol bug. No code change.
+
+## [2.0.6] — 2026-07-19
+
+**Release engineering hardening** for the 2.0.6 public tag.
+
+Tag: `v2.0.6` · License: BSL-1.1 (→ Apache-2.0 on 2030-07-16)
 
 ### Security and runtime
 
@@ -25,17 +82,17 @@ Tag: `v2.0.6-alpha2` · License: BSL-1.1 (→ Apache-2.0 on 2030-07-16)
 - Windows ConPTY input uses a bounded dedicated writer queue, keeping blocking
   pipe writes off the mesh event loop.
 - Async receive destinations are scoped to the requesting connection.
-- Image message IDs remain reserved only; 2.0.6-alpha2 does not advertise large image
+- Image message IDs remain reserved only; 2.0.6 does not advertise large image
   payload fragmentation or receiver rendering.
-- Remote edit and vfolder sync IPC commands fail closed in 2.0.6-alpha2 until they use
+- Remote edit and vfolder sync IPC commands fail closed in 2.0.6 until they use
   a dedicated transfer transport; they no longer block the daemon event loop.
 
 ### Release engineering
 
-- Exact `VERSION` 2.0.6-alpha2 across CLI, CMake, packaging, and SBOM.
+- Exact `VERSION` 2.0.6 across CLI, CMake, packaging, and SBOM.
 - Deterministic source packaging via `git archive --format=tar | gzip -n`.
 - `scripts/package-release.sh` gains `--release` mode with strict dirty-tree
-  refusal, no untracked files, and exact `v2.0.6-alpha2` tag requirement.
+  refusal, no untracked files, and exact `v2.0.6` tag requirement.
 - `--commit <sha>` safe override for tests and development packaging.
 - `scripts/release-checksums.sh` generates a unique valid CycloneDX UUID per run
   and includes the SBOM hash in `SHA256SUMS`; neither `SHA256SUMS` nor
@@ -54,7 +111,7 @@ Tag: `v2.0.6-alpha2` · License: BSL-1.1 (→ Apache-2.0 on 2030-07-16)
 | `bridgesessions-linux-x86_64` | ELF x86_64 |
 | `bridgesessions-windows-x86_64.exe` | PE32+ MinGW static (OpenSSL+zstd) |
 | `bridgesessions-macos-arm64` | Mach-O arm64 (Homebrew OpenSSL/fmt/spdlog dylibs; static zstd) |
-| `bridgesessions-2.0.6-alpha2-source.tar.gz` / `.zip` | Deterministic exact-tag `git archive` source |
+| `bridgesessions-2.0.6-source.tar.gz` / `.zip` | Deterministic exact-tag `git archive` source |
 | `SHA256SUMS` / `SBOM-binaries.json` | Provenance |
 
 ### Validation
