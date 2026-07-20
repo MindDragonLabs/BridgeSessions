@@ -114,8 +114,9 @@ bsmesh.bak.*
 bsmesh.prev*
 
 # ── Local build artifacts (per-platform binaries) ──
-bridgesessions-macos-arm64
-bridgesessions-windows-x86_64.exe
+# Release binaries bridgesessions-{macos-arm64,windows-x86_64.exe,linux-x86_64}
+# ARE committed to dist/ (they are the published artifacts). Only ignore the
+# dev/throwaway exe and object files.
 bridgesessions.exe
 *.o
 *.obj
