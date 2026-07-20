@@ -13,20 +13,34 @@ One protocol. One binary. One mesh. No SSH. No mosh. No zellij.
 
 ---
 
-## Shipping 2.0.6-alpha2 reality
+## Shipping 2.0.8-alpha3 reality (canonical SoT)
 
-The canonical implementation is the single `bridgesessions.cpp` monolith.
-`MeshController::run` owns established connections and PTYs on one select loop;
-TLS/initial-Hello handshakes are incremental, nonblocking, deadline-bounded, and
-limited to 16 pending sockets. Long file-transfer operations borrow exactly one
-established TLS transport through a bounded two-thread joinable worker pool while
-the loop continues serving other peers. Local loopback IPC is authenticated with
-a fresh owner-only token under the selected app home. mDNS is disabled by default
-and may update addresses only for already trusted keys.
+The canonical implementation is the single `bridgesessions.cpp` monolith
+(~12,004 LOC; `BS_VERSION` single source of truth). `MeshController::run` owns
+established connections and PTYs on one select loop; TLS/initial-Hello handshakes
+are incremental, nonblocking, deadline-bounded, and limited to 16 pending sockets.
+Long file-transfer operations borrow exactly one established TLS transport through
+a bounded two-thread joinable worker pool while the loop continues serving other
+peers (the `exec_busy` exclusive-borrow pattern at :7079/:7424 — **streaming
+media must NOT use this borrow**; see §15.3). Local loopback IPC is authenticated
+with a fresh owner-only token under the selected app home. mDNS is disabled by
+default and may update addresses only for already trusted keys.
+
+**First-class platforms (v2.0.7-alpha2+):** the daemon + client are a **single
+binary** that runs on **Linux, macOS, and Windows** (ConPTY path under
+`#ifdef _WIN32`; portable static builds shipped for all three). The §1 diagram
+below is macOS-centric for illustration only — every node in the mesh may be any
+OS, and **any** peer may drive computer use or read a conversation on **any**
+other peer (CUA dispatch is v2.0.8-alpha3 design + Windows helper proof; see §15.5).
+
+> **Wire SoT rule:** the monolith `MessageType` enum (`:300-330`, 0x01–0x1F) is
+> authoritative. The `bs-protocol/` library enum is **stale** (stops at 0x14).
+> New message types land in the monolith first; reconcile or freeze the library
+> in v2.0.8-alpha3 P0 (decision recorded in TODO.md).
 
 Remote edit/vfolder sync and large image-on-wire claims are intentionally disabled
-for 2.0.6-alpha2 until they have dedicated nonblocking transports. This section overrides
-older aspirational v1/v2 text below where the two conflict.
+until they have dedicated nonblocking transports. This section overrides older
+aspirational v1/v2 text below where the two conflict.
 
 ---
 
@@ -136,6 +150,48 @@ connection path.
 └──────────────────┴──────────────────┴──────────────────────────────────────┘
 ```
 
+> **Correction (v2.0.8-alpha3):** the table above stops at `ClipboardEcho`
+> (0x11). The **shipped monolith** (`bridgesessions.cpp:300-330`) defines
+> **0x12–0x1F** as well. The `bs-protocol/` library enum is **stale** (stops at
+> 0x14). Monolith is wire SoT. Full current set:
+
+| Type | Dir | Code | Semantics |
+|------|-----|------|-----------|
+| ImageData | both | 0x12 | Static image payload (PNG/JPEG) |
+| ImageFrame | both | 0x13 | Animated image payload (GIF frame/blob) |
+| ImageAck | both | 0x14 | Image/frame consumed acknowledgement |
+| Hello | both | 0x15 | Mesh node introduction |
+| Gossip | both | 0x16 | Mesh peer-list exchange |
+| SessionSearch | both | 0x17 | Search for a session across the mesh |
+| SdpOffer | both | 0x18 | WebRTC SDP offer (over TCP gossip; **stub**, no product path — NAT/WebRTC compiled out via `-DBS_NO_WEBRTC`) |
+| SdpAnswer | both | 0x19 | WebRTC SDP answer (stub) |
+| DhtFindNode | both | 0x1A | Kademlia find-node (stub; `-DBS_NO_DHT`) |
+| DhtFindValue | both | 0x1B | Kademlia find-value (stub; `-DBS_NO_DHT`) |
+| FileMeta | both | 0x1C | File metadata (name, size, checksum, total_chunks) |
+| FileChunk | both | 0x1D | File data chunk (chunk_index, data) |
+| FileAck | both | 0x1E | File chunk ack / next-chunk request |
+| FileRequest | c→s | 0x1F | Request file transfer (path) |
+| *(next free)* | — | **0x20+** | Reserved for v2.0.8-alpha3 additions below |
+
+#### 2.2a v2.0.8-alpha3 planned message types (0x20+)
+
+| Type | Dir | Code | Payload / semantics |
+|------|-----|------|---------------------|
+| AttachAck | s→c | 0x21 | `{attach_id, session_name, cols, rows}` — server assigns canonical attach id; echoes effective PTY geometry (min-wins policy) |
+| OutputGap | s→c | 0x22 | `{dropped_bytes u64}` — emitted when a per-connection output queue overruns; makes "identical ordered bytes" (TODO #5d) testable instead of silently violated (today `catch(...){}` at :8401 drops bytes) |
+| ConversationAppend | both | 0x23 | `{conv_id, seq u64, ts u64, agent_id(pubkey hex), role u8, body utf8}` — seq assigned by store; mesh-relayable (any peer appends/reads) |
+| ConversationQuery | c→s | 0x24 | `{conv_id, since_seq}` |
+| ConversationBatch | s→c | 0x25 | Ordered message run (response to 0x24) |
+| CuaRequest | c→s | 0x26 | `{request_id u32, action u8 (screen_info/key/text/mouse_move/mouse_button/wheel/capture), x i16, y i16, button u8, hid_key u32, modifiers u8, text}` — **keys on wire are USB HID usage IDs, never platform keycodes** |
+| CuaResponse | s→c | 0x27 | `{request_id u32, status u8, error, screen_w, screen_h, format}` — capture results reference a following `ImageData` (0x12) frame, not inline pixels |
+
+`AttachMsg` (0x06) is **extended** (not replaced) with an optional trailing
+`client_instance_id` field using the existing backward-compat pattern
+(serialize ~:714, tolerant deserialize ~:1129). `CuaRequest/Response` are
+**FULL in alpha3** (all-3-OS backends + 6-pair matrix + WebRTC); the Windows
+`cua-helper` is the sole risk gate (see §15.1).
+
+
 **ADR-003: Three additional message types**
 
 `ScrollbackAck` — Client ACKs each scrollback chunk to pace replay. Default chunk: 500 lines.
@@ -146,24 +202,34 @@ connection path.
 
 **ADR-004: Stream = session attachment, not session lifetime**
 
-One TCP connection carries multiple independent streams via app-level stream IDs.
+> **Correction (v2.0.8-alpha3):** the frame schema below is the *designed* envelope,
+> but the **shipped monolith does NOT currently use per-session stream IDs** — every
+> frame (control and session output) is written on **stream 0** (`write_frame(target.ssl.get(),
+> message, 0)` at `:8401`). The `stream_id` field exists in the wire frame but is
+> effectively unused today; sessions are distinguished by `attached_session` on the
+> connection, not by a stream ID. Per-session stream multiplexing is a **future**
+> enhancement, not current behavior. Treat the table below as the target design, not
+> the deployed reality.
+
+One TCP connection carries multiple independent streams via app-level stream IDs
+*(target design — see correction above)*.
 
 ```
 Frame: [stream_id: u16] [type: u8] [flags: u8] [length: u16] [data]
 flags: bit 0 = compressed (zstd), bit 1 = control frame
 ```
 
-- **Stream ID 0:** Control channel (Attach, Detach, SessionList, Ping/Pong)
-- **Stream ID 1–65535:** Session channels (Keystroke, Output, Clipboard, Signal)
+- **Stream ID 0:** Control channel + all session output (current monolith reality)
+- **Stream ID 1–65535:** *(target)* Session channels (Keystroke, Output, Clipboard, Signal)
 
 | Event | Stream Action |
 |-------|--------------|
-| Client sends `Attach{session_name}` | Server allocates a stream ID for this attachment |
+| Client sends `Attach{session_name}` | *(target)* Server allocates a stream ID for this attachment |
 | Client sends `Detach` | Server sends remaining buffered output, then closes the stream |
 | Client disconnects (TCP connection lost) | All streams implicitly closed. Session state preserved on server. |
-| Client reconnects + re-attaches | New TCP connection, new stream ID allocated for the attachment. |
+| Client reconnects + re-attaches | New TCP connection, *(target)* new stream ID allocated for the attachment. |
 
-Sessions live 7 days. Stream IDs are scoped to a single TCP connection (65535 max). At 100 attachments/day, this is decades of headroom.
+Sessions live 7 days. *(Target)* stream IDs scoped to a single TCP connection (65535 max).
 
 ### 2.4 Clipboard — Two-Way, Guaranteed
 
@@ -208,7 +274,13 @@ SERVER → MACOS (copy from session):
 
 ---
 
-## 3. bs-server (Remote Linux Daemon)
+## 3. Mesh node daemon (Linux / macOS / Windows)
+
+> **Correction (v2.0.8-alpha3):** this section was titled "Remote Linux Daemon".
+> Since v2.0.7-alpha2 the daemon is a **single binary** running on **all three**
+> OSes (Linux systemd user service, macOS launchd, Windows service/ConPTY). The
+> §1 diagram shows a macOS client + Linux server for illustration; the mesh is
+> OS-agnostic — any node may be any OS.
 
 ### 3.1 Startup & Auto-Spawn
 
@@ -262,23 +334,51 @@ When PTY exits unexpectedly: send `SessionDied{exit_code, signal}` to attached c
 **Other rules:**
 - Sessions survive client disconnects indefinitely
 - Idle timeout: 7 days default, resets on any PTY output
-- Output buffer: zstd-compressed circular buffer, last 16K lines (~8 MB, 1 MB default)
+- Output buffer: zstd-compressed **raw-byte** circular buffer, `kDefaultRingBufferSize = 1 MiB` (`:2238`); default `scrollback_lines = 2000` (`:2873`, configurable). The buffer stores raw ANSI bytes — there is **no terminal emulator**, so cross-geometry reflow is a P2 **stretch** (best-effort, not a release gate).
 - On reattach: replay last 2K lines in 500-line chunks, each chunk ACK'd
 
 ### 3.3 Multi-Client Per Session
 
-v1: **Single attached client per authorized-client session namespace.** Session
-names are user-facing labels scoped by the authenticated client public key
-(`owner_id = peer ed25519 pubkey hex`). This means:
+> **Correction (v2.0.8-alpha3):** The owner-scoped namespace described below
+> is **true only of the `bs-server/` reference library** (`session_manager.cpp`
+> keys by `owner_id + "\x1f" + name`). The **shipped monolith**
+> (`bridgesessions.cpp`) keys `sessions_` by **session name only**
+> (`sessions_.find(name)`, `sessions_[name]` — verified at :4061/:4131/:4170).
+> Any authorized key can therefore attach to any named session on a daemon;
+> `peer_ids` is a per-session list of *all* attached pubkeys, not a namespace
+> key. Treat the monolith as wire SoT. See §3.3a for the v2.0.8 attachment model.
 
-- user1/keyA can attach to `agent`
-- user2/keyB can attach to `blah`
-- user3/keyC can attach to `okay`
-- user4/keyD can also attach to `agent`
+**Monolith reality (v2.0.7+):** a session name is a **global per-daemon**
+label. Multiple distinct authorized keys may attach to the same session and all
+receive fanned-out `Output` (fanout verified at `pty_output_poller` :8386-8442).
+What is **NOT** first-class today is *same-key multi-attach* bookkeeping:
 
-Those two `agent` sessions do not collide because their namespace key differs.
-Reusing the same client key intentionally reattaches to that key's same logical
-session name. v2 fan-out mode can add read-only spectators inside one namespace.
+- `peer_ids` is **deduped by pubkey** on attach (`bridgesessions.cpp:4068-4072`,
+  `4086-4090`): N connections from the same key collapse to **one** `peer_ids`
+  entry. There is no per-connection attach id, no per-connection scrollback
+  cursor, no attach count.
+- Detach erases `peer_ids` **by value** (`sessions_.detach(name, pubkey)`,
+  :4168-4179) — `std::remove` drops *all* entries for that pubkey.
+- A reconnect-race guard `has_replacement_transport` (:5771-5782) keeps the
+  session alive across same-key detach by accident of pubkey matching, but the
+  identity model is pubkey-granular, not connection-granular.
+
+#### 3.3a v2.0.8-alpha3 attachment model (target)
+
+`Session` gains `attachments: map<attach_id, {owner_pubkey, conn_idx, cols,
+rows, attached_at}>`. `attach_id` is server-assigned (echoed in a new
+`AttachAck` message) or client-chosen trailing field on `AttachMsg` (backward-
+compatible, like `command`/`signal_on_detach`). `peer_ids` becomes a **derived**
+unique-pubkey view for persistence compatibility.
+
+- Detach is keyed by `attach_id`, not pubkey → fixes same-key N-attach collapse.
+- `--signal-on-detach` fires only when `attachments.empty()` AND state was
+  Attached/Running.
+- **Geometry policy (resize war):** server PTY size = **MIN(cols), MIN(rows)**
+  across live attachments (tmux model), recomputed on attach/detach/Resize.
+  `AttachAck` reports the effective size. Last-writer-wins is the alternative;
+  min-wins is the v2.0.8 default and must be documented.
+- Spectator role (read-only, no Keystroke/ComputerUse) is **in alpha3** (attachments flag).
 
 ### 3.4 Signal Handling
 
@@ -292,7 +392,7 @@ session name. v2 fan-out mode can add read-only spectators inside one namespace.
 
 ---
 
-## 4. bs-client (macOS Relay Agent)
+## 4. bs-client (mesh relay agent — Linux / macOS / Windows)
 
 ### 4.1 Startup Flow
 
@@ -471,7 +571,7 @@ cp bs-client /usr/local/bin/
 ### 7.3 Firewall
 
 ```
-Server: TCP 9948 (TLS 1.3)
+Server: TCP 19949 (TLS 1.3)
 Client: Ephemeral port
 ```
 
@@ -510,7 +610,7 @@ Identity:      ed25519 keypair
 ```
 
 **Why TLS over TCP for v1?**
-- Zero firewall issues — TCP 443/9948 traverses everything
+- Zero firewall issues — TCP 443/19949 traverses everything
 - OpenSSL is the most audited crypto library on the planet
 - TCP congestion control is OS-managed and bulletproof
 - Application-level multiplexing is ~200 lines of C++
@@ -570,12 +670,16 @@ Identity:      ed25519 keypair
 - [ ] Output buffer: zstd-compressed circular, 16K lines, ~8 MB per session
 - [ ] Health check endpoint
 
-### Won't Do (v2+)
+### Won't Do (v2+) — remaining research surface
+
+> **Correction (v2.0.8-alpha3):** several items below were already shipped and are
+> moved out of "won't do": **file transfer** (`FileMeta`/`FileChunk`/`FileAck`/`FileRequest`
+> 0x1C–0x1F) and **multi-client fan-out** (live `Output` fan-out to all attached
+> clients, `pty_output_poller` :8386-8442) both exist in v2.0.7-alpha2. QUIC/msquic
+> and WebRTC/NAT remain research-only (compiled out via `-DBS_NO_WEBRTC`/no-msquic).
 
 - [ ] Native QUIC via msquic (connection migration, 0-RTT, stream multiplexing)
 - [ ] Multi-window/multi-pane layout server-side
-- [ ] File transfer / port forwarding
-- [ ] Multi-client fan-out
 - [ ] UDP hole punching / NAT traversal
 - [ ] Web gateway
 - [ ] Mosh-style predictive echo
@@ -584,7 +688,9 @@ Identity:      ed25519 keypair
 - [ ] BridgeSpace servers.json UI integration
 - [ ] Single bs-client process muxing panes over one connection
 
-**v1 is "a reliable, encrypted, compressed, two-way-clipboard session relay that replaces mosh+ssh+zellij."**
+**v1/v2 statement of record:** *"a reliable, encrypted, compressed, two-way-clipboard
+session relay that replaces mosh+ssh+zellij"* — superseded by the multi-OS mesh daemon
+shipped in v2.0.7-alpha2.
 
 ---
 
@@ -618,7 +724,7 @@ bridgesessions/
 │   │   └── frame_io.cpp
 │   └── tests/
 │       └── tls_test.cpp
-├── bs-server/                  # Linux daemon (executable)
+├── bs-server/                  # Mesh daemon library/reference (all 3 OSes; executable)
 │   ├── CMakeLists.txt
 │   ├── src/
 │   │   ├── main.cpp
@@ -629,23 +735,35 @@ bridgesessions/
 │   │   ├── osc52_capture.hpp
 │   │   └── persistence.hpp
 │   └── tests/
-├── bs-client/                  # macOS relay (executable)
+├── bs-client/                  # Client relay library/reference (all 3 OSes; executable)
 │   ├── CMakeLists.txt
 │   ├── src/
 │   │   ├── main.cpp
-│   │   ├── clipboard_bridge.mm # Objective-C++ for NSPasteboard
+│   │   ├── clipboard_bridge.mm # Objective-C++ for NSPasteboard (macOS)
 │   │   └── terminal_raw.cpp    # tcsetattr cfmakeraw
 │   └── tests/
+├── bridgesessions.cpp          # CANONICAL single-binary monolith (Wire SoT; ~12,004 LOC; BS_VERSION)
+├── tools/
+│   ├── bridgepanel/            # BridgePanel HTTP server (publish/note/message)
+│   └── windows-cua/        # Windows CUA PowerShell scripts
+├── scripts/                    # build/CI/helper scripts
+├── tests/                      # integration + multi-attach + protocol tests
 ├── docs/
 │   ├── ARCHITECTURE.md         # This file — the spec
 │   ├── ROADMAP.md              # Implementation phases + timeline
 │   ├── protocol.md             # Wire format spec
+│   ├── RELEASE-2.0.8-alpha3.md # v2.0.8-alpha3 phased plan
 │   └── deployment.md           # Server setup, firewalling
 ├── .clang-format
 ├── .clang-tidy
 ├── .gitignore
 └── README.md
 ```
+
+> **Correction (v2.0.8-alpha3):** the `bs-client`/`bs-server` directories are
+> **library/reference code that builds on all three OSes**, not OS-specific. The
+> shipped product is the single `bridgesessions.cpp` monolith (one binary, three
+> portable static builds). `bs-protocol` enum is stale vs the monolith (see §2.2).
 
 ---
 
@@ -678,7 +796,7 @@ bridgesessions/
 | 023 | authorized_keys + revoked_keys flat files | §5 |
 | 024 | 0-RTT not applicable (TCP); disabled in v2 | — |
 | 025 | Same-user model, env sanitization, ulimit | §3 |
-| 026 | Thread-per-session; adequate to 10K concurrent | ROADMAP.md |
+| 026 | Thread-per-session; adequate to 10K concurrent | ROADMAP.md | **Superseded by v2.0.7 single select-loop + bounded 2-thread file-transfer pool** (see §0) |
 | 027 | Raw ANSI ring buffer, zstd-compressed, 1MB default | §3.2 |
 | 028 | Session metadata persistence (JSON), explicit resurrect | ROADMAP.md |
 | 029 | Per-user bs-server (mosh model, no root) | §3 |
@@ -728,9 +846,127 @@ All 26 research questions investigated May 2026 via DeerFlow v2 (TinyFish + Exa 
 
 ---
 
-**Status:** v1.4.0 implemented (bridgesessions.cpp, 6,967 lines, single binary), v1.7 in development.
-**Language:** C++23 (firm).
-**Transport:** TLS 1.3 over TCP v1 → QUIC via msquic v2.
-**Auth:** ed25519 mutual TLS + TOFU (firm).
+## 15. v2.0.8-alpha3 Feature Architecture
+
+This section captures the architecture decisions for the five required features
+(TODO.md + PLANS.md) as endorsed by the 2026-07-20 MoA review (Grok 4.5 + Kimi K3
+workers, `stack.moa.worker` judge), with the **operator override (2026-07-20) to build
+all five to FULL functionality in 2.0.8-alpha3** (the MoA had recommended a thin slice +
+2.0.9 deferral). Phase sequencing and per-phase verification gates live in `PLANS.md`.
+
+### 15.1 Computer use (CUA) — FULL in alpha3 (all-3-OS backends + 6-pair matrix + WebRTC)
+
+**Wire types (see §2.2a):** `CuaRequest` (0x26) / `CuaResponse` (0x27). Keys on the wire
+are **USB HID usage IDs**, never platform keycodes; each backend translates HID→native.
+Capture results reference a following `ImageData` (0x12) frame — already exists and is
+mesh-transferable.
+
+**Dispatch surface:** new `bs-cua/` static lib, one backend per OS behind a common
+interface (`inject_key / inject_text / inject_pointer / screen_info / capture`):
+
+| OS | Inject backend | Capture | alpha3 bar |
+|----|---------------|---------|------------|
+| Windows | `SendInput` + per-logon **cua-helper** process | GDI BitBlt / ffmpeg gdigrab | **Must work** in interactive user session |
+| Linux | X11 `XTest` first; `uinput`/evdev fallback | XGetImage / grim | Inject + capture both functional |
+| macOS | `CGEvent` (TCC grant) | `CGWindowListCreateImage` | Inject + capture both functional |
+
+**`Handle=0` / Session-1 blocker (the one hard research risk):** a daemon running as
+SYSTEM cannot inject into the visible user desktop session. The alpha3 fix is a
+**per-user logon helper agent** (`bridgesessions cua-helper`) started at user login; the
+daemon delegates inject/capture to it over an authenticated named pipe. **This is the
+sole risk gate for the whole CUA feature** — Linux and macOS ship regardless of the
+Windows outcome. If the cloud-pc `cua-helper` PoC fails to resolve Handle=0, Windows
+injection is the only blocked item (documented, not silently half-built).
+
+**6-pair matrix (from→to, all combinations):** Linux→{Win,Mac,Linux}, Win→{Linux,Mac,Win},
+Mac→{Linux,Win,Mac}. Each pair dispatched via the mesh relay (`shell`/`use` routing model)
+and verified by screenshot diff / telemetry. Vision leg: capture on one OS → analyzed on
+another. **WebRTC live-media path** (5b) carries CUA frames with sub-second cadence.
+
+**Security gate (non-negotiable):** CUA is RCE-adjacent. Gated by `authorized_keys` like
+shell/exec; capability advertised in `ServerInfo` (0x09) as `cua: true`; **every injected
+action audit-logged**. No CUA over untrusted WAN without the Tailscale story.
+
+### 15.2 Bridge Panel conversations — FULL in alpha3 (store + CLI + virtualized render + mesh relay)
+
+Panel today is a 1486-line stdlib HTTP server whose only write paths are
+`publish()`/`note()` copying Markdown into `sessions/<session>/<comms|documents>/`.
+**Zero conversation/message model exists** (verified by grep).
+
+**Store (alpha3):** append-only JSONL per thread —
+`<data_home>/sessions/<session>/conversations/<conv_id>.jsonl`, one JSON per line
+`{seq, ts, agent(pubkey hex|human), role, body}` + `<conv_id>.meta.json`. Namespaced by
+originating agent pubkey; readable by other mesh peers.
+
+**Writers:** new `bridgepanel.py message --session S --conv C --role R --text …` (mirrors
+`publish()`); any mesh peer with the panel token can append. Mesh-native relay via
+`ConversationAppend` (0x23) / `ConversationQuery` (0x24) / `ConversationBatch` (0x25) so a
+peer on any node appends/reads — satisfies "any agent on the mesh" without the panel
+itself becoming a mesh client.
+
+**Readers:** `build_tree` gains a "Conversations" node; GET returns JSON (`?since_seq=`) +
+paginated HTML; **client-side virtualized list** (no jank at 5000 messages); copy
+per-message. Long documents also support incremental append (5c).
+
+**Tests:** pytest — multi-agent interleave ordered by seq; 5000-message virtualization
+scroll smooth (no layout thrash); append-without-token rejected; mesh relay A→B→C ordering
+preserved. UI verified in a **real browser, 0 console errors** (operator standard).
+
+### 15.3 Streaming — FULL in alpha3 (harden fanout + progressive transfer + panel incremental)
+
+**Correction:** TODO #5's "no streaming path exists" is **false for shell output**.
+`pty_output_poller` (:8386-8442) already fans `Output` to every attached conn each
+event-loop pass. The real gaps:
+
+1. **Silent byte loss** — fanout failure is swallowed by `catch(...){}` at :8401; a slow
+   client loses bytes with no signal. Fix: per-connection bounded output queue; high-water
+   → drop-oldest + emit `OutputGap` (0x22); catastrophic lag → close that conn only.
+2. **No flow control / lag tracking.** `OutputGap` makes "identical ordered bytes" (5d) testable.
+3. **`exec_busy` starvation** — file/media transfer borrows the transport exclusively
+   (:7079/:7424). **Live streams must NOT take `exec_busy`**; they ride normal frames.
+4. **5b progressive transfer / live media** — `file recv` yields partial bytes + SHA at
+   completion; a live media stream (screenshots/video frames) flows from a source peer to a
+   viewer peer without a full capture-then-transfer cycle.
+5. **5c panel incremental** — conversation messages and long documents append live (no republish).
+
+**Tests:** long command → 2 attached clients, identical ordered bytes, bounded lag; throttle
+one → `OutputGap` observed, other unaffected; kill one mid-stream → survivor unaffected;
+E2E live-media cloud-pc→viewer with sub-second cadence.
+
+### 15.4 Cross-resolution display correctness — FULL harness + doctor (server-side reflow = stretch)
+
+Parameterized harness drives PTYs at 80×24 / 120×40 / 160×50 / 200×100 (+ intermediate);
+asserts no wrap beyond width, no dropped rows, byte-exact scrollback replay **at the same
+geometry**, and CJK/emoji/box-drawing survive capture→transfer→render. `doctor` prints size
++ a glyph sample + environment facts (Wayland/X11/TCC) feeding the CUA risk gates.
+
+**Stretch (best-effort, not a release gate):** a server-side terminal emulator for true
+cross-geometry reflow. The ring buffer stores **raw ANSI bytes** today; byte-exact replay
+across *different* geometries needs a TE. If the stretch slips, document the limitation
+rather than block release.
+
+### 15.5 Multi-attach, same source PC (see §3.3a) — FULL + spectator
+
+Already partially works by accident of `has_replacement_transport`; the v2.0.8 fix is the
+`attachments` map + `attach_id`-keyed detach + MIN-geometry policy + new `AttachAck` (0x21).
+**Spectator role** (read-only `attachments` flag: receives `Output`, `Keystroke`/`ComputerUse`
+rejected with `Error`) is included. **Tests:** 3 same-key conns attach, all receive output;
+close 2 → session+child survive; close last → `--signal-on-detach` fires; reattach with same
+`instance_id` = replace, new `instance_id` = additional; resize from two conns → min-wins;
+spectator receives output but cannot inject.
+
+### 15.6 bs-protocol library drift (P0 decision)
+
+The `bs-protocol/` library enum (stops at 0x14) is **behind** the monolith (0x01–0x1F) and
+its `AttachMsg` lacks `command`/`signal_on_detach`. In alpha3 P0 decide: **(a) regenerate
+the library codec from the monolith, or (b) freeze it as test-only**. Monolith is wire SoT
+regardless. Encode the decision in PLANS.md/TODO.md.
+
+---
+
+**Status:** v2.0.7-alpha2 shipped (single `bridgesessions.cpp` monolith, ~12,004 LOC, 3-platform portable static binaries: linux-x86_64 / macos-arm64 / windows-x86_64.exe). v2.0.8-alpha3 is the active cycle — building all five features to full functionality (see `PLANS.md` phases + `TODO.md` items + §15).
+**Language:** C++23 (firm; gcc 14+ / clang 18+).
+**Transport:** TLS 1.2+/1.3 over TCP :19949 (QUIC/msquic noted as v2 research only — not built).
+**Auth:** ed25519 mutual TLS + `authorized_keys` flat-file (firm).
 **Compression:** zstd per-frame (firm).
-**Next:** Phase 0 — project scaffold + build system (see PLANS.md / TODO.md).
+**Next:** v2.0.8-alpha3 — building all five features to FULL functionality: multi-attach (same-key) + spectator, cross-resolution display harness + doctor (reflow stretch), streaming fanout + progressive transfer + panel incremental, panel conversation store + virtualized render + mesh relay, cross-platform CUA (all-3-OS backends + 6-pair matrix + WebRTC). Phases in `PLANS.md`, items in `TODO.md`, architecture in §15.
