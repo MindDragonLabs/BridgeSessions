@@ -80,6 +80,20 @@ chmod +x bridgesessions
 ./bridgesessions --version   # → 2.0.7-alpha2
 ```
 
+### Build matrix (how the 3 platform binaries are produced)
+
+All three are **portable static** (no runtime dylld/DLL deps beyond OS libs):
+
+| Platform | Built on | Method |
+|----------|----------|--------|
+| Linux x86_64 | test-pc1 via `ubuntu:22.04` container | static OpenSSL/zstd/fmt/spdlog + `-static-libstdc++ -static-libgcc`; glibc kept dynamic (DNS). Dockerfile `/tmp/bs-static/Dockerfile` (see `bridgesessions-static-build` skill). |
+| macOS arm64 | **test-pc5** (Apple clang 17) | native build, static deps into `~/local`, `cmake -DCMAKE_OSX_ARCHITECTURES=arm64`. Links only system `libc++`/`libSystem`. |
+| Windows x86_64 PE | **test-pc1 cross-compile** (`x86_64-w64-mingw32-g++`) | static deps into `~/bs-win`; compile `bridgesessions.cpp` directly with `-static`. PE imports only OS DLLs (KERNEL32/USER32/WS2_32/ADVAPI32/CRYPT32 + UCRT). |
+
+- **test-pc7 (Win11) has NO sshd** — ship the PE via **WinRM** (port 5985, NTLM, `shadow`/`Year25careful!` in test-pc1 `~/.ssh/config` note). Host a temp `python3 -m http.server` on test-pc1's TS IP, then `curl.exe` it from a WinRM `run_ps`.
+- mac/win release binaries ARE committed to `dist/` (the `.gitignore` only ignores the dev `bridgesessions.exe` + `*.o`/`*.obj`). `SHA256SUMS`/`SBOM` stay gitignored (downloader regenerates).
+- Re-tag after changing `dist/`: `git tag -f v2.0.7-alpha2 HEAD && git push --force codeberg main && git push --force codeberg v2.0.7-alpha2`.
+
 ### Publish to Codeberg (SSH only)
 
 On the operator host that has the **Mind-Dragon** Codeberg key:
