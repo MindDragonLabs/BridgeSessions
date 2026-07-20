@@ -8,6 +8,13 @@
 
 namespace bs::protocol {
 
+// ── FROZEN / TEST-ONLY — do not extend ───────────────────────────
+// Per operator decision 2026-07-20: `bs-protocol` is frozen. The monolith
+// (`bridgesessions.cpp`) is the wire source of truth. This library is retained
+// only for tests/examples and intentionally lags the monolith (which now defines
+// wire types through 0x27 incl. 2.0.8-alpha3 AttachAck/OutputGap/Conversation*/
+// Cua*). Do NOT add new message types here; add them to the monolith instead.
+
 // ── Message Type Enum ─────────────────────────────────────────────
 // Per ARCHITECTURE.md §2.2 — 20 message types
 

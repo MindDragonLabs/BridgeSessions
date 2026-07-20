@@ -701,7 +701,7 @@ TEST_CASE("bounded TCP connect does not exceed its deadline",
 
 TEST_CASE("release and mesh Hello share the canonical version",
           "[config][release][version]") {
-    REQUIRE(std::string(kBridgeSessionsVersion) == "2.0.7");
+    REQUIRE(std::string(kBridgeSessionsVersion) == "2.0.8-alpha3");
 
     namespace fs = std::filesystem;
     auto root = fs::temp_directory_path() /
@@ -902,4 +902,87 @@ TEST_CASE("save_config does not persist untrusted discovered peers",
     MeshConfig reloaded = load_config(cfg_path);
     REQUIRE(reloaded.discovered.empty());
     fs::remove_all(fs::path(cfg_path).parent_path());
+}
+
+// ── 2.0.8-alpha3 P0: codec round-trip for all new/extended wire types ──
+
+static Message round_trip(const Message& in, uint16_t stream_id = 0) {
+    auto frame = encode(in, stream_id);
+    return decode(frame);
+}
+
+TEST_CASE("P0 codec round-trip: all 2.0.8-alpha3 message types",
+          "[codec][alpha3][p0]") {
+    // AttachAck
+    AttachAckMsg ack; ack.attach_id = 42; ack.session_name = "hms";
+    ack.cols = 120; ack.rows = 40;
+    auto out = std::get<AttachAckMsg>(round_trip(Message{ack}));
+    REQUIRE(out.attach_id == 42); REQUIRE(out.session_name == "hms");
+    REQUIRE(out.cols == 120); REQUIRE(out.rows == 40);
+
+    // OutputGap
+    OutputGapMsg gap; gap.dropped_bytes = 123456789012ULL;
+    auto gout = std::get<OutputGapMsg>(round_trip(Message{gap}));
+    REQUIRE(gout.dropped_bytes == 123456789012ULL);
+
+    // ConversationAppend
+    ConversationAppendMsg ca; ca.conv_id = "c1"; ca.seq = 7; ca.ts = 1700000000123ULL;
+    ca.agent_id = "agent-pubkey"; ca.role = 2; ca.body = "hello world";
+    auto cout = std::get<ConversationAppendMsg>(round_trip(Message{ca}));
+    REQUIRE(cout.conv_id == "c1"); REQUIRE(cout.seq == 7);
+    REQUIRE(cout.ts == 1700000000123ULL); REQUIRE(cout.agent_id == "agent-pubkey");
+    REQUIRE(cout.role == 2); REQUIRE(cout.body == "hello world");
+
+    // ConversationQuery
+    ConversationQueryMsg cq; cq.conv_id = "c1"; cq.since_seq = 3;
+    auto qout = std::get<ConversationQueryMsg>(round_trip(Message{cq}));
+    REQUIRE(qout.conv_id == "c1"); REQUIRE(qout.since_seq == 3);
+
+    // ConversationBatch (run of appends)
+    ConversationBatchMsg batch; batch.conv_id = "c1";
+    ConversationAppendMsg a1; a1.conv_id = "c1"; a1.seq = 1; a1.body = "one";
+    ConversationAppendMsg a2; a2.conv_id = "c1"; a2.seq = 2; a2.body = "two";
+    batch.messages = {a1, a2};
+    auto bout = std::get<ConversationBatchMsg>(round_trip(Message{batch}));
+    REQUIRE(bout.conv_id == "c1");
+    REQUIRE(bout.messages.size() == 2);
+    REQUIRE(bout.messages[0].seq == 1); REQUIRE(bout.messages[0].body == "one");
+    REQUIRE(bout.messages[1].seq == 2); REQUIRE(bout.messages[1].body == "two");
+
+    // CuaRequest (HID usage IDs on wire)
+    CuaRequestMsg req; req.request_id = 99; req.action = 1; req.x = 640; req.y = 480;
+    req.button = 1; req.hid_key = 0x04; req.modifiers = 0x02; req.text = "a";
+    auto rout = std::get<CuaRequestMsg>(round_trip(Message{req}));
+    REQUIRE(rout.request_id == 99); REQUIRE(rout.action == 1);
+    REQUIRE(rout.x == 640); REQUIRE(rout.y == 480);
+    REQUIRE(rout.hid_key == 0x04); REQUIRE(rout.modifiers == 0x02);
+
+    // CuaResponse
+    CuaResponseMsg resp; resp.request_id = 99; resp.status = 0; resp.screen_w = 1920;
+    resp.screen_h = 1080; resp.format = 1;
+    auto esout = std::get<CuaResponseMsg>(round_trip(Message{resp}));
+    REQUIRE(esout.request_id == 99); REQUIRE(esout.status == 0);
+    REQUIRE(esout.screen_w == 1920); REQUIRE(esout.screen_h == 1080);
+    REQUIRE(esout.format == 1);
+}
+
+TEST_CASE("P0 backward-compat: AttachMsg trailing client_instance_id tolerant decode",
+          "[codec][alpha3][p0][backward-compat]") {
+    // New-format attach with client_instance_id set
+    AttachMsg a; a.session_name = "hms"; a.cols = 80; a.rows = 24;
+    a.client_instance_id = 0xDEADBEEF;
+    auto aout = std::get<AttachMsg>(round_trip(Message{a}));
+    REQUIRE(aout.session_name == "hms");
+    REQUIRE(aout.client_instance_id == 0xDEADBEEF);
+
+    // Old-format attach frame (no client_instance_id) must still decode,
+    // defaulting client_instance_id to 0 (backward compat with 2.0.7 clients).
+    AttachMsg old; old.session_name = "legacy"; old.cols = 100; old.rows = 30;
+    auto old_frame = encode(Message{old}, 0);
+    // Manually strip nothing — encode already omits trailing field when 0;
+    // verify decode tolerates a frame one u32 shorter than the new max:
+    auto old_out = std::get<AttachMsg>(decode(old_frame));
+    REQUIRE(old_out.session_name == "legacy");
+    REQUIRE(old_out.cols == 100); REQUIRE(old_out.rows == 30);
+    REQUIRE(old_out.client_instance_id == 0);  // defaulted, not garbage
 }

@@ -328,6 +328,14 @@ enum class MessageType : uint8_t {
     FileChunk      = 0x1D,  // bidirectional: file data chunk (chunk_index, data)
     FileAck        = 0x1E,  // bidirectional: file chunk acknowledgement / next chunk request
     FileRequest    = 0x1F,  // client → server: request file transfer (path)
+    // ── 2.0.8-alpha3 wire types (0x20 reserved) ──
+    AttachAck      = 0x21,  // server → client: {attach_id, session_name, cols, rows}
+    OutputGap      = 0x22,  // server → client: {dropped_bytes} per-conn queue overrun
+    ConversationAppend = 0x23, // both: {conv_id, seq, ts, agent_id, role, body}
+    ConversationQuery   = 0x24, // client → server: {conv_id, since_seq}
+    ConversationBatch   = 0x25, // server → client: ordered message run
+    CuaRequest     = 0x26,  // client → server: computer-use action (HID usage IDs on wire)
+    CuaResponse    = 0x27,  // server → client: {status, error, screen_w/h, format}
 };
 
 // ── Empty Message Structs (must be declared before variant) ──────
@@ -414,6 +422,7 @@ struct AttachMsg {
     std::string term = "xterm-256color";
     std::string command;    // optional command to run in the attached session (exec-based attach)
     std::string signal_on_detach; // optional: HUP/TERM/INT/KILL sent to child on last-peer detach
+    uint32_t client_instance_id = 0; // per-connection instance id, distinct from client pubkey (2.0.8 multi-attach)
 };
 
 struct SessionInfo {
@@ -451,6 +460,66 @@ struct ExitCodeMsg {
 struct SessionDiedMsg {
     int32_t exit_code = 0;
     int32_t signal_num = 0;
+};
+
+// ── 2.0.8-alpha3 Message Structs ────────────────────────────────
+
+struct AttachAckMsg {
+    uint32_t attach_id = 0;     // server-assigned canonical attach id
+    std::string session_name;
+    uint16_t cols = 80;
+    uint16_t rows = 24;
+    bool operator==(const AttachAckMsg&) const = default;
+};
+
+struct OutputGapMsg {
+    uint64_t dropped_bytes = 0; // emitted when a per-connection output queue overruns
+    bool operator==(const OutputGapMsg&) const = default;
+};
+
+struct ConversationAppendMsg {
+    std::string conv_id;
+    uint64_t seq = 0;           // assigned by store
+    uint64_t ts = 0;            // unix ms
+    std::string agent_id;       // pubkey hex, or "human"
+    uint8_t role = 0;           // 0=system 1=user 2=agent 3=tool
+    std::string body;
+    bool operator==(const ConversationAppendMsg&) const = default;
+};
+
+struct ConversationQueryMsg {
+    std::string conv_id;
+    uint64_t since_seq = 0;
+    bool operator==(const ConversationQueryMsg&) const = default;
+};
+
+struct ConversationBatchMsg {
+    std::string conv_id;
+    std::vector<ConversationAppendMsg> messages;
+    bool operator==(const ConversationBatchMsg&) const = default;
+};
+
+// CUA action enum (mirrors wire action byte)
+struct CuaRequestMsg {
+    uint32_t request_id = 0;
+    uint8_t action = 0;         // 0=screen_info 1=key 2=text 3=mouse_move 4=mouse_button 5=wheel 6=capture
+    int16_t x = 0;
+    int16_t y = 0;
+    uint8_t button = 0;
+    uint32_t hid_key = 0;       // USB HID usage ID (never platform keycode)
+    uint8_t modifiers = 0;      // bitmask: 1=ctrl 2=shift 4=alt 8=meta
+    std::string text;
+    bool operator==(const CuaRequestMsg&) const = default;
+};
+
+struct CuaResponseMsg {
+    uint32_t request_id = 0;
+    uint8_t status = 0;         // 0=ok 1=error
+    std::string error;
+    uint32_t screen_w = 0;
+    uint32_t screen_h = 0;
+    uint8_t format = 0;         // 0=none 1=png 2=jpeg (capture result format)
+    bool operator==(const CuaResponseMsg&) const = default;
 };
 
 // ── NEW Mesh Message Structs ────────────────────────────────────
@@ -583,7 +652,14 @@ using Message = std::variant<
     FileMetaMsg,        // 26 — P1 file transfer
     FileChunkMsg,       // 27 — P1 file transfer
     FileAckMsg,         // 28 — P1 file transfer
-    FileRequestMsg      // 29 — P1 file transfer
+    FileRequestMsg,     // 29 — P1 file transfer
+    AttachAckMsg,       // 30 — 2.0.8-alpha3
+    OutputGapMsg,       // 31 — 2.0.8-alpha3
+    ConversationAppendMsg, // 32 — 2.0.8-alpha3
+    ConversationQueryMsg,  // 33 — 2.0.8-alpha3
+    ConversationBatchMsg,  // 34 — 2.0.8-alpha3
+    CuaRequestMsg,     // 35 — 2.0.8-alpha3
+    CuaResponseMsg     // 36 — 2.0.8-alpha3
 >;
 
 // ── Frame ──────────────────────────────────────────────────────────
@@ -640,10 +716,17 @@ constexpr MessageType index_to_type[] = {
     MessageType::SdpAnswer,     // 23 — D15
     MessageType::DhtFindNode,   // 24 — D16
     MessageType::DhtFindValue,  // 25 — D16
-    MessageType::FileMeta,      // 26 — P1
-    MessageType::FileChunk,     // 27 — P1
-    MessageType::FileAck,       // 28 — P1
-    MessageType::FileRequest,   // 29 — P1
+    MessageType::FileMeta,        // 26 — P1 file transfer
+    MessageType::FileChunk,       // 27 — P1 file transfer
+    MessageType::FileAck,         // 28 — P1 file transfer
+    MessageType::FileRequest,     // 29 — P1 file transfer
+    MessageType::AttachAck,         // 30 — 2.0.8-alpha3
+    MessageType::OutputGap,         // 31 — 2.0.8-alpha3
+    MessageType::ConversationAppend,// 32 — 2.0.8-alpha3
+    MessageType::ConversationQuery, // 33 — 2.0.8-alpha3
+    MessageType::ConversationBatch, // 34 — 2.0.8-alpha3
+    MessageType::CuaRequest,        // 35 — 2.0.8-alpha3
+    MessageType::CuaResponse        // 36 — 2.0.8-alpha3
 };
 
 static_assert(std::size(index_to_type) == std::variant_size_v<Message>,
@@ -676,6 +759,7 @@ struct Serializer {
     void bytes(std::span<const uint8_t> b) { bytes(b.data(), b.size()); }
     void u16(uint16_t v) { uint8_t b[2]; write_u16(b, v); bytes(b, 2); }
     void u32be(uint32_t v) { for (int i=3; i>=0; --i) out.push_back(v>>(i*8)); }
+    void u64be(uint64_t v) { for (int i=7; i>=0; --i) out.push_back(static_cast<uint8_t>(v>>(i*8))); }
     void u8(uint8_t v) { out.push_back(v); }
     void str(const std::string& s) { bytes(reinterpret_cast<const uint8_t*>(s.data()), s.size()); }
     void str_prefixed(const std::string& s) {
@@ -711,7 +795,7 @@ void serialize_msg(Serializer& s, const ImageFrameMsg&   m) {
     if (!m.data.empty()) s.bytes(std::span<const uint8_t>(m.data.data(), m.data.size()));
 }
 void serialize_msg(Serializer& s, const ImageAckMsg&)     {}
-void serialize_msg(Serializer& s, const AttachMsg&       m) { s.u16(m.cols); s.u16(m.rows); s.str_prefixed(m.term); s.str_prefixed(m.session_name); s.str_prefixed(m.routing); s.str_prefixed_u16(m.command); s.str_prefixed_u16(m.signal_on_detach); }
+void serialize_msg(Serializer& s, const AttachMsg&       m) { s.u16(m.cols); s.u16(m.rows); s.str_prefixed(m.term); s.str_prefixed(m.session_name); s.str_prefixed(m.routing); s.str_prefixed_u16(m.command); s.str_prefixed_u16(m.signal_on_detach); s.u32be(m.client_instance_id); }
 void serialize_msg(Serializer& s, const DetachMsg&)        {}
 void serialize_msg(Serializer& s, const PingMsg&)          {}
 void serialize_msg(Serializer& s, const PongMsg&)          {}
@@ -786,6 +870,36 @@ void serialize_msg(Serializer& s, const FileAckMsg& m) {
     s.str_prefixed_u16(m.error_msg);
 }
 
+// ── 2.0.8-alpha3 serialize dispatchers ──────────────────────────
+void serialize_msg(Serializer& s, const AttachAckMsg& m) {
+    s.u32be(m.attach_id); s.str_prefixed(m.session_name);
+    s.u16(m.cols); s.u16(m.rows);
+}
+void serialize_msg(Serializer& s, const OutputGapMsg& m) {
+    s.u64be(m.dropped_bytes);
+}
+void serialize_msg(Serializer& s, const ConversationAppendMsg& m) {
+    s.str_prefixed(m.conv_id); s.u64be(m.seq); s.u64be(m.ts);
+    s.str_prefixed(m.agent_id); s.u8(m.role); s.str_prefixed(m.body);
+}
+void serialize_msg(Serializer& s, const ConversationQueryMsg& m) {
+    s.str_prefixed(m.conv_id); s.u64be(m.since_seq);
+}
+void serialize_msg(Serializer& s, const ConversationBatchMsg& m) {
+    s.str_prefixed(m.conv_id);
+    for (auto& msg : m.messages) serialize_msg(s, msg);
+}
+void serialize_msg(Serializer& s, const CuaRequestMsg& m) {
+    s.u32be(m.request_id); s.u8(m.action);
+    s.u16(static_cast<uint16_t>(m.x)); s.u16(static_cast<uint16_t>(m.y));
+    s.u8(m.button); s.u32be(m.hid_key); s.u8(m.modifiers);
+    s.str_prefixed(m.text);
+}
+void serialize_msg(Serializer& s, const CuaResponseMsg& m) {
+    s.u32be(m.request_id); s.u8(m.status); s.str_prefixed(m.error);
+    s.u32be(m.screen_w); s.u32be(m.screen_h); s.u8(m.format);
+}
+
 // ── Zstd ──────────────────────────────────────────────────────
 
 std::vector<uint8_t> zstd_compress(std::span<const uint8_t> data) {
@@ -831,6 +945,14 @@ struct Decoder {
         uint32_t v = (static_cast<uint32_t>(p[0]) << 24) | (static_cast<uint32_t>(p[1]) << 16)
                    | (static_cast<uint32_t>(p[2]) << 8)  | p[3];
         p += 4;
+        return v;
+    }
+
+    uint64_t u64be() {
+        ensure(8);
+        uint64_t v = 0;
+        for (int i = 0; i < 8; ++i) v = (v << 8) | p[i];
+        p += 8;
         return v;
     }
 
@@ -1126,7 +1248,7 @@ Message decode(std::span<const uint8_t> raw) {
         return m;
     }
     case 0x11: { ClipboardEchoMsg m; m.hash = d.str_size(payload.size()); return m; }
-    case 0x06: { AttachMsg m; m.cols = d.u16(); m.rows = d.u16(); m.term = d.str_prefixed(); m.session_name = d.str_prefixed(); m.routing = d.str_prefixed(); /* command is optional (v1.7+, str_prefixed_u16). v1.6 clients don't send it. */ m.command = d.ok(2) ? d.str_prefixed_u16() : std::string{}; /* signal_on_detach is optional (v2.0.7+, str_prefixed_u16). */ m.signal_on_detach = d.ok(2) ? d.str_prefixed_u16() : std::string{}; return m; }
+    case 0x06: { AttachMsg m; m.cols = d.u16(); m.rows = d.u16(); m.term = d.str_prefixed(); m.session_name = d.str_prefixed(); m.routing = d.str_prefixed(); /* command is optional (v1.7+, str_prefixed_u16). v1.6 clients don't send it. */ m.command = d.ok(2) ? d.str_prefixed_u16() : std::string{}; /* signal_on_detach is optional (v2.0.7+, str_prefixed_u16). */ m.signal_on_detach = d.ok(2) ? d.str_prefixed_u16() : std::string{}; /* client_instance_id is optional (2.0.8+, u32be). Legacy 2.0.7 clients don't send it. */ m.client_instance_id = d.ok(4) ? d.u32be() : 0u; return m; }
     case 0x07: return DetachMsg{};
     case 0x08: {
         SessionListMsg m;
@@ -1288,6 +1410,62 @@ Message decode(std::span<const uint8_t> raw) {
     case 0x1F: {
         FileRequestMsg m;
         m.path = d.str_prefixed_u16();
+        return m;
+    }
+    // ── 2.0.8-alpha3 decode cases ──
+    case 0x21: {
+        AttachAckMsg m;
+        m.attach_id = d.u32be();
+        m.session_name = d.str_prefixed();
+        m.cols = d.u16(); m.rows = d.u16();
+        return m;
+    }
+    case 0x22: {
+        OutputGapMsg m;
+        m.dropped_bytes = d.u64be();
+        return m;
+    }
+    case 0x23: {
+        ConversationAppendMsg m;
+        m.conv_id = d.str_prefixed();
+        m.seq = d.u64be(); m.ts = d.u64be();
+        m.agent_id = d.str_prefixed(); m.role = d.u8();
+        m.body = d.str_prefixed();
+        return m;
+    }
+    case 0x24: {
+        ConversationQueryMsg m;
+        m.conv_id = d.str_prefixed();
+        m.since_seq = d.u64be();
+        return m;
+    }
+    case 0x25: {
+        ConversationBatchMsg m;
+        m.conv_id = d.str_prefixed();
+        // remaining bytes are a run of ConversationAppendMsg (no count prefix → parse until end)
+        while (d.ok(1)) {
+            ConversationAppendMsg am;
+            am.conv_id = d.str_prefixed();
+            am.seq = d.u64be(); am.ts = d.u64be();
+            am.agent_id = d.str_prefixed(); am.role = d.u8();
+            am.body = d.str_prefixed();
+            m.messages.push_back(std::move(am));
+        }
+        return m;
+    }
+    case 0x26: {
+        CuaRequestMsg m;
+        m.request_id = d.u32be(); m.action = d.u8();
+        m.x = static_cast<int16_t>(d.u16()); m.y = static_cast<int16_t>(d.u16());
+        m.button = d.u8(); m.hid_key = d.u32be(); m.modifiers = d.u8();
+        m.text = d.str_prefixed();
+        return m;
+    }
+    case 0x27: {
+        CuaResponseMsg m;
+        m.request_id = d.u32be(); m.status = d.u8();
+        m.error = d.str_prefixed();
+        m.screen_w = d.u32be(); m.screen_h = d.u32be(); m.format = d.u8();
         return m;
     }
     }
