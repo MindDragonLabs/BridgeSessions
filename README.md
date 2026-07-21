@@ -57,7 +57,7 @@ Install/refresh harness links: `./scripts/install-agent-skill.sh`.
 
 ## Install from binary
 
-Current release: **`2.0.8-alpha3`** (git tag `v2.0.8-alpha3`, local; fleet-deployed).
+Current release: **`2.0.8-alpha3`** (git tag `v2.0.8-alpha3`).
 Platform binaries live under `dist/`; checksums and the SBOM are generated from
 the exact tag.
 
