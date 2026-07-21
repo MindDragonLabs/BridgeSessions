@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# pre-push hook — refuses public-remote pushes that carry secrets/IPs.
+# Install: cp scripts/pre-push.hook .git/hooks/pre-push && chmod +x .git/hooks/pre-push
+remote="$1"
+case "$remote" in
+  codeberg|github|origin-public|*public*) : ;;
+  *) exit 0 ;;
+esac
+exec bash "$(git rev-parse --show-toplevel)/scripts/prepublish-scan.sh"
