@@ -423,6 +423,7 @@ struct AttachMsg {
     std::string command;    // optional command to run in the attached session (exec-based attach)
     std::string signal_on_detach; // optional: HUP/TERM/INT/KILL sent to child on last-peer detach
     uint32_t client_instance_id = 0; // per-connection instance id, distinct from client pubkey (2.0.8 multi-attach)
+    bool spectator = false; // 2.0.8: read-only attach (receives Output; Keystroke/CuaRequest rejected)
 };
 
 struct SessionInfo {
@@ -795,7 +796,7 @@ void serialize_msg(Serializer& s, const ImageFrameMsg&   m) {
     if (!m.data.empty()) s.bytes(std::span<const uint8_t>(m.data.data(), m.data.size()));
 }
 void serialize_msg(Serializer& s, const ImageAckMsg&)     {}
-void serialize_msg(Serializer& s, const AttachMsg&       m) { s.u16(m.cols); s.u16(m.rows); s.str_prefixed(m.term); s.str_prefixed(m.session_name); s.str_prefixed(m.routing); s.str_prefixed_u16(m.command); s.str_prefixed_u16(m.signal_on_detach); s.u32be(m.client_instance_id); }
+void serialize_msg(Serializer& s, const AttachMsg&       m) { s.u16(m.cols); s.u16(m.rows); s.str_prefixed(m.term); s.str_prefixed(m.session_name); s.str_prefixed(m.routing); s.str_prefixed_u16(m.command); s.str_prefixed_u16(m.signal_on_detach); s.u32be(m.client_instance_id); s.u8(m.spectator ? 1 : 0); }
 void serialize_msg(Serializer& s, const DetachMsg&)        {}
 void serialize_msg(Serializer& s, const PingMsg&)          {}
 void serialize_msg(Serializer& s, const PongMsg&)          {}
@@ -1248,7 +1249,7 @@ Message decode(std::span<const uint8_t> raw) {
         return m;
     }
     case 0x11: { ClipboardEchoMsg m; m.hash = d.str_size(payload.size()); return m; }
-    case 0x06: { AttachMsg m; m.cols = d.u16(); m.rows = d.u16(); m.term = d.str_prefixed(); m.session_name = d.str_prefixed(); m.routing = d.str_prefixed(); /* command is optional (v1.7+, str_prefixed_u16). v1.6 clients don't send it. */ m.command = d.ok(2) ? d.str_prefixed_u16() : std::string{}; /* signal_on_detach is optional (v2.0.7+, str_prefixed_u16). */ m.signal_on_detach = d.ok(2) ? d.str_prefixed_u16() : std::string{}; /* client_instance_id is optional (2.0.8+, u32be). Legacy 2.0.7 clients don't send it. */ m.client_instance_id = d.ok(4) ? d.u32be() : 0u; return m; }
+    case 0x06: { AttachMsg m; m.cols = d.u16(); m.rows = d.u16(); m.term = d.str_prefixed(); m.session_name = d.str_prefixed(); m.routing = d.str_prefixed(); /* command is optional (v1.7+, str_prefixed_u16). v1.6 clients don't send it. */ m.command = d.ok(2) ? d.str_prefixed_u16() : std::string{}; /* signal_on_detach is optional (v2.0.7+, str_prefixed_u16). */ m.signal_on_detach = d.ok(2) ? d.str_prefixed_u16() : std::string{}; /* client_instance_id is optional (2.0.8+, u32be). Legacy 2.0.7 clients don't send it. */ m.client_instance_id = d.ok(4) ? d.u32be() : 0u; /* spectator is optional (2.0.8+, u8). Defaults to interactive (false). */ m.spectator = d.ok(1) ? (d.u8() != 0) : false; return m; }
     case 0x07: return DetachMsg{};
     case 0x08: {
         SessionListMsg m;
@@ -2418,6 +2419,17 @@ constexpr size_t kDefaultRingBufferSize = 1'048'576;
 struct Session {
     std::string name;
     std::vector<std::string> peer_ids; // pubkey hex of all peers currently attached (empty if detached)
+    // 2.0.8 multi-attach: per-connection attachments, keyed by server-assigned
+    // attach_id. Distinct from peer_ids (pubkey set) so N connections from one
+    // key are tracked separately (scrollback cursor, detach bookkeeping, geometry).
+    struct Attachment {
+        uint32_t attach_id = 0;
+        uint16_t cols = 80;
+        uint16_t rows = 24;
+        bool spectator = false;
+        std::string pubkey;
+    };
+    std::unordered_map<uint32_t, Attachment> attachments;
     std::string command;
     std::string detach_signal; // optional HUP/TERM/INT/KILL requested by the attaching peer
 #ifdef _WIN32
@@ -2947,6 +2959,63 @@ inline void close_nonstdio_fds_before_exec() {
 }
 
 #endif // _WIN32
+
+// ── 2.0.8 P5: Cross-platform Computer Use dispatch ─────────────────────
+// Dispatches CuaRequestMsg to the appropriate OS backend.
+[[nodiscard]] CuaResponseMsg cua_execute(const CuaRequestMsg& req) {
+    CuaResponseMsg resp;
+    resp.status = 0;
+
+#ifdef _WIN32
+    resp.status = 1;
+    resp.error = "windows cua-helper not yet deployed (P5c)";
+    return resp;
+#elif defined(__APPLE__)
+    resp.status = 1;
+    resp.error = "macos CGEvent not yet deployed (P5c)";
+    return resp;
+#else
+    // Linux: dispatch via xdotool (ubiquitous on X11 desktops).
+    std::string cmd;
+    switch (req.action) {
+        case 1: // key press
+            cmd = "xdotool key --delay 0 " + std::to_string(req.hid_key) + " 2>/dev/null";
+            break;
+        case 2: { // text entry
+            std::string escaped;
+            for (char ch : req.text) {
+                if (ch == '\'' || ch == '\\' || ch == '"' || ch == '$' || ch == '`')
+                    escaped += '\\';
+                escaped += ch;
+            }
+            cmd = "xdotool type --delay 0 '" + escaped + "' 2>/dev/null";
+            break;
+        }
+        case 3: // mouse move
+            cmd = "xdotool mousemove " + std::to_string(req.x) + " "
+                + std::to_string(req.y) + " 2>/dev/null";
+            break;
+        case 4: // mouse button
+            cmd = std::string("xdotool click ") + std::to_string(req.button) + " 2>/dev/null";
+            break;
+        case 5: // mouse wheel
+            cmd = std::string("xdotool click ") + ((req.button == 0) ? "4" : "5") + " 2>/dev/null";
+            break;
+        case 6: // screen capture
+            cmd = "xdotool getactivewindow 2>/dev/null";
+            break;
+        default:
+            resp.status = 1;
+            resp.error = "unknown CUA action " + std::to_string(req.action);
+            return resp;
+    }
+    if (!cmd.empty() && std::system(cmd.c_str()) != 0) {
+        resp.status = 1;
+        resp.error = "xdotool failed";
+    }
+    return resp;
+#endif
+}
 
 [[nodiscard]] std::string read_available_pty_output(Session& session,
                                                      size_t max_bytes = 256 * 1024) {
@@ -4151,6 +4220,7 @@ class SessionRegistry {
 
     mutable std::shared_mutex mutex_;
     std::unordered_map<std::string, std::unique_ptr<Session>> sessions_;
+    std::atomic<uint32_t> next_attach_id_{1};
     std::vector<SessionHistoryEntry> recent_;
     std::string persistence_path_;
     static constexpr size_t kMaxRecentSessions = 50;
@@ -4229,86 +4299,138 @@ public:
     }
 
     // ── Attach / Create ─────────────────────────────────────────
-    // Returns session pointer. Returns nullptr on error.
+    // Connection-path attach (2.0.8): registers a per-connection Attachment,
+    // returns the server-assigned attach_id, and reports the effective
+    // (min-wins) geometry across all current attachments. Returns 0 on error.
+    uint32_t attach_connection(const std::string& name,
+                               const ResolvedSessionCommand& resolved,
+                               uint16_t cols, uint16_t rows, const std::string& term,
+                               const std::string& peer_pubkey,
+                               uint32_t client_instance_id, bool spectator,
+                               uint16_t& out_eff_cols, uint16_t& out_eff_rows) {
+        std::unique_lock lock(mutex_);
+        Session* s = nullptr;
+
+        auto it = sessions_.find(name);
+        if (it != sessions_.end()) {
+            s = it->second.get();
+
+            if (s->state == SessionState::Running || s->state == SessionState::Detached
+                || s->state == SessionState::Attached) {
+                s->state = SessionState::Attached;
+                s->last_attach_at = std::chrono::steady_clock::now();
+                if (!peer_pubkey.empty()
+                    && std::find(s->peer_ids.begin(), s->peer_ids.end(), peer_pubkey)
+                           == s->peer_ids.end())
+                    s->peer_ids.push_back(peer_pubkey);
+            } else {
+                // Died/Exited/Killed/Recoverable — recreate PTY in place.
+                log_event("session_resurrect_replace", name);
+                record_history_locked(*s, -1, session_state_str(s->state));
+                const std::string spawn_command = prepare_session_command(resolved);
+                auto session_result = create_session(name, spawn_command, cols, rows, term);
+                if (!session_result) return 0;
+                install_spawned_runtime(*s, std::move(*session_result), SessionState::Attached);
+                if (!peer_pubkey.empty()
+                    && std::find(s->peer_ids.begin(), s->peer_ids.end(), peer_pubkey)
+                           == s->peer_ids.end())
+                    s->peer_ids.push_back(peer_pubkey);
+            }
+        } else {
+            // Create new session
+            const std::string spawn_command = prepare_session_command(resolved);
+            auto session_result = create_session(name, spawn_command, cols, rows, term);
+            if (!session_result) return 0;
+            auto news = std::make_unique<Session>(std::move(*session_result));
+            news->state = SessionState::Attached;
+            if (!peer_pubkey.empty()) news->peer_ids.push_back(peer_pubkey);
+            s = news.get();
+            sessions_[name] = std::move(news);
+        }
+
+        // Register this connection's Attachment and compute effective geometry.
+        // Reserve 0 as the error sentinel: skip it if the counter ever wraps.
+        uint32_t aid = next_attach_id_.fetch_add(1, std::memory_order_relaxed);
+        if (aid == 0) aid = next_attach_id_.fetch_add(1, std::memory_order_relaxed);
+        Session::Attachment att;
+        att.attach_id = aid;
+        att.cols = cols; att.rows = rows;
+        att.spectator = spectator;
+        att.pubkey = peer_pubkey;
+        s->attachments[aid] = att;
+
+        // MIN-wins geometry across all attachments (narrowest pane drives the PTY).
+        uint16_t min_c = cols, min_r = rows;
+        for (auto& kv : s->attachments) {
+            min_c = std::min(min_c, kv.second.cols);
+            min_r = std::min(min_r, kv.second.rows);
+        }
+        out_eff_cols = min_c; out_eff_rows = min_r;
+        apply_min_geometry_locked(*s);
+        log_event("session_attach", name + " attach_id=" + std::to_string(aid)
+                  + " spectator=" + (spectator ? "1" : "0")
+                  + " eff=" + std::to_string(min_c) + "x" + std::to_string(min_r));
+        return aid;
+    }
+
+    // Programmatic / test-facing attach: returns the Session* (registers a
+    // default interactive attachment). Preserves the pre-2.0.8 call shape.
     Session* attach(const std::string& name,
                     const ResolvedSessionCommand& resolved,
                     uint16_t cols, uint16_t rows, const std::string& term,
                     const std::string& peer_pubkey = "") {
-        std::unique_lock lock(mutex_);
+        uint16_t ec = 0, er = 0;
+        uint32_t aid = attach_connection(name, resolved, cols, rows, term,
+                                          peer_pubkey, 0, false, ec, er);
+        if (aid == 0) return nullptr;
+        return get(name);
+    }
 
-        auto it = sessions_.find(name);
-        if (it != sessions_.end()) {
-            auto* s = it->second.get();
-
-            if (s->state == SessionState::Running || s->state == SessionState::Detached) {
-                s->state = SessionState::Attached;
-                s->last_attach_at = std::chrono::steady_clock::now();
-                if (!peer_pubkey.empty()) {
-                    bool already = false;
-                    for (auto& pid : s->peer_ids)
-                        if (pid == peer_pubkey) { already = true; break; }
-                    if (!already) s->peer_ids.push_back(peer_pubkey);
-                }
-#ifdef _WIN32
-                if (s->hpcon)
-                    (void)resize_pty(reinterpret_cast<intptr_t>(s->hpcon), cols, rows);
-#else
-                if (s->master_fd >= 0)
-                    (void)resize_pty(static_cast<intptr_t>(s->master_fd), cols, rows);
-#endif
-                return s;
-            }
-
-            if (s->state == SessionState::Attached) {
-                s->last_attach_at = std::chrono::steady_clock::now();
-                if (!peer_pubkey.empty()) {
-                    bool already = false;
-                    for (auto& pid : s->peer_ids)
-                        if (pid == peer_pubkey) { already = true; break; }
-                    if (!already) s->peer_ids.push_back(peer_pubkey);
-                }
-#ifdef _WIN32
-                if (s->hpcon)
-                    (void)resize_pty(reinterpret_cast<intptr_t>(s->hpcon), cols, rows);
-#else
-                if (s->master_fd >= 0)
-                    (void)resize_pty(static_cast<intptr_t>(s->master_fd), cols, rows);
-#endif
-                return s;
-            }
-
-            // Session is Died/Exited/Killed/Recoverable. Recreate the PTY in
-            // the existing Session storage so every attached transport keeps a
-            // valid pointer across resurrection.
-            log_event("session_resurrect_replace", name);
-            record_history_locked(*s, -1, session_state_str(s->state));
-            const std::string spawn_command = prepare_session_command(resolved);
-            auto session_result = create_session(name, spawn_command, cols, rows, term);
-            if (!session_result) return nullptr;
-
-            install_spawned_runtime(*s, std::move(*session_result),
-                                    SessionState::Attached);
-            if (!peer_pubkey.empty() &&
-                std::find(s->peer_ids.begin(), s->peer_ids.end(), peer_pubkey) == s->peer_ids.end()) {
-                s->peer_ids.push_back(peer_pubkey);
-            }
-            log_event("session_attach", name);
-            return s;
+    // Look up a Session by its attach_id (for detach-by-id bookkeeping).
+    Session* session_by_attach_id(uint32_t attach_id) {
+        std::shared_lock lock(mutex_);
+        for (auto& kv : sessions_) {
+            if (kv.second->attachments.count(attach_id)) return kv.second.get();
         }
+        return nullptr;
+    }
 
-        // Create new session
-        const std::string spawn_command = prepare_session_command(resolved);
-        auto session_result = create_session(name, spawn_command, cols, rows, term);
-        if (!session_result) return nullptr;
+    // Recompute the effective (MIN-wins) geometry across all attachments and
+    // resize the PTY accordingly. Caller must hold mutex_. Used by
+    // attach_connection, detach(uint32_t), and set_attachment_geometry.
+    void apply_min_geometry_locked(Session& s) {
+        if (s.attachments.empty()) return;
+        uint16_t min_c = UINT16_MAX, min_r = UINT16_MAX;
+        for (auto& kv : s.attachments) {
+            min_c = std::min(min_c, kv.second.cols);
+            min_r = std::min(min_r, kv.second.rows);
+        }
+#ifndef _WIN32
+        if (s.master_fd >= 0) (void)resize_pty(static_cast<intptr_t>(s.master_fd), min_c, min_r);
+#else
+        if (s.hpcon) (void)resize_pty(reinterpret_cast<intptr_t>(s.hpcon), min_c, min_r);
+#endif
+    }
 
-        auto s = std::make_unique<Session>(std::move(*session_result));
-        s->state = SessionState::Attached;
-        if (!peer_pubkey.empty()) s->peer_ids.push_back(peer_pubkey);
-
-        auto* ptr = s.get();
-        sessions_[name] = std::move(s);
-        log_event("session_attach", name);
-        return ptr;
+    // Update one attachment's geometry and re-apply MIN-wins (called from the
+    // ResizeMsg path). No-op if the attach_id is unknown.
+    void set_attachment_geometry(uint32_t attach_id, uint16_t cols, uint16_t rows) {
+        std::unique_lock lock(mutex_);
+        // Inline lookup — session_by_attach_id() acquires its own shared_lock,
+        // which would deadlock against our unique_lock on a non-recursive mutex.
+        Session* s = nullptr;
+        for (auto& kv : sessions_) {
+            if (kv.second->attachments.count(attach_id)) { s = kv.second.get(); break; }
+        }
+        if (!s) return;
+        auto it = s->attachments.find(attach_id);
+        if (it == s->attachments.end()) return;
+        it->second.cols = cols;
+        it->second.rows = rows;
+        apply_min_geometry_locked(*s);
+        log_event("session_geometry", s->name
+                  + " attach_id=" + std::to_string(attach_id)
+                  + " eff=" + std::to_string(cols) + "x" + std::to_string(rows));
     }
 
     // Programmatic/internal callers pass complete commands. They are never
@@ -4343,53 +4465,144 @@ public:
 #endif
     }
 
-    bool detach(const std::string& name, const std::string& peer_pubkey = "") {
+    // Detach a single connection by its server-assigned attach_id. Removes
+    // only that attachment; the session survives until the last attachment is
+    // gone. Returns true if the session still has attachments, false if empty.
+    bool detach(uint32_t attach_id) {
         std::unique_lock lock(mutex_);
-        auto it = sessions_.find(name);
+        auto it = sessions_.begin();
+        for (; it != sessions_.end(); ++it) {
+            if (it->second->attachments.count(attach_id)) break;
+        }
         if (it == sessions_.end()) return false;
         auto* s = it->second.get();
-        if (peer_pubkey.empty()) {
-            s->peer_ids.clear();
-        } else {
+        const std::string name = s->name;
+        auto ait = s->attachments.find(attach_id);
+        const std::string pubkey = (ait != s->attachments.end()) ? ait->second.pubkey : "";
+        s->attachments.erase(attach_id);
+        // Re-apply MIN-wins geometry: if the detached pane was the narrowest,
+        // the PTY must grow back to the next-smallest remaining pane.
+        if (!s->attachments.empty()) apply_min_geometry_locked(*s);
+        if (!pubkey.empty()) {
             s->peer_ids.erase(
-                std::remove(s->peer_ids.begin(), s->peer_ids.end(), peer_pubkey),
+                std::remove(s->peer_ids.begin(), s->peer_ids.end(), pubkey),
                 s->peer_ids.end());
         }
-        if (s->peer_ids.empty() &&
+        if (s->attachments.empty() &&
             (s->state == SessionState::Attached || s->state == SessionState::Running)) {
-            // v2.1: signal the child on last-peer detach when the attaching
-            // peer requested it. The session stays Detached; we deliver the
-            // signal to the child so daemons/long jobs learn the terminal left.
             if (!s->detach_signal.empty()) {
                 int sig = resolve_detach_signal(s->detach_signal);
                 if (sig >= 0 && s->child_pid) {
 #ifdef _WIN32
                     if (sig == 0) {
-                        GenerateConsoleCtrlEvent(CTRL_C_EVENT,
-                                                 GetProcessId(s->child_pid));
+                        GenerateConsoleCtrlEvent(CTRL_C_EVENT, GetProcessId(s->child_pid));
                     } else {
                         TerminateProcess(s->child_pid, 1);
                     }
-                    log_event("session_detach_signal",
-                              name + " -> " + s->detach_signal);
+                    log_event("session_detach_signal", name + " -> " + s->detach_signal);
 #else
                     ::kill(s->child_pid, sig);
-                    log_event("session_detach_signal",
-                              name + " -> " + s->detach_signal);
+                    log_event("session_detach_signal", name + " -> " + s->detach_signal);
 #endif
                 } else if (s->child_pid) {
-                    log_event("session_detach_signal_unknown",
-                              name + " signal=" + s->detach_signal);
+                    log_event("session_detach_signal_unknown", name + " signal=" + s->detach_signal);
                 }
             }
-            // Transport loss must not overwrite a terminal child state. In
-            // particular, pty_output_poller() can mark a fast one-shot command
-            // Died before close_conn() detaches its peer; changing Died back to
-            // Detached would make the next named attach reuse a dead PTY.
             s->state = SessionState::Detached;
             log_event("session_detach", name);
         }
-        return !s->peer_ids.empty();
+        return !s->attachments.empty();
+    }
+
+    // Backward-compat (used by existing tests + any caller that tracked only
+    // pubkey, not attach_id): detach every attachment belonging to a pubkey.
+    bool detach(const std::string& name, const std::string& peer_pubkey) {
+        std::unique_lock lock(mutex_);
+        auto it = sessions_.find(name);
+        if (it == sessions_.end()) return false;
+        auto* s = it->second.get();
+        std::vector<uint32_t> to_erase;
+        for (auto& kv : s->attachments)
+            if (kv.second.pubkey == peer_pubkey) to_erase.push_back(kv.first);
+        for (uint32_t id : to_erase) s->attachments.erase(id);
+        if (!peer_pubkey.empty()) {
+            s->peer_ids.erase(
+                std::remove(s->peer_ids.begin(), s->peer_ids.end(), peer_pubkey),
+                s->peer_ids.end());
+        }
+        if (s->attachments.empty() &&
+            (s->state == SessionState::Attached || s->state == SessionState::Running)) {
+            if (!s->detach_signal.empty()) {
+                int sig = resolve_detach_signal(s->detach_signal);
+                if (sig >= 0 && s->child_pid) {
+#ifndef _WIN32
+                    ::kill(s->child_pid, sig);
+#endif
+                }
+            }
+            s->state = SessionState::Detached;
+            log_event("session_detach", name);
+        }
+        return !s->attachments.empty();
+    }
+
+    // Detach ALL attachments from a session (legacy fallback for old callers
+    // that wired Conn.attached_session directly without the AttachMsg path).
+    // Returns false if the session was not found.
+    bool detach_all(const std::string& name) {
+        std::unique_lock lock(mutex_);
+        auto it = sessions_.find(name);
+        if (it == sessions_.end()) return false;
+        auto* s = it->second.get();
+        s->attachments.clear();
+        s->peer_ids.clear();
+        if (s->state == SessionState::Attached || s->state == SessionState::Running) {
+            if (!s->detach_signal.empty() && s->child_pid) {
+                int sig = resolve_detach_signal(s->detach_signal);
+                if (sig >= 0) {
+#ifdef _WIN32
+                    if (sig == 0) GenerateConsoleCtrlEvent(CTRL_C_EVENT, GetProcessId(s->child_pid));
+                    else TerminateProcess(s->child_pid, 1);
+#else
+                    ::kill(s->child_pid, sig);
+#endif
+                }
+            }
+            s->state = SessionState::Detached;
+            log_event("session_detach", name);
+        }
+        return false; // no attachments remain
+    }
+
+    // Backward-compat: detach every attachment for a session name (used by
+    // legacy callers/tests that don't track attach_id). Returns true if
+    // attachments remain (should be false after a full detach).
+    bool detach(const std::string& name) {
+        std::unique_lock lock(mutex_);
+        auto it = sessions_.find(name);
+        if (it == sessions_.end()) return false;
+        auto* s = it->second.get();
+        s->attachments.clear();
+        s->peer_ids.clear();
+        if (s->state == SessionState::Attached || s->state == SessionState::Running) {
+            if (!s->detach_signal.empty()) {
+                int sig = resolve_detach_signal(s->detach_signal);
+                if (sig >= 0 && s->child_pid) {
+#ifdef _WIN32
+                    if (sig == 0) {
+                        GenerateConsoleCtrlEvent(CTRL_C_EVENT, GetProcessId(s->child_pid));
+                    } else {
+                        TerminateProcess(s->child_pid, 1);
+                    }
+#else
+                    ::kill(s->child_pid, sig);
+#endif
+                }
+            }
+            s->state = SessionState::Detached;
+            log_event("session_detach", name);
+        }
+        return false;
     }
 
     // ── List ────────────────────────────────────────────────────
@@ -5503,6 +5716,11 @@ public:
         std::vector<uint8_t> rx_buffer;
         Session* attached_session = nullptr;
         std::string remote_session;
+        // 2.0.8 multi-attach: per-connection attach id assigned by the server,
+        // plus the spectator flag. detach() is keyed by attach_id so N connections
+        // from one pubkey detach independently.
+        uint32_t attach_id = 0;
+        bool spectator = false;
         // v1.7 fix (Known Issue #2): set while a background thread owns this
         // conn's socket/SSL object for a one-shot `daemon_shell_exec` relay.
         // The main event loop must not select()/read/write this fd while
@@ -5532,6 +5750,17 @@ public:
         // Initial handshake Hello. Later Hello frames are ignored only if
         // identical; any mismatch closes the connection.
         std::optional<HelloMsg> initial_hello;
+        // ── 2.0.8 P3 per-connection output queue ──────────────────────
+        // When a fanout write fails (slow client, full socket buffer), the
+        // OutputMsg is enqueued here instead of silently dropped. The event
+        // loop drains queues after PTY polling. If the queue exceeds the
+        // high-water mark, oldest messages are dropped and an OutputGap is
+        // emitted so the client knows data was lost.
+        static constexpr size_t kOutputQueueHighWater = 256;
+        struct QueuedOutput { std::string data; bool render_markdown = false; };
+        std::deque<QueuedOutput> output_queue;
+        uint64_t output_dropped_bytes = 0;
+        bool output_gap_pending = false;
     };
 
     // Return 0 to drop the older connection (i), 1 to drop the newer one (j).
@@ -5592,6 +5821,12 @@ public:
 private:
     MeshConfig config_;
     SessionRegistry sessions_;
+    // ── 2.0.8 P4 conversation store ──────────────────────────────
+    // In-memory store keyed by conv_id. Messages are ordered by seq.
+    // Full persistence to sessions/<name>/conversations/ is deferred.
+    std::unordered_map<std::string, std::vector<ConversationAppendMsg>> conversations_;
+    std::mutex conversations_mutex_;
+    uint64_t next_conv_seq_ = 1;
     // R8.3: own the TLS cert-verify callback contexts so they are freed with the
     // controller instead of leaking via `new`. MUST be declared BEFORE the
     // SSL_CTX pointers below — members destruct in reverse declaration order, so
@@ -8090,9 +8325,18 @@ public:
     void detach_connection_session(Conn& conn, bool replacement_attached) {
         auto* session = conn.attached_session;
         conn.attached_session = nullptr;
+        uint32_t aid = conn.attach_id;
+        conn.attach_id = 0;
+        conn.spectator = false;
         if (!session || replacement_attached) return;
-        sessions_.detach(session->name, conn.peer_pubkey);
-        log_event("session_transport_detached", session->name + " from " + conn.peer_name);
+        // Prefer detach-by-attach_id (precise, multi-attach safe). Fall back to
+        // detach-all when the attach_id is unknown (legacy/tests that set
+        // attached_session directly without the AttachMsg path).
+        if (aid != 0 && sessions_.session_by_attach_id(aid) != nullptr)
+            sessions_.detach(aid);
+        else
+            sessions_.detach_all(session->name);
+        log_event("session_transport_detached", session->name + " attach_id=" + std::to_string(aid) + " from " + conn.peer_name);
     }
 
     // ────────────────────────────────────────────────────────────────
@@ -8256,15 +8500,30 @@ public:
 
             const ResolvedSessionCommand shell_cmd = resolve_session_command(
                 config_, a.session_name, a.command);
-            auto* s = sessions_.attach(a.session_name,
+            uint16_t eff_c = 0, eff_r = 0;
+            uint32_t aid = sessions_.attach_connection(a.session_name,
                                        shell_cmd,
                                        a.cols, a.rows, a.term,
-                                       conn.peer_pubkey);
+                                       conn.peer_pubkey,
+                                       a.client_instance_id, a.spectator,
+                                       eff_c, eff_r);
+            auto* s = (aid != 0) ? sessions_.get(a.session_name) : nullptr;
             if (s) {
                 // Record the detach-signal request (v2.1) so the server can
                 // signal the child when the last peer detaches.
                 if (!a.signal_on_detach.empty()) s->detach_signal = a.signal_on_detach;
                 conn.attached_session = s;
+                conn.attach_id = aid;
+                conn.spectator = a.spectator;
+
+                // 2.0.8: AttachAck reports the effective (min-wins) geometry so
+                // the client can align its PTY view to the narrowest pane.
+                AttachAckMsg ack;
+                ack.attach_id = aid;
+                ack.session_name = a.session_name;
+                ack.cols = eff_c; ack.rows = eff_r;
+                try { write_frame(conn.ssl.get(), ack, CONTROL_STREAM_ID); }
+                catch (...) {}
 
                 // Send scrollback to reattaching peer
                 auto lines = s->scrollback.read_last_lines(
@@ -8279,7 +8538,8 @@ public:
                     } catch (...) {}
                 }
                 log_event("session_attached",
-                          a.session_name + " from " + conn.peer_name);
+                          a.session_name + " from " + conn.peer_name
+                          + " attach_id=" + std::to_string(aid));
             } else {
                 log_event("session_attach_failed",
                           a.session_name + " from " + conn.peer_name);
@@ -8290,6 +8550,12 @@ public:
         // KeystrokeMsg — peer typed something; forward to PTY
         if (std::holds_alternative<KeystrokeMsg>(msg)) {
             auto& ks = std::get<KeystrokeMsg>(msg);
+            // 2.0.8: spectators are read-only — reject input injection.
+            if (conn.spectator) {
+                log_event("pty_input_rejected_spectator", conn.attached_session
+                          ? conn.attached_session->name : "?");
+                return;
+            }
             if (conn.attached_session && conn.attached_session->is_valid()) {
                 if (!write_pty_input(*conn.attached_session,
                                      ks.data.data(), ks.data.size())) {
@@ -8300,21 +8566,50 @@ public:
             return;
         }
 
+        // CuaRequestMsg — computer-use action (full dispatch lands in P5).
+        // P1 invariant: spectators may never drive CUA.
+        if (std::holds_alternative<CuaRequestMsg>(msg)) {
+            auto& req = std::get<CuaRequestMsg>(msg);
+            if (conn.spectator) {
+                log_event("cua_rejected_spectator", conn.attached_session
+                          ? conn.attached_session->name : "?");
+                CuaResponseMsg resp;
+                resp.request_id = req.request_id;
+                resp.status = 1;
+                resp.error = "spectator cannot drive computer use";
+                try { write_frame(conn.ssl.get(), resp, CONTROL_STREAM_ID); } catch (...) {}
+                return;
+            }
+            // Non-spectator: dispatch to platform CUA backend (2.0.8 P5).
+            CuaResponseMsg resp = cua_execute(req);
+            resp.request_id = req.request_id;
+            try { write_frame(conn.ssl.get(), resp, CONTROL_STREAM_ID); } catch (...) {}
+            return;
+        }
+
         // ResizeMsg — peer resized their terminal
         if (std::holds_alternative<ResizeMsg>(msg)) {
             auto& r = std::get<ResizeMsg>(msg);
             if (conn.attached_session && conn.attached_session->is_valid()) {
-#ifdef _WIN32
-                if (conn.attached_session->hpcon) {
-                    (void)resize_pty(reinterpret_cast<intptr_t>(conn.attached_session->hpcon),
-                               r.cols, r.rows);
-                }
+                // 2.0.8: update this attachment's stored geometry and re-apply
+                // MIN-wins so the PTY tracks the narrowest pane (not the last
+                // resizer). Spectators may resize too — it only shrinks/grows
+                // the shared effective geometry, never injects input.
+                // Legacy fallback: when attach_id is 0 (old test path, conn
+                // wired directly without the AttachMsg handler), resize the
+                // PTY directly.
+                if (conn.attach_id != 0)
+                    sessions_.set_attachment_geometry(conn.attach_id, r.cols, r.rows);
+                else {
+                    // Legacy fallback: resize PTY directly (old test path without attach_id).
+#ifndef _WIN32
+                    if (conn.attached_session->master_fd >= 0)
+                        (void)resize_pty(static_cast<intptr_t>(conn.attached_session->master_fd), r.cols, r.rows);
 #else
-                if (conn.attached_session->master_fd >= 0) {
-                    (void)resize_pty(static_cast<intptr_t>(conn.attached_session->master_fd),
-                                     r.cols, r.rows);
-                }
+                    if (conn.attached_session->hpcon)
+                        (void)resize_pty(reinterpret_cast<intptr_t>(conn.attached_session->hpcon), r.cols, r.rows);
 #endif
+                }
             }
             return;
         }
@@ -8463,6 +8758,40 @@ public:
             }
             return;
         }
+
+        // ── 2.0.8 P4: Conversation messages ─────────────────────
+        if (std::holds_alternative<ConversationAppendMsg>(msg)) {
+            auto& ca = std::get<ConversationAppendMsg>(msg);
+            if (ca.seq == 0) {
+                std::lock_guard lock(conversations_mutex_);
+                ca.seq = next_conv_seq_++;
+            }
+            if (ca.ts == 0) {
+                using namespace std::chrono;
+                ca.ts = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+            }
+            {
+                std::lock_guard lock(conversations_mutex_);
+                conversations_[ca.conv_id].push_back(ca);
+            }
+            log_event("conversation_append", ca.conv_id + " seq=" + std::to_string(ca.seq));
+            return;
+        }
+        if (std::holds_alternative<ConversationQueryMsg>(msg)) {
+            auto& cq = std::get<ConversationQueryMsg>(msg);
+            ConversationBatchMsg batch;
+            batch.conv_id = cq.conv_id;
+            {
+                std::lock_guard lock(conversations_mutex_);
+                auto it = conversations_.find(cq.conv_id);
+                if (it != conversations_.end()) {
+                    for (auto& m : it->second)
+                        if (m.seq > cq.since_seq) batch.messages.push_back(m);
+                }
+            }
+            try { write_frame(conn.ssl.get(), batch, CONTROL_STREAM_ID); } catch (...) {}
+            return;
+        }
     }
 
     // 2. handle_outbound_session — messages from our local sessions
@@ -8570,13 +8899,34 @@ public:
             if (!s || !s->is_pollable()) continue;
 
             auto fanout = [&](const auto& message) {
+                // Serialize once, fan out to all attached connections.
+                // On write failure, enqueue to the per-connection output
+                // queue instead of silently dropping (2.0.8 P3).
                 for (auto& target : conns_) {
                     if (target.attached_session != s || target.sock_fd == INVALID_SOCKET ||
                         !target.ssl) {
                         continue;
                     }
                     if (target.exec_busy && target.exec_busy->load()) continue;
-                    try { write_frame(target.ssl.get(), message, 0); } catch (...) {}
+                    try {
+                        write_frame(target.ssl.get(), message, 0);
+                    } catch (...) {
+                        // Enqueue for later retry; drop oldest if over high-water.
+                        if constexpr (std::is_same_v<std::decay_t<decltype(message)>, OutputMsg>) {
+                            Conn::QueuedOutput qo;
+                            qo.data = message.data;
+                            qo.render_markdown = message.render_markdown;
+                            if (target.output_queue.size() >= Conn::kOutputQueueHighWater) {
+                                auto& oldest = target.output_queue.front();
+                                target.output_dropped_bytes += oldest.data.size();
+                                target.output_gap_pending = true;
+                                target.output_queue.pop_front();
+                            }
+                            target.output_queue.push_back(std::move(qo));
+                        }
+                        // Non-OutputMsg types (ClipboardMsg, SessionDiedMsg etc.)
+                        // are control messages and not queued for retry.
+                    }
                 }
             };
 
@@ -8752,6 +9102,56 @@ public:
                 }
             }
 #endif
+        }
+    }
+
+    // 4b. drain_output_queues — retry enqueued OutputMsg writes (2.0.8 P3).
+    // Also emits pending OutputGap notifications so clients know bytes were
+    // dropped. Called once per event-loop tick after PTY polling.
+    void drain_output_queues() {
+        for (auto& target : conns_) {
+            if (target.output_queue.empty() && !target.output_gap_pending) continue;
+            if (target.sock_fd == INVALID_SOCKET || !target.ssl) {
+                target.output_queue.clear();
+                target.output_gap_pending = false;
+                continue;
+            }
+            // Emit OutputGap first if pending (client needs to know about drops
+            // before receiving the next queued OutputMsg).
+            if (target.output_gap_pending) {
+                try {
+                    OutputGapMsg gap;
+                    gap.dropped_bytes = target.output_dropped_bytes;
+                    write_frame(target.ssl.get(), gap, 0);
+                    target.output_gap_pending = false;
+                    target.output_dropped_bytes = 0;
+                } catch (...) {
+                    // Can't even send the gap — leave pending for next tick.
+                    continue;
+                }
+            }
+            // Drain queued OutputMsg frames (best-effort; at most 8 per tick
+            // to avoid starving the event loop).
+            size_t drained = 0;
+            while (!target.output_queue.empty() && drained < 8) {
+                auto& qo = target.output_queue.front();
+                try {
+                    OutputMsg om;
+                    om.data = qo.data;
+                    om.render_markdown = qo.render_markdown;
+                    write_frame(target.ssl.get(), om, 0);
+                    target.output_queue.pop_front();
+                    ++drained;
+                } catch (...) {
+                    break; // socket still full, retry next tick
+                }
+            }
+            // If queue is still over high-water after drain, drop oldest.
+            while (target.output_queue.size() > Conn::kOutputQueueHighWater) {
+                target.output_dropped_bytes += target.output_queue.front().data.size();
+                target.output_gap_pending = true;
+                target.output_queue.pop_front();
+            }
         }
     }
 
@@ -10207,6 +10607,9 @@ public:
 
             // 9.5. Poll PTY output for all attached sessions
             pty_output_poller();
+
+            // 9.6. Drain per-connection output queues (2.0.8 P3 streaming)
+            drain_output_queues();
 
 #ifndef _WIN32
             for (const auto& info : sessions_.list()) {
@@ -11750,6 +12153,48 @@ int cmd_doctor(const std::string& config_path, const std::string& app_home) {
     std::string ipc = daemon_simple_ipc("HEALTH __doctor_nonexistent__", 1500, app_home);
     if (!ipc.empty()) pass("daemon IPC", "port 19980 answered");
     else warn("daemon IPC", "port 19980 did not answer");
+
+    // ── Display self-check (2.0.8 P2) ──────────────────────────────────
+    {
+#ifdef _WIN32
+        HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
+        if (hOut != INVALID_HANDLE_VALUE && hOut != nullptr) {
+            CONSOLE_SCREEN_BUFFER_INFO csbi{};
+            if (GetConsoleScreenBufferInfo(hOut, &csbi)) {
+                std::ostringstream oss;
+                oss << csbi.dwSize.X << "x" << csbi.dwSize.Y
+                    << " (window " << (csbi.srWindow.Right - csbi.srWindow.Left + 1)
+                    << "x" << (csbi.srWindow.Bottom - csbi.srWindow.Top + 1) << ")";
+                pass("display size", oss.str());
+            } else {
+                warn("display size", "GetConsoleScreenBufferInfo failed");
+            }
+            // Glyph sample — print known characters to verify rendering
+            std::cout << "  display glyphs: CJK(日本語) emoji(🦀✓) box(┌─┐)\n";
+        } else {
+            warn("display size", "no console handle");
+        }
+#else
+        // POSIX: probe TIOCGWINSZ on stdout
+        struct winsize wsz{};
+        if (::ioctl(STDOUT_FILENO, TIOCGWINSZ, &wsz) == 0 && wsz.ws_col > 0) {
+            std::ostringstream oss;
+            oss << wsz.ws_col << "x" << wsz.ws_row;
+            pass("display size", oss.str());
+        } else {
+            // Try stderr as fallback
+            if (::ioctl(STDERR_FILENO, TIOCGWINSZ, &wsz) == 0 && wsz.ws_col > 0) {
+                std::ostringstream oss;
+                oss << wsz.ws_col << "x" << wsz.ws_row << " (stderr)";
+                pass("display size", oss.str());
+            } else {
+                warn("display size", "no TTY — no terminal size available");
+            }
+        }
+        // Glyph sample
+        std::cout << "  display glyphs: CJK(日本語) emoji(🦀✓) box(┌─┐)\n";
+#endif
+    }
 
     return failures == 0 ? 0 : 1;
 }

@@ -52,6 +52,18 @@ Full phase table + per-phase gates are the authority in **`PLANS.md`**. Summary:
 | **P5** | #1 CUA (FULL: all-3-OS backends + 6-pair matrix + WebRTC; Windows `cua-helper` = risk gate). |
 | **P6** | Release (MoA audit, 3 portable binaries, tag). |
 
+### P1 — multi-attach + spectator (status: IMPLEMENTED, audit in flight)
+
+**Shipped (2026-07-20):**
+- `Session::attachments` map keyed by server-assigned `uint32_t attach_id` (struct: `attach_id, cols, rows, spectator, pubkey`).
+- `SessionRegistry::attach_connection(...)` → returns unique `attach_id`, registers the attachment, computes **MIN-geometry** across all attachments (narrowest pane drives the PTY), reports effective cols/rows via `AttachAckMsg`.
+- `detach(uint32_t attach_id)` removes ONE attachment; session survives until the last is gone; `signal_on_detach` fires on last. Backward-compat `detach(name)` / `detach(name, pubkey)` retained.
+- `AttachMsg.spectator` (wire `u8`, tolerant-decode default false). `Conn.attach_id` / `Conn.spectator` added.
+- Spectator input injection rejected (Keystroke early-return; `CuaRequestMsg` rejected for spectators, "not yet enabled" for interactive — full CUA dispatch lands in P5).
+- Tests: new `tests/test_multi_attach_p1.cpp` (5 cases) + full suite **282/282 green**.
+
+**Gate:** 3-lane MoA audit → 0 P0 / 0 P1 before P2 starts.
+
 **Risk gate:** P5 Windows `cua-helper` PoC on cloud-pc is the only hard research risk. Linux/mac CUA ship regardless. If it fails, Windows injection is the sole blocked item (documented, not half-built) — do not let it block the rest of the release.
 
 ## 4. P0 decision required (bs-protocol drift)
