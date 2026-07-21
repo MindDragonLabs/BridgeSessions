@@ -60,9 +60,10 @@ class TestPureFunctions(unittest.TestCase):
             def __init__(self):
                 self.sent = b""
                 self.closed = False
+                # Real daemon SESSIONS format: pipe-separated records.
                 self._chunks = [
-                    b"sess_a: state=up command=/bin/zsh\nsess_b: st",
-                    b"ate=up command=/bin/bash\nsess_c: state=down command=\n",
+                    b"live sess_a state=up command=/bin/zsh | live sess_b st",
+                    b"ate=up command=/bin/bash | live sess_c state=down command=\n",
                 ]
 
             def settimeout(self, t):
@@ -81,14 +82,138 @@ class TestPureFunctions(unittest.TestCase):
                 self.closed = True
 
         fake = FakeSock()
-        orig = bp.socket.socket
+        orig_sock = bp.socket.socket
+        orig_tok = bp.bs_ipc_token
         bp.socket.socket = lambda *a, **k: fake
+        bp.bs_ipc_token = lambda: "x" * 64
         try:
             sessions = bp.query_bs_sessions()
         finally:
-            bp.socket.socket = orig
+            bp.socket.socket = orig_sock
+            bp.bs_ipc_token = orig_tok
+        # Request must be token-prefixed (daemon rejects bare verbs).
+        self.assertTrue(fake.sent.startswith(b"x" * 64 + b" "))
         names = {s["name"] for s in sessions}
         self.assertEqual(names, {"sess_a", "sess_b", "sess_c"})
+
+    def _fake_ipc(self, payload_chunks):
+        """Install a fake socket returning payload_chunks; returns the fake sock."""
+
+        class FakeSock:
+            def __init__(self):
+                self.sent = b""
+                self._chunks = list(payload_chunks)
+
+            def settimeout(self, t):
+                pass
+
+            def connect(self, a):
+                pass
+
+            def sendall(self, d):
+                self.sent += d
+
+            def recv(self, n):
+                return self._chunks.pop(0) if self._chunks else b""
+
+            def close(self):
+                pass
+
+        fake = FakeSock()
+        orig_sock = bp.socket.socket
+        orig_tok = bp.bs_ipc_token
+        bp.socket.socket = lambda *a, **k: fake
+        bp.bs_ipc_token = lambda: "t" * 64
+        return fake, orig_sock, orig_tok
+
+    def test_mesh_tree_parse(self):
+        payload = (b'{"node":"test-pc1","uptime_s":12,"peers":[{"name":"test-pc2",'
+                   b'"addr":"192.168.1.30:19949","healthy":true,"last_pong_s":3,'
+                   b'"sessions":[{"name":"build","state":"attached","command":"make","bytes":42}]}],'
+                   b'"sessions":[{"name":"hermes","state":"attached","command":"hermes","bytes":99}]}\n')
+        fake, orig_sock, orig_tok = self._fake_ipc([payload])
+        try:
+            tree = bp.query_mesh_tree()
+        finally:
+            bp.socket.socket = orig_sock
+            bp.bs_ipc_token = orig_tok
+        self.assertEqual(tree["node"], "test-pc1")
+        self.assertEqual(tree["peers"][0]["name"], "test-pc2")
+        self.assertEqual(tree["peers"][0]["sessions"][0]["name"], "build")
+        self.assertEqual(tree["sessions"][0]["bytes"], 99)
+        self.assertNotIn("offline", tree)
+
+    def test_mesh_tree_offline(self):
+        fake, orig_sock, orig_tok = self._fake_ipc([b"ERROR unauthorized\n"])
+        try:
+            tree = bp.query_mesh_tree()
+        finally:
+            bp.socket.socket = orig_sock
+            bp.bs_ipc_token = orig_tok
+        self.assertTrue(tree.get("offline"))
+
+    def test_scrollback_parse_incremental(self):
+        import base64
+        chunk = base64.b64encode(b"hello world").rstrip(b"=")  # daemon strips padding
+        payload = b"OK 11 " + chunk + b"\n"
+        fake, orig_sock, orig_tok = self._fake_ipc([payload])
+        try:
+            d = bp.query_scrollback("hermes", 0)
+        finally:
+            bp.socket.socket = orig_sock
+            bp.bs_ipc_token = orig_tok
+        self.assertEqual(d["offset"], 11)
+        self.assertEqual(d["text"], "hello world")
+        self.assertFalse(d["reset"])
+        self.assertEqual(d["error"], "")
+
+    def test_scrollback_reset_marker(self):
+        import base64
+        chunk = base64.b64encode(b"tail-bytes").rstrip(b"=")
+        payload = b"OK 4096 " + chunk + b" RESET\n"
+        fake, orig_sock, orig_tok = self._fake_ipc([payload])
+        try:
+            d = bp.query_scrollback("hermes", 0)
+        finally:
+            bp.socket.socket = orig_sock
+            bp.bs_ipc_token = orig_tok
+        self.assertTrue(d["reset"])
+        self.assertEqual(d["text"], "tail-bytes")
+        self.assertEqual(d["offset"], 4096)
+
+    def test_scrollback_error(self):
+        fake, orig_sock, orig_tok = self._fake_ipc([b"ERROR no such session\n"])
+        try:
+            d = bp.query_scrollback("nope", 0)
+        finally:
+            bp.socket.socket = orig_sock
+            bp.bs_ipc_token = orig_tok
+        self.assertTrue(d["error"])
+
+    def test_scrollback_empty_incremental(self):
+        # Daemon replies 'OK <off>' (no payload) when nothing new arrived —
+        # must NOT be treated as an error (v3 UI regression).
+        fake, orig_sock, orig_tok = self._fake_ipc([b"OK 2295\n"])
+        try:
+            d = bp.query_scrollback("hermes", 2295)
+        finally:
+            bp.socket.socket = orig_sock
+            bp.bs_ipc_token = orig_tok
+        self.assertEqual(d["error"], "")
+        self.assertEqual(d["offset"], 2295)
+        self.assertEqual(d["text"], "")
+        self.assertFalse(d["reset"])
+
+    def test_scrollback_bare_reset(self):
+        fake, orig_sock, orig_tok = self._fake_ipc([b"OK 4096 RESET\n"])
+        try:
+            d = bp.query_scrollback("hermes", 0)
+        finally:
+            bp.socket.socket = orig_sock
+            bp.bs_ipc_token = orig_tok
+        self.assertTrue(d["reset"])
+        self.assertEqual(d["text"], "")
+        self.assertEqual(d["error"], "")
 
 
 class TestHttpSurface(unittest.TestCase):
@@ -138,8 +263,9 @@ class TestHttpSurface(unittest.TestCase):
         status, raw = self._req("GET", f"/{self.token}/")
         self.assertEqual(status, 200)
         raw = raw.decode("utf-8") if isinstance(raw, bytes) else raw
-        # Breadcrumb belongs inside the sidebar, not the toolbar.
-        self.assertIn('class="sidebar-header">Sessions<', raw)
+        # Breadcrumb + three-column shell (v3): machines/sessions headers.
+        self.assertIn('class="col-header">Machines<', raw)
+        self.assertIn('id="sessionsHeader">Sessions<', raw)
         self.assertIn('id="breadcrumb"', raw)
         # Exactly one tools bar with a btn-group of 4 actions.
         self.assertIn('class="toolbar"', raw)

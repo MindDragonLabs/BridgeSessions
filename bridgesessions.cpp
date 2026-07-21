@@ -162,10 +162,20 @@ public:
         size_t len = data.size();
 
         if (len >= Capacity) {
-            // Data larger than buffer — keep only the tail
+            // Data larger than buffer — keep only the tail. Advance the
+            // absolute stream position monotonically (read_since/SCROLLBACK
+            // and total_written() depend on it being total bytes ever written).
+            // The retained tail MUST land at absolute-aligned slots: byte with
+            // absolute position q lives at buf[q & kMask]. A flat memcpy to
+            // buf[0] is only aligned when (pos+len) % Capacity == 0 — rotate
+            // instead (2.0.8 MoA finding: misaligned read_since after big writes).
             auto tail = data.subspan(data.size() - Capacity);
-            std::memcpy(buf_->data(), tail.data(), Capacity);
-            write_pos_.store(Capacity, std::memory_order_release);
+            const size_t new_pos = pos + len;
+            const size_t idx = new_pos & kMask; // slot of oldest retained byte
+            const size_t first = Capacity - idx;
+            std::memcpy(buf_->data() + idx, tail.data(), first);
+            std::memcpy(buf_->data(), tail.data() + first, idx);
+            write_pos_.store(new_pos, std::memory_order_release);
             return;
         }
 
@@ -219,6 +229,42 @@ public:
             std::memcpy(result.data() + tail, buf_->data(), idx);
         }
         return result;
+    }
+
+    // ── read_since — incremental read for IPC SCROLLBACK verb
+    // Returns bytes newer than since_byte (absolute offset). If since_byte is
+    // older than what the ring still holds, returns oldest available + RESET.
+    // Returns at most 64 KiB. b64enc (no padding) is used by caller.
+    std::pair<std::string, bool> read_since(size_t since_byte) const {
+        constexpr size_t kMax = 64 * 1024;
+        std::shared_lock lock(mutex_);
+        size_t wp = write_pos_.load(std::memory_order_acquire);
+        if (since_byte >= wp) return {"", false};
+        size_t start = since_byte;
+        bool reset = false;
+        if (wp > Capacity && start < wp - Capacity) {
+            start = wp - Capacity;
+            reset = true;
+        }
+        // 2.0.8 MoA fix: when the retained window still exceeds the read cap,
+        // deliver the NEWEST kMax bytes (not the oldest) so the client's
+        // fast-forward to total_written() skips nothing it was shown.
+        if (wp - start > kMax) {
+            start = wp - kMax;
+            reset = true;
+        }
+        size_t n = std::min(kMax, wp - start);
+        std::vector<char> out(n);
+        if (n == 0) return {"", reset};
+        size_t idx = start & kMask;
+        size_t tail = Capacity - idx;
+        if (n <= tail) {
+            std::memcpy(out.data(), buf_->data() + idx, n);
+        } else {
+            std::memcpy(out.data(), buf_->data() + idx, tail);
+            std::memcpy(out.data() + tail, buf_->data(), n - tail);
+        }
+        return {std::string(out.data(), n), reset};
     }
 
     // ── read_last_lines — backward scan for N most recent lines ─
@@ -440,6 +486,9 @@ struct ServerInfoMsg {
     std::string hostname;
     std::string version;
     double load = 0.0;
+    std::string sessions_summary_json; // 2.0.8: trailing, optional. JSON array of
+                                        // {name,state,command,bytes} for this node's
+                                        // sessions. Capped (~4 KiB); empty = no data.
 };
 
 struct ScrollbackMsg {
@@ -802,7 +851,7 @@ void serialize_msg(Serializer& s, const PingMsg&)          {}
 void serialize_msg(Serializer& s, const PongMsg&)          {}
 void serialize_msg(Serializer& s, const ScrollbackAckMsg&) {}
 void serialize_msg(Serializer& s, const SessionListMsg&  m) { for (auto& si : m.sessions) { s.str_prefixed(si.name); s.str_prefixed(si.state); s.u32be(si.uptime_seconds); } }
-void serialize_msg(Serializer& s, const ServerInfoMsg&   m) { s.str_prefixed_u16(m.hostname); s.str_prefixed_u16(m.version); s.bytes(reinterpret_cast<const uint8_t*>(&m.load), 8); }
+void serialize_msg(Serializer& s, const ServerInfoMsg&   m) { s.str_prefixed_u16(m.hostname); s.str_prefixed_u16(m.version); s.bytes(reinterpret_cast<const uint8_t*>(&m.load), 8); s.str_prefixed_u16(m.sessions_summary_json); }
 void serialize_msg(Serializer& s, const ScrollbackMsg&   m) { s.u32be(m.total_lines); s.u32be(m.chunk_index); s.str(m.data); }
 void serialize_msg(Serializer& s, const SignalMsg&       m) { s.u8(static_cast<uint8_t>(m.signal)); s.str_prefixed_u16(m.process); }
 void serialize_msg(Serializer& s, const ExitCodeMsg&     m) { s.u32be(static_cast<uint32_t>(m.code)); }
@@ -881,7 +930,9 @@ void serialize_msg(Serializer& s, const OutputGapMsg& m) {
 }
 void serialize_msg(Serializer& s, const ConversationAppendMsg& m) {
     s.str_prefixed(m.conv_id); s.u64be(m.seq); s.u64be(m.ts);
-    s.str_prefixed(m.agent_id); s.u8(m.role); s.str_prefixed(m.body);
+    // body is u16-prefixed (2.0.8-alpha3 final): u8 capped messages at 255B,
+    // throwing inside serialize for normal chat-sized text (MoA P1).
+    s.str_prefixed(m.agent_id); s.u8(m.role); s.str_prefixed_u16(m.body);
 }
 void serialize_msg(Serializer& s, const ConversationQueryMsg& m) {
     s.str_prefixed(m.conv_id); s.u64be(m.since_seq);
@@ -1276,7 +1327,9 @@ Message decode(std::span<const uint8_t> raw) {
             if (nl2 != d.end) {
                 m.version = d.str_size(static_cast<size_t>(nl2 - d.p));
                 d.u8();
-                if (d.ok(8)) std::memcpy(&m.load, d.p, 8);
+                if (d.ok(8)) { std::memcpy(&m.load, d.p, 8); d.p += 8; }
+                /* sessions_summary_json is optional (2.0.8+, str_prefixed_u16). Legacy peers don't send it. */
+                m.sessions_summary_json = d.ok(2) ? d.str_prefixed_u16() : std::string{};
                 return m;
             }
         }
@@ -1284,7 +1337,9 @@ Message decode(std::span<const uint8_t> raw) {
         d.p = saved;
         m.hostname = d.str_prefixed_u16();
         m.version = d.str_prefixed_u16();
-        if (d.ok(8)) std::memcpy(&m.load, d.p, 8);
+        if (d.ok(8)) { std::memcpy(&m.load, d.p, 8); d.p += 8; }
+        /* sessions_summary_json is optional (2.0.8+, str_prefixed_u16). Legacy peers don't send it. */
+        m.sessions_summary_json = d.ok(2) ? d.str_prefixed_u16() : std::string{};
         return m;
     }
     case 0x0A: return PingMsg{};
@@ -1431,7 +1486,7 @@ Message decode(std::span<const uint8_t> raw) {
         m.conv_id = d.str_prefixed();
         m.seq = d.u64be(); m.ts = d.u64be();
         m.agent_id = d.str_prefixed(); m.role = d.u8();
-        m.body = d.str_prefixed();
+        m.body = d.str_prefixed_u16(); // matches serialize (2.0.8-alpha3 final)
         return m;
     }
     case 0x24: {
@@ -1449,7 +1504,7 @@ Message decode(std::span<const uint8_t> raw) {
             am.conv_id = d.str_prefixed();
             am.seq = d.u64be(); am.ts = d.u64be();
             am.agent_id = d.str_prefixed(); am.role = d.u8();
-            am.body = d.str_prefixed();
+            am.body = d.str_prefixed_u16(); // matches serialize (2.0.8-alpha3 final)
             m.messages.push_back(std::move(am));
         }
         return m;
@@ -2982,13 +3037,17 @@ inline void close_nonstdio_fds_before_exec() {
             cmd = "xdotool key --delay 0 " + std::to_string(req.hid_key) + " 2>/dev/null";
             break;
         case 2: { // text entry
-            std::string escaped;
+            // POSIX single-quote escape: close, escaped-quote, reopen ('\'').
+            // A backslash-prefix does NOT escape inside single quotes — the
+            // old escaping allowed full shell injection via req.text
+            // (2.0.8 MoA P0, two-lane consensus).
+            std::string escaped = "'";
             for (char ch : req.text) {
-                if (ch == '\'' || ch == '\\' || ch == '"' || ch == '$' || ch == '`')
-                    escaped += '\\';
-                escaped += ch;
+                if (ch == '\'') escaped += "'\\''";
+                else escaped += ch;
             }
-            cmd = "xdotool type --delay 0 '" + escaped + "' 2>/dev/null";
+            escaped += "'";
+            cmd = "xdotool type --delay 0 " + escaped + " 2>/dev/null";
             break;
         }
         case 3: // mouse move
@@ -3002,8 +3061,13 @@ inline void close_nonstdio_fds_before_exec() {
             cmd = std::string("xdotool click ") + ((req.button == 0) ? "4" : "5") + " 2>/dev/null";
             break;
         case 6: // screen capture
-            cmd = "xdotool getactivewindow 2>/dev/null";
-            break;
+            // 2.0.8 MoA fix: this ran `xdotool getactivewindow` and returned
+            // success with NO capture data — a fake-success stub. Report it as
+            // unimplemented (like the other platforms) until P5c lands a real
+            // capture path (import/scrot/grim → CuaResponse payload).
+            resp.status = 1;
+            resp.error = "linux screen capture not yet deployed (P5c)";
+            return resp;
         default:
             resp.status = 1;
             resp.error = "unknown CUA action " + std::to_string(req.action);
@@ -3585,6 +3649,10 @@ struct OutboundPeerVerifyResult {
     if (hello_name.empty()) {
         return {false, "empty Hello node name"};
     }
+    // 2.0.8 MoA fix: reject control chars (log/IPC injection via node name).
+    for (unsigned char ch : hello_name)
+        if (ch < 0x20 || ch == 0x7f)
+            return {false, "Hello node name contains control characters"};
     if (!expected_name.empty() &&
         !config_peer_name_eq(expected_name, hello_name)) {
         return {false, "Hello node name does not match expected peer name"};
@@ -3607,6 +3675,11 @@ struct OutboundPeerVerifyResult {
         return {false, "Hello pubkey does not match TLS certificate key"};
     }
     if (hello_name.empty()) return {false, "empty Hello node name"};
+    // 2.0.8 MoA fix: reject control chars in node names — a \n-bearing name
+    // forges log lines (log injection) and breaks line-oriented IPC replies.
+    for (unsigned char ch : hello_name)
+        if (ch < 0x20 || ch == 0x7f)
+            return {false, "Hello node name contains control characters"};
 
     auto check_peer = [&](const PeerEntry& peer) -> std::optional<std::string> {
         if (!peer.pubkey_hex.empty() && peer.pubkey_hex == cert_pubkey &&
@@ -4311,6 +4384,13 @@ public:
         std::unique_lock lock(mutex_);
         Session* s = nullptr;
 
+        // 2.0.8 MoA fix: session names cross the line-oriented IPC protocol
+        // (SCROLLBACK <name> <offset>) and log lines — whitespace/control
+        // chars make a session unaddressable and forge protocol fields.
+        if (name.empty()) return 0;
+        for (unsigned char ch : name)
+            if (ch <= 0x20 || ch == 0x7f) return 0;
+
         auto it = sessions_.find(name);
         if (it != sessions_.end()) {
             s = it->second.get();
@@ -4416,6 +4496,12 @@ public:
     // ResizeMsg path). No-op if the attach_id is unknown.
     void set_attachment_geometry(uint32_t attach_id, uint16_t cols, uint16_t rows) {
         std::unique_lock lock(mutex_);
+        // 2.0.8 MoA fix: floor the geometry. Spectators may legitimately
+        // resize (min-wins policy), but a 0x0/1x1 resize from ANY attachment
+        // collapses the shared PTY for every viewer — a read-only role must
+        // not be able to DoS the session display.
+        cols = std::max<uint16_t>(cols, 20);
+        rows = std::max<uint16_t>(rows, 5);
         // Inline lookup — session_by_attach_id() acquires its own shared_lock,
         // which would deadlock against our unique_lock on a non-recursive mutex.
         Session* s = nullptr;
@@ -5827,6 +5913,11 @@ private:
     std::unordered_map<std::string, std::vector<ConversationAppendMsg>> conversations_;
     std::mutex conversations_mutex_;
     uint64_t next_conv_seq_ = 1;
+    // ── BridgePanel v3 mesh plane ────────────────────────────────
+    // Pre-rendered JSON arrays of session summaries per peer, populated by
+    // session gossip (ServerInfoMsg trailing field). Empty until gossip lands.
+    std::unordered_map<std::string, std::string> gossip_sessions_json_;
+    std::shared_mutex gossip_sessions_mutex_;
     // R8.3: own the TLS cert-verify callback contexts so they are freed with the
     // controller instead of leaking via `new`. MUST be declared BEFORE the
     // SSL_CTX pointers below — members destruct in reverse declaration order, so
@@ -6212,6 +6303,10 @@ private:
         }
         if (c.attached_session) {
             detach_connection_session(c, has_replacement_transport(c));
+        }
+        if (!c.peer_name.empty()) {
+            std::unique_lock lock(gossip_sessions_mutex_);
+            gossip_sessions_json_.erase(c.peer_name);
         }
         if (c.sock_fd == INVALID_SOCKET) return true;
         ssl_close(c.ssl.get(), c.sock_fd);
@@ -8284,6 +8379,21 @@ private:
             auto& g = std::get<GossipMsg>(msg);
             merge_peers(g.peers);
         }
+        else if (std::holds_alternative<ServerInfoMsg>(msg)) {
+            auto& info = std::get<ServerInfoMsg>(msg);
+            if (!info.sessions_summary_json.empty() && !c.peer_name.empty()) {
+                // 2.0.8 MoA fix: validate at the trust boundary. The payload is
+                // re-interpolated VERBATIM into MESH_TREE output — a malformed
+                // or envelope-breaking value from a peer would corrupt the
+                // panel's JSON.parse. Authenticated ≠ safe (defense-in-depth).
+                if (gossip_json_shape_ok(info.sessions_summary_json)) {
+                    std::unique_lock lock(gossip_sessions_mutex_);
+                    gossip_sessions_json_[c.peer_name] = std::move(info.sessions_summary_json);
+                } else {
+                    log_event("gossip_sessions_rejected_bad_json", c.peer_name);
+                }
+            }
+        }
         else if (std::holds_alternative<SdpOfferMsg>(msg)) {
             handle_sdp_offer(c, std::get<SdpOfferMsg>(msg));
         }
@@ -8319,6 +8429,46 @@ private:
     // ── Check for data on a connection ─────────────────────────
 
 public:
+    // 2.0.8 MoA: minimal JSON-array shape validator for peer-supplied
+    // sessions_summary_json (re-interpolated verbatim into MESH_TREE).
+    // Checks: non-empty, '[' ... ']', and bracket/brace balance outside
+    // string literals with backslash-escape awareness. Not a full JSON parse —
+    // sufficient to guarantee the value composes as one JSON value.
+    // Public: pure static, exercised directly by the test suite.
+    static bool gossip_json_shape_ok(const std::string& v) {
+        if (v.size() < 2 || v.front() != '[' || v.back() != ']') return false;
+        int depth_square = 0, depth_curly = 0;
+        bool in_str = false, esc = false;
+        for (size_t i = 0; i < v.size(); ++i) {
+            char ch = v[i];
+            if (in_str) {
+                if (esc) { esc = false; continue; }
+                if (ch == '\\') { esc = true; continue; }
+                if (ch == '"') in_str = false;
+                continue;
+            }
+            switch (ch) {
+                case '"': in_str = true; break;
+                case '[': ++depth_square; break;
+                case ']':
+                    if (--depth_square < 0) return false;
+                    if (depth_square == 0) {
+                        // Outermost array closed: only trailing whitespace may
+                        // follow. Anything else is a second value trying to
+                        // break the MESH_TREE envelope (MoA gossip finding).
+                        for (size_t j = i + 1; j < v.size(); ++j)
+                            if (!std::isspace(static_cast<unsigned char>(v[j]))) return false;
+                        return depth_curly == 0;
+                    }
+                    break;
+                case '{': ++depth_curly; break;
+                case '}': if (--depth_curly < 0) return false; break;
+                default: break;
+            }
+        }
+        return false; // outermost array never closed
+    }
+
     // Remove this transport's attachment while leaving the server-owned PTY alive.
     // A replacement connection with the same identity may already be attached
     // during a reconnect race; in that case keep the shared peer-id reference.
@@ -8501,6 +8651,15 @@ public:
             const ResolvedSessionCommand shell_cmd = resolve_session_command(
                 config_, a.session_name, a.command);
             uint16_t eff_c = 0, eff_r = 0;
+            // 2.0.8 MoA fix: a second AttachMsg on an already-attached conn
+            // would overwrite conn.attach_id and ORPHAN the previous
+            // Session::Attachment (leaks geometry into min-wins, blocks the
+            // last-detach signal). Detach the old attachment first.
+            if (conn.attach_id != 0 || conn.attached_session != nullptr) {
+                log_event("session_reattach_detaching_previous",
+                          a.session_name + " old_attach_id=" + std::to_string(conn.attach_id));
+                detach_connection_session(conn, false);
+            }
             uint32_t aid = sessions_.attach_connection(a.session_name,
                                        shell_cmd,
                                        a.cols, a.rows, a.term,
@@ -8626,6 +8785,13 @@ public:
         // SignalMsg — send signal to child process
         if (std::holds_alternative<SignalMsg>(msg)) {
             auto& sig = std::get<SignalMsg>(msg);
+            // 2.0.8: spectators are read-only — process control (SIGINT/kill/
+            // Restart with client-supplied command) is a write capability.
+            if (conn.spectator) {
+                log_event("signal_rejected_spectator", conn.attached_session
+                    ? conn.attached_session->name : std::string{});
+                return;
+            }
             if (conn.attached_session && conn.attached_session->is_valid()) {
 #ifdef _WIN32
                 if (conn.attached_session->child_pid) {
@@ -8762,7 +8928,10 @@ public:
         // ── 2.0.8 P4: Conversation messages ─────────────────────
         if (std::holds_alternative<ConversationAppendMsg>(msg)) {
             auto& ca = std::get<ConversationAppendMsg>(msg);
-            if (ca.seq == 0) {
+            // 2.0.8 MoA fix: the store is the ONLY seq authority. Honoring a
+            // peer-supplied seq lets a peer hide messages from since_seq
+            // queries (low value) or poison ordering (huge value).
+            {
                 std::lock_guard lock(conversations_mutex_);
                 ca.seq = next_conv_seq_++;
             }
@@ -8773,6 +8942,18 @@ public:
             {
                 std::lock_guard lock(conversations_mutex_);
                 conversations_[ca.conv_id].push_back(ca);
+                // 2.0.8 MoA fix: bound the store — cap messages per
+                // conversation (drop oldest) and distinct conv_ids.
+                auto& vec = conversations_[ca.conv_id];
+                static constexpr size_t kMaxMsgsPerConv = 10000;
+                if (vec.size() > kMaxMsgsPerConv)
+                    vec.erase(vec.begin(), vec.begin() + (vec.size() - kMaxMsgsPerConv));
+                static constexpr size_t kMaxConvs = 1024;
+                if (conversations_.size() > kMaxConvs) {
+                    // evict oldest-keyed conversation (map order is arbitrary;
+                    // eviction is a backstop, not an LRU)
+                    conversations_.erase(conversations_.begin());
+                }
             }
             log_event("conversation_append", ca.conv_id + " seq=" + std::to_string(ca.seq));
             return;
@@ -9304,17 +9485,74 @@ private:
         }
     }
 
+    // ── Build local sessions summary JSON (BridgePanel v3 gossip) ──
+
+    static std::string gossip_json_escape(const std::string& v) {
+        std::string r;
+        for (char ch : v) {
+            switch (ch) {
+                case '"': r += "\\\""; break;
+                case '\\': r += "\\\\"; break;
+                case '\n': r += "\\n"; break;
+                case '\r': r += "\\r"; break;
+                case '\t': r += "\\t"; break;
+                default:
+                    if (static_cast<unsigned char>(ch) < 0x20) {
+                        char buf[8]; std::snprintf(buf, sizeof buf, "\\u%04x", ch);
+                        r += buf;
+                    } else r += ch;
+            }
+        }
+        return r;
+    }
+
+    std::string build_sessions_summary_json() const {
+        static constexpr size_t kCapBytes = 4096;
+        std::vector<std::string> entries;
+        for (const auto& info : sessions_.list()) {
+            auto* s = sessions_.get(info.name);
+            if (!s) continue;
+            entries.push_back(
+                "{\"name\":\"" + gossip_json_escape(s->name) + "\","
+                "\"state\":\"" + gossip_json_escape(session_state_str(s->state)) + "\","
+                "\"command\":\"" + gossip_json_escape(s->command) + "\","
+                "\"bytes\":" + std::to_string(s->scrollback.total_written()) + "}");
+        }
+        // Cap total size: drop oldest entries first, keep the newest that fit.
+        size_t budget = kCapBytes > 2 ? kCapBytes - 2 : 0; // reserve for "[" "]"
+        size_t start = entries.size();
+        size_t running = 0;
+        while (start > 0) {
+            size_t next_len = entries[start - 1].size() + (start < entries.size() ? 1 : 0);
+            if (running + next_len > budget) break;
+            running += next_len;
+            --start;
+        }
+        std::string out = "[";
+        for (size_t i = start; i < entries.size(); ++i) {
+            if (i > start) out += ",";
+            out += entries[i];
+        }
+        out += "]";
+        return out;
+    }
+
     // ── Send Gossip to all connections ─────────────────────────
 
     void broadcast_gossip() {
         auto g = build_gossip();
-        if (g.peers.empty()) return;
+        ServerInfoMsg info;
+        info.hostname = config_.node_name;
+        info.version = std::string(kBridgeSessionsVersion);
+        info.sessions_summary_json = build_sessions_summary_json();
+        bool send_gossip = !g.peers.empty();
 
         for (auto& c : conns_) {
             if (c.sock_fd == INVALID_SOCKET) continue;
             if (c.exec_busy && c.exec_busy->load()) continue;
             try {
-                write_frame(c.ssl.get(), g, CONTROL_STREAM_ID);
+                if (send_gossip) write_frame(c.ssl.get(), g, CONTROL_STREAM_ID);
+                write_frame(c.ssl.get(), info, CONTROL_STREAM_ID);
             } catch (...) {}
         }
     }
@@ -9709,9 +9947,26 @@ public:
         // Best-effort remove the daemon's IPC token so a stale token cannot be
         // replayed after the daemon exits. A new daemon always generates a fresh
         // token and overwrites any existing file on bind.
-        if (!ipc_token_path_.empty()) {
+        // 2.0.8: only remove when the file still contains OUR token — CLI mesh
+        // clients (e.g. `bs shell`) share this path with the long-running daemon;
+        // without the check, a client exit would strip the daemon's live token.
+        if (!ipc_token_path_.empty() && !ipc_token_.empty()) {
             std::error_code ec;
-            std::filesystem::remove(ipc_token_path_, ec);
+            std::string on_disk;
+            {
+                std::ifstream f(ipc_token_path_);
+                if (f) on_disk.assign(std::istreambuf_iterator<char>(f),
+                                      std::istreambuf_iterator<char>());
+            }
+            // Exact-match (mod trailing whitespace): a substring check would
+            // delete a file that merely CONTAINS our token among other data.
+            while (!on_disk.empty() &&
+                   (on_disk.back() == '\n' || on_disk.back() == '\r' ||
+                    on_disk.back() == ' ' || on_disk.back() == '\t'))
+                on_disk.pop_back();
+            if (!on_disk.empty() && on_disk == ipc_token_) {
+                std::filesystem::remove(ipc_token_path_, ec);
+            }
         }
         ipc_token_.clear();
     }
@@ -9739,19 +9994,29 @@ public:
         // daemon event loop — no peer reads, missed pongs, false pong_timeouts, and
         // the whole mesh collapses. Use a short per-read timeout plus an
         // absolute two-second framing deadline so slow trickle clients cannot
-        // multiply the timeout by the 1023-byte request cap.
+        // hold the loop beyond the deadline regardless of request size.
         set_socket_timeouts(cfd, 250);
-        char buf[1024] = {};
+        // 128 KiB request buffer: CONV_APPEND carries b64 bodies up to the
+        // 65535-byte wire limit (≈87.4 KiB encoded) plus token + verb
+        // overhead. The absolute 2s deadline is the slow-trickle DoS control,
+        // NOT the buffer size — enlarging the buffer does not widen that
+        // window, it only raises the max single-request length.
+        std::vector<char> req_buf(128 * 1024);
+        char* buf = req_buf.data();
         int n = 0;
+        bool newline_seen = false;
         const auto request_deadline = std::chrono::steady_clock::now() +
                                       std::chrono::seconds(2);
-        while (n < static_cast<int>(sizeof(buf) - 1) &&
+        while (n < static_cast<int>(req_buf.size() - 1) &&
                std::chrono::steady_clock::now() < request_deadline) {
             int got = recv(cfd, buf + n,
-                           static_cast<int>(sizeof(buf) - 1) - n, 0);
+                           static_cast<int>(req_buf.size() - 1) - n, 0);
             if (got <= 0) break;
             n += got;
-            if (std::memchr(buf, '\n', static_cast<size_t>(n)) != nullptr) break;
+            if (std::memchr(buf, '\n', static_cast<size_t>(n)) != nullptr) {
+                newline_seen = true;
+                break;
+            }
         }
         std::string response = "ERROR bad request\n";
         bool response_sent = false;
@@ -9810,6 +10075,165 @@ public:
             }
             else if (line == "SESSIONS") {
                 response = sessions_.summary() + "\n";
+            }
+            else if (line == "PEERS") {
+                // One line per live mesh conn: name addr state=... last_pong_s=N
+                std::ostringstream out;
+                auto now = std::chrono::steady_clock::now();
+                auto fresh = std::chrono::seconds(config_.pong_timeout_secs > 0
+                                                  ? config_.pong_timeout_secs : 30);
+                for (auto& c : conns_) {
+                    if (c.purpose != ConnectionPurpose::Mesh || c.sock_fd == INVALID_SOCKET) continue;
+                    bool ok = (now - c.last_pong) <= fresh;
+                    auto age = std::chrono::duration_cast<std::chrono::seconds>(now - c.last_pong).count();
+                    out << c.peer_name << " " << c.peer_addr
+                        << " state=" << (ok ? "healthy" : "no-pong")
+                        << " last_pong_s=" << age << "\n";
+                }
+                out << "END\n";
+                response = out.str();
+            }
+            else if (line.rfind("SCROLLBACK ", 0) == 0) {
+                // SCROLLBACK <session> <since_byte> → OK <new_offset> <b64>[ RESET]
+                auto rest = line.substr(11);
+                auto sp = rest.find(' ');
+                if (sp == std::string::npos) {
+                    response = "ERROR usage: SCROLLBACK <session> <since_byte>\n";
+                } else {
+                    std::string sname = rest.substr(0, sp);
+                    size_t since = 0;
+                    bool bad_offset = false;
+                    try { since = static_cast<size_t>(std::stoull(rest.substr(sp + 1))); }
+                    catch (...) { bad_offset = true; }
+                    if (bad_offset) {
+                        response = "ERROR bad offset\n";
+                    } else {
+                        auto* s = sessions_.get(sname);
+                        if (!s) {
+                            response = "ERROR no such session\n";
+                        } else {
+                            auto [chunk, reset] = s->scrollback.read_since(since);
+                            // On RESET the client fast-forwards to the live edge.
+                            size_t new_off = reset ? s->scrollback.total_written()
+                                                   : since + chunk.size();
+                            response = "OK " + std::to_string(new_off) + " "
+                                     + b64enc(chunk) + (reset ? " RESET" : "") + "\n";
+                        }
+                    }
+                }
+            }
+            else if (line == "MESH_TREE") {
+                // Single-line JSON: node, uptime, peers[], local sessions[]
+                std::ostringstream out;
+                auto now = std::chrono::steady_clock::now();
+                auto uptime = std::chrono::duration_cast<std::chrono::seconds>(now - started_at_).count();
+                auto fresh = std::chrono::seconds(config_.pong_timeout_secs > 0
+                                                  ? config_.pong_timeout_secs : 30);
+                auto jesc = [](const std::string& v) {
+                    std::string r;
+                    for (char ch : v) {
+                        switch (ch) {
+                            case '"': r += "\\\""; break;
+                            case '\\': r += "\\\\"; break;
+                            case '\n': r += "\\n"; break;
+                            case '\r': r += "\\r"; break;
+                            case '\t': r += "\\t"; break;
+                            default:
+                                if (static_cast<unsigned char>(ch) < 0x20) {
+                                    char buf[8]; std::snprintf(buf, sizeof buf, "\\u%04x", ch);
+                                    r += buf;
+                                } else r += ch;
+                        }
+                    }
+                    return r;
+                };
+                out << "{\"node\":\"" << jesc(config_.node_name) << "\","
+                    << "\"uptime_s\":" << uptime << ",\"peers\":[";
+                bool first = true;
+                for (auto& c : conns_) {
+                    if (c.purpose != ConnectionPurpose::Mesh || c.sock_fd == INVALID_SOCKET) continue;
+                    if (!first) out << ",";
+                    first = false;
+                    bool ok = (now - c.last_pong) <= fresh;
+                    auto age = std::chrono::duration_cast<std::chrono::seconds>(now - c.last_pong).count();
+                    std::string peer_sessions = "[]";
+                    {
+                        std::shared_lock glock(gossip_sessions_mutex_);
+                        auto git = gossip_sessions_json_.find(c.peer_name);
+                        if (git != gossip_sessions_json_.end()) peer_sessions = git->second;
+                    }
+                    out << "{\"name\":\"" << jesc(c.peer_name) << "\","
+                        << "\"addr\":\"" << jesc(c.peer_addr) << "\","
+                        << "\"healthy\":" << (ok ? "true" : "false") << ","
+                        << "\"last_pong_s\":" << age << ","
+                        << "\"sessions\":" << peer_sessions << "}";
+                }
+                out << "],\"sessions\":[";
+                first = true;
+                for (const auto& info : sessions_.list()) {
+                    auto* s = sessions_.get(info.name);
+                    if (!s) continue;
+                    if (!first) out << ",";
+                    first = false;
+                    out << "{\"name\":\"" << jesc(s->name) << "\","
+                        << "\"state\":\"" << session_state_str(s->state) << "\","
+                        << "\"command\":\"" << jesc(s->command) << "\","
+                        << "\"bytes\":" << s->scrollback.total_written() << "}";
+                }
+                out << "]}\n";
+                response = out.str();
+            }
+            else if (line.rfind("CONV_APPEND ", 0) == 0) {
+                // CONV_APPEND <conv_id> <role> <b64_body> → OK <seq>
+                auto rest = line.substr(12);
+                auto sp1 = rest.find(' ');
+                auto sp2 = (sp1 == std::string::npos) ? sp1 : rest.find(' ', sp1 + 1);
+                if (sp1 == std::string::npos || sp2 == std::string::npos) {
+                    response = "ERROR usage: CONV_APPEND <conv> <role> <b64>\n";
+                } else {
+                    std::string conv = rest.substr(0, sp1);
+                    std::string role = rest.substr(sp1 + 1, sp2 - sp1 - 1);
+                    std::string body_b64 = rest.substr(sp2 + 1);
+                    uint8_t role_u8;
+                    if (role == "system") role_u8 = 0;
+                    else if (role == "user") role_u8 = 1;
+                    else if (role == "agent") role_u8 = 2;
+                    else if (role == "tool") role_u8 = 3;
+                    else {
+                        response = "ERROR bad role\n";
+                        role_u8 = 255;
+                    }
+                    if (role_u8 != 255) {
+                        ConversationAppendMsg ca;
+                        ca.conv_id = conv;
+                        ca.role = role_u8;
+                        ca.agent_id = "ipc";
+                        ca.body = b64dec(body_b64);
+                        if (ca.body.size() > 65535) {
+                            // Wire limit (u16-prefixed) — reject before store
+                            // so a later ConversationQuery serialize can never throw.
+                            response = "ERROR body too large (max 65535 bytes)\n";
+                        } else {
+                        using namespace std::chrono;
+                        ca.ts = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+                        {
+                            std::lock_guard lock(conversations_mutex_);
+                            ca.seq = next_conv_seq_++;
+                            conversations_[ca.conv_id].push_back(ca);
+                            // Same bounds as the mesh path (2.0.8 MoA).
+                            auto& vec = conversations_[ca.conv_id];
+                            static constexpr size_t kMaxMsgsPerConv = 10000;
+                            if (vec.size() > kMaxMsgsPerConv)
+                                vec.erase(vec.begin(), vec.begin() + (vec.size() - kMaxMsgsPerConv));
+                            static constexpr size_t kMaxConvs = 1024;
+                            if (conversations_.size() > kMaxConvs)
+                                conversations_.erase(conversations_.begin());
+                        }
+                        log_event("conversation_append", ca.conv_id + " seq=" + std::to_string(ca.seq) + " via=ipc");
+                        response = "OK " + std::to_string(ca.seq) + "\n";
+                        }
+                    }
+                }
             }
             else if (line.rfind("FILE_SEND ", 0) == 0) {
                 // FILE_SEND <peer> <local-path>
@@ -10039,7 +10463,35 @@ public:
             }
         }
         if (!response_sent) {
-            send(cfd, response.data(), (int)response.size(), 0);
+            // 2.0.8 MoA fix: send() may short-write (large SCROLLBACK/MESH_TREE
+            // replies). Loop until the full reply is out or the socket fails —
+            // a truncated reply silently corrupts the client's incremental sync.
+            size_t sent_total = 0;
+            while (sent_total < response.size()) {
+                int snt = send(cfd, response.data() + sent_total,
+                               static_cast<int>(response.size() - sent_total), 0);
+                if (snt <= 0) break; // timeout/closed — client retries from last offset
+                sent_total += static_cast<size_t>(snt);
+            }
+            if (!newline_seen) {
+                // Overlong/truncated request: the client may still be sending.
+                // Closing a socket with unread receive data triggers RST,
+                // which can destroy our own in-flight response (observed as
+                // ECONNRESET client-side). Half-close the write side, then
+                // drain briefly so the peer's remaining bytes land harmlessly.
+#ifdef _WIN32
+                ::shutdown(cfd, SD_SEND);
+#else
+                ::shutdown(cfd, SHUT_WR);
+#endif
+                char sink[4096];
+                const auto drain_deadline = std::chrono::steady_clock::now() +
+                                            std::chrono::milliseconds(300);
+                while (std::chrono::steady_clock::now() < drain_deadline) {
+                    int got = recv(cfd, sink, static_cast<int>(sizeof(sink)), 0);
+                    if (got <= 0) break; // EOF (client done) or 250ms timeout
+                }
+            }
             CLOSESOCK(cfd);
         }
         // else: worker owns cfd and will close it after streaming the response.

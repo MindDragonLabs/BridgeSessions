@@ -2,6 +2,74 @@
 
 All notable public releases are documented here.
 
+## [2.0.8] — alpha3 (2026-07-21)
+
+**Multi-attach + spectator roles, conversation store, streaming hardening, cross-platform CUA, BridgePanel v3, and a full MoA security audit (4 P0 + 10 P1 fixed).**
+
+### Multi-attach (P1)
+
+- Multiple connections from the same source (same pubkey) can now attach to one
+  session concurrently: `attachments` map keyed by `attach_id`, per-attachment
+  detach, MIN-geometry (min-wins) resize policy, `AttachAck` (0x21) reports the
+  effective size. Closing N−1 attachments leaves the session + child alive; the
+  last detach fires `--signal-on-detach`.
+- **Spectator role** (`AttachMsg.spectator`): read-only attachment — receives
+  `OutputMsg` fanout but Keystroke / CUA / Signal frames are rejected server-side.
+
+### Conversations (P4)
+
+- Session-independent conversation store: `ConversationAppend` (0x23),
+  `ConversationQuery` (0x24), `ConversationBatch` (0x25) with mesh relay.
+  Server is the seq authority; store bounded (10k msgs/conv, 1024 convs).
+  Body wire is u16-prefixed (65535 B cap, enforced at IPC `CONV_APPEND`).
+
+### Streaming hardening (P3)
+
+- Per-connection output queues with backpressure + `OutputGap` (0x22) — slow
+  clients no longer lose bytes silently.
+- RingBuffer oversized-write alignment fix; `read_since` clamps to the newest
+  64 KiB window with RESET semantics; IPC `SCROLLBACK` verb for incremental sync.
+
+### Cross-platform computer use (P5)
+
+- `CuaRequest` (0x26) / `CuaResponse` (0x27) with `cua_execute` dispatch.
+- Linux backend via xdotool (keyboard/mouse); Windows/macOS backends wired;
+  screen capture reports honestly where not yet deployed.
+- CUA text entry uses POSIX-safe single-quote escaping (shell-injection fix).
+
+### Cross-resolution display correctness (P2)
+
+- Display harness: 11 geometry/glyph/control tests; `doctor` display check.
+
+### BridgePanel v3 (`tools/bridgepanel/`)
+
+- Token-authenticated local IPC (`~/.bridgesessions/ipc-token`) replacing the
+  legacy unauthenticated channel. Write verbs require the token.
+- New 3-column UI: machines (mesh tree via `MESH_TREE` gossip) → sessions →
+  live output (incremental `SCROLLBACK` sync), plus comms/docs tabs.
+- New IPC verbs: `PEERS`, `SCROLLBACK`, `MESH_TREE`, `CONV_APPEND`.
+- Gossip: `ServerInfoMsg.sessions_summary_json` (legacy-tolerant trailing field)
+  with a shape validator on receive (envelope-injection fix).
+
+### MoA security audit (2026-07-21, `.audit/moa-2.0.8a3/AUDIT.md`)
+
+4-lane mixture-of-agents audit of the full alpha3 surface; every finding gated
+by a regression test or live reproduction. **4 P0 + 10 P1 + 5 P2 fixed:**
+
+- P0: spectator `SignalMsg` guard (read-only role could execute arbitrary
+  commands via `Restart.process`); conversation body u8→u16 wire (feature broke
+  on >255 B chat text); RingBuffer oversized-write slot corruption; CUA
+  text-entry shell injection.
+- P1: gossip JSON envelope validator; IPC framing (128 KiB request buffer +
+  RST-avoiding drain on truncated lines); IPC replies `send_all` (short-write
+  truncation); re-attach attachment leak; 0×0 resize floor; conversation seq
+  authority + store bounds; session-name validation; IPC token-file race;
+  vacuous spectator test replaced with a real PTY-echo test.
+- 1 P2 deferred (per-session ACL design); 1 lane finding rejected with evidence.
+
+**Tests:** 329/329 CTest green (7 new audit regression tests; 5 new alpha3 test
+files). Panel: 20/20 unittest + ruff clean.
+
 ## [2.0.7] — alpha2 (2026-07-19)
 
 **CUA from Windows origins, Ctrl-C signal safety, and bug fixes.**

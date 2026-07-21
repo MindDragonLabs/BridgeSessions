@@ -48,7 +48,9 @@ TEST_CASE("overflow wraps correctly, size capped at Capacity", "[ringbuffer]") {
     // Write 80 'A's — this exceeds the capacity, only last 64 survive
     std::string dataA(80, 'A');
     rb.write(std::string_view(dataA));
-    REQUIRE(rb.total_written() == 64); // total_written caps at Capacity when >= Capacity
+    // total_written is monotonic (total bytes ever written) — needed by
+    // read_since/SCROLLBACK absolute offsets. Ring content still caps at 64.
+    REQUIRE(rb.total_written() == 80);
     REQUIRE(rb.size() == 64);
 
     auto snap = rb.snapshot();

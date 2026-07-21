@@ -6,7 +6,7 @@
 file transfer for media artifacts, Windows CUA peers, and **Bridge Panel** for long
 Markdown reviews.
 
-> **Alpha status:** `2.0.6-alpha2` is a security-audited public alpha, not a
+> **Alpha status:** `2.0.8-alpha3` is a security-audited public alpha, not a
 > production-secure SSH replacement. The canonical shipping implementation is
 > [`bridgesessions.cpp`](bridgesessions.cpp); see [LEGACY_CODE.md](LEGACY_CODE.md)
 > for the non-shipping modular experiment retained in the repository.
@@ -57,17 +57,16 @@ Install/refresh harness links: `./scripts/install-agent-skill.sh`.
 
 ## Install from binary
 
-Current release: **[`2.0.6-alpha2`](https://codeberg.org/Mind-Dragon/BridgeSessions/releases/tag/v2.0.6-alpha2)**.
-Download the complete release bundle from Codeberg. Platform binaries are also
-mirrored under `dist/`; source archives, checksums, and the SBOM are generated
-as release assets from the exact signed tag.
+Current release: **`2.0.8-alpha3`** (git tag `v2.0.8-alpha3`, local; fleet-deployed).
+Platform binaries live under `dist/`; checksums and the SBOM are generated from
+the exact tag.
 
 | Platform | Artifact |
 |----------|----------|
 | Linux x86_64 | `bridgesessions-linux-x86_64` |
 | Windows x86_64 | `bridgesessions-windows-x86_64.exe` |
 | macOS arm64 | `bridgesessions-macos-arm64` |
-| Source | `bridgesessions-2.0.6-alpha2-source.tar.gz`, `bridgesessions-2.0.6-alpha2-source.zip` |
+| Source | `bridgesessions-2.0.8-alpha3-source.tar.gz`, `bridgesessions-2.0.8-alpha3-source.zip` |
 
 ```bash
 cd /path/to/downloaded-release-assets
@@ -75,7 +74,7 @@ sha256sum -c SHA256SUMS
 # Linux example
 install -m 0755 bridgesessions-linux-x86_64 ~/.local/bin/bridgesessions
 ln -sfn ~/.local/bin/bridgesessions ~/.local/bin/bs
-bridgesessions --version   # → 2.0.6-alpha2
+bridgesessions --version   # → 2.0.8-alpha3
 bridgesessions keygen
 ```
 
@@ -86,7 +85,7 @@ bridgesessions keygen
 | macOS arm64 | Homebrew OpenSSL/fmt/spdlog dylibs; zstd linked statically (or rebuild) |
 
 Provenance and build notes: [docs/RELEASE-PROVENANCE.md](docs/RELEASE-PROVENANCE.md) ·  
-Release notes: [docs/RELEASE-NOTES-2.0.6-alpha2.md](docs/RELEASE-NOTES-2.0.6-alpha2.md)
+Release notes: [CHANGELOG.md](CHANGELOG.md) (2.0.8-alpha3 entry)
 
 ## Build from source
 
@@ -94,7 +93,7 @@ Release notes: [docs/RELEASE-NOTES-2.0.6-alpha2.md](docs/RELEASE-NOTES-2.0.6-alp
 # Linux / macOS (needs OpenSSL, zstd, fmt, spdlog, CLI11, nlohmann-json)
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --parallel
-./build/bridgesessions --version  # → 2.0.6-alpha2
+./build/bridgesessions --version  # → 2.0.8-alpha3
 ```
 
 Or: `./build.sh` on Linux. Windows MinGW and macOS flags:

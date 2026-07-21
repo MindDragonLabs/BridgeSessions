@@ -182,51 +182,125 @@ def _seed_sample_data() -> None:
 
 # ── BridgeSessions integration ─────────────────────────────────
 
+def bs_ipc_token() -> str:
+    """Read the BridgeSessions daemon IPC token (best-effort)."""
+    for cand in (Path.home() / ".bridgesessions" / "ipc-token",):
+        try:
+            tok = cand.read_text(encoding="utf-8").strip()
+            if tok:
+                return tok
+        except OSError:
+            continue
+    return ""
+
+
+def bs_ipc(verb: str, timeout: float = BS_IPC_TIMEOUT) -> str:
+    """Send a token-prefixed IPC verb to the local BS daemon; return raw body.
+
+    Returns "" on any failure (daemon down, no token, timeout) — callers
+    degrade to their offline/empty state.
+    """
+    token = bs_ipc_token()
+    if not token:
+        return ""
+    s = None
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(timeout)
+        s.connect(("127.0.0.1", BS_IPC_PORT))
+        s.sendall(f"{token} {verb}\n".encode("utf-8"))
+        chunks = []
+        while True:
+            chunk = s.recv(65536)
+            if not chunk:
+                break
+            chunks.append(chunk)
+        return b"".join(chunks).decode("utf-8", errors="replace")
+    except (OSError, socket.timeout):
+        return ""
+    finally:
+        if s is not None:
+            s.close()
+
+
 def query_bs_sessions() -> list[dict]:
     """Query BridgeSessions daemon for active sessions via IPC.
 
     Returns a list of {name, state, command} dicts. Returns [] if BS
     is not running or unreachable — panel works without BS.
     """
-    s = None
-    try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.settimeout(BS_IPC_TIMEOUT)
-        s.connect(("127.0.0.1", BS_IPC_PORT))
-        s.sendall(b"SESSIONS\n")
-        raw = b""
-        while True:
-            chunk = s.recv(4096)
-            if not chunk:
-                break
-            raw += chunk
-    except (OSError, socket.timeout):
-        return []
-    finally:
-        if s is not None:
-            s.close()
-
-    text = raw.decode("utf-8", errors="replace").strip()
-    if not text or text == "No sessions.":
+    text = bs_ipc("SESSIONS").strip()
+    if not text or text == "No sessions." or text.startswith("ERROR"):
         return []
 
     sessions = []
-    for line in text.splitlines():
-        line = line.strip()
-        if not line:
+    # Daemon emits pipe-separated records: "live <name> k=v k=v | recent ..."
+    for record in text.split(" | "):
+        record = record.strip()
+        if not record:
             continue
-        parts = line.split(":", 1)
-        name = parts[0].strip()
-        rest = parts[1].strip() if len(parts) > 1 else ""
+        parts = record.split(None, 1)
+        kind = parts[0]
+        rest = parts[1] if len(parts) > 1 else ""
+        fields = rest.split(None, 1)
+        name = fields[0] if fields else ""
+        kv = fields[1] if len(fields) > 1 else ""
         state = "unknown"
         command = ""
-        for token in rest.split():
-            if token.startswith("state="):
-                state = token.split("=", 1)[1]
-            elif token.startswith("command="):
-                command = token.split("=", 1)[1]
-        sessions.append({"name": name, "state": state, "command": command})
+        for token_ in kv.split():
+            if token_.startswith("state="):
+                state = token_.split("=", 1)[1]
+            elif token_.startswith("command="):
+                command = token_.split("=", 1)[1]
+        if kind == "live" and name:
+            sessions.append({"name": name, "state": state, "command": command})
     return sessions
+
+
+def query_mesh_tree() -> dict:
+    """Query the daemon MESH_TREE verb. Returns parsed JSON or a safe empty shape."""
+    import json as _json
+    raw = bs_ipc("MESH_TREE", timeout=3.0).strip()
+    if not raw or raw.startswith("ERROR"):
+        return {"node": "", "uptime_s": 0, "peers": [], "sessions": [], "offline": True}
+    try:
+        tree = _json.loads(raw.split("\n", 1)[0])
+        if not isinstance(tree, dict):
+            raise ValueError("not a dict")
+        tree.setdefault("peers", [])
+        tree.setdefault("sessions", [])
+        return tree
+    except (ValueError, _json.JSONDecodeError):
+        return {"node": "", "uptime_s": 0, "peers": [], "sessions": [], "offline": True}
+
+
+def query_scrollback(session: str, since: int) -> dict:
+    """Query SCROLLBACK <session> <since>. Returns {offset, text, reset, error}."""
+    import base64 as _b64
+    raw = bs_ipc(f"SCROLLBACK {session} {int(since)}", timeout=3.0).strip()
+    if not raw or raw.startswith("ERROR"):
+        return {"offset": since, "text": "", "reset": False, "error": raw or "unreachable"}
+    parts = raw.split(" ", 2)
+    if len(parts) < 2 or parts[0] != "OK":
+        return {"offset": since, "text": "", "reset": False, "error": raw}
+    try:
+        new_offset = int(parts[1])
+    except ValueError:
+        return {"offset": since, "text": "", "reset": False, "error": "bad offset"}
+    payload = parts[2] if len(parts) > 2 else ""
+    reset = payload.endswith(" RESET")
+    if reset:
+        payload = payload[: -len(" RESET")]
+    if payload == "RESET":  # 'OK <off> RESET' with empty tail
+        payload = ""
+        reset = True
+    # daemon b64enc strips '=' padding — restore before decoding
+    pad = (-len(payload)) % 4
+    try:
+        text = _b64.b64decode(payload + "=" * pad).decode("utf-8", errors="replace")
+    except Exception:
+        return {"offset": since, "text": "", "reset": False, "error": "bad payload"}
+    return {"offset": new_offset, "text": text, "reset": reset, "error": ""}
 
 
 # ── Tree builder ───────────────────────────────────────────────
@@ -437,6 +511,7 @@ INDEX_HTML = r'''<!doctype html>
   --text-4: #888888;
   --border: rgba(0,0,0,0.05);
   --border-2: rgba(0,0,0,0.08);
+  --divider: rgba(0,0,0,0.18);
   --hover: rgba(0,0,0,0.02);
   --accent: #18E299;
   --accent-soft: #d4fae8;
@@ -456,23 +531,34 @@ html, body {
 }
 button, input, textarea { font: inherit; color: inherit; }
 
-/* ── Layout ──────────────────────────────────── */
+/* ── Layout: machines | sessions | work area ── */
 .shell {
   height: 100vh;
   display: grid;
-  grid-template-columns: 300px minmax(0, 1fr);
+  grid-template-columns: 200px 260px minmax(0, 1fr);
 }
-
-/* ── Sidebar ─────────────────────────────────── */
 aside {
   min-height: 0;
   overflow-y: auto;
-  border-right: 1px solid rgba(0,0,0,0.18);
-  padding: 20px 0 40px;
   background: var(--bg);
 }
-.sidebar-header {
-  padding: 0 20px 16px;
+aside.machines { border-right: 1px solid var(--divider); }
+aside.sessions { border-right: 1px solid var(--divider); }
+
+/* ── Titlebar ── */
+.titlebar {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 14px 16px 12px;
+  border-bottom: 1px solid var(--divider);
+  margin-bottom: 6px;
+}
+.titlebar .brand { font-size: 15px; font-weight: 700; letter-spacing: 0.4px; color: var(--text); }
+.titlebar .build { font-family: var(--mono); font-size: 11px; color: var(--text-3); }
+
+.col-header {
+  padding: 10px 16px 8px;
   font-size: 13px;
   font-weight: 500;
   color: var(--text-4);
@@ -480,92 +566,157 @@ aside {
   letter-spacing: 0.65px;
 }
 
-/* ── Titlebar ──────────────────────────────── */
-.titlebar {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  padding: 14px 20px 12px;
-  border-bottom: 1px solid rgba(0,0,0,0.18);
-  margin-bottom: 8px;
-}
-.titlebar .brand {
-  font-size: 15px;
-  font-weight: 700;
-  letter-spacing: 0.4px;
-  color: var(--text);
-}
-.titlebar .build {
-  font-family: var(--mono);
-  font-size: 11px;
-  color: var(--text-3);
-}
-
-/* ── Tree ────────────────────────────────────── */
-.tree-session {
-  margin-bottom: 2px;
-}
-.session-row {
+/* ── Machine rows ── */
+.machine-row {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 5px 20px;
+  gap: 8px;
+  padding: 6px 16px;
   cursor: pointer;
   user-select: none;
   font-size: 14px;
   font-weight: 500;
   color: var(--text);
 }
-.session-row:hover { background: var(--hover); }
-.session-row .chevron {
-  width: 12px; height: 12px;
-  flex-shrink: 0;
-  opacity: 0.4;
-  transition: transform 0.15s ease;
+.machine-row:hover { background: var(--hover); }
+.machine-row.active { background: var(--accent-soft); }
+.machine-row .dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: #c8c8c8; flex-shrink: 0;
 }
-.session-row.expanded .chevron { transform: rotate(90deg); }
-.session-row .live-dot {
-  width: 6px; height: 6px;
-  border-radius: 50%;
-  background: var(--accent);
-  flex-shrink: 0;
+.machine-row .dot.up { background: var(--accent); }
+.machine-row .count {
   margin-left: auto;
+  font-family: var(--mono); font-size: 11px; color: var(--text-4);
 }
-.session-children {
-  overflow: hidden;
-  max-height: 0;
-  transition: max-height 0.2s ease;
+.machine-row .you {
+  font-family: var(--mono); font-size: 10px; color: var(--text-4);
 }
-.session-children.open { max-height: 2000px; }
 
-.type-group { padding: 2px 0; }
-.type-row {
+/* ── Session rows ── */
+.session-row {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 3px 20px 3px 42px;
+  gap: 8px;
+  padding: 6px 16px;
   cursor: pointer;
   user-select: none;
+  font-size: 14px;
+  color: var(--text);
+}
+.session-row:hover { background: var(--hover); }
+.session-row.active { background: var(--accent-soft); }
+.session-row .hicon { font-size: 12px; opacity: 0.6; width: 16px; text-align: center; }
+.session-row .sname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.session-row .sstate { font-family: var(--mono); font-size: 10px; color: var(--text-4); }
+.session-row .dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: #c8c8c8; flex-shrink: 0;
+}
+.session-row .dot.live { background: var(--accent); }
+
+/* ── Main ── */
+main { min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+.breadcrumb {
+  padding: 14px 20px 4px;
   font-size: 12px;
   font-family: var(--mono);
-  text-transform: uppercase;
-  letter-spacing: 0.6px;
   color: var(--text-4);
 }
-.type-row:hover { color: var(--text-3); }
-.type-row .chevron {
-  width: 10px; height: 10px;
-  opacity: 0.4;
-  transition: transform 0.15s ease;
-}
-.type-row.expanded .chevron { transform: rotate(90deg); }
-.type-children { overflow: hidden; max-height: 0; }
-.type-children.open { max-height: 500px; }
+.breadcrumb span.sep { opacity: 0.4; margin: 0 4px; }
+.breadcrumb span.current { color: var(--text-2); }
 
+/* ── Tab bar ── */
+.tabbar {
+  display: flex;
+  gap: 2px;
+  padding: 6px 20px 0;
+  border-bottom: 1px solid var(--border);
+}
+.tabbar button {
+  border: none;
+  background: none;
+  padding: 6px 12px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-4);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+}
+.tabbar button:hover { color: var(--text-2); }
+.tabbar button.active {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+}
+
+/* ── Tools bar ── */
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 20px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+.btn-group { display: flex; gap: 6px; }
+.btn-group button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 500;
+  border: 1px solid var(--border-2);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text-2);
+  cursor: pointer;
+}
+.btn-group button:hover { background: var(--hover); }
+.btn-group button.primary {
+  background: var(--text);
+  color: var(--bg);
+  border-color: var(--text);
+}
+.btn-group button svg { width: 12px; height: 12px; }
+.toolbar .spacer { flex: 1; }
+.follow-chip {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-4);
+  cursor: pointer;
+  user-select: none;
+  padding: 3px 8px;
+  border: 1px solid var(--border-2);
+  border-radius: 10px;
+}
+.follow-chip.on { color: var(--accent-deep); border-color: var(--accent); }
+
+/* ── Work area ── */
+#workarea { flex: 1; min-height: 0; display: flex; overflow: hidden; }
+#outputPane {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 20px 40px;
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: var(--text-2);
+  background: var(--bg);
+}
+#filePane { flex: 1; min-height: 0; display: flex; overflow: hidden; }
+#filelist {
+  width: 220px;
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+  padding: 8px 0;
+}
 .file-item {
   display: flex;
   align-items: center;
-  padding: 4px 20px 4px 64px;
+  padding: 5px 16px;
   cursor: pointer;
   font-size: 13px;
   color: var(--text-2);
@@ -579,658 +730,490 @@ aside {
   color: var(--text);
   font-weight: 500;
 }
-.file-item .file-name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  flex: 1;
-}
+.file-item .file-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
 .file-item .file-time {
-  font-size: 10px;
-  font-family: var(--mono);
-  color: var(--text-4);
-  margin-left: 6px;
-  flex-shrink: 0;
+  font-size: 10px; font-family: var(--mono); color: var(--text-4);
+  margin-left: 6px; flex-shrink: 0;
 }
-.file-item.active .file-time { color: var(--accent-deep); }
-
-/* ── Main content ────────────────────────────── */
-main {
-  min-width: 0;
-  min-height: 0;
+#content {
+  flex: 1;
   overflow-y: auto;
-  position: relative;
+  padding: 12px 20px 60px;
 }
-/* ── Breadcrumb (above document, aligned to sidebar 'Sessions' title) ── */
-.breadcrumb {
-  padding: 0 20px 6px;
-  font-size: 12px;
-  font-family: var(--mono);
-  color: var(--text-4);
-}
-.breadcrumb span.sep { opacity: 0.4; margin: 0 4px; }
-.breadcrumb span.current { color: var(--text-2); }
-
-/* ── Tools bar (action buttons, under breadcrumb) ── */
-.toolbar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 4px 20px 16px;
-  background: var(--bg);
-  border-bottom: 1px solid var(--border);
-}
-.btn-group {
-  display: inline-flex;
-  gap: 8px;
-}
-.btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  min-height: 34px;
-  padding: 0 14px;
-  border-radius: 8px;
-  border: 1px solid var(--border-2);
-  background: var(--bg);
-  color: var(--text-2);
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: background 0.12s ease, border-color 0.12s ease;
-}
-.btn:hover { background: var(--hover); border-color: var(--text-4); }
-.btn:active { background: rgba(0,0,0,0.06); }
-.btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.btn svg { width: 15px; height: 15px; }
-.btn-primary {
-  background: var(--text);
-  color: #fff;
-  border-color: var(--text);
-}
-.btn-primary:hover { background: #000; border-color: #000; }
-.btn[hidden] { display: none; }
-
-/* ── Document ────────────────────────────────── */
-.doc-container {
-  max-width: 860px;
-  margin: 0;
-  padding: 24px 20px 120px;
-}
-.doc-container h1 {
-  font-size: 32px;
-  font-weight: 600;
-  letter-spacing: -0.64px;
-  line-height: 1.2;
-  color: var(--text);
-  margin-bottom: 8px;
-}
-.doc-container h2 {
-  font-size: 22px;
-  font-weight: 600;
-  letter-spacing: -0.44px;
-  color: var(--text);
-  margin-top: 36px;
-  margin-bottom: 12px;
-}
-.doc-container h3 {
-  font-size: 18px;
-  font-weight: 600;
-  letter-spacing: -0.36px;
-  color: var(--text);
-  margin-top: 28px;
-  margin-bottom: 8px;
-}
-.doc-container p {
-  font-size: 15px;
-  line-height: 1.65;
-  margin-bottom: 16px;
-  color: var(--text-2);
-}
-.doc-container ul, .doc-container ol {
-  padding-left: 24px;
-  margin-bottom: 16px;
-}
-.doc-container li {
-  font-size: 15px;
-  line-height: 1.65;
-  color: var(--text-2);
-  margin-bottom: 4px;
-}
+.doc-container { max-width: 860px; }
+.doc-container h1, .doc-container h2, .doc-container h3 { color: var(--text); margin: 18px 0 8px; }
+.doc-container h1 { font-size: 22px; }
+.doc-container h2 { font-size: 18px; }
+.doc-container h3 { font-size: 16px; }
+.doc-container p { margin: 8px 0; line-height: 1.65; }
 .doc-container code {
-  font-family: var(--mono);
-  font-size: 13px;
-  background: rgba(0,0,0,0.04);
-  padding: 1px 5px;
-  border-radius: 4px;
-  color: var(--text);
+  font-family: var(--mono); font-size: 13px;
+  background: rgba(0,0,0,0.04); padding: 1px 5px; border-radius: 4px;
 }
-.doc-container pre.code {
-  background: #0d0d0d;
-  color: #e0e0e0;
-  padding: 18px 20px;
-  border-radius: 12px;
+.doc-container pre {
+  font-family: var(--mono); font-size: 13px;
+  background: rgba(0,0,0,0.03);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
   overflow-x: auto;
-  margin: 20px 0;
+  margin: 10px 0;
+}
+.doc-container pre code { background: none; padding: 0; }
+.doc-container ul, .doc-container ol { margin: 8px 0 8px 22px; line-height: 1.65; }
+.doc-container table { border-collapse: collapse; margin: 10px 0; }
+.doc-container th, .doc-container td {
+  border: 1px solid var(--border-2); padding: 5px 10px; font-size: 13px; text-align: left;
+}
+.doc-container th { background: rgba(0,0,0,0.02); font-weight: 600; }
+.doc-container a { color: var(--accent-deep); text-decoration: none; }
+.doc-container a:hover { text-decoration: underline; }
+.doc-container blockquote {
+  border-left: 3px solid var(--border-2);
+  margin: 10px 0; padding: 2px 14px; color: var(--text-3);
+}
+#editTextarea {
+  width: 100%;
+  min-height: 60vh;
+  font-family: var(--mono);
   font-size: 13px;
   line-height: 1.5;
-}
-.doc-container pre.code code {
-  background: none;
-  padding: 0;
-  color: inherit;
-  font-size: 13px;
-}
-.doc-container blockquote {
-  border-left: 3px solid var(--accent);
-  padding: 4px 0 4px 16px;
-  margin: 20px 0;
-  color: var(--text-3);
-  font-style: italic;
-}
-.doc-container a {
-  color: var(--text);
-  text-decoration: underline;
-  text-decoration-color: var(--accent);
-  text-underline-offset: 2px;
-}
-.doc-container a:hover { color: var(--accent-deep); }
-.doc-container hr {
-  border: none;
-  border-top: 1px solid var(--border);
-  margin: 32px 0;
-}
-.doc-container .table-wrap {
-  overflow-x: auto;
-  margin: 20px 0;
-}
-.doc-container table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 14px;
-}
-.doc-container th {
-  text-align: left;
-  font-weight: 600;
-  color: var(--text);
-  padding: 10px 12px;
-  border-bottom: 2px solid var(--border-2);
-}
-.doc-container td {
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--border);
-  color: var(--text-2);
-}
-
-/* ── Edit mode ───────────────────────────────── */
-.edit-area {
-  display: none;
-}
-.edit-area.active { display: block; }
-.edit-area textarea {
-  width: 100%;
-  min-height: 500px;
-  font-family: var(--mono);
-  font-size: 13px;
-  line-height: 1.6;
-  color: var(--text);
-  background: #fafafa;
+  padding: 14px;
   border: 1px solid var(--border-2);
-  border-radius: 12px;
-  padding: 20px;
+  border-radius: 8px;
   resize: vertical;
   outline: none;
-  transition: border-color 0.15s;
 }
-.edit-area textarea:focus { border-color: var(--accent); }
-.read-area.hidden { display: none; }
+#editTextarea:focus { border-color: var(--accent); }
 
-/* ── Empty state ─────────────────────────────── */
 .empty-state {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  height: 100%;
+  padding: 60px 20px;
+  text-align: center;
   color: var(--text-4);
-  gap: 8px;
+  font-size: 14px;
 }
-.empty-state svg { opacity: 0.15; }
-.empty-state p { font-size: 14px; }
+.empty-state .hint { font-size: 12px; margin-top: 6px; font-family: var(--mono); }
 
-/* ── Toast ───────────────────────────────────── */
-.toast {
+/* ── Toast ── */
+#toast {
   position: fixed;
-  bottom: 24px;
+  bottom: 20px;
   left: 50%;
-  transform: translateX(-50%) translateY(20px);
+  transform: translateX(-50%);
   background: var(--text);
-  color: #fff;
-  padding: 10px 20px;
-  border-radius: 9999px;
+  color: var(--bg);
+  padding: 8px 16px;
+  border-radius: 8px;
   font-size: 13px;
-  font-weight: 500;
   opacity: 0;
-  transition: all 0.25s ease;
+  transition: opacity 0.2s ease;
   pointer-events: none;
-  z-index: 100;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  z-index: 50;
 }
-.toast.show {
-  opacity: 1;
-  transform: translateX(-50%) translateY(0);
-}
-
-/* ── Scrollbar ───────────────────────────────── */
-aside::-webkit-scrollbar, main::-webkit-scrollbar,
-.doc-container pre::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-aside::-webkit-scrollbar-thumb, main::-webkit-scrollbar-thumb,
-.doc-container pre::-webkit-scrollbar-thumb {
-  background: rgba(0,0,0,0.12);
-  border-radius: 3px;
-}
-aside::-webkit-scrollbar-thumb:hover, main::-webkit-scrollbar-thumb:hover {
-  background: rgba(0,0,0,0.2);
-}
+#toast.show { opacity: 1; }
+#toast.err { background: #b3261e; }
 </style>
 </head>
 <body>
 <div class="shell">
-  <aside id="sidebar">
-    <div class="titlebar">
-      <span class="brand">BRIDGE PANEL</span>
-      <span class="build" id="buildTag">__BUILD_TAG__</span>
-    </div>
-    <div class="sidebar-header">Sessions</div>
-    <div id="tree"></div>
+  <aside class="machines">
+    <div class="titlebar"><span class="brand">BRIDGE PANEL</span><span class="build">__BUILD_TAG__</span></div>
+    <div class="col-header">Machines</div>
+    <div id="machines"></div>
+  </aside>
+  <aside class="sessions">
+    <div class="col-header" id="sessionsHeader">Sessions</div>
+    <div id="sessions"></div>
   </aside>
   <main>
-    <div class="breadcrumb" id="breadcrumb" style="display:none"></div>
+    <div class="breadcrumb" id="breadcrumb"></div>
+    <div class="tabbar" id="tabbar" style="display:none">
+      <button data-tab="output" class="active">Output</button>
+      <button data-tab="comms">Comms</button>
+      <button data-tab="docs">Docs</button>
+    </div>
     <div class="toolbar" id="toolbar" style="display:none">
       <div class="btn-group">
-        <button class="btn" id="editBtn" hidden>Edit</button>
-        <button class="btn btn-primary" id="saveBtn" hidden>Save</button>
-        <button class="btn" id="cancelBtn" hidden>Cancel</button>
-        <button class="btn" id="copyBtn" hidden>Copy</button>
+        <button id="editBtn"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M11.3 2.7a1.4 1.4 0 0 1 2 2L5 13H3v-2l8.3-8.3z"/></svg>Edit</button>
+        <button id="saveBtn" class="primary" style="display:none"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M13 3 6 10 3 7"/></svg>Save</button>
+        <button id="cancelBtn" style="display:none"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m4 4 8 8M12 4l-8 8"/></svg>Cancel</button>
+        <button id="copyBtn"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="5" y="5" width="8" height="9" rx="1"/><path d="M11 5V3a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v7a1 1 0 0 0 1 1h1"/></svg>Copy</button>
       </div>
+      <div class="spacer"></div>
+      <span class="follow-chip on" id="followChip" style="display:none">follow ●</span>
     </div>
-    <div id="content">
-      <div class="empty-state">
-        <svg width="48" height="48" viewBox="0 0 32 32" fill="none">
-          <rect x="3" y="3" width="26" height="26" rx="7" stroke="currentColor" stroke-width="1.5"/>
-          <rect x="8" y="9" width="11" height="2.5" rx="1.25" fill="currentColor"/>
-          <rect x="8" y="14.75" width="16" height="2.5" rx="1.25" fill="currentColor"/>
-          <rect x="8" y="20.5" width="9" height="2.5" rx="1.25" fill="currentColor"/>
-        </svg>
-        <p>Select a file from the tree</p>
+    <div id="workarea">
+      <pre id="outputPane" style="display:none"></pre>
+      <div id="filePane" style="display:none">
+        <div id="filelist"></div>
+        <div id="content"><div class="empty-state">Select a file</div></div>
+      </div>
+      <div class="empty-state" id="welcomePane">
+        <div>Select a machine, then a session.</div>
+        <div class="hint">machines → sessions → output / comms / docs</div>
       </div>
     </div>
   </main>
 </div>
-<div class="toast" id="toast"></div>
-
+<div id="toast"></div>
 <script>
-(() => {
+(function(){
   'use strict';
-
   const base = location.pathname.replace(/\/$/, '');
-  const treeEl = document.getElementById('tree');
-  const contentEl = document.getElementById('content');
-  const toolbarEl = document.getElementById('toolbar');
+  const machinesEl = document.getElementById('machines');
+  const sessionsEl = document.getElementById('sessions');
+  const sessionsHeaderEl = document.getElementById('sessionsHeader');
   const breadcrumbEl = document.getElementById('breadcrumb');
+  const tabbarEl = document.getElementById('tabbar');
+  const toolbarEl = document.getElementById('toolbar');
+  const outputPane = document.getElementById('outputPane');
+  const filePane = document.getElementById('filePane');
+  const welcomePane = document.getElementById('welcomePane');
+  const filelistEl = document.getElementById('filelist');
+  const contentEl = document.getElementById('content');
+  const followChip = document.getElementById('followChip');
   const editBtn = document.getElementById('editBtn');
   const saveBtn = document.getElementById('saveBtn');
   const cancelBtn = document.getElementById('cancelBtn');
   const copyBtn = document.getElementById('copyBtn');
   const toastEl = document.getElementById('toast');
 
-  const ICONS = {
-    edit:   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>',
-    save:   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8M7 3v5h8"/></svg>',
-    cancel: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>',
-    copy:   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>'
-  };
-  editBtn.innerHTML = ICONS.edit + ' Edit';
-  saveBtn.innerHTML = ICONS.save + ' Save';
-  cancelBtn.innerHTML = ICONS.cancel + ' Cancel';
-  copyBtn.innerHTML = ICONS.copy + ' Copy';
+  const HARNESS_RE = /hermes|codex|claude|kimi|grok|opencode/i;
 
-  let currentSession = null;
-  let currentType = null;
-  let currentFile = null;
-  let isEditing = false;
-  let canEdit = false;
-  let rawContent = '';
-  let renderedHtml = '';
+  // ── State ──
+  let mesh = {node:'', peers:[], sessions:[], offline:true};
+  let fsTree = {sessions:[]};
+  let selMachine = null;       // '' = local node
+  let selSession = null;
+  let selSessionLive = false;
+  let selSessionCommand = '';
+  let tab = 'output';
+  let outputOffset = 0;
+  let outputFollow = true;
+  let outputTimer = null;
+  let curFile = null, curType = null, curRaw = '', editing = false;
 
   const esc = s => String(s).replace(/[&<>"']/g, c =>
     ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
-  function toast(msg) {
+  function toast(msg, isErr) {
     toastEl.textContent = msg;
-    toastEl.classList.add('show');
-    clearTimeout(toast._t);
-    toast._t = setTimeout(() => toastEl.classList.remove('show'), 1800);
+    toastEl.className = 'show' + (isErr ? ' err' : '');
+    setTimeout(() => { toastEl.className = ''; }, 1800);
   }
 
   async function api(path) {
     const r = await fetch(base + path);
-    if (!r.ok) throw new Error(await r.text() || r.statusText);
-    return r;
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return r.json();
   }
 
-  // ── Tree rendering ──────────────────────────
-  function chevron(w) {
-    return '<svg class="chevron" width="' + w + '" height="' + w + '" viewBox="0 0 16 16" fill="none">'
-      + '<path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  // Strip ANSI CSI sequences (colors/cursor); OSC52 already stripped server-side.
+  function stripAnsi(s) {
+    return s
+      .replace(/\x1b\[[0-9;?]*[A-Za-z@-~]/g, '')
+      .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, '')
+      .replace(/\x1b[@-Z\\-_]/g, '');
   }
 
-  function renderTree(data) {
-    const sessions = data.sessions || [];
-    if (sessions.length === 0) {
-      treeEl.innerHTML = '<div style="padding:0 20px;color:var(--text-4);font-size:13px">No sessions yet.</div>';
+  // ── Machines column ──
+  function machineList() {
+    // Local node first (marked), then peers sorted by name
+    const out = [];
+    out.push({name: mesh.node || '(local)', healthy: !mesh.offline, you: true,
+              sessions: mesh.sessions || []});
+    for (const p of (mesh.peers || [])) {
+      out.push({name: p.name, healthy: !!p.healthy, you: false,
+                sessions: p.sessions || []});
+    }
+    return out;
+  }
+
+  function renderMachines() {
+    const list = machineList();
+    if (!list.length || (list.length === 1 && mesh.offline)) {
+      machinesEl.innerHTML = '<div class="machine-row"><span class="dot"></span>' +
+        '<span>(mesh offline)</span></div>';
       return;
     }
-
-    let html = '';
-    for (const sess of sessions) {
-      const expanded = sess.live || (sessions.length <= 2);
-      html += '<div class="tree-session" data-session="' + esc(sess.name) + '">'
-        + '<div class="session-row ' + (expanded ? 'expanded' : '') + '">'
-        + chevron(12)
-        + '<span>' + esc(sess.name) + '</span>'
-        + (sess.live ? '<span class="live-dot" title="live session"></span>' : '')
-        + '</div>'
-        + '<div class="session-children ' + (expanded ? 'open' : '') + '">'
-        + renderTypeGroup('comms', sess.comms, expanded)
-        + renderTypeGroup('documents', sess.documents, expanded)
-        + '</div></div>';
-    }
-    treeEl.innerHTML = html;
+    machinesEl.innerHTML = list.map(m =>
+      '<div class="machine-row' + (selMachine === m.name ? ' active' : '') +
+      '" data-machine="' + esc(m.name) + '">' +
+      '<span class="dot' + (m.healthy ? ' up' : '') + '"></span>' +
+      '<span>' + esc(m.name) + '</span>' +
+      (m.you ? '<span class="you">you</span>' : '') +
+      '<span class="count">' + (m.sessions ? m.sessions.length : 0) + '</span>' +
+      '</div>'
+    ).join('');
   }
 
-  function renderTypeGroup(dtype, files, parentExpanded) {
-    const expanded = parentExpanded && files.length > 0 && files.length <= 4;
-    const muted = files.length === 0 ? 'opacity:0.4' : '';
-    let html = '<div class="type-group" data-type="' + dtype + '">'
-      + '<div class="type-row ' + (expanded ? 'expanded' : '') + '" style="' + muted + '">'
-      + chevron(10)
-      + '<span>' + dtype + '</span>'
-      + '<span style="margin-left:auto;padding-right:20px">' + files.length + '</span>'
-      + '</div>'
-      + '<div class="type-children ' + (expanded ? 'open' : '') + '">';
-
-    for (const f of files) {
-      const isActive = currentSession && currentType === dtype && currentFile === f.name;
-      html += '<div class="file-item' + (isActive ? ' active' : '') + '" data-filename="' + esc(f.name) + '">'
-        + '<span class="file-name">' + esc(f.name) + '</span>'
-        + '<span class="file-time">' + esc(f.modified_human) + '</span>'
-        + '</div>';
-    }
-    html += '</div></div>';
-    return html;
-  }
-
-  // ── Event delegation for tree clicks ────────
-  treeEl.addEventListener('click', function(e) {
-    // Toggle session row
-    const sessionRow = e.target.closest('.session-row');
-    if (sessionRow && treeEl.contains(sessionRow)) {
-      sessionRow.classList.toggle('expanded');
-      const children = sessionRow.nextElementSibling;
-      if (children) children.classList.toggle('open');
-      return;
-    }
-    // Toggle type row
-    const typeRow = e.target.closest('.type-row');
-    if (typeRow) {
-      typeRow.classList.toggle('expanded');
-      const children = typeRow.nextElementSibling;
-      if (children) children.classList.toggle('open');
-      return;
-    }
-    // Open file
-    const fileItem = e.target.closest('.file-item');
-    if (fileItem) {
-      const sessionEl = fileItem.closest('.tree-session');
-      const typeGroup = fileItem.closest('.type-group');
-      if (sessionEl && typeGroup) {
-        const session = sessionEl.dataset.session;
-        const dtype = typeGroup.dataset.type;
-        const filename = fileItem.dataset.filename;
-        openFile(session, dtype, filename, fileItem);
-      }
-    }
+  machinesEl.addEventListener('click', e => {
+    const row = e.target.closest('.machine-row');
+    if (!row || !row.dataset.machine) return;
+    selMachine = row.dataset.machine;
+    selSession = null;
+    renderMachines();
+    renderSessions();
+    renderWork();
   });
 
-  // ── File open ───────────────────────────────
-  async function openFile(session, dtype, filename, el) {
-    if (isEditing) return;
-    currentSession = session;
-    currentType = dtype;
-    currentFile = filename;
-
-    document.querySelectorAll('.file-item').forEach(function(item) {
-      item.classList.remove('active');
-    });
-    if (el) el.classList.add('active');
-
-    try {
-      var url = '/api/content?session=' + encodeURIComponent(session)
-        + '&type=' + encodeURIComponent(dtype)
-        + '&name=' + encodeURIComponent(filename);
-      const r = await api(url);
-      const d = await r.json();
-      rawContent = d.raw || '';
-      renderedHtml = d.html || '';
-      canEdit = !!d.editable;
-      renderContent(false);
-      updateBreadcrumb();
-    } catch (e) {
-      toast('Error: ' + e.message);
+  // ── Sessions column ──
+  function sessionsFor(machineName) {
+    const m = machineList().find(x => x.name === machineName);
+    const live = (m && m.sessions) || [];
+    // Merge filesystem sessions for the local node only
+    const isLocal = !machineName || machineName === mesh.node ||
+                    machineName === '(local)' || machineName === '';
+    const out = live.map(s => ({
+      name: s.name, state: s.state || '', command: s.command || '',
+      bytes: s.bytes || 0, live: true,
+      harness: HARNESS_RE.test(s.command || s.name || '')
+    }));
+    if (isLocal) {
+      const liveNames = new Set(out.map(s => s.name));
+      for (const fs of (fsTree.sessions || [])) {
+        if (!liveNames.has(fs.name)) {
+          out.push({name: fs.name, state: 'stored', command: '', bytes: 0,
+                    live: !!fs.live, harness: HARNESS_RE.test(fs.name)});
+        }
+      }
     }
+    out.sort((a, b) => (b.live - a.live) || a.name.localeCompare(b.name));
+    return out;
   }
 
-  function renderContent(editMode) {
-    isEditing = editMode;
-    if (editMode) {
-      contentEl.innerHTML = '<div class="doc-container edit-area active">'
-        + '<textarea id="editTextarea" spellcheck="false">' + esc(rawContent) + '</textarea>'
-        + '</div>';
-      updateTools();
-      setTimeout(function() {
-        var ta = document.getElementById('editTextarea');
-        if (ta) ta.focus();
-      }, 50);
-    } else {
-      contentEl.innerHTML = '<div class="doc-container read-area">' + renderedHtml + '</div>';
-      updateTools();
-    }
-  }
-
-  // Show/hide the action tools based on mode + permissions.
-  function updateTools() {
-    if (!currentFile) {
-      toolbarEl.style.display = 'none';
+  function renderSessions() {
+    const list = selMachine !== null ? sessionsFor(selMachine) : [];
+    sessionsHeaderEl.textContent = selMachine ? ('Sessions  ' + selMachine) : 'Sessions';
+    if (!selMachine) {
+      sessionsEl.innerHTML = '';
       return;
     }
-    toolbarEl.style.display = 'flex';
-    var editing = isEditing;
-    editBtn.hidden   = !editing && (!canEdit || !rawContent);
-    saveBtn.hidden   = !editing;
-    cancelBtn.hidden = !editing;
-    copyBtn.hidden   = editing;
-  }
-
-  function updateBreadcrumb() {
-    if (!currentFile) {
-      breadcrumbEl.style.display = 'none';
-      toolbarEl.style.display = 'none';
+    if (!list.length) {
+      sessionsEl.innerHTML = '<div class="session-row"><span class="sname" ' +
+        'style="color:var(--text-4)">no sessions</span></div>';
       return;
     }
-    breadcrumbEl.style.display = 'block';
+    sessionsEl.innerHTML = list.map(s =>
+      '<div class="session-row' + (selSession === s.name ? ' active' : '') +
+      '" data-session="' + esc(s.name) + '" data-live="' + (s.live ? '1' : '') +
+      '" data-command="' + esc(s.command || '') + '">' +
+      '<span class="hicon">' + (s.harness ? '⚙' : '⬚') + '</span>' +
+      '<span class="sname">' + esc(s.name) + '</span>' +
+      '<span class="sstate">' + esc(s.state || '') + '</span>' +
+      '<span class="dot' + (s.live ? ' live' : '') + '"></span>' +
+      '</div>'
+    ).join('');
+  }
+
+  sessionsEl.addEventListener('click', e => {
+    const row = e.target.closest('.session-row');
+    if (!row || !row.dataset.session) return;
+    selSession = row.dataset.session;
+    selSessionLive = row.dataset.live === '1';
+    selSessionCommand = row.dataset.command || '';
+    outputOffset = 0;
+    outputPane.textContent = '';
+    curFile = null; editing = false;
+    renderSessions();
+    renderWork();
+  });
+
+  // ── Tabs ──
+  tabbarEl.addEventListener('click', e => {
+    const btn = e.target.closest('button[data-tab]');
+    if (!btn) return;
+    tab = btn.dataset.tab;
+    for (const b of tabbarEl.querySelectorAll('button'))
+      b.classList.toggle('active', b === btn);
+    curFile = null; editing = false;
+    renderWork();
+  });
+
+  // ── Work area ──
+  function renderBreadcrumb() {
+    if (!selSession) { breadcrumbEl.innerHTML = ''; return; }
     breadcrumbEl.innerHTML =
-      '<span>' + esc(currentSession || '') + '</span>'
-      + '<span class="sep">/</span>'
-      + '<span>' + esc(currentType || '') + '</span>'
-      + '<span class="sep">/</span>'
-      + '<span class="current">' + esc(currentFile || '') + '</span>';
-    // Pin the breadcrumb's top to the sidebar 'Sessions' header so the
-    // two are on the same horizontal line (measured, not guessed).
-    const sHdr = document.querySelector('.sidebar-header');
-    const mEl = document.querySelector('main');
-    if (sHdr && mEl) {
-      const top = sHdr.getBoundingClientRect().top
-                - mEl.getBoundingClientRect().top + 4;
-      breadcrumbEl.style.paddingTop = top + 'px';
+      '<span>' + esc(selMachine || '') + '</span><span class="sep">/</span>' +
+      '<span>' + esc(selSession) + '</span><span class="sep">/</span>' +
+      '<span class="current">' + esc(tab) + '</span>';
+  }
+
+  function updateTools() {
+    const showEditorBtns = (tab === 'comms' || tab === 'docs') && curFile;
+    editBtn.style.display = showEditorBtns && !editing ? '' : 'none';
+    saveBtn.style.display = editing ? '' : 'none';
+    cancelBtn.style.display = editing ? '' : 'none';
+    copyBtn.style.display = showEditorBtns && !editing ? '' : 'none';
+    followChip.style.display = (tab === 'output' && selSessionLive) ? '' : 'none';
+  }
+
+  function renderWork() {
+    renderBreadcrumb();
+    updateTools();
+    const has = !!selSession;
+    tabbarEl.style.display = has ? '' : 'none';
+    toolbarEl.style.display = has ? '' : 'none';
+    welcomePane.style.display = has ? 'none' : '';
+    outputPane.style.display = (has && tab === 'output') ? '' : 'none';
+    filePane.style.display = (has && (tab === 'comms' || tab === 'docs')) ? 'flex' : 'none';
+
+    if (outputTimer) { clearInterval(outputTimer); outputTimer = null; }
+    if (has && tab === 'output') {
+      if (selSessionLive) {
+        pollOutput();
+        outputTimer = setInterval(pollOutput, 1000);
+      } else {
+        outputPane.textContent = 'No live output — session is not running on the mesh.\n' +
+          'Stored files are under the Comms / Docs tabs.';
+      }
+    }
+    if (has && (tab === 'comms' || tab === 'docs')) {
+      renderFileList();
+    }
+  }
+
+  // ── Output plane ──
+  async function pollOutput() {
+    if (!selSession || tab !== 'output') return;
+    try {
+      const d = await api('/api/output?session=' + encodeURIComponent(selSession) +
+                          '&since=' + outputOffset);
+      if (d.error) {
+        if (!outputPane.dataset.errShown) {
+          outputPane.textContent = '(output unavailable: ' + d.error + ')';
+          outputPane.dataset.errShown = '1';
+        }
+        return;
+      }
+      delete outputPane.dataset.errShown;
+      if (d.reset) outputPane.textContent = '';
+      if (d.text) {
+        outputPane.textContent += stripAnsi(d.text);
+        if (outputFollow) outputPane.scrollTop = outputPane.scrollHeight;
+      }
+      if (typeof d.offset === 'number') outputOffset = d.offset;
+    } catch (_) { /* keep last good frame */ }
+  }
+
+  followChip.addEventListener('click', () => {
+    outputFollow = !outputFollow;
+    followChip.classList.toggle('on', outputFollow);
+    followChip.textContent = outputFollow ? 'follow ●' : 'paused ○';
+  });
+  outputPane.addEventListener('scroll', () => {
+    const atBottom = outputPane.scrollTop + outputPane.clientHeight >=
+                     outputPane.scrollHeight - 24;
+    if (!atBottom && outputFollow) followChip.click();
+  });
+
+  // ── File list (comms/docs) ──
+  function filesFor(session, dtype) {
+    const fs = (fsTree.sessions || []).find(x => x.name === session);
+    if (!fs) return [];
+    return fs[dtype] || [];
+  }
+
+  function renderFileList() {
+    const files = filesFor(selSession, tab);
+    if (!files.length) {
+      filelistEl.innerHTML = '<div class="file-item"><span class="file-name" ' +
+        'style="color:var(--text-4)">no ' + esc(tab) + ' yet</span></div>';
+      contentEl.innerHTML = '<div class="empty-state">No files in this session yet.<div class="hint">publish with: bs pane publish --session ' +
+        esc(selSession || '') + ' &lt;file&gt;</div></div>';
+      return;
+    }
+    filelistEl.innerHTML = files.map(f =>
+      '<div class="file-item' + (curFile === f.name ? ' active' : '') +
+      '" data-file="' + esc(f.name) + '">' +
+      '<span class="file-name">' + esc(f.name) + '</span>' +
+      '<span class="file-time">' + esc(f.modified_human || '') + '</span>' +
+      '</div>'
+    ).join('');
+    if (!curFile && files.length) openFile(files[0].name);
+  }
+
+  filelistEl.addEventListener('click', e => {
+    const item = e.target.closest('.file-item');
+    if (!item || !item.dataset.file) return;
+    openFile(item.dataset.file);
+  });
+
+  async function openFile(name) {
+    curFile = name;
+    editing = false;
+    renderFileListActiveOnly();
+    try {
+      const d = await api('/api/content?session=' + encodeURIComponent(selSession) +
+                          '&type=' + encodeURIComponent(tab) +
+                          '&name=' + encodeURIComponent(name));
+      curRaw = d.raw || '';
+      contentEl.innerHTML = '<div class="doc-container">' + (d.html || '') + '</div>';
+    } catch (err) {
+      contentEl.innerHTML = '<div class="empty-state">Failed to load file</div>';
+      toast('Load failed', true);
     }
     updateTools();
   }
-
-  // ── Edit / Save ─────────────────────────────
-  function toggleEdit() {
-    if (!currentFile) return;
-    renderContent(true);
+  function renderFileListActiveOnly() {
+    for (const el of filelistEl.querySelectorAll('.file-item'))
+      el.classList.toggle('active', el.dataset.file === curFile);
   }
 
-  function cancelEdit() {
-    renderContent(false);
-    toast('Edit cancelled');
-  }
-
-  async function copyToClipboard() {
-    if (!rawContent) { toast('Nothing to copy'); return; }
-    try {
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        await navigator.clipboard.writeText(rawContent);
-      } else {
-        var ta = document.createElement('textarea');
-        ta.value = rawContent;
-        ta.style.position = 'fixed';
-        ta.style.opacity = '0';
-        document.body.appendChild(ta);
-        ta.select();
-        document.execCommand('copy');
-        document.body.removeChild(ta);
-      }
-      toast('Copied to clipboard');
-    } catch (e) {
-      toast('Copy failed: ' + e.message);
-    }
-  }
-
-  async function saveEdit() {
+  // ── Editor ──
+  editBtn.addEventListener('click', () => {
+    if (!curFile) return;
+    editing = true;
+    contentEl.innerHTML = '<textarea id="editTextarea"></textarea>';
+    document.getElementById('editTextarea').value = curRaw;
+    updateTools();
+  });
+  cancelBtn.addEventListener('click', () => { openFile(curFile); });
+  copyBtn.addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText(curRaw); toast('Copied'); }
+    catch (_) { toast('Copy failed', true); }
+  });
+  saveBtn.addEventListener('click', async () => {
     const ta = document.getElementById('editTextarea');
     if (!ta) return;
-    const newContent = ta.value;
-
+    const body = JSON.stringify({session: selSession, type: tab, name: curFile, content: ta.value});
     try {
-      const r = await fetch(base + '/api/save', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          session: currentSession,
-          type: currentType,
-          name: currentFile,
-          content: newContent
-        })
-      });
-      if (!r.ok) throw new Error(await r.text() || r.statusText);
-      rawContent = newContent;
-      const d = await r.json();
-      renderedHtml = d.html || '';
-      renderContent(false);
+      const r = await fetch(base + '/api/save', {method: 'POST',
+        headers: {'Content-Type': 'application/json'}, body});
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      curRaw = ta.value;
       toast('Saved');
-      await loadTree();
-    } catch (e) {
-      toast('Save failed: ' + e.message);
-    }
-  }
-
-  // Wire toolbar buttons
-  editBtn.addEventListener('click', toggleEdit);
-  saveBtn.addEventListener('click', saveEdit);
-  cancelBtn.addEventListener('click', cancelEdit);
-  copyBtn.addEventListener('click', copyToClipboard);
-
-  // ── Keyboard ────────────────────────────────
-  document.addEventListener('keydown', function(e) {
-    var inField = document.activeElement && (
-      document.activeElement.tagName === 'TEXTAREA' ||
-      document.activeElement.tagName === 'INPUT');
-    if (e.key === 'e' && !isEditing && currentFile && !inField) {
-      e.preventDefault();
-      toggleEdit();
-    }
-    if (e.key === 'Escape' && isEditing) {
-      cancelEdit();
-    }
-    if ((e.metaKey || e.ctrlKey) && e.key === 's' && isEditing) {
-      e.preventDefault();
-      saveEdit();
-    }
+      await refreshFsTree();
+      openFile(curFile);
+    } catch (_) { toast('Save failed', true); }
   });
 
-  // ── Tree loading + auto-refresh ─────────────
-  async function loadTree() {
+  // ── Polling ──
+  async function refreshMesh() {
     try {
-      const r = await api('/api/tree');
-      const d = await r.json();
-
-      // If nothing selected, auto-open first file
-      var autoOpen = null;
-      if (!currentFile) {
-        for (var i = 0; i < d.sessions.length; i++) {
-          var sess = d.sessions[i];
-          if (sess.documents.length > 0) {
-            autoOpen = { session: sess.name, type: 'documents', file: sess.documents[0].name };
-            break;
-          }
-          if (sess.comms.length > 0) {
-            autoOpen = { session: sess.name, type: 'comms', file: sess.comms[0].name };
-            break;
-          }
-        }
-      }
-
-      renderTree(d);
-
-      if (autoOpen) {
-        currentSession = autoOpen.session;
-        currentType = autoOpen.type;
-        currentFile = autoOpen.file;
-        // Find the rendered element and open
-        var el = document.querySelector(
-          '.tree-session[data-session="' + esc(autoOpen.session) + '"] '
-          + '.type-group[data-type="' + autoOpen.type + '"] '
-          + '.file-item[data-filename="' + esc(autoOpen.file) + '"]'
-        );
-        await openFile(autoOpen.session, autoOpen.type, autoOpen.file, el);
-      } else if (currentFile && !isEditing) {
-        // Refresh current file content if changed externally
-        var url = '/api/content?session=' + encodeURIComponent(currentSession)
-          + '&type=' + encodeURIComponent(currentType)
-          + '&name=' + encodeURIComponent(currentFile);
-        const r2 = await api(url);
-        const d2 = await r2.json();
-        if (d2.raw !== rawContent) {
-          rawContent = d2.raw || '';
-          renderedHtml = d2.html || '';
-          renderContent(false);
-        }
-      }
-    } catch (e) {
-      // Silent — don't spam console
-    }
+      mesh = await api('/api/machines');
+      if (selMachine === null && mesh.node) selMachine = mesh.node;
+      renderMachines();
+      if (selMachine !== null) renderSessions();
+    } catch (_) { /* keep last good frame */ }
+  }
+  async function refreshFsTree() {
+    try { fsTree = await api('/api/tree'); } catch (_) {}
   }
 
-  // ── Init ────────────────────────────────────
-  loadTree();
-  setInterval(loadTree, 5000);
+  // ── Init ──
+  (async function init() {
+    await Promise.all([refreshMesh(), refreshFsTree()]);
+    if (selMachine === null) {
+      const list = machineList();
+      if (list.length) selMachine = list[0].name;
+    }
+    renderMachines();
+    renderSessions();
+    renderWork();
+    setInterval(refreshMesh, 5000);
+    setInterval(refreshFsTree, 5000);
+  })();
 })();
 </script>
 </body>
@@ -1324,6 +1307,20 @@ class BridgePanelHandler(BaseHTTPRequestHandler):
             self.wfile.write(FAVICON_SVG)
         elif path == "/api/tree":
             self.send_json(build_tree())
+        elif path == "/api/machines":
+            # Mesh plane: local node + peers + their sessions (MESH_TREE passthrough)
+            self.send_json(query_mesh_tree())
+        elif path == "/api/output":
+            # Output plane: incremental scrollback for a live session
+            session = params.get("session", [""])[0]
+            try:
+                since = int(params.get("since", ["0"])[0])
+            except ValueError:
+                since = 0
+            if not session:
+                self.reject(HTTPStatus.BAD_REQUEST, "session required")
+                return
+            self.send_json(query_scrollback(session, since))
         elif path == "/api/content":
             session = params.get("session", [""])[0]
             dtype = params.get("type", ["documents"])[0]

@@ -98,3 +98,37 @@ TEST_CASE("P4 conversations: empty batch round-trips correctly", "[p4][conv][sto
     REQUIRE(m2.conv_id == "nonexistent");
     REQUIRE(m2.messages.empty());
 }
+
+// ── MoA regression: >255B body must NOT throw (u16-prefixed wire) ──
+
+TEST_CASE("MoA conversations: chat-sized body (>255B) round-trips without throw", "[p4][conv][moa]") {
+    ConversationAppendMsg m;
+    m.conv_id = "moa-big";
+    m.seq = 1;
+    m.ts = 1718400000000;
+    m.agent_id = "ipc";
+    m.role = 1;
+    // 600 bytes — a perfectly normal chat message, fatal under the u8 wire.
+    m.body = std::string(600, 'x');
+    ConversationAppendMsg m2;
+    REQUIRE_NOTHROW(m2 = roundtrip(m));
+    REQUIRE(m2.body.size() == 600);
+    REQUIRE(m2.body == m.body);
+}
+
+TEST_CASE("MoA conversations: batch with mixed small+large bodies round-trips", "[p4][conv][moa]") {
+    ConversationBatchMsg batch;
+    batch.conv_id = "moa-batch";
+    for (int i = 0; i < 3; ++i) {
+        ConversationAppendMsg m;
+        m.conv_id = "moa-batch";
+        m.seq = static_cast<uint64_t>(i + 1);
+        m.agent_id = "agent";
+        m.role = 2;
+        m.body = std::string(100 * (i + 1), 'a' + i); // 100, 200, 300 bytes
+        batch.messages.push_back(m);
+    }
+    auto m2 = roundtrip(batch);
+    REQUIRE(m2.messages.size() == 3);
+    REQUIRE(m2.messages[2].body.size() == 300);
+}

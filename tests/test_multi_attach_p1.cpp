@@ -298,3 +298,96 @@ TEST_CASE("P1 interactive: non-spectator attach records interactive attachment (
     REQUIRE(s->state == SessionState::Attached);
     REQUIRE(s->attachments.count(c.attach_id) == 1);
 }
+
+// ── MoA regression tests (2.0.8-alpha3 audit) ─────────────────────
+
+TEST_CASE("MoA spectator: SignalMsg + Restart rejected; interactive Restart respawns child", "[p1][spectator][moa]") {
+#ifndef _WIN32
+    auto cfg = base_cfg("p1-moasig");
+    MeshController mc(cfg);
+    const std::string key(64, 's');
+    auto spec = make_conn("spec", key);
+    auto intr = make_conn("intr", key);
+
+    AttachMsg a = make_attach("sigsess", 80, 24); a.spectator = true;
+    hi(mc, spec, Message{a});
+    hi(mc, intr, Message{make_attach("sigsess", 80, 24)});
+
+    auto* s = mc.sessions().get("sigsess");
+    REQUIRE(s != nullptr);
+    REQUIRE(s->child_pid > 0);
+    const pid_t pid0 = s->child_pid;
+
+    // 1) Spectator CtrlC — must NOT signal the child (P0 fix).
+    SignalMsg sig; sig.signal = SignalMsg::SignalType::CtrlC;
+    hi(mc, spec, Message{sig});
+    REQUIRE(kill(pid0, 0) == 0);
+    REQUIRE(s->child_pid == pid0);
+
+    // 2) Spectator Restart with INJECTED command — must not kill/respawn.
+    SignalMsg rst; rst.signal = SignalMsg::SignalType::Restart;
+    rst.process = "touch /tmp/bs-moa-pwned";
+    hi(mc, spec, Message{rst});
+    REQUIRE(kill(pid0, 0) == 0);
+    REQUIRE(s->child_pid == pid0);
+
+    // 3) Interactive Restart — real path: old child reaped, new pid installed.
+    SignalMsg rst2; rst2.signal = SignalMsg::SignalType::Restart;
+    hi(mc, intr, Message{rst2});
+    REQUIRE(s->child_pid > 0);
+    REQUIRE(s->child_pid != pid0);
+    REQUIRE(kill(s->child_pid, 0) == 0);
+#endif
+}
+
+TEST_CASE("MoA geometry floor: 0x0 resize cannot collapse the shared PTY", "[p1][moa]") {
+    auto cfg = base_cfg("p1-moageo");
+    MeshController mc(cfg);
+    const std::string key(64, 'g');
+    auto c1 = make_conn("g1", key);
+    auto c2 = make_conn("g2", key);
+
+    hi(mc, c1, Message{make_attach("geosess", 80, 24)});
+    hi(mc, c2, Message{make_attach("geosess", 120, 40)});
+
+    auto* s = mc.sessions().get("geosess");
+    REQUIRE(s != nullptr);
+
+    // Malicious/buggy 0x0 resize from one attachment — floored to 20x5.
+    ResizeMsg r; r.cols = 0; r.rows = 0;
+    hi(mc, c2, Message{r});
+    REQUIRE(s->attachments.at(c2.attach_id).cols == 20);
+    REQUIRE(s->attachments.at(c2.attach_id).rows == 5);
+}
+
+TEST_CASE("MoA interactive: keystroke echo proves PTY write (non-vacuous)", "[p1][moa]") {
+#ifndef _WIN32
+    auto cfg = base_cfg("p1-moaecho");
+    MeshController mc(cfg);
+    const std::string key(64, 'e');
+    auto c = make_conn("echo", key);
+    hi(mc, c, Message{make_attach("echosess", 80, 24)});
+
+    auto* s = mc.sessions().get("echosess");
+    REQUIRE(s != nullptr);
+    REQUIRE(s->master_fd >= 0);
+
+    // No event loop runs in this harness — nobody pumps the PTY. Evidence of
+    // delivery = the child echoes our keystroke back into the master fd,
+    // which we read directly.
+    std::this_thread::sleep_for(400ms); // let the shell prompt settle
+    char drain[4096];
+    while (::read(s->master_fd, drain, sizeof(drain)) > 0) {} // drain prompt
+
+    KeystrokeMsg ks; ks.data = "true\n";
+    hi(mc, c, Message{ks});
+
+    // Interactive keystroke MUST be echoed by the shell onto the PTY.
+    bool echoed = false;
+    for (int i = 0; i < 40 && !echoed; ++i) {
+        std::this_thread::sleep_for(50ms);
+        echoed = ::read(s->master_fd, drain, sizeof(drain)) > 0;
+    }
+    REQUIRE(echoed);
+#endif
+}

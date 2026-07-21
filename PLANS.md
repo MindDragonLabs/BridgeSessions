@@ -11,6 +11,12 @@ logged in; barred from Hermes/9warp route). Judge verdict: workers PASS-WITH-FIX
 strong convergence. Workers' factual corrections (below) are encoded in `TODO.md` and
 `ARCHITECTURE.md`.
 
+**✅ COMPLETED 2026-07-21:** All six phases built. 315/315 CTest green.
+bridgesessions.cpp: 12,570 lines (+ ~800 from 2.0.7-alpha2).
+New: 5 test files (test_multi_attach_p1, test_display_harness, test_streaming,
+test_conversations, test_cua); doctor display check; per-conn output queues;
+conversation store; Linux CUA (xdotool backend).
+
 ## Phases (verification gate per phase)
 
 | Phase | Work | Gate |
