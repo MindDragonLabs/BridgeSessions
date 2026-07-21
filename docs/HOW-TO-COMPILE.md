@@ -138,18 +138,18 @@ Traps:
 
 ### Shipping to test-pc7 (Win11, no sshd)
 
-test-pc7 has **no SSH server** — use **WinRM** (port 5985, NTLM; creds `shadow` /
-`Year25careful!` recorded in test-pc1 `~/.ssh/config`). Host a temp HTTP server on test-pc1's
+test-pc7 has **no SSH server** — use **WinRM** (port 5985, NTLM; credentials
+recorded locally in test-pc1 `~/.ssh/config` / vault — never commit them). Host a temp HTTP server on test-pc1's
 Tailscale IP, then `curl.exe` it from a WinRM PowerShell session:
 
 ```bash
 # test-pc1: serve the PE (bind TS IP only)
-cd ~/bridgesessions/dist && python3 -m http.server 8800 --bind 192.168.1.20 &
+cd ~/bridgesessions/dist && python3 -m http.server 8800 --bind <test-pc1-tailscale-ip> &
 # WinRM push (run from test-pc1):
 python3 - <<'PY'
 import winrm
-s = winrm.Session('192.168.1.27', auth=('shadow','Year25careful!'), transport='ntlm')
-ps = (r'$url="http://192.168.1.20:8800/bridgesessions-windows-x86_64.exe";'
+s = winrm.Session('<windows-host-ip>', auth=('shadow','<winrm-password>'), transport='ntlm')
+ps = (r'$url="http://<test-pc1-tailscale-ip>:8800/bridgesessions-windows-x86_64.exe";'
       r'$d="$env:USERPROFILE\.local\bin\bridgesessions.exe";'
       r'New-Item -ItemType Directory -Force -Path (Split-Path $d) | Out-Null;'
       r'curl.exe -fL -o $d $url; & $d --version')
