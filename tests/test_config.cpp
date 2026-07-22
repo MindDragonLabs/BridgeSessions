@@ -701,7 +701,7 @@ TEST_CASE("bounded TCP connect does not exceed its deadline",
 
 TEST_CASE("release and mesh Hello share the canonical version",
           "[config][release][version]") {
-    REQUIRE(std::string(kBridgeSessionsVersion) == "2.0.8-alpha3");
+    REQUIRE(std::string(kBridgeSessionsVersion) == "2.0.9-alpha4");
 
     namespace fs = std::filesystem;
     auto root = fs::temp_directory_path() /

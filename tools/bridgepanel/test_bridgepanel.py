@@ -283,6 +283,44 @@ class TestHttpSurface(unittest.TestCase):
         payload = json.loads(raw)
         self.assertIn("sessions", payload)
 
+    def test_tree_merges_peer_sessions(self):
+        """build_tree() merges remote peer sessions from MESH_TREE gossip."""
+        import bridgepanel as bp_module
+        orig_bs = bp_module.query_bs_sessions
+        orig_mt = bp_module.query_mesh_tree
+        try:
+            bp_module.query_bs_sessions = lambda: []
+            bp_module.query_mesh_tree = lambda: {
+                "node": "testhost",
+                "uptime_s": 1,
+                "peers": [
+                    {
+                        "name": "peer-a",
+                        "addr": "1.2.3.4:19949",
+                        "healthy": True,
+                        "last_pong_s": 1,
+                        "sessions": [
+                            {"name": "remote-shell", "state": "live", "command": "bash", "bytes": 999},
+                            {"name": "dead-task", "state": "died", "command": "make", "bytes": 42},
+                        ],
+                    },
+                ],
+                "sessions": [],
+            }
+            tree = bp_module.build_tree()
+            sessions = {s["name"]: s for s in tree["sessions"]}
+            # Remote live session appears
+            self.assertIn("remote-shell", sessions)
+            self.assertTrue(sessions["remote-shell"]["live"])
+            self.assertEqual(sessions["remote-shell"]["peer"], "peer-a")
+            # Remote dead session appears but not live
+            self.assertIn("dead-task", sessions)
+            self.assertFalse(sessions["dead-task"]["live"])
+            self.assertEqual(sessions["dead-task"]["peer"], "peer-a")
+        finally:
+            bp_module.query_bs_sessions = orig_bs
+            bp_module.query_mesh_tree = orig_mt
+
     def test_publish_then_content(self):
         src = os.path.join(self.tmp.name, "report.md")
         with open(src, "w", encoding="utf-8") as fh:

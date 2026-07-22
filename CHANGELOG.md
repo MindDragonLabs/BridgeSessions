@@ -2,6 +2,19 @@
 
 All notable public releases are documented here.
 
+## [2.0.9] — alpha4 (2026-07-22)
+
+**BridgePanel remote session discovery — sessions from all mesh peers now appear in the session tree.**
+
+### BridgePanel v3.1
+
+- `build_tree()` now merges remote peer sessions from `MESH_TREE` gossip into the session tree.
+  Previously only local daemon sessions were shown; sessions on other mesh nodes were invisible
+  unless the user navigated to the separate machines pane.
+- Each peer session carries a `peer` attribute so the UI can show which node owns it.
+- Live/dead state from gossip is reflected correctly (sessions marked `"live"` when the owning
+  peer reports `state=live`).
+
 ## [2.0.8] — alpha3 (2026-07-21)
 
 **Multi-attach + spectator roles, conversation store, streaming hardening, cross-platform CUA, BridgePanel v3, and a full MoA security audit (4 P0 + 10 P1 fixed).**

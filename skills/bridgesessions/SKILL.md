@@ -11,11 +11,11 @@ description: >-
 license: BUSL-1.1
 compatibility: Requires bridgesessions CLI (bs) or build from this repo; OpenSSL; optional WinRM for Windows gameplay Session-1.
 metadata:
-  version: "2.0.8-alpha3"
+  version: "2.0.9-alpha4"
   product: BridgeSessions
   harnesses: "hermes,codex,claude-code,opencode,cursor,grok,copilot"
   related: "docs/RELEASE-PROVENANCE.md"
-  release: "v2.0.8-alpha3"
+  release: "v2.0.9-alpha4"
   forge: "codeberg.org/Mind-Dragon/BridgeSessions"
 ---
 
@@ -31,7 +31,7 @@ Portable skill for **Hermes**, **OpenAI Codex**, **Claude Code**, **OpenCode**,
 - One C++ binary: mesh daemon + CLI (`bridgesessions` / `bs`).
 - Replaces ad-hoc SSH + SCP + tmux + WinRM for **agent-native** shells and files.
 - Default mesh port **19949**; CLI IPC **19980** (local).
-- **Current public release: `v2.0.8-alpha3`** (multi-platform alpha on Codeberg).
+- **Current public release: `v2.0.9-alpha4`** (multi-platform alpha on Codeberg).
 - Canonical shipping source: `bridgesessions.cpp` (monolith). Modular `bs-*` trees
   are non-shipping — see `LEGACY_CODE.md`.
 - Always probe live: `bs --version` / `bridgesessions --version` (do not trust memory alone).
@@ -53,43 +53,38 @@ Portable skill for **Hermes**, **OpenAI Codex**, **Claude Code**, **OpenCode**,
 10. **Pre-push security hook** blocks secrets/IPs before Codeberg pushes
     (`scripts/prepublish-scan.sh`). Do not bypass it.
 
-## Public release (`v2.0.8-alpha3`)
+## Public release (`v2.0.9-alpha4`)
 
 | Fact | Value |
 |------|--------|
-| Tag | `v2.0.8-alpha3` (commit `2c36201`, 2026-07-21) |
+| Tag | `v2.0.9-alpha4` (commit `7bd90e8`, 2026-07-22) |
 | Branch | `main` |
 | Repo | https://codeberg.org/Mind-Dragon/BridgeSessions |
 | Artifacts | Linux x86_64, Windows x86_64 PE, macOS arm64 (`dist/`) |
 | Tests | 329/329 CTest green (25 test files, 13,079 SLOC) |
 | Audit | MoA 4-lane: 4 P0 + 10 P1 + 5 P2 fixed (`.audit/moa-2.0.8a3/AUDIT.md`) |
-| Notes | `docs/RELEASE-2.0.8-alpha3.md` · provenance `docs/RELEASE-PROVENANCE.md` |
+| Notes | `docs/RELEASE-2.0.9-alpha4.md` · provenance `docs/RELEASE-PROVENANCE.md` |
 
-### New in v2.0.8-alpha3
+### New in v2.0.9-alpha4
 
-- **Multi-attach + spectator** (P1): same-source multiple connections, per-attach detach, MIN-geometry, read-only spectator role
-- **Conversation store** (P4): `ConversationAppend` (0x23) / `ConversationQuery` (0x24) / `ConversationBatch` (0x25) with mesh relay, server seq authority, bounded (10k/conv, 1024 convs)
-- **Streaming hardening** (P3): per-conn output queues + `OutputGap` (0x22) backpressure, RingBuffer alignment fix, IPC `SCROLLBACK`
-- **Cross-platform CUA** (P5): `CuaRequest` (0x26) / `CuaResponse` (0x27), Linux/macOS/Windows backends, USB HID keycodes
-- **Display harness** (P2): 11 geometry/glyph tests, `doctor` display check
-- **BridgePanel v3**: token-auth IPC, 3-column UI, `MESH_TREE` gossip, incremental scrollback sync
-- **MoA security audit**: spectator SignalMsg RCE, conversation body u8→u16, RingBuffer slot corruption, CUA shell injection, gossip JSON envelope, IPC framing/RST drain, geometry floor, store bounds, seq authority, token race
+- **BridgePanel remote sessions**: `build_tree()` now merges peer sessions from `MESH_TREE` gossip — sessions on any mesh node appear in the tree with a `peer` attribute. Previously only the local daemon's sessions were shown.
+- All v2.0.9-alpha4 features: multi-attach + spectator, conversation store, streaming hardening, cross-platform CUA, display harness, BridgePanel v3 token-auth IPC, MoA audit (4 P0 + 10 P1 fixed).
 
 ### Download (raw from tag — preferred)
 
 ```text
-https://codeberg.org/Mind-Dragon/BridgeSessions/raw/tag/v2.0.8-alpha3/dist/bridgesessions-linux-x86_64
-https://codeberg.org/Mind-Dragon/BridgeSessions/raw/tag/v2.0.8-alpha3/dist/bridgesessions-windows-x86_64.exe
-https://codeberg.org/Mind-Dragon/BridgeSessions/raw/tag/v2.0.8-alpha3/dist/bridgesessions-macos-arm64
+https://codeberg.org/Mind-Dragon/BridgeSessions/raw/tag/v2.0.9-alpha4/dist/bridgesessions-linux-x86_64
+https://codeberg.org/Mind-Dragon/BridgeSessions/raw/tag/v2.0.9-alpha4/dist/bridgesessions-windows-x86_64.exe
+https://codeberg.org/Mind-Dragon/BridgeSessions/raw/tag/v2.0.9-alpha4/dist/bridgesessions-macos-arm64
 ```
 
-Tree: https://codeberg.org/Mind-Dragon/BridgeSessions/src/tag/v2.0.8-alpha3/dist
+Tree: https://codeberg.org/Mind-Dragon/BridgeSessions/src/tag/v2.0.9-alpha4/dist
 
 ```bash
 curl -fL -o bridgesessions \
-  https://codeberg.org/Mind-Dragon/BridgeSessions/raw/tag/v2.0.8-alpha3/dist/bridgesessions-linux-x86_64
+  https://codeberg.org/Mind-Dragon/BridgeSessions/raw/tag/v2.0.9-alpha4/dist/bridgesessions-linux-x86_64
 chmod +x bridgesessions
-./bridgesessions --version   # → 2.0.8-alpha3
+./bridgesessions --version   # → 2.0.9-alpha4
 ```
 
 ### Build matrix (how the 3 platform binaries are produced)
@@ -104,7 +99,7 @@ All three are **portable static** (no runtime dylib/DLL deps beyond OS libs):
 
 - **test-pc7 (Win11) has NO sshd** — ship the PE via **WinRM** (port 5985, NTLM, credentials in test-pc1 `~/.ssh/config` note / local vault). Host a temp `python3 -m http.server` on test-pc1's TS IP, then `curl.exe` it from a WinRM `run_ps`.
 - mac/win release binaries ARE committed to `dist/` (the `.gitignore` only ignores the dev `bridgesessions.exe` + `*.o`/`*.obj`). `SHA256SUMS`/`SBOM` stay gitignored (downloader regenerates).
-- Re-tag after changing `dist/`: `git tag -f v2.0.8-alpha3 HEAD && git push --force codeberg main && git push --force codeberg v2.0.8-alpha3`.
+- Re-tag after changing `dist/`: `git tag -f v2.0.9-alpha4 HEAD && git push --force codeberg main && git push --force codeberg v2.0.9-alpha4`.
 
 ### Publish to Codeberg (SSH only)
 
@@ -117,7 +112,7 @@ export GIT_SSH_COMMAND='ssh -i ~/.ssh/deploy-key -o IdentitiesOnly=yes -o BatchM
 
 cd /path/to/BridgeSessions   # often ~/bridgesessions
 git push codeberg main
-git push codeberg v2.0.8-alpha3
+git push codeberg v2.0.9-alpha4
 ```
 
 Probe: `ssh -i ~/.ssh/deploy-key -o IdentitiesOnly=yes -T git@codeberg.org`  
@@ -136,7 +131,7 @@ Optional Codeberg "Releases" UI assets are cosmetics only; **git `dist/` is the 
 
 ```bash
 export PATH="$HOME/.local/bin:$PATH"
-bs --version                          # expect 2.0.8-alpha3
+bs --version                          # expect 2.0.9-alpha4
 bs health <peer>                      # must say healthy (data-plane ok)
 bs shell <peer> --cmd '…'             # one-shot; exit code propagates
 bs file send <peer> /local/path --wait
@@ -195,7 +190,7 @@ PROGRESS phase=recv file=x.bin chunks=a/b bytes=c/d pct=P rate_mibs=R eta_sec=E
 
 Gameplay GUI / desktop input: **WinRM Session-1** (or documented Session-1 helper). BS one-shots often run as **SYSTEM/Session 0**.
 
-## Security posture (v2.0.8-alpha3)
+## Security posture (v2.0.9-alpha4)
 
 - Outbound mesh: pin ↔ TLS cert Ed25519 key ↔ Hello before trusting peer / `merge_peers`.
 - Direct CLI: reject unpinned peers before DNS/TCP.
@@ -213,7 +208,7 @@ Gameplay GUI / desktop input: **WinRM Session-1** (or documented Session-1 helpe
 ```bash
 # Linux
 cmake -S . -B build && cmake --build build -j
-./build/bridgesessions --version   # 2.0.8-alpha3
+./build/bridgesessions --version   # 2.0.9-alpha4
 ctest --test-dir build --output-on-failure
 ./build/test_config "[security]"
 
@@ -256,7 +251,7 @@ ln -sfn "$(pwd)/skills/bridgesessions" ~/.hermes/skills/devops/bridgesessions
 
 ## Progressive docs (load on demand)
 
-- Release notes: `docs/RELEASE-2.0.8-alpha3.md`
+- Release notes: `docs/RELEASE-2.0.9-alpha4.md`
 - Provenance / checksums: `docs/RELEASE-PROVENANCE.md`
 - Audit: `.audit/moa-2.0.8a3/AUDIT.md`
 - Usage and transfer workflows: `docs/usage.md`
@@ -269,12 +264,12 @@ ln -sfn "$(pwd)/skills/bridgesessions" ~/.hermes/skills/devops/bridgesessions
 ## Verification before claiming success
 
 ```bash
-bs --version                          # 2.0.8-alpha3
+bs --version                          # 2.0.9-alpha4
 bs health <peer>                      # healthy (data-plane ok)
 bs shell <peer> --cmd "…"             # real stdout, correct host
 bs file send <peer> /tmp/big.bin --wait   # PROGRESS then OK
 # Public tag contains the reviewed platform binaries:
-curl -fsI https://codeberg.org/Mind-Dragon/BridgeSessions/raw/tag/v2.0.8-alpha3/dist/bridgesessions-linux-x86_64
+curl -fsI https://codeberg.org/Mind-Dragon/BridgeSessions/raw/tag/v2.0.9-alpha4/dist/bridgesessions-linux-x86_64
 ```
 
 Subagent claims are not evidence — re-probe in this session.

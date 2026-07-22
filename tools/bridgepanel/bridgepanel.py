@@ -332,13 +332,28 @@ def build_tree() -> dict:
                                 ),
                             })
 
-    # Merge BS live sessions
+    # Merge BS live sessions (local daemon)
     for bs_sess in query_bs_sessions():
         sname = safe_session_name(bs_sess["name"])
         if sname not in tree:
             tree[sname] = {"comms": [], "documents": [], "live": True}
         else:
             tree[sname]["live"] = True
+
+    # Merge remote peer sessions from MESH_TREE gossip
+    mesh = query_mesh_tree()
+    for peer in mesh.get("peers", []):
+        peer_name = peer.get("name", "?")
+        for sess in peer.get("sessions", []):
+            sname = safe_session_name(sess.get("name", ""))
+            if not sname:
+                continue
+            if sname not in tree:
+                tree[sname] = {"comms": [], "documents": [], "live": False}
+            tree[sname].setdefault("peer", peer_name)
+            tree[sname]["live"] = tree[sname].get("live", False) or (
+                sess.get("state", "") == "live"
+            )
 
     # Sort files: comms by time (newest first), documents by name
     result = []
