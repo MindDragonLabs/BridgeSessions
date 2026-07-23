@@ -358,6 +358,16 @@ int main(int argc, char** argv) {
     file_recv_app->add_option("--to", file_recv_to, "Local destination path or directory");
     file_recv_app->add_flag("--wait", file_recv_wait, "Block until the transfer completes or fails");
 
+    // 2.0.12: video capture
+    std::string capvid_peer;
+    int capvid_fps = 2, capvid_dur = 15, capvid_quality = 70, capvid_maxw = 1280;
+    auto* capvid_cmd = app.add_subcommand("capture-video", "Record remote screen to video, transfer back via file recv");
+    capvid_cmd->add_option("peer", capvid_peer, "Peer name")->required();
+    capvid_cmd->add_option("--fps", capvid_fps, "Frames per second (default 2)");
+    capvid_cmd->add_option("--duration", capvid_dur, "Duration in seconds (default 15)");
+    capvid_cmd->add_option("--quality", capvid_quality, "Quality 1-100 (default 70)");
+    capvid_cmd->add_option("--max-width", capvid_maxw, "Max width, 0=native (default 1280)");
+
     // vfolder
     auto* vfolder_cmd = app.add_subcommand("vfolder", "Manage virtual folder sync");
     vfolder_cmd->require_subcommand(1);
@@ -718,6 +728,19 @@ int main(int argc, char** argv) {
         bs::mesh::MeshController mc(cfg, home_dir);
         std::string dest = !file_recv_to.empty() ? file_recv_to : file_recv_local;
         std::string result = mc.file_recv(file_recv_peer, file_recv_remote, dest, file_recv_wait);
+        std::cout << result << "\n";
+        return result.rfind("ERROR", 0) == 0 ? 1 : 0;
+    }
+    if (capvid_cmd->parsed()) {
+        bs::mesh::MeshConfig cfg = bs::mesh::load_config(config_path);
+        bs::mesh::bootstrap_identity(home_dir);
+        bs::mesh::MeshController mc(cfg, home_dir);
+        bs::mesh::CuaVideoCaptureMsg req;
+        req.fps = static_cast<uint8_t>(capvid_fps);
+        req.duration_sec = static_cast<uint16_t>(capvid_dur);
+        req.quality = static_cast<uint8_t>(capvid_quality);
+        req.max_width = static_cast<uint16_t>(capvid_maxw);
+        std::string result = mc.capture_video(capvid_peer, req);
         std::cout << result << "\n";
         return result.rfind("ERROR", 0) == 0 ? 1 : 0;
     }

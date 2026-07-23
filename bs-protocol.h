@@ -159,6 +159,8 @@ enum class MessageType : uint8_t {
     CuaResponse    = 0x27,  // server → client: {status, error, screen_w/h, format}
     JoinRequest    = 0x28,  // client → server: {token}
     JoinReply      = 0x29,  // server → client: {ok, node_name, seeds_csv, host_pubkey, error}
+    CuaVideoCapture       = 0x2A,  // client → server: {fps, duration, quality, max_width}
+    CuaVideoCaptureResult = 0x2B,  // server → client: {status, file_path, duration, width, height, format}
 };
 
 // ── Empty Message Structs (must be declared before variant) ──────
@@ -350,6 +352,28 @@ struct CuaResponseMsg {
     bool operator==(const CuaResponseMsg&) const = default;
 };
 
+// v2.0.12: Video capture — remote ffmpeg, file transfer, local vision analysis
+struct CuaVideoCaptureMsg {
+    uint32_t request_id = 0;
+    uint8_t  fps = 2;           // frames per second
+    uint16_t duration_sec = 15; // capture duration
+    uint8_t  quality = 70;      // JPEG/MP4 quality (1-100)
+    uint16_t max_width = 1280;  // downscale width (0 = native)
+    bool operator==(const CuaVideoCaptureMsg&) const = default;
+};
+
+struct CuaVideoCaptureResultMsg {
+    uint32_t request_id = 0;
+    uint8_t  status = 0;        // 0=ok 1=error
+    std::string error;
+    std::string file_path;      // temp file on remote (for file_recv)
+    uint16_t duration_sec = 0;  // actual captured duration
+    uint16_t width = 0;
+    uint16_t height = 0;
+    uint8_t  format = 0;        // 1=mp4 2=gif
+    bool operator==(const CuaVideoCaptureResultMsg&) const = default;
+};
+
 struct JoinRequestMsg {
     std::string token;
     bool operator==(const JoinRequestMsg&) const = default;
@@ -504,7 +528,9 @@ using Message = std::variant<
     CuaRequestMsg,     // 35 — 2.0.8-alpha3
     CuaResponseMsg,    // 36 — 2.0.8-alpha3
     JoinRequestMsg,    // 37 — 2.0.9-alpha5
-    JoinReplyMsg       // 38 — 2.0.9-alpha5
+    JoinReplyMsg,      // 38 — 2.0.9-alpha5
+    CuaVideoCaptureMsg,       // 39 — 2.0.12-alpha5
+    CuaVideoCaptureResultMsg  // 40 — 2.0.12-alpha5
 >;
 
 // ── Frame ──────────────────────────────────────────────────────────
@@ -573,7 +599,9 @@ constexpr MessageType index_to_type[] = {
     MessageType::CuaRequest,        // 35 — 2.0.8-alpha3
     MessageType::CuaResponse,       // 36 — 2.0.8-alpha3
     MessageType::JoinRequest,       // 37 — 2.0.9-alpha5
-    MessageType::JoinReply          // 38 — 2.0.9-alpha5
+    MessageType::JoinReply,          // 38 — 2.0.9-alpha5
+    MessageType::CuaVideoCapture,    // 39 — 2.0.12-alpha5
+    MessageType::CuaVideoCaptureResult // 40 — 2.0.12-alpha5
 };
 
 static_assert(std::size(index_to_type) == std::variant_size_v<Message>,
@@ -752,6 +780,15 @@ void serialize_msg(Serializer& s, const CuaResponseMsg& m) {
 }
 void serialize_msg(Serializer& s, const JoinRequestMsg& m) {
     s.str_prefixed(m.token);
+}
+void serialize_msg(Serializer& s, const CuaVideoCaptureMsg& m) {
+    s.u32be(m.request_id); s.u8(m.fps); s.u16(m.duration_sec);
+    s.u8(m.quality); s.u16(m.max_width);
+}
+void serialize_msg(Serializer& s, const CuaVideoCaptureResultMsg& m) {
+    s.u32be(m.request_id); s.u8(m.status); s.str_prefixed(m.error);
+    s.str_prefixed(m.file_path); s.u16(m.duration_sec);
+    s.u16(m.width); s.u16(m.height); s.u8(m.format);
 }
 void serialize_msg(Serializer& s, const JoinReplyMsg& m) {
     s.u8(m.ok ? 1 : 0);
@@ -1342,6 +1379,20 @@ Message decode(std::span<const uint8_t> raw) {
     case 0x28: {
         JoinRequestMsg m;
         m.token = d.str_prefixed();
+        return m;
+    }
+    case 0x2A: {
+        CuaVideoCaptureMsg m;
+        m.request_id = d.u32be(); m.fps = d.u8(); m.duration_sec = d.u16();
+        m.quality = d.u8(); m.max_width = d.u16();
+        return m;
+    }
+    case 0x2B: {
+        CuaVideoCaptureResultMsg m;
+        m.request_id = d.u32be(); m.status = d.u8();
+        m.error = d.str_prefixed();
+        m.file_path = d.str_prefixed();
+        m.duration_sec = d.u16(); m.width = d.u16(); m.height = d.u16(); m.format = d.u8();
         return m;
     }
     case 0x29: {
@@ -2798,6 +2849,51 @@ inline void close_nonstdio_fds_before_exec() {
     }
     return resp;
 #endif
+}
+
+// ── 2.0.12: Video capture via ffmpeg ─────────────────────────────
+[[nodiscard]] CuaVideoCaptureResultMsg video_capture_execute(const CuaVideoCaptureMsg& req) {
+    CuaVideoCaptureResultMsg result;
+    result.request_id = req.request_id;
+    result.status = 1;
+
+#ifdef _WIN32
+    char tmpl[MAX_PATH], tmpbuf[MAX_PATH];
+    GetTempPathA(sizeof(tmpbuf), tmpbuf);
+    GetTempFileNameA(tmpbuf, "bsv", 0, tmpl);
+    std::string tmp_path = std::string(tmpl) + ".mp4";
+    ::unlink(tmpl);
+    std::string cmd =
+        "ffmpeg -y -f gdigrab -framerate " + std::to_string(req.fps) +
+        " -t " + std::to_string(req.duration_sec) +
+        " -i desktop -c:v libx264 -preset ultrafast -crf 28 -pix_fmt yuv420p " +
+        tmp_path + " 2>nul";
+#else
+    std::string tmp_path = "/tmp/bs-video-" + std::to_string(
+        std::chrono::steady_clock::now().time_since_epoch().count()) + ".mp4";
+    auto ffmpeg = find_binary("ffmpeg");
+    std::string cmd;
+    if (ffmpeg) {
+        cmd = *ffmpeg + " -y -f x11grab -framerate " + std::to_string(req.fps) +
+              " -t " + std::to_string(req.duration_sec) +
+              " -i :0.0 -c:v libx264 -preset ultrafast -crf 28 -pix_fmt yuv420p " +
+              tmp_path + " 2>/dev/null";
+    }
+#endif
+    if (cmd.empty()) {
+        result.error = "ffmpeg not available for video capture";
+        return result;
+    }
+    int rc = std::system(cmd.c_str());
+    if (rc != 0 || !std::filesystem::exists(tmp_path)) {
+        result.error = "video capture failed (ffmpeg exit " + std::to_string(rc) + ")";
+        return result;
+    }
+    result.status = 0;
+    result.file_path = tmp_path;
+    result.duration_sec = req.duration_sec;
+    result.format = 1; // mp4
+    return result;
 }
 
 [[nodiscard]] std::string read_available_pty_output(Session& session,
@@ -8531,6 +8627,15 @@ public:
             return;
         }
 
+        // CuaVideoCaptureMsg — remote video capture (2.0.12)
+        if (std::holds_alternative<CuaVideoCaptureMsg>(msg)) {
+            auto& req = std::get<CuaVideoCaptureMsg>(msg);
+            CuaVideoCaptureResultMsg resp = video_capture_execute(req);
+            resp.request_id = req.request_id;
+            try { write_frame(conn.ssl.get(), resp, CONTROL_STREAM_ID); } catch (...) {}
+            return;
+        }
+
         // ResizeMsg — peer resized their terminal
         if (std::holds_alternative<ResizeMsg>(msg)) {
             auto& r = std::get<ResizeMsg>(msg);
@@ -10251,6 +10356,47 @@ public:
                 result += "]";
                 response = result + "\n";
             }
+            else if (line.rfind("CUA_VIDEO_CAPTURE_B64 ", 0) == 0) {
+                auto rest = line.substr(22);
+                auto sp = rest.find(' ');
+                if (sp == std::string::npos) {
+                    response = "ERROR usage: CUA_VIDEO_CAPTURE_B64 <peer> <b64-fps-dur-qual-maxw>\n";
+                } else {
+                    std::string peer_name = rest.substr(0, sp);
+                    std::string params_b64 = rest.substr(sp + 1);
+                    std::string params = b64dec(params_b64);
+                    // params format: "fps:duration:quality:maxw"
+                    std::stringstream ss(params);
+                    std::string token;
+                    std::vector<int> vals;
+                    while (std::getline(ss, token, ':')) {
+                        vals.push_back(std::stoi(token));
+                    }
+                    if (vals.size() < 4) {
+                        response = "ERROR video capture: expected fps:duration:quality:maxw\n";
+                    } else {
+                        CuaVideoCaptureMsg req;
+                        req.fps = static_cast<uint8_t>(vals[0]);
+                        req.duration_sec = static_cast<uint16_t>(vals[1]);
+                        req.quality = static_cast<uint8_t>(vals[2]);
+                        req.max_width = static_cast<uint16_t>(vals[3]);
+                        Conn* target = nullptr;
+                        for (auto& c : conns_) {
+                            if (is_live_mesh_transport_for(c, peer_name, false)) { target = &c; break; }
+                        }
+                        if (!target) {
+                            response = "ERROR no conn to " + peer_name + "\n";
+                        } else {
+                            CuaVideoCaptureResultMsg resp = video_capture_execute(req);
+                            if (resp.status == 0) {
+                                response = "OK " + resp.file_path + "\n";
+                            } else {
+                                response = "ERROR " + resp.error + "\n";
+                            }
+                        }
+                    }
+                }
+            }
             else if (line.rfind("EDIT_UP ", 0) == 0) {
                 std::string rest = line.substr(8);
                 while (!rest.empty() && (rest.back() == '\r' || rest.back() == '\n')) rest.pop_back();
@@ -11739,6 +11885,46 @@ public:
         std::string ipc = daemon_recv_via_ipc(peer_name, remote_path, dest, 120000, wait_for_completion);
         if (!ipc.empty()) return ipc;
         return "ERROR no daemon running";
+    }
+
+    // ── CLI: capture_video ────────────────────────────────────────
+    std::string capture_video(const std::string& peer_name, const CuaVideoCaptureMsg& req) {
+        std::string token = load_ipc_token(home_dir_);
+        if (token.empty()) return "ERROR no daemon running — no IPC token";
+        SOCKET sfd = socket(AF_INET, SOCK_STREAM, 0);
+        if (sfd == INVALID_SOCKET) return "ERROR socket failed";
+        sockaddr_in sa{};
+        sa.sin_family = AF_INET;
+        sa.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        sa.sin_port = htons(mesh_cli_port());
+        set_socket_timeouts(sfd, 300000);
+        if (connect(sfd, (sockaddr*)&sa, sizeof(sa)) == SOCKET_ERROR) {
+            CLOSESOCK(sfd); return "ERROR cannot connect to daemon IPC";
+        }
+        // Send video capture request via encoded IPC frame
+        std::string params = std::to_string(req.fps) + ":" + std::to_string(req.duration_sec) +
+                            ":" + std::to_string(req.quality) + ":" + std::to_string(req.max_width);
+        std::string cmd = token + " CUA_VIDEO_CAPTURE_B64 " + peer_name + " " + b64enc(params) + "\n";
+        send(sfd, cmd.data(), (int)cmd.size(), 0);
+        std::string acc;
+        char buf[8192];
+        while (true) {
+            int n = recv(sfd, buf, (int)sizeof(buf) - 1, 0);
+            if (n <= 0) break;
+            buf[n] = '\0';
+            acc.append(buf, n);
+            auto nl = acc.rfind('\n');
+            if (nl != std::string::npos) break;
+        }
+        CLOSESOCK(sfd);
+        // Parse result: OK <file_path> or ERROR <reason>
+        while (!acc.empty() && (acc.back() == '\r' || acc.back() == '\n')) acc.pop_back();
+        if (acc.rfind("OK ", 0) == 0) {
+            std::string remote_path = acc.substr(3);
+            return "video captured at " + remote_path +
+                   " — use 'file recv " + peer_name + " " + remote_path + " .' to retrieve";
+        }
+        return acc.empty() ? "ERROR no response from daemon" : acc;
     }
 
     // ── CLI: edit_peer ──────────────────────────────────────────

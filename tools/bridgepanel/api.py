@@ -241,3 +241,41 @@ def build_tree() -> dict:
     result.sort(key=lambda x: (not x["live"], x["name"]))
 
     return {"sessions": result}
+
+
+# ── 9warp provider integration ────────────────────────────────
+
+def _sidecar_secret() -> str:
+    """Read the 9warp sidecar shared secret."""
+    for path in (
+        Path.home() / ".hermes" / "oauth-sidecar.secret",
+    ):
+        try:
+            tok = path.read_text().strip()
+            if tok:
+                return tok
+        except OSError:
+            continue
+    return ""
+
+
+_SIDECAR_URL = "http://192.168.1.20:9753"
+
+
+def query_providers() -> dict:
+    """Fetch provider status from 9warp sidecar. Returns provider map or error."""
+    import urllib.request
+    secret = _sidecar_secret()
+    url = f"{_SIDECAR_URL}/v1/providers/"
+    try:
+        req = urllib.request.Request(url)
+        if secret:
+            req.add_header("Authorization", f"Bearer {secret}")
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            data = _json.loads(resp.read())
+        # sidecar returns {providers: {...}}
+        if isinstance(data, dict) and "providers" in data:
+            return {"providers": data["providers"], "ok": True}
+        return {"providers": data, "ok": True} if isinstance(data, dict) else {"providers": {}, "ok": False, "error": "unexpected response"}
+    except Exception as e:
+        return {"providers": {}, "ok": False, "error": str(e)}

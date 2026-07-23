@@ -8,7 +8,7 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import parse_qs, urlparse
 
-from .api import build_tree, query_mesh_tree, query_scrollback, daemon_create_session, daemon_connect_session
+from .api import build_tree, query_mesh_tree, query_providers, query_scrollback, daemon_create_session, daemon_connect_session
 from .consts import MAX_UPLOAD, VERSION, APP
 from .files import (markdown_to_html, resolve_file, safe_name,
                     safe_session_name, safe_type, sessions_dir)
@@ -101,6 +101,8 @@ class BridgePanelHandler(BaseHTTPRequestHandler):
             self.send_json(build_tree())
         elif path == "/api/machines":
             self.send_json(query_mesh_tree())
+        elif path == "/api/providers":
+            self.send_json(query_providers())
         elif path == "/api/output":
             session = params.get("session", [""])[0]
             try:

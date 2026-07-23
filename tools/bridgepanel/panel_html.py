@@ -396,6 +396,121 @@ main { min-width: 0; min-height: 0; display: flex; flex-direction: column; overf
   font-size: 11px;
   color: var(--text-3);
 }
+
+/* ── Providers ── */
+#providersPane {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 20px 40px;
+}
+#providersPane .providers-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+#providersPane .providers-head h2 {
+  font-size: 18px;
+  color: var(--text);
+  margin: 0;
+}
+#providersPane .providers-head .providers-summary {
+  font-size: 13px;
+  color: var(--text-4);
+}
+#providersPane .btn-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
+}
+.provider-card {
+  border: 1px solid var(--border-2);
+  border-radius: 10px;
+  padding: 14px 16px;
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.provider-card .pc-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.provider-card .pc-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+}
+.provider-card .pc-tier {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-4);
+  margin-left: auto;
+}
+.provider-card .pc-status {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.pc-status.ok { background: var(--accent); }
+.pc-status.warn { background: #f0a020; }
+.pc-status.expired { background: #b3261e; }
+.provider-card .pc-auth {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-3);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+.provider-card .pc-details {
+  font-size: 12px;
+  color: var(--text-4);
+  line-height: 1.5;
+}
+.provider-card .pc-details code {
+  font-family: var(--mono);
+  font-size: 11px;
+  background: rgba(0,0,0,0.04);
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+.provider-card .pc-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 4px;
+}
+.provider-card .pc-actions button {
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 500;
+  border: 1px solid var(--border-2);
+  border-radius: 5px;
+  background: var(--bg);
+  color: var(--text-2);
+  cursor: pointer;
+}
+.provider-card .pc-actions button:hover {
+  background: var(--hover);
+}
+.pc-balance {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-3);
+}
+.pc-balance .bar-track {
+  height: 4px;
+  background: var(--border);
+  border-radius: 2px;
+  margin-top: 3px;
+}
+.pc-balance .bar-fill {
+  height: 100%;
+  border-radius: 2px;
+  background: var(--accent);
+}
+.pc-balance .bar-fill.warn { background: #f0a020; }
+.pc-balance .bar-fill.drain { background: #b3261e; }
 .connect-form label {
   display: block;
   font-size: 12px;
@@ -513,11 +628,12 @@ main { min-width: 0; min-height: 0; display: flex; flex-direction: column; overf
   </aside>
   <main>
     <div class="breadcrumb" id="breadcrumb"></div>
-    <div class="tabbar" id="tabbar" style="display:none">
+    <div class="tabbar" id="tabbar">
       <button data-tab="output" class="active">Output</button>
       <button data-tab="comms">Comms</button>
       <button data-tab="docs">Docs</button>
       <button data-tab="connect">Connect</button>
+      <button data-tab="providers" id="providersTab">Providers</button>
     </div>
     <div class="toolbar" id="toolbar" style="display:none">
       <div class="btn-group">
@@ -536,6 +652,7 @@ main { min-width: 0; min-height: 0; display: flex; flex-direction: column; overf
         <div id="content"><div class="empty-state">Select a file</div></div>
       </div>
       <div id="connectPane" style="display:none"></div>
+      <div id="providersPane" style="display:none"></div>
       <div class="empty-state" id="welcomePane">
         <div>Select a machine, then a session.</div>
         <div class="hint">machines → sessions → output / comms / docs / connect</div>
@@ -588,6 +705,7 @@ main { min-width: 0; min-height: 0; display: flex; flex-direction: column; overf
   const outputPane = document.getElementById('outputPane');
   const filePane = document.getElementById('filePane');
   const connectPane = document.getElementById('connectPane');
+  const providersPane = document.getElementById('providersPane');
   const welcomePane = document.getElementById('welcomePane');
   const filelistEl = document.getElementById('filelist');
   const contentEl = document.getElementById('content');
@@ -878,6 +996,16 @@ main { min-width: 0; min-height: 0; display: flex; flex-direction: column; overf
     curFile = null; editing = false;
     renderWork();
   });
+  // Allow the Providers tab to be shown without session selected —
+  // always keep tabbar visible when Provider tab exists.
+  document.getElementById('providersTab').addEventListener('click', function() {
+    if (!selSession) {
+      tab = 'providers';
+      for (var b of tabbarEl.querySelectorAll('button'))
+        b.classList.toggle('active', b.dataset.tab === 'providers');
+      renderWork();
+    }
+  });
 
   // ── Work area ──
   function renderBreadcrumb() {
@@ -900,13 +1028,15 @@ main { min-width: 0; min-height: 0; display: flex; flex-direction: column; overf
   function renderWork() {
     renderBreadcrumb();
     updateTools();
-    const has = !!selSession;
-    tabbarEl.style.display = has ? '' : 'none';
+    var has = !!selSession;
+    var isProviders = tab === 'providers';
+    tabbarEl.style.display = has || isProviders || !selSession ? '' : 'none';
     toolbarEl.style.display = has ? '' : 'none';
-    welcomePane.style.display = has ? 'none' : '';
+    welcomePane.style.display = has || isProviders ? 'none' : '';
     outputPane.style.display = (has && tab === 'output') ? '' : 'none';
     filePane.style.display = (has && (tab === 'comms' || tab === 'docs')) ? 'flex' : 'none';
     connectPane.style.display = (has && tab === 'connect') ? '' : 'none';
+    providersPane.style.display = isProviders ? '' : 'none';
 
     if (outputTimer) { clearInterval(outputTimer); outputTimer = null; }
     if (has && tab === 'output') {
@@ -923,6 +1053,9 @@ main { min-width: 0; min-height: 0; display: flex; flex-direction: column; overf
     }
     if (has && tab === 'connect') {
       renderConnectPane();
+    }
+    if (isProviders) {
+      renderProviders();
     }
   }
 
@@ -1005,6 +1138,89 @@ main { min-width: 0; min-height: 0; display: flex; flex-direction: column; overf
       copyToClipboard(cmdEl.textContent);
     });
     refreshCmd();
+  }
+
+  // ── Providers pane ──
+  var providerCache = null;
+  function renderProviders() {
+    if (providerCache) { drawProviders(providerCache); return; }
+    providersPane.innerHTML = '<div class=\"empty-state\">Loading providers…</div>';
+    fetch(base + '/api/providers').then(function(r) {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    }).then(function(d) {
+      providerCache = d;
+      drawProviders(d);
+    }).catch(function(err) {
+      providersPane.innerHTML = '<div class=\"empty-state\">Failed to load provider status.<div class=\"hint\">' + esc(String(err.message || err)) + '</div></div>';
+    });
+  }
+  function drawProviders(d) {
+    var provs = d.providers || {};
+    var list = [];
+    for (var k in provs) { list.push(provs[k]); }
+    list.sort(function(a, b) { return (a.name || a.prefix || '').localeCompare(b.name || b.prefix || ''); });
+    var total = list.length;
+    var warns = 0, expired = 0;
+    for (var i = 0; i < total; i++) {
+      if (list[i].status === 'warn') warns++;
+      if (list[i].status === 'expired') expired++;
+    }
+    var summary = total + ' provider' + (total !== 1 ? 's' : '');
+    if (warns) summary += ' · ' + warns + ' warning' + (warns !== 1 ? 's' : '');
+    if (expired) summary += ' · ' + expired + ' expired';
+    var html = '<div class=\"providers-head\"><h2>Providers<\/h2><span class=\"providers-summary\">' + esc(summary) + '<\/span><\/div>';
+    html += '<div class=\"btn-grid\" id=\"providerGrid\">';
+    for (var i = 0; i < list.length; i++) {
+      var p = list[i];
+      var st = p.status || 'ok';
+      html += '<div class=\"provider-card\" data-provider=\"' + esc(p.prefix || '') + '\">' +
+        '<div class=\"pc-head\">' +
+          '<span class=\"pc-status ' + esc(st) + '\"><\/span>' +
+          '<span class=\"pc-name\">' + esc(p.name || p.prefix) + '<\/span>' +
+          '<span class=\"pc-tier\">' + esc(p.tier || '') + '<\/span>' +
+        '<\/div>' +
+        '<span class=\"pc-auth\">' + esc(p.auth || '') + '<\/span>';
+      // Expiry
+      if (p.expiresIn) {
+        html += '<span class=\"pc-details\">Expires in <code>' + esc(p.expiresIn) + '<\/code>';
+        if (p.hasRefresh) html += ' · RT present';
+        html += '<\/span>';
+      }
+      // Detail/error
+      if (p.detail) {
+        html += '<span class=\"pc-details\">' + esc(p.detail) + '<\/span>';
+      }
+      // Balance bars
+      if (p.tokensLimit) {
+        var pct = 100;
+        if (p.tokensLimit > 0) pct = (p.tokensRemaining / p.tokensLimit) * 100;
+        var cls = pct < 10 ? 'drain' : (pct < 30 ? 'warn' : '');
+        html += '<div class=\"pc-balance\">Tokens: ' + (p.tokensRemaining || 0) + ' / ' + (p.tokensLimit || 0) +
+          '<div class=\"bar-track\"><div class=\"bar-fill ' + cls + '\" style=\"width:' + Math.min(100, pct) + '%\"><\/div><\/div><\/div>';
+      }
+      if (p.requestsLimit) {
+        var rpct = 100;
+        if (p.requestsLimit > 0) rpct = (p.requestsRemaining / p.requestsLimit) * 100;
+        var rcls = rpct < 10 ? 'drain' : (rpct < 30 ? 'warn' : '');
+        html += '<div class=\"pc-balance\">Requests: ' + (p.requestsRemaining || 0) + ' / ' + (p.requestsLimit || 0) +
+          '<div class=\"bar-track\"><div class=\"bar-fill ' + rcls + '\" style=\"width:' + Math.min(100, rpct) + '%\"><\/div><\/div><\/div>';
+      }
+      html += '<div class=\"pc-actions\">' +
+          '<button class=\"test-btn\" data-prefix=\"' + esc(p.prefix) + '\">Test<\/button>' +
+        '<\/div>';
+      html += '<\/div>';
+    }
+    html += '<\/div>';
+    providersPane.innerHTML = html;
+    // Bind test buttons
+    for (var btns = providersPane.querySelectorAll('.test-btn'), j = 0; j < btns.length; j++) {
+      (function(btn) {
+        btn.addEventListener('click', function() {
+          toast('Not implemented yet — use CLI: hermes chat -q ok --provider ' + btn.dataset.prefix, true);
+        });
+      })(btns[j]);
+    }
   }
 
   // ── File list (comms/docs) ──
