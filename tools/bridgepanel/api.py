@@ -262,6 +262,60 @@ def _sidecar_secret() -> str:
 _SIDECAR_URL = "http://192.168.1.20:9753"
 
 
+def query_fleet() -> dict:
+    """Aggregate fleet: spokes, harnesses, events, config per host."""
+    import urllib.request
+    import concurrent.futures
+    secret = _sidecar_secret()
+    headers = {}
+    if secret:
+        headers["Authorization"] = f"Bearer {secret}"
+
+    def _fetch(path: str) -> dict:
+        try:
+            req = urllib.request.Request(f"{_SIDECAR_URL}{path}", headers=headers)
+            with urllib.request.urlopen(req, timeout=3) as resp:
+                return _json.loads(resp.read())
+        except Exception:
+            return {}
+
+    # Fetch hub data in parallel
+    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as ex:
+        f_spokes = ex.submit(_fetch, "/v1/spokes/")
+        f_harnesses = ex.submit(_fetch, "/v1/harnesses/")
+        f_events = ex.submit(_fetch, "/v1/events/")
+        spokes_data = f_spokes.result(timeout=5)
+        harnesses_data = f_harnesses.result(timeout=5)
+        events_data = f_events.result(timeout=5)
+
+    # Probe per-spoke config — also parallel
+    spokes = spokes_data.get("spokes", [])
+    spoke_configs = {}
+    def _probe_spoke(ip: str) -> tuple:
+        try:
+            req = urllib.request.Request(f"http://{ip}:9753/config")
+            with urllib.request.urlopen(req, timeout=2) as resp:
+                return ip, _json.loads(resp.read())
+        except Exception:
+            return ip, {"error": "unreachable"}
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=6) as ex:
+        futures = {ex.submit(_probe_spoke, sp.get("ip", "")): sp for sp in spokes if sp.get("ip")}
+        for fut in concurrent.futures.as_completed(futures, timeout=5):
+            try:
+                ip, cfg = fut.result()
+                spoke_configs[ip] = cfg
+            except Exception:
+                pass
+
+    return {
+        "ok": True,
+        "spokes": spokes,
+        "spoke_configs": spoke_configs,
+        "harnesses": harnesses_data.get("harnesses", []),
+        "events": events_data.get("events", [])[:50],
+    }
+
 def query_providers() -> dict:
     """Fetch provider status from 9warp sidecar. Returns provider map or error."""
     import urllib.request

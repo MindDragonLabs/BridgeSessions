@@ -504,6 +504,48 @@ main { min-width: 0; min-height: 0; display: flex; flex-direction: column; overf
   border-radius: 2px;
   margin-top: 3px;
 }
+/* ── Fleet ── */
+#fleetPane {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 20px 40px;
+}
+#fleetPane .fleet-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+#fleetPane .fleet-head h2 { font-size: 18px; color: var(--text); margin: 0; }
+#fleetPane .stat-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; margin-bottom: 20px; }
+.fleet-stat { border: 1px solid var(--border-2); border-radius: 8px; padding: 12px 14px; text-align: center; }
+.fleet-stat .fs-v { font-size: 28px; font-weight: 700; color: var(--text); }
+.fleet-stat .fs-l { font-size: 11px; color: var(--text-4); text-transform: uppercase; letter-spacing: 0.5px; margin-top: 2px; }
+.fleet-stat .fs-v.ok { color: var(--accent); }
+.fleet-stat .fs-v.warn { color: #f0a020; }
+
+#fleetPane .spoke-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; margin-bottom: 20px; }
+.spoke-card { border: 1px solid var(--border-2); border-radius: 10px; padding: 14px 16px; background: var(--bg); }
+.spoke-card .sc-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.spoke-card .sc-ip { font-size: 14px; font-weight: 600; color: var(--text); font-family: var(--mono); }
+.spoke-card .sc-status { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.spoke-card .sc-status.ok { background: var(--accent); }
+.spoke-card .sc-status.warn { background: #f0a020; }
+.spoke-card .sc-meta { font-size: 12px; color: var(--text-4); line-height: 1.6; }
+.spoke-card .sc-meta code { font-family: var(--mono); font-size: 11px; color: var(--text-3); }
+.spoke-card .sc-harness { margin-top: 8px; }
+.spoke-card .sc-harness .sh-row { display: flex; align-items: center; gap: 6px; padding: 3px 0; font-size: 12px; }
+.spoke-card .sc-harness .sh-name { font-weight: 500; color: var(--text-2); width: 80px; flex-shrink: 0; }
+.spoke-card .sc-harness .sh-v { font-family: var(--mono); font-size: 11px; color: var(--text-4); }
+.spoke-card .sc-harness .sh-badge { font-family: var(--mono); font-size: 10px; padding: 1px 6px; border-radius: 4px; }
+.sh-badge.ok { background: var(--accent-soft); color: var(--accent-deep); }
+.sh-badge.missing { background: rgba(0,0,0,0.04); color: var(--text-4); }
+.sh-badge.degraded { background: #fef3e0; color: #c77700; }
+.sh-badge.hil { background: #fce4ec; color: #c62828; }
+
+#fleetPane .events-list { margin-top: 16px; }
+#fleetPane .events-list h3 { font-size: 14px; color: var(--text-2); margin-bottom: 8px; }
+.event-row { padding: 4px 0; font-size: 12px; border-bottom: 1px solid var(--border); display: flex; gap: 8px; }
+.event-row .ev-time { font-family: var(--mono); color: var(--text-4); width: 60px; flex-shrink: 0; }
+.event-row .ev-type { font-family: var(--mono); font-size: 10px; color: var(--text-3); width: 70px; flex-shrink: 0; text-transform: uppercase; }
+.event-row .ev-msg { color: var(--text-2); }
+.event-row .ev-hil { color: #c62828; font-weight: 600; }
+
 .pc-balance .bar-fill {
   height: 100%;
   border-radius: 2px;
@@ -634,6 +676,7 @@ main { min-width: 0; min-height: 0; display: flex; flex-direction: column; overf
       <button data-tab="docs">Docs</button>
       <button data-tab="connect">Connect</button>
       <button data-tab="providers" id="providersTab">Providers</button>
+      <button data-tab="fleet" id="fleetTab">Fleet</button>
     </div>
     <div class="toolbar" id="toolbar" style="display:none">
       <div class="btn-group">
@@ -653,6 +696,7 @@ main { min-width: 0; min-height: 0; display: flex; flex-direction: column; overf
       </div>
       <div id="connectPane" style="display:none"></div>
       <div id="providersPane" style="display:none"></div>
+      <div id="fleetPane" style="display:none"></div>
       <div class="empty-state" id="welcomePane">
         <div>Select a machine, then a session.</div>
         <div class="hint">machines → sessions → output / comms / docs / connect</div>
@@ -706,6 +750,7 @@ main { min-width: 0; min-height: 0; display: flex; flex-direction: column; overf
   const filePane = document.getElementById('filePane');
   const connectPane = document.getElementById('connectPane');
   const providersPane = document.getElementById('providersPane');
+  const fleetPane = document.getElementById('fleetPane');
   const welcomePane = document.getElementById('welcomePane');
   const filelistEl = document.getElementById('filelist');
   const contentEl = document.getElementById('content');
@@ -996,13 +1041,20 @@ main { min-width: 0; min-height: 0; display: flex; flex-direction: column; overf
     curFile = null; editing = false;
     renderWork();
   });
-  // Allow the Providers tab to be shown without session selected —
-  // always keep tabbar visible when Provider tab exists.
+  // Allow the Providers/Fleet tabs to be shown without session selected
   document.getElementById('providersTab').addEventListener('click', function() {
     if (!selSession) {
       tab = 'providers';
       for (var b of tabbarEl.querySelectorAll('button'))
         b.classList.toggle('active', b.dataset.tab === 'providers');
+      renderWork();
+    }
+  });
+  document.getElementById('fleetTab').addEventListener('click', function() {
+    if (!selSession) {
+      tab = 'fleet';
+      for (var b of tabbarEl.querySelectorAll('button'))
+        b.classList.toggle('active', b.dataset.tab === 'fleet');
       renderWork();
     }
   });
@@ -1030,13 +1082,15 @@ main { min-width: 0; min-height: 0; display: flex; flex-direction: column; overf
     updateTools();
     var has = !!selSession;
     var isProviders = tab === 'providers';
-    tabbarEl.style.display = has || isProviders || !selSession ? '' : 'none';
+    var isFleet = tab === 'fleet';
+    tabbarEl.style.display = has || isProviders || isFleet || !selSession ? '' : 'none';
     toolbarEl.style.display = has ? '' : 'none';
-    welcomePane.style.display = has || isProviders ? 'none' : '';
+    welcomePane.style.display = has || isProviders || isFleet ? 'none' : '';
     outputPane.style.display = (has && tab === 'output') ? '' : 'none';
     filePane.style.display = (has && (tab === 'comms' || tab === 'docs')) ? 'flex' : 'none';
     connectPane.style.display = (has && tab === 'connect') ? '' : 'none';
     providersPane.style.display = isProviders ? '' : 'none';
+    fleetPane.style.display = isFleet ? '' : 'none';
 
     if (outputTimer) { clearInterval(outputTimer); outputTimer = null; }
     if (has && tab === 'output') {
@@ -1056,6 +1110,9 @@ main { min-width: 0; min-height: 0; display: flex; flex-direction: column; overf
     }
     if (isProviders) {
       renderProviders();
+    }
+    if (isFleet) {
+      renderFleet();
     }
   }
 
@@ -1221,6 +1278,93 @@ main { min-width: 0; min-height: 0; display: flex; flex-direction: column; overf
         });
       })(btns[j]);
     }
+  }
+
+  // ── Fleet pane ──
+  var fleetCache = null;
+  function renderFleet() {
+    if (fleetCache) { drawFleet(fleetCache); return; }
+    fleetPane.innerHTML = '<div class=\"empty-state\">Loading fleet…</div>';
+    fetch(base + '/api/fleet').then(function(r) {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    }).then(function(d) {
+      fleetCache = d;
+      drawFleet(d);
+    }).catch(function(err) {
+      fleetPane.innerHTML = '<div class=\"empty-state\">Failed to load fleet.<div class=\"hint\">' + esc(String(err.message || err)) + '</div></div>';
+    });
+  }
+  function drawFleet(d) {
+    var spokes = d.spokes || [];
+    var configs = d.spoke_configs || {};
+    var harnesses = d.harnesses || [];
+    var events = d.events || [];
+    var online = 0, offline = 0;
+    for (var i = 0; i < spokes.length; i++) {
+      if (spokes[i].status === 'healthy') online++; else offline++;
+    }
+    // Stat cards
+    var html = '<div class=\"fleet-head\"><h2>Fleet<\/h2><\/div>';
+    html += '<div class=\"stat-cards\">';
+    html += '<div class=\"fleet-stat\"><div class=\"fs-v ok\">' + online + '<\/div><div class=\"fs-l\">Online<\/div><\/div>';
+    html += '<div class=\"fleet-stat\"><div class=\"fs-v warn\">' + offline + '<\/div><div class=\"fs-l\">Offline<\/div><\/div>';
+    html += '<div class=\"fleet-stat\"><div class=\"fs-v\">' + spokes.length + '<\/div><div class=\"fs-l\">Total<\/div><\/div>';
+    html += '<\/div>';
+    // Spoke cards
+    html += '<h3 style=\"margin-bottom:10px;font-size:14px;color:var(--text-2)\">Fleet Members<\/h3>';
+    html += '<div class=\"spoke-cards\">';
+    for (var i = 0; i < spokes.length; i++) {
+      var sp = spokes[i];
+      var ip = sp.ip || '';
+      var cfg = configs[ip] || {};
+      var st = sp.status === 'healthy' ? 'ok' : 'warn';
+      var provider = cfg.provider || '?';
+      var model = cfg.default_model || '?';
+      html += '<div class=\"spoke-card\">' +
+        '<div class=\"sc-head\">' +
+          '<span class=\"sc-status ' + st + '\"><\/span>' +
+          '<span class=\"sc-ip\">' + esc(ip) + '<\/span>' +
+        '<\/div>' +
+        '<div class=\"sc-meta\">' +
+          'Host: <code>' + esc(sp.hostname || ip) + '</code> · OS: <code>' + esc(sp.os || 'linux') + '</code><br>' +
+          'Provider: <code>' + esc(provider) + '</code> · Model: <code>' + esc(model) + '</code>' +
+        '</div>' +
+      '</div>';
+    }
+    html += '<\/div>';
+    // Harness status table — all harnesses across fleet
+    if (harnesses.length) {
+      html += '<h3 style=\"margin-top:20px;margin-bottom:10px;font-size:14px;color:var(--text-2)\">Harness Status<\/h3>';
+      html += '<div class=\"spoke-cards\">';
+      for (var j = 0; j < harnesses.length; j++) {
+        var h = harnesses[j];
+        var badge = 'ok';
+        if (h.status === 'missing') badge = 'missing';
+        if (h.status === 'degraded') badge = 'degraded';
+        if (h.hil) badge = 'hil';
+        html += '<div class=\"sh-row\" style=\"border:1px solid var(--border);padding:5px 10px;border-radius:5px\">' +
+          '<span class=\"sh-name\">' + esc(h.host) + ' / ' + esc(h.harness) + '<\/span>' +
+          '<span class=\"sh-v\">' + esc(h.version || h.detail || '') + '<\/span>' +
+          '<span class=\"sh-badge ' + badge + '\">' + esc(h.status) + '<\/span>' +
+        '<\/div>';
+      }
+      html += '<\/div>';
+    }
+    // Event log
+    if (events.length) {
+      html += '<div class=\"events-list\"><h3>Recent Events<\/h3>';
+      for (var i = 0; i < Math.min(events.length, 20); i++) {
+        var ev = events[i];
+        html += '<div class=\"event-row\">' +
+          '<span class=\"ev-time\">' + esc(ev.time || '') + '<\/span>' +
+          '<span class=\"ev-type\">' + esc(ev.type || '') + '<\/span>' +
+          '<span class=\"ev-msg\">' + esc(ev.msg || '') + '<\/span>' +
+        '<\/div>';
+      }
+      html += '<\/div>';
+    }
+    fleetPane.innerHTML = html;
   }
 
   // ── File list (comms/docs) ──
