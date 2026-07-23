@@ -7368,6 +7368,11 @@ private:
                 } catch (...) {}
             }
 
+            // v2.0.12b: pump the event loop between chunks (0-timeout select)
+            // so mesh keepalives on OTHER connections don't starve during
+            // long synchronous transfers.
+            try { pump_loop_once(); } catch (...) {}
+
             try { write_frame(ssl, chunk, CONTROL_STREAM_ID); }
             catch (const std::exception& e) {
                 log_event("file_request_error", "send chunk failed " + std::to_string(ci));
@@ -7498,9 +7503,9 @@ private:
     // responsive. The worker exclusively owns this SSL transport while busy.
     void handle_file_request(Conn& c, const FileRequestMsg& m) {
         log_event("file_request_received", m.path + " from " + c.peer_name);
-        // v2.0.12: run synchronously on event loop — worker thread pool shared-SSL
-        // races on Windows/MinGW, breaking serve-side file transfers.
-        // Screen capture (cua_execute) already uses the same synchronous pattern.
+        // v2.0.12b: run synchronously on event loop to avoid worker-pool SSL race
+        // on Windows/MinGW. Between chunks, pump the event loop with a 0-timeout
+        // select() so mesh keepalives and other connections stay alive.
         c.exec_busy->store(true);
         auto result = file_request_on_transport(c.ssl.get(), c.sock_fd, m.path);
         c.exec_busy->store(false);
@@ -7849,6 +7854,25 @@ private:
         check_stale_exec();
         check_pong_timeouts();
         clean_dead_conns();
+    }
+
+    // v2.0.12b: non-blocking event loop pump — called from synchronous long ops
+    // to keep mesh keepalives alive without returning to the main select() loop.
+    void pump_loop_once() {
+        advance_handshakes();
+        for (auto& c : conns_) {
+            if (c.sock_fd == INVALID_SOCKET) continue;
+            if (c.exec_busy && c.exec_busy->load()) continue;
+            if (SSL_pending(c.ssl.get()) <= 0) continue;
+            // Drain any pending SSL data (pings, acks, etc.)
+            try {
+                Message msg = read_frame(c.ssl.get());
+                if (std::holds_alternative<PingMsg>(msg)) {
+                    write_frame(c.ssl.get(), PongMsg{}, CONTROL_STREAM_ID);
+                }
+                // Other message types are dropped — this is a keepalive pump
+            } catch (...) {}
+        }
     }
 
     std::string daemon_stats_summary() const {
