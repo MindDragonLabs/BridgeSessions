@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import base64 as _b64
 import json as _json
+import os
 import socket
 import time
 from pathlib import Path
@@ -104,6 +105,46 @@ def query_mesh_tree() -> dict:
         return {"node": "", "uptime_s": 0, "peers": [], "sessions": [], "offline": True}
 
 
+def daemon_create_session(machine: str, name: str, command: str,
+                          cols: int = 80, rows: int = 24,
+                          detach: bool = True) -> dict:
+    """Spawn a session on <machine> via `bs shell --detach` subprocess.
+
+    The daemon connects to the peer via direct TLS, sends an AttachMsg
+    with the session name + command, then detaches. Returns {"ok": True}
+    on success or {"ok": False, "error": ...} on failure.
+    """
+    import subprocess
+
+    bs_bin = os.path.expanduser("~/bridgesessions/build/bridgesessions")
+    if not os.path.isfile(bs_bin):
+        bs_bin = os.path.expanduser("~/bridgesessions/bridgesessions")
+
+    args = [bs_bin, "shell", machine, "-n", name, "-x", command]
+    if detach:
+        args.append("--detach")
+
+    try:
+        result = subprocess.run(
+            args, capture_output=True, text=True, timeout=30.0,
+            env={**os.environ, "HOME": os.path.expanduser("~")},
+        )
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "error": "command timed out"}
+    except FileNotFoundError:
+        return {"ok": False, "error": f"bs binary not found: {bs_bin}"}
+
+    if result.returncode != 0:
+        err = result.stderr.strip() or result.stdout.strip() or "exit=%d" % result.returncode
+        return {"ok": False, "error": err}
+    return {"ok": True, "output": result.stdout.strip()}
+
+
+def daemon_connect_session(machine: str, session: str) -> str:
+    """Return the CLI command to connect to a session."""
+    return f"bs shell {machine} -n {session}"
+
+
 def query_scrollback(session: str, since: int) -> dict:
     """Query SCROLLBACK <session> <since>. Returns {offset, text, reset, error}."""
     raw = bs_ipc(f"SCROLLBACK {session} {int(since)}", timeout=3.0).strip()
@@ -176,11 +217,19 @@ def build_tree() -> dict:
             sname = safe_session_name(sess.get("name", ""))
             if not sname:
                 continue
+            # Skip ephemeral one-shot sessions (health probes, auto-generated)
+            # that have no filesystem artifacts. Only show sessions that are
+            # genuinely operator-created or have persisted documents/comms.
+            if sname.startswith("health-bs-health-"):
+                continue
+            state = sess.get("state", "")
+            if state in ("died", "recoverable") and sname not in tree:
+                continue
             if sname not in tree:
                 tree[sname] = {"comms": [], "documents": [], "live": False}
             tree[sname].setdefault("peer", peer_name)
             tree[sname]["live"] = tree[sname].get("live", False) or (
-                sess.get("state", "") == "live"
+                state == "live"
             )
 
     # Sort files: comms by time (newest first), documents by name

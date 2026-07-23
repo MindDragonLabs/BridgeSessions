@@ -8,11 +8,11 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import parse_qs, urlparse
 
-from .api import build_tree, query_mesh_tree, query_scrollback
+from .api import build_tree, query_mesh_tree, query_scrollback, daemon_create_session, daemon_connect_session
 from .consts import MAX_UPLOAD, VERSION, APP
 from .files import (markdown_to_html, resolve_file, safe_name,
                     safe_session_name, safe_type, sessions_dir)
-from .html import FAVICON_SVG, INDEX_HTML
+from .panel_html import FAVICON_SVG, INDEX_HTML
 
 
 class BridgePanelHandler(BaseHTTPRequestHandler):
@@ -136,7 +136,8 @@ class BridgePanelHandler(BaseHTTPRequestHandler):
                 self.reject(HTTPStatus.BAD_REQUEST, "session required")
                 return
             peer = machine or "(peer)"
-            self.send_json({"cmd": f"bs shell {peer} -n {session}"})
+            cmd = daemon_connect_session(peer, session)
+            self.send_json({"cmd": cmd, "machine": peer, "session": session})
         else:
             self.reject(HTTPStatus.NOT_FOUND, "Not found")
 
@@ -210,12 +211,17 @@ class BridgePanelHandler(BaseHTTPRequestHandler):
                 return
 
             name = safe_session_name(body.get("name", ""))
-            if not name:
-                self.reject(HTTPStatus.BAD_REQUEST, "Missing session name")
+            machine = body.get("machine", "")
+            command = body.get("command", "/bin/bash -l")
+            cols = body.get("cols", 80)
+            rows = body.get("rows", 24)
+
+            if not name or not machine:
+                self.reject(HTTPStatus.BAD_REQUEST, "Missing session name or machine")
                 return
 
-            # Phase 1 design skeleton: UI is wired, daemon integration is pending.
-            self.send_json({"ok": False, "error": "not yet implemented"})
+            result = daemon_create_session(machine, name, command, cols, rows)
+            self.send_json(result)
             return
 
         self.reject(HTTPStatus.NOT_FOUND, "Not found")

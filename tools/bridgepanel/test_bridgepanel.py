@@ -311,10 +311,8 @@ class TestHttpSurface(unittest.TestCase):
             self.assertIn("remote-shell", sessions)
             self.assertTrue(sessions["remote-shell"]["live"])
             self.assertEqual(sessions["remote-shell"]["peer"], "peer-a")
-            # Remote dead session appears but not live
-            self.assertIn("dead-task", sessions)
-            self.assertFalse(sessions["dead-task"]["live"])
-            self.assertEqual(sessions["dead-task"]["peer"], "peer-a")
+            # Dead tasks with no filesystem artifacts are filtered (Fix A)
+            self.assertNotIn("dead-task", sessions)
         finally:
             bp_api.query_bs_sessions = orig_bs
             bp_api.query_mesh_tree = orig_mt
@@ -365,19 +363,21 @@ class TestHttpSurface(unittest.TestCase):
         self.assertFalse(outside.exists())
 
     def test_session_create_stub(self):
+        # The endpoint is now wired to the daemon IPC. In this test env
+        # the daemon is not running, so it should return an error (not a stub).
         body = {
             "machine": "test-pc2",
             "name": "my-session",
             "command": "bash -l",
             "cols": 80,
             "rows": 24,
-            "term": "xterm-256color",
         }
         status, raw = self._req("POST", f"/{self.token}/api/session/create", body)
         self.assertEqual(status, 200)
         payload = json.loads(raw)
+        # In test env with no daemon, "ok" is False with an error message.
         self.assertFalse(payload["ok"])
-        self.assertIn("not yet implemented", payload["error"])
+        self.assertIn("error", payload)
 
     def test_session_create_requires_token(self):
         status, _ = self._req("POST", "/api/session/create", {"name": "x"})

@@ -165,7 +165,7 @@ def markdown_to_html(text: str) -> str:
             table.append("</tbody></table></div>")
             out.append("".join(table))
             continue
-        if re.match(r"^---+$", line.strip()):
+        if re.match(r"^-+$", line.strip()):
             flush_paragraph()
             close_list()
             out.append("<hr>")
