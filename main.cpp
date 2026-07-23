@@ -1,389 +1,835 @@
-// SPDX-License-Identifier: BUSL-1.1
-// Copyright (c) Mind-Dragon. Licensed under the Business Source License 1.1.
-// bs-client: bridgesessions terminal relay agent
-// Phase 12 — CLI11 argparse
+// main.cpp — BridgeSessions CLI entrypoint + daemon launcher
+// Extracted from bridgesessions.cpp (R3 structural refactor, 2026-07-23)
+#include "bs-protocol.h"
 
-#include <bstransport/tls.hpp>
-#include <bstransport/frame_io.hpp>
-#include <bsprotocol/codec.hpp>
+// ────────────────────────────────────────────────────────────────────
+// 2. MAIN — CLI + daemon (guarded for test builds)
+// ────────────────────────────────────────────────────────────────────
 
-#include "terminal_raw.hpp"
+#ifndef BS_TESTING
 
-#include <cerrno>
-#include <chrono>
-#include <csignal>
-#include <cstdio>
-#include <cstdlib>
-#include <cstring>
-#include <iostream>
-#include <netdb.h>
-#include <poll.h>
-#include <random>
-#include <string>
-#include <sys/ioctl.h>
-#include <sys/socket.h>
-#include <sys/un.h>
-#include <thread>
-#include <unistd.h>
 #include <CLI/CLI.hpp>
-
-using namespace bs::protocol;
-using namespace bs::transport;
-using namespace bs::client;
-using namespace std::chrono_literals;
-
-// Phase 9: keygen subcommand (defined in keygen.cpp)
-extern int cmd_keygen();
-
-// Clipboard bridge header (ObjC++, included in main.mm wrapper)
-// Forward-declare if not using ObjC++:
-#if defined(__OBJC__) || defined(__OBJC2__)
-#include "clipboard_bridge.mm"
-#else
-namespace bs::client {
-class ClipboardBridge {
-public:
-    using ClipboardCallback = std::function<void(std::string, std::string)>;
-    explicit ClipboardBridge(ClipboardCallback) {}
-    bool poll() { return false; }
-    void write_to_clipboard(std::string_view) {}
-    void ack_hash(std::string_view) {}
-    void stop() {}
-};
-} // namespace bs::client
-#endif
+#include <cstdlib>
+#include <iostream>
 
 namespace {
 
-volatile sig_atomic_t g_running = 1;
-volatile sig_atomic_t g_winch = 0;
-
-void sig_handler(int sig) {
-    if (sig == SIGWINCH) g_winch = 1;
-    else g_running = 0;
+std::string resolve_home(const std::string& path) {
+    return bs::mesh::expand_home(path);
 }
 
-// ── Exponential backoff with jitter ──────────────────────────
-struct Backoff {
-    std::chrono::milliseconds current = 100ms;
-    std::chrono::milliseconds max = 5000ms;
-    std::minstd_rand rng{std::random_device{}()};
+// ── keygen: generate ed25519 keypair ──────────────────────────────
+int cmd_keygen(const std::string& app_home) {
+    std::string dir = app_home.empty() ? (resolve_home("~") + "/.bridgesessions") : app_home;
+    if (dir.empty()) { std::cerr << "config dir empty / HOME not set\n"; return 1; }
 
-    void wait() {
-        if (!g_running) return;
-        auto jitter = std::uniform_int_distribution<int>(
-            -(int)(current.count() / 4), (int)(current.count() / 4))(rng);
-        auto delay = std::chrono::milliseconds(current.count() + jitter);
-        if (delay < 50ms) delay = 50ms;
-        std::cerr << "reconnecting in " << (delay.count() / 1000.0) << "s..." << std::endl;
-        std::this_thread::sleep_for(delay);
-        current = std::min(current * 2, max);
+    if (!bs::mesh::ensure_private_directory(dir)) {
+        std::cerr << "cannot create private config directory: " << dir << "\n";
+        return 1;
     }
 
-    void reset() { current = 100ms; }
-};
+    auto [cert, key] = bs::mesh::generate_cert_key_pair("bridgesessions");
+    auto pubkey = bs::mesh::pubkey_hex_from_pem(key);
 
-// ── Signal character detection ────────────────────────────────
-bool is_signal_char(const char* data, ssize_t n, SignalMsg& out) {
-    if (n != 1) return false;
-    switch (data[0]) {
-        case 0x03: out.signal = SignalMsg::SignalType::CtrlC; return true;
-        case 0x1A: out.signal = SignalMsg::SignalType::CtrlZ; return true;
-        case 0x1C: out.signal = SignalMsg::SignalType::CtrlBackslash; return true;
+    std::string key_path  = dir + "/id_ed25519.pem";
+    std::string cert_path = dir + "/id_ed25519-cert.pem";
+    std::string pub_path  = dir + "/id_ed25519.pub";
+
+    if (!bs::mesh::write_private_text_file(key_path, key) ||
+        !bs::mesh::write_private_text_file(cert_path, cert) ||
+        !bs::mesh::write_private_text_file(pub_path, pubkey + "\n")) {
+        std::cerr << "cannot securely write generated identity\n";
+        return 1;
     }
-    return false;
+
+    std::cout << "Generated ed25519 keypair:\n"
+              << "  Private key: " << key_path << "\n"
+              << "  Certificate: " << cert_path << "\n"
+              << "  Public key:  " << pub_path << "\n"
+              << "  Pubkey hex:  " << pubkey << "\n";
+
+    return 0;
 }
 
-// ── TLS connect helper ────────────────────────────────────────
-struct TlsConnection {
-    SslCtxPtr ctx;
-    SslPtr ssl;
-    int sock_fd = -1;
-    bool ok = false;
-};
-
-TlsConnection tls_connect(const std::string& server_addr, uint16_t server_port,
-                          const std::string& cert_file, const std::string& key_file,
-                          bool quiet)
-{
-    TlsConnection c;
-    std::string port_str = std::to_string(server_port);
-    struct addrinfo hints{}; hints.ai_family = AF_INET; hints.ai_socktype = SOCK_STREAM;
-    struct addrinfo* ai = nullptr;
-    if (getaddrinfo(server_addr.c_str(), port_str.c_str(), &hints, &ai) != 0 || !ai) {
-        if (!quiet) std::cerr << "resolve " << server_addr << ": " << gai_strerror(errno) << std::endl;
-        return c;
+// Free-function wrappers for IPC (used by main dispatch)
+static std::string daemon_simple_ipc(const std::string& cmd, int wait_ms,
+                                     const std::string& app_home) {
+    std::string token = bs::mesh::load_ipc_token(app_home);
+    if (token.empty()) return "";
+    SOCKET sfd = socket(AF_INET, SOCK_STREAM, 0);
+    if (sfd == INVALID_SOCKET) return "";
+    sockaddr_in sa{};
+    sa.sin_family = AF_INET;
+    sa.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    sa.sin_port = htons(19980);
+    // set_socket_timeouts inline
+    int ms = wait_ms > 0 ? wait_ms : 5000;
+#ifdef _WIN32
+    DWORD to = ms;
+    setsockopt(sfd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&to, sizeof(to));
+#else
+    timeval tv{}; tv.tv_sec = ms / 1000; tv.tv_usec = (ms % 1000) * 1000;
+    setsockopt(sfd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+#endif
+    if (connect(sfd, (sockaddr*)&sa, sizeof(sa)) == SOCKET_ERROR) { CLOSESOCK(sfd); return ""; }
+    std::string full = token + " " + cmd + "\n";
+    send(sfd, full.data(), (int)full.size(), 0);
+    char buf[4096] = {}; int total = 0;
+    while (total < (int)sizeof(buf) - 1) {
+        int n = recv(sfd, buf + total, (int)sizeof(buf) - 1 - total, 0);
+        if (n > 0) { total += n; buf[total] = '\0'; if (strchr(buf, '\n')) break; }
+        else break;
     }
-    c.sock_fd = ::socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
-    if (c.sock_fd < 0) { freeaddrinfo(ai); return c; }
-    if (::connect(c.sock_fd, ai->ai_addr, ai->ai_addrlen) < 0) {
-        if (!quiet) std::cerr << "connect: " << strerror(errno) << std::endl;
-        close(c.sock_fd); c.sock_fd = -1; freeaddrinfo(ai); return c;
-    }
-    freeaddrinfo(ai);
-
-    ClientConfig cfg; cfg.cert_file = cert_file.c_str(); cfg.key_file = key_file.c_str();
-    cfg.known_servers_file = "/tmp/bs-known-servers.json";
-    try {
-        c.ctx = create_client_context(cfg, [](const std::string& fp) {
-            std::cerr << "TOFU: " << fp << " (auto-accepted)" << std::endl; return true;
-        });
-        c.ssl = SslPtr(SSL_new(c.ctx.get()));
-        SSL_set_fd(c.ssl.get(), c.sock_fd);
-        if (SSL_connect(c.ssl.get()) <= 0) {
-            if (!quiet) std::cerr << "SSL_connect failed" << std::endl;
-            close(c.sock_fd); c.sock_fd = -1; return c;
-        }
-    } catch (...) { close(c.sock_fd); c.sock_fd = -1; return c; }
-    c.ok = true;
-    return c;
+    CLOSESOCK(sfd);
+    std::string line(buf);
+    while (!line.empty() && (line.back() == '\r' || line.back() == '\n')) line.pop_back();
+    return line;
 }
 
-// ── Core relay loop (shared by stdin/stdout and bridge modes) ──
-// io_fd: read keystrokes from, write output to (same fd for bridge, STDIN/STDOUT for terminal)
-bool run_relay(TlsConnection& conn, int io_fd,
-               const std::string& attach_name, uint16_t cols, uint16_t rows,
-               const std::string& term_env, bool quiet, bool is_bridge)
-{
-    // Attach
-    AttachMsg at;
-    at.session_name = attach_name; at.cols = cols; at.rows = rows; at.term = term_env;
-    write_frame(conn.ssl.get(), at);
-    if (!quiet) std::cerr << "attached to '" << attach_name << "'" << std::endl;
+// ── authorize: register a hex-encoded ed25519 public key ──────────
+int cmd_authorize(const char* hex_pubkey, const std::string& app_home) {
+    if (!hex_pubkey || !*hex_pubkey) {
+        std::cerr << "usage: bridgesessions authorize <hex-pubkey>\n";
+        return 1;
+    }
 
-    // Clipboard bridge (skip in bridge mode — BridgeSpace handles clipboard)
-    std::string last_clipboard_hash;
-    ClipboardBridge clipboard([&](std::string text, std::string hash) {
-        if (is_bridge || hash == last_clipboard_hash) return;
-        ClipboardMsg c; c.text = std::move(text); c.hash = hash;
-        last_clipboard_hash = hash;
-        try { write_frame(conn.ssl.get(), c); } catch(...) {}
-    });
+    std::string normalized(hex_pubkey);
+    const auto decoded = bs::mesh::hex_decode(normalized);
+    if (normalized.size() != 64 || decoded.size() != 32) {
+        std::cerr << "invalid ed25519 public key: expected 64 hexadecimal characters\n";
+        return 1;
+    }
+    for (char& c : normalized) {
+        if (c >= 'A' && c <= 'F') c = static_cast<char>(c - 'A' + 'a');
+    }
 
-    signal(SIGWINCH, sig_handler);
-    signal(SIGPIPE, SIG_IGN);
+    std::string dir = app_home.empty() ? (resolve_home("~") + "/.bridgesessions") : app_home;
+    if (dir.empty()) { std::cerr << "config dir empty / HOME not set\n"; return 1; }
 
-    struct pollfd fds[2];
-    fds[0].fd = io_fd; fds[0].events = POLLIN;
-    fds[1].fd = conn.sock_fd; fds[1].events = POLLIN;
-    char buf[65536];
+    if (!bs::mesh::ensure_private_directory(dir)) {
+        std::cerr << "cannot create private config directory: " << dir << "\n";
+        return 1;
+    }
+    std::string path = dir + "/authorized_keys";
 
-    while (g_running) {
-        if (g_winch && !is_bridge) {
-            g_winch = 0;
-            auto ws = get_winsize();
-            if (ws && ws->first > 0 && ws->second > 0) {
-                ResizeMsg rs; rs.cols = ws->first; rs.rows = ws->second;
-                try { write_frame(conn.ssl.get(), rs); } catch(...) { break; }
+    // Check for duplicates
+    {
+        std::ifstream existing(path);
+        std::string line;
+        while (std::getline(existing, line)) {
+            if (line == normalized) {
+                std::cout << "Key already authorized: " << normalized << "\n";
+                return 0;
             }
         }
-
-        int ret = ::poll(fds, 2, 100);
-        if (ret < 0) { if (errno == EINTR) continue; break; }
-
-        if (!is_bridge) clipboard.poll();
-
-        // Local I/O (stdin or bridge socket)
-        if (fds[0].revents & POLLIN) {
-            ssize_t n = ::read(io_fd, buf, sizeof(buf));
-            if (n <= 0) break;
-            if (!is_bridge && n == 1 && buf[0] == 0x04) {
-                try { write_frame(conn.ssl.get(), DetachMsg{}); } catch(...) {}
-                return false;
-            }
-            // In bridge mode, pass control chars as keystrokes; BridgeSpace sends Signal frames separately
-            if (!is_bridge) {
-                SignalMsg sig;
-                if (is_signal_char(buf, n, sig)) {
-                    try { write_frame(conn.ssl.get(), sig); } catch(...) { break; }
-                    continue;
-                }
-            }
-            KeystrokeMsg ks; ks.data.assign(buf, n);
-            try { write_frame(conn.ssl.get(), ks); } catch(...) { break; }
-        }
-
-        // Server → local
-        if (fds[1].revents & (POLLIN | POLLHUP)) {
-            if (fds[1].revents & POLLHUP) { if (!quiet) std::cerr << "server disconnected" << std::endl; break; }
-            try {
-                auto msg = read_frame(conn.ssl.get());
-                if (auto* out = std::get_if<OutputMsg>(&msg)) {
-                    ::write(io_fd, out->data.data(), out->data.size());
-                } else if (std::get_if<ExitCodeMsg>(&msg)) {
-                    return false;
-                } else if (std::get_if<SessionDiedMsg>(&msg)) {
-                    return false;
-                } else if (std::get_if<PingMsg>(&msg)) {
-                    try { write_frame(conn.ssl.get(), PongMsg{}); } catch(...) { break; }
-                } else if (auto* sb = std::get_if<ScrollbackMsg>(&msg)) {
-                    ::write(io_fd, sb->data.data(), sb->data.size());
-                    write_frame(conn.ssl.get(), ScrollbackAckMsg{});
-                } else if (auto* cg = std::get_if<ClipboardMsg>(&msg)) {
-                    if (!is_bridge) { clipboard.write_to_clipboard(cg->text); last_clipboard_hash = cg->hash; }
-                } else if (auto* ce = std::get_if<ClipboardEchoMsg>(&msg)) {
-                    if (!is_bridge) last_clipboard_hash = ce->hash;
-                }
-            } catch (...) { break; }
-        }
     }
 
-    SSL_shutdown(conn.ssl.get());
-    close(conn.sock_fd);
-    return true;
+    if (!bs::mesh::append_private_text_file(path, normalized + "\n")) {
+        std::cerr << "cannot securely update " << path << "\n";
+        return 1;
+    }
+
+    std::cout << "Authorized key: " << normalized << "\n";
+    std::cout << "Written to: " << path << "\n";
+    return 0;
 }
 
-// ── connect_and_relay ─────────────────────────────────────────
-bool connect_and_relay(const std::string& server_addr, uint16_t server_port,
-                       const std::string& session_name, const std::string& command_override,
-                       const std::string& cert_file, const std::string& key_file,
-                       uint16_t cols, uint16_t rows, const std::string& term_env,
-                       bool quiet)
-{
-    std::string attach_name = session_name;
-    if (!command_override.empty()) attach_name += ":" + command_override;
-    auto conn = tls_connect(server_addr, server_port, cert_file, key_file, quiet);
-    if (!conn.ok) return true;
-    if (!quiet) std::cerr << "connected to " << server_addr << ":" << server_port
-                          << " (TLS handshake complete)" << std::endl;
-    return run_relay(conn, STDOUT_FILENO /* write to stdout, read from stdin */,
-                     attach_name, cols, rows, term_env, quiet, false);
-}
+int cmd_doctor(const std::string& config_path, const std::string& app_home) {
+    namespace fs = std::filesystem;
+    std::string dir = app_home.empty() ? resolve_home("~/.bridgesessions") : app_home;
+    int failures = 0;
+    auto pass = [](const std::string& label, const std::string& detail = "") {
+        std::cout << "[PASS] " << label;
+        if (!detail.empty()) std::cout << ": " << detail;
+        std::cout << "\n";
+    };
+    auto warn = [](const std::string& label, const std::string& detail = "") {
+        std::cout << "[WARN] " << label;
+        if (!detail.empty()) std::cout << ": " << detail;
+        std::cout << "\n";
+    };
+    auto fail = [&](const std::string& label, const std::string& detail = "") {
+        std::cout << "[FAIL] " << label;
+        if (!detail.empty()) std::cout << ": " << detail;
+        std::cout << "\n";
+        ++failures;
+    };
 
-// ── bridge_relay — Unix socket mode (Phase 11) ────────────────
-bool bridge_relay(const std::string& bridge_path,
-                  const std::string& server_addr, uint16_t server_port,
-                  const std::string& session_name, const std::string& command_override,
-                  const std::string& cert_file, const std::string& key_file,
-                  uint16_t cols, uint16_t rows, const std::string& term_env,
-                  bool quiet)
-{
-    std::string attach_name = session_name;
-    if (!command_override.empty()) attach_name += ":" + command_override;
+    std::cout << "bridgesessions doctor v" << bs::mesh::kBridgeSessionsVersion << "\n";
+    if (fs::exists(dir) && fs::is_directory(dir)) pass("dir config", dir);
+    else fail("dir config", dir);
 
-    // Connect to BridgeSpace via Unix socket
-    int bridge_fd = ::socket(AF_UNIX, SOCK_STREAM, 0);
-    if (bridge_fd < 0) {
-        if (!quiet) std::cerr << "bridge socket: " << strerror(errno) << std::endl;
-        return false;
-    }
-    struct sockaddr_un addr{};
-    addr.sun_family = AF_UNIX;
-    strncpy(addr.sun_path, bridge_path.c_str(), sizeof(addr.sun_path) - 1);
-    if (::connect(bridge_fd, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
-        if (!quiet) std::cerr << "bridge connect " << bridge_path << ": " << strerror(errno) << std::endl;
-        close(bridge_fd);
-        return false;
+    // Identity files live directly under ~/.bridgesessions. Older doctor builds
+    // incorrectly checked ~/.bridgesessions/keys and sent operators chasing a
+    // false cert failure while the daemon was using the correct files.
+    for (const auto& name : {"id_ed25519.pem", "id_ed25519-cert.pem", "id_ed25519.pub"}) {
+        fs::path p = fs::path(dir) / name;
+        if (fs::exists(p) && fs::is_regular_file(p)) pass(name, p.string());
+        else fail(name, p.string());
     }
 
-    auto conn = tls_connect(server_addr, server_port, cert_file, key_file, quiet);
-    if (!conn.ok) { close(bridge_fd); return true; }
-    if (!quiet) std::cerr << "bridged to " << server_addr << ":" << server_port
-                          << " via " << bridge_path << std::endl;
+    fs::path cfg(config_path);
+    if (fs::exists(cfg) && fs::is_regular_file(cfg)) pass("config", cfg.string());
+    else warn("config", cfg.string());
 
-    bool result = run_relay(conn, bridge_fd, attach_name, cols, rows, term_env, quiet, true);
-    close(bridge_fd);
-    return result;
+    for (const auto& name : {"logs", "state"}) {
+        fs::path p = fs::path(dir) / name;
+        if (fs::exists(p) && fs::is_directory(p)) pass(std::string("dir ") + name, p.string());
+        else warn(std::string("dir ") + name, p.string());
+    }
+
+#ifndef _WIN32
+    fs::path unit = fs::path(resolve_home("~/.config/systemd/user")) / "bridgesessions.service";
+    if (fs::exists(unit) && fs::is_regular_file(unit)) pass("systemd unit", unit.string());
+    else warn("systemd unit", unit.string());
+#endif
+
+    std::string ipc = daemon_simple_ipc("HEALTH __doctor_nonexistent__", 1500, app_home);
+    if (!ipc.empty()) pass("daemon IPC", "port 19980 answered");
+    else warn("daemon IPC", "port 19980 did not answer");
+
+    // ── Display self-check (2.0.8 P2) ──────────────────────────────────
+    {
+#ifdef _WIN32
+        HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
+        if (hOut != INVALID_HANDLE_VALUE && hOut != nullptr) {
+            CONSOLE_SCREEN_BUFFER_INFO csbi{};
+            if (GetConsoleScreenBufferInfo(hOut, &csbi)) {
+                std::ostringstream oss;
+                oss << csbi.dwSize.X << "x" << csbi.dwSize.Y
+                    << " (window " << (csbi.srWindow.Right - csbi.srWindow.Left + 1)
+                    << "x" << (csbi.srWindow.Bottom - csbi.srWindow.Top + 1) << ")";
+                pass("display size", oss.str());
+            } else {
+                warn("display size", "GetConsoleScreenBufferInfo failed");
+            }
+            // Glyph sample — print known characters to verify rendering
+            std::cout << "  display glyphs: CJK(日本語) emoji(🦀✓) box(┌─┐)\n";
+        } else {
+            warn("display size", "no console handle");
+        }
+#else
+        // POSIX: probe TIOCGWINSZ on stdout
+        struct winsize wsz{};
+        if (::ioctl(STDOUT_FILENO, TIOCGWINSZ, &wsz) == 0 && wsz.ws_col > 0) {
+            std::ostringstream oss;
+            oss << wsz.ws_col << "x" << wsz.ws_row;
+            pass("display size", oss.str());
+        } else {
+            // Try stderr as fallback
+            if (::ioctl(STDERR_FILENO, TIOCGWINSZ, &wsz) == 0 && wsz.ws_col > 0) {
+                std::ostringstream oss;
+                oss << wsz.ws_col << "x" << wsz.ws_row << " (stderr)";
+                pass("display size", oss.str());
+            } else {
+                warn("display size", "no TTY — no terminal size available");
+            }
+        }
+        // Glyph sample
+        std::cout << "  display glyphs: CJK(日本語) emoji(🦀✓) box(┌─┐)\n";
+#endif
+    }
+
+    return failures == 0 ? 0 : 1;
 }
 
 } // anonymous namespace
 
-// ── main ─────────────────────────────────────────────────────
 int main(int argc, char** argv) {
-    CLI::App app{"bs-client — bridgesessions terminal relay agent"};
-    app.set_version_flag("--version,-V", "0.5.0");
+#ifdef _WIN32
+    WSADATA wsa;
+    WSAStartup(MAKEWORD(2,2), &wsa);
+#endif
 
-    std::string server_addr = "127.0.0.1";
-    uint16_t server_port = 9943;
-    std::string session_name = "default";
-    std::string command_override;
-    std::string cert_file, key_file;
-    std::string term_env;
-    std::string bridge_path;  // Phase 11: Unix socket path for BridgeSpace
-    bool quiet = false;
+    CLI::App app{"bridgesessions — mesh terminal relay"};
+    app.set_version_flag("--version,-V", std::string(bs::mesh::kBridgeSessionsVersion));
 
-    app.add_option("-s,--server", server_addr, "Server host:port")->default_val("127.0.0.1:9943");
-    app.add_option("-n,--name", session_name, "Session name")->default_val("default");
-    app.add_option("-x,--cmd", command_override, "Command override (name:cmd shorthand still works)");
-    app.add_option("-c,--cert", cert_file, "TLS certificate file (PEM)");
-    app.add_option("-k,--key", key_file, "TLS private key file (PEM)");
-    app.add_option("-t,--term", term_env, "TERM environment override");
-    app.add_flag("-q,--quiet", quiet, "Suppress status messages");
-    app.add_option("-b,--bridge", bridge_path, "BridgeSpace Unix socket path (enables bridge mode)");
+    // Global options
+    std::string config_path = "";
+    std::string config_dir = "";
+    bool daemon_flag = false;
+    app.add_option("--config", config_path, "Config file path (default: ~/.bridgesessions/config)");
+    app.add_option("--config-dir", config_dir, "Config directory (default: ~/.bridgesessions)");
+    app.add_flag("--daemon", daemon_flag, "Detach from terminal (daemonize)");
 
-    // Parse server:port from the --server option
-    app.callback([&]() {
-        auto colon = server_addr.find(':');
-        if (colon != std::string::npos) {
-            server_port = (uint16_t)std::stoul(server_addr.substr(colon+1));
-            server_addr = server_addr.substr(0, colon);
-        }
-    });
+    // Fast path: `bs dev hermes` (the `bs` executable is a symlink to this binary).
+    // Unknown peer names are resolved through `ssh -G` for address discovery only;
+    // terminal data still travels exclusively over the BridgeSessions protocol.
+    std::string quick_peer, quick_session = "shell";
+    app.add_option("peer", quick_peer, "Peer name or SSH Host alias");
+    app.add_option("session", quick_session, "Persistent server session name (default: shell)");
+
+    // Subcommand: shell
+    std::string shell_peer, shell_session = "default", shell_cmd;
+    uint16_t shell_cols = 80, shell_rows = 24;
+    bool shell_detach = false, shell_wait = false;
+    bool shell_record = false, shell_signal_forward = true;
+    std::string shell_signal_on_detach;
+    auto* shell_cmd_app = app.add_subcommand("shell", "Open shell on a peer");
+    shell_cmd_app->add_option("peer", shell_peer, "Peer name")->required();
+    shell_cmd_app->add_option("-n,--name", shell_session, "Session name");
+    shell_cmd_app->add_option("-x,--cmd", shell_cmd, "Command override");
+    auto* shell_cols_opt = shell_cmd_app->add_option("--cols", shell_cols, "Terminal columns");
+    auto* shell_rows_opt = shell_cmd_app->add_option("--rows", shell_rows, "Terminal rows");
+    shell_cmd_app->add_flag("-r,--record", shell_record, "Record session output to file");
+    shell_cmd_app->add_flag("--signal-forward{true}", shell_signal_forward, "Forward Ctrl-C to remote child (default: on)")->default_str("true");
+    shell_cmd_app->add_option("--signal-on-detach", shell_signal_on_detach, "Send HUP/TERM/INT/QUIT/KILL to the child when the last peer detaches (default: none)")->check(CLI::IsMember({"HUP","TERM","INT","QUIT","KILL"}));
+    shell_cmd_app->add_flag("--detach", shell_detach, "Send command and return immediately (session runs on peer)");
+    shell_cmd_app->add_flag("--wait", shell_wait, "Block until the named session exits, then return its exit code");
+
+    // Subcommand: sessions
+    std::string sessions_peer;
+    bool sessions_all = false;
+    bool sessions_json = false;
+    auto* sessions_cmd_app = app.add_subcommand("sessions", "List sessions");
+    sessions_cmd_app->add_option("peer", sessions_peer, "Peer name (omit for local)");
+    sessions_cmd_app->add_flag("--all", sessions_all, "All peers");
+    sessions_cmd_app->add_flag("--json", sessions_json, "Output as JSON");
 
     // Subcommand: keygen
-    int keygen_result = 0;
-    auto* kg_cmd = app.add_subcommand("keygen", "Generate ed25519 keypair");
-    kg_cmd->callback([&]() { keygen_result = cmd_keygen(); });
+    auto* keygen_cmd_app = app.add_subcommand("keygen", "Generate ed25519 keypair");
 
-    try {
-        app.parse(argc, argv);
-    } catch (const CLI::ParseError& e) {
-        return app.exit(e);
+    // Subcommand: authorize
+    std::string auth_pubkey;
+    auto* auth_cmd_app = app.add_subcommand("authorize", "Authorize a peer public key");
+    auth_cmd_app->add_option("pubkey", auth_pubkey, "Hex pubkey")->required();
+
+    // Subcommand: doctor
+    auto* doctor_cmd_app = app.add_subcommand("doctor", "Check local bridgesessions configuration");
+
+    // Subcommand: peers
+    auto* peers_cmd = app.add_subcommand("peers", "Manage peers");
+    peers_cmd->require_subcommand(1);
+
+    auto* peers_list = peers_cmd->add_subcommand("list", "List peers");
+    std::string peer_add_name, peer_add_addr;
+    auto* peers_add = peers_cmd->add_subcommand("add", "Add a seed peer");
+    peers_add->add_option("name", peer_add_name)->required();
+    peers_add->add_option("addr", peer_add_addr)->required();
+    std::string peer_remove_name;
+    auto* peers_remove = peers_cmd->add_subcommand("remove", "Remove a peer");
+    peers_remove->add_option("name", peer_remove_name)->required();
+    // health
+    std::string health_peer;
+    auto* health_cmd_app = app.add_subcommand("health", "Ping/pong health check against a peer");
+    health_cmd_app->add_option("peer", health_peer, "Peer name")->required();
+    // reconnect
+    std::string reconnect_peer;
+    auto* reconnect_cmd_app = app.add_subcommand("reconnect", "Tear down and re-handshake one peer via the running daemon");
+    reconnect_cmd_app->add_option("peer", reconnect_peer, "Peer name")->required();
+    // invite
+    auto* invite_cmd_app = app.add_subcommand("invite", "Generate an invite token for new nodes");
+    // join
+    std::string join_addr;
+    std::string join_token;
+    bool join_start = false;
+    std::string join_node_name;
+    auto* join_cmd_app = app.add_subcommand("join", "Join a mesh via invite token");
+    join_cmd_app->add_option("addr", join_addr, "Host:port")->required();
+    join_cmd_app->add_option("token", join_token, "Invite token")->required();
+    join_cmd_app->add_flag("--start", join_start, "Start daemon after joining");
+    join_cmd_app->add_option("--node-name", join_node_name, "Node name (default: assigned by host)");
+    // image
+    std::string image_file;
+    auto* image_cmd_app = app.add_subcommand("image", "Preview an image in the terminal");
+    image_cmd_app->add_option("file", image_file, "Image file path")->required();
+    // anim
+    std::string anim_file;
+    auto* anim_cmd_app = app.add_subcommand("anim", "Preview an animated GIF in the terminal");
+    anim_cmd_app->add_option("file", anim_file, "GIF file path")->required();
+    // stats
+    auto* stats_cmd_app = app.add_subcommand("stats", "Show connection and session statistics");
+
+    // file
+    auto* file_cmd = app.add_subcommand("file", "File transfer operations");
+    file_cmd->require_subcommand(1);
+    std::string file_send_peer, file_send_path;
+    bool file_send_wait = false;
+    auto* file_send_app = file_cmd->add_subcommand("send", "Send file to a peer's receive directory");
+    file_send_app->add_option("peer", file_send_peer, "Peer name")->required();
+    file_send_app->add_option("local", file_send_path, "Local file path")->required();
+    file_send_app->add_flag("--wait", file_send_wait, "Block until the peer acknowledges transfer completion");
+    std::string file_recv_peer, file_recv_remote, file_recv_local, file_recv_to;
+    bool file_recv_wait = false;
+    auto* file_recv_app = file_cmd->add_subcommand("recv", "Receive file from a peer (run on target node)");
+    file_recv_app->add_option("peer", file_recv_peer, "Peer name")->required();
+    file_recv_app->add_option("remote", file_recv_remote, "Remote file path")->required();
+    file_recv_app->add_option("local", file_recv_local, "Local directory (default: .)");
+    file_recv_app->add_option("--to", file_recv_to, "Local destination path or directory");
+    file_recv_app->add_flag("--wait", file_recv_wait, "Block until the transfer completes or fails");
+
+    // vfolder
+    auto* vfolder_cmd = app.add_subcommand("vfolder", "Manage virtual folder sync");
+    vfolder_cmd->require_subcommand(1);
+    std::string vfolder_name, vfolder_local, vfolder_peer, vfolder_remote, vfolder_dir;
+    int vfolder_interval = 30;
+    auto* vfolder_add = vfolder_cmd->add_subcommand("add", "Add a virtual folder mapping");
+    vfolder_add->add_option("name", vfolder_name, "Mapping name")->required();
+    vfolder_add->add_option("local", vfolder_local, "Local path")->required();
+    vfolder_add->add_option("peer", vfolder_peer, "Remote peer")->required();
+    vfolder_add->add_option("remote", vfolder_remote, "Remote path")->required();
+    vfolder_add->add_option("--interval", vfolder_interval, "Sync interval (seconds)");
+    vfolder_add->add_option("--dir", vfolder_dir, "Sync direction (push/pull/bidirectional)");
+    auto* vfolder_sync = vfolder_cmd->add_subcommand("sync", "Sync a specific folder now");
+    vfolder_sync->add_option("name", vfolder_name, "Mapping name")->required();
+    auto* vfolder_list = vfolder_cmd->add_subcommand("list", "List active folder mappings");
+
+    // edit
+    std::string edit_target;
+    auto* edit_cmd_app = app.add_subcommand("edit", "Edit a file on a remote peer");
+    edit_cmd_app->add_option("target", edit_target, "Peer:path (e.g. dev:/etc/nginx.conf)")->required();
+
+    // pane (BridgePanel publish from the mesh CLI)
+    std::string pane_session = "default", pane_type = "documents", pane_title, pane_file;
+    auto* pane_cmd_app = app.add_subcommand("pane", "Publish a file to the BridgePanel surface");
+    pane_cmd_app->require_subcommand(1);
+    auto* pane_publish = pane_cmd_app->add_subcommand("publish", "Copy a local file into a BridgePanel session");
+    pane_publish->add_option("--session", pane_session, "Session name (default: default)");
+    pane_publish->add_option("--type", pane_type, "documents | comms");
+    pane_publish->add_option("--title", pane_title, "Display title / filename override");
+    pane_publish->add_option("file", pane_file, "Local markdown file to publish")->required();
+
+    CLI11_PARSE(app, argc, argv);
+
+    // Resolve config path
+    std::string home_dir;
+    if (!config_dir.empty()) { home_dir = config_dir; }
+    else if (!config_path.empty()) {
+        // Derive config dir from explicit --config path
+        // (needed on Windows when daemon runs as SYSTEM via schtasks —
+        //  USERPROFILE is the SYSTEM profile, not the user's home).
+        home_dir = config_path;
+        auto slash = home_dir.rfind('/');
+        if (slash == std::string::npos) slash = home_dir.rfind('\\');
+        if (slash != std::string::npos) home_dir = home_dir.substr(0, slash);
+    }
+    else { home_dir = resolve_home("~/.bridgesessions"); }
+    if (config_path.empty()) { config_path = home_dir + "/config"; }
+    // Ensure isolated app root exists for --config-dir runs
+    {
+        namespace fs = std::filesystem;
+        std::error_code ec;
+        fs::create_directories(home_dir, ec);
+        auto paths = bs::mesh::make_app_paths(home_dir);
+        fs::create_directories(paths.received, ec);
+        fs::create_directories(paths.logs, ec);
+        fs::create_directories(paths.state, ec);
     }
 
-    if (app.got_subcommand(kg_cmd)) return keygen_result;
-
-    // Auto-generate cert if not provided
-    if (cert_file.empty() || key_file.empty()) {
-        auto [c,k] = generate_cert_key_pair("bs-client");
-        cert_file = c; key_file = k;
+    // Dispatch
+    if (!quick_peer.empty()) {
+        bs::mesh::MeshConfig cfg = bs::mesh::load_config(config_path);
+        if (!bs::mesh::import_ssh_alias_peer(cfg, quick_peer)) {
+            std::cerr << quick_peer
+                      << " is not a configured BridgeSessions peer or valid SSH alias\n";
+            return 2;
+        }
+        if (bs::mesh::trusted_peer_pubkey(cfg, quick_peer).empty()) {
+            std::cerr << "Refusing untrusted first contact to " << quick_peer
+                      << ": pair it once with a pinned BridgeSessions pubkey\n";
+            return 2;
+        }
+        bs::mesh::bootstrap_identity(home_dir);
+        auto [cols, rows] = bs::mesh::get_winsize();
+        bs::mesh::MeshController mc(cfg, home_dir);
+        return mc.shell_peer(quick_peer, quick_session, {}, cols, rows,
+                             "xterm-256color");
     }
+    if (shell_cmd_app->parsed()) {
+        bs::mesh::MeshConfig cfg = bs::mesh::load_config(config_path);
+        bs::mesh::bootstrap_identity(home_dir);
+        bs::mesh::MeshController mc(cfg, home_dir);
 
-    // Terminal raw mode (skip in bridge mode)
-    struct termios saved_term{};
-    if (bridge_path.empty()) {
-        auto saved = enable_raw_mode();
-        if (!saved) { std::cerr << "raw mode: " << saved.error().message << std::endl; return 1; }
-        saved_term = *saved;
+        // --detach: fire-and-forget (works with -x too)
+        if (shell_detach) {
+            return mc.shell_peer_detach(shell_peer, shell_session, shell_cmd,
+                                        shell_cols, shell_rows, "xterm-256color");
+        }
+
+        // Commands launched from a real terminal keep full PTY input/output. Piped or
+        // automated commands use daemon IPC and capture a finite result.
+        if (!shell_cmd.empty() && !bs::mesh::stdin_is_terminal()) {
+            std::string output;
+            int ec = mc.daemon_shell_via_ipc(shell_peer, shell_session, shell_cmd, &output);
+            if (ec == -1) {
+                // Shell execution intentionally uses an isolated direct TLS
+                // connection; older/unavailable daemons take the same path.
+                std::cerr << "Using direct TLS shell transport.\n";
+                return mc.shell_peer(shell_peer, shell_session, shell_cmd,
+                                     shell_cols, shell_rows, "xterm-256color");
+            }
+            if (ec < 0) {
+                // timeout (-2) or other error — report, don't double-exec
+                std::cerr << "Shell IPC error (code " << ec << ").\n";
+                return 1;
+            }
+            if (!output.empty()) std::cout << output;
+            return ec;
+        }
+        // Interactive shell: direct TLS (needs full terminal passthrough).
+        // `--detach`: send attach and return immediately (session runs on peer).
+        // `--wait`: block on daemon IPC until session completes, return exit code.
+        auto [detected_cols, detected_rows] = bs::mesh::get_winsize();
+        if (shell_cols_opt->count() == 0) shell_cols = detected_cols;
+        if (shell_rows_opt->count() == 0) shell_rows = detected_rows;
+        if (shell_detach) {
+            return mc.shell_peer_detach(shell_peer, shell_session, shell_cmd,
+                                        shell_cols, shell_rows, "xterm-256color");
+        }
+        if (shell_wait) {
+            std::string output;
+            int ec = mc.daemon_shell_via_ipc(shell_peer, shell_session, shell_cmd, &output);
+            if (ec >= 0) { std::cout << output; return ec; }
+            // Fallthrough: session not local, do direct wait
+            return mc.shell_peer(shell_peer, shell_session, shell_cmd,
+                                 shell_cols, shell_rows, "xterm-256color",
+                                 shell_signal_forward, shell_signal_on_detach);
+        }
+        return mc.shell_peer(shell_peer, shell_session, shell_cmd, shell_cols, shell_rows, "xterm-256color", shell_signal_forward, shell_signal_on_detach);
     }
-
-    uint16_t cols = 80, rows = 24;
-    if (!bridge_path.empty()) {
-        cols = 120; rows = 40;  // Bridge mode: fixed default
-    } else {
-        auto ws = get_winsize();
-        if (ws && ws->first > 0) { cols = ws->first; rows = ws->second; }
+    if (sessions_cmd_app->parsed()) {
+        if (sessions_peer.empty()) {
+            std::string ipc = daemon_simple_ipc("SESSIONS", 3000, home_dir);
+            if (!ipc.empty() && ipc.rfind("ERROR", 0) != 0) {
+                if (sessions_json) {
+                    // Convert pipe-separated SESSIONS output to JSON
+                    std::cout << sess_text_to_json(ipc) << "\n";
+                } else {
+                    std::cout << ipc << "\n";
+                }
+                return 0;
+            }
+        }
+        bs::mesh::MeshConfig cfg = bs::mesh::load_config(config_path);
+        bs::mesh::MeshController mc(cfg, home_dir);
+        mc.list_sessions(sessions_peer, sessions_all);
+        return 0;
     }
-    const char* term = term_env.empty() ? getenv("TERM") : term_env.c_str();
-    std::string term_str = (term && *term) ? term : "xterm-256color";
-
-    signal(SIGINT, sig_handler);
-    signal(SIGTERM, sig_handler);
-
-    // Phase 11: Bridge mode — single-shot, no backoff
-    if (!bridge_path.empty()) {
-        bridge_relay(bridge_path, server_addr, server_port, session_name,
-                     command_override, cert_file, key_file, cols, rows, term_str, quiet);
+    if (keygen_cmd_app->parsed()) {
+        return cmd_keygen(home_dir);
+    }
+    if (auth_cmd_app->parsed()) {
+        return cmd_authorize(auth_pubkey.c_str(), home_dir);
+    }
+    if (doctor_cmd_app->parsed()) {
+        return cmd_doctor(config_path, home_dir);
+    }
+    if (peers_list->parsed()) {
+        bs::mesh::MeshConfig cfg = bs::mesh::load_config(config_path);
+        // Show known peers from config
+        std::cout << "=== Known peers ===\n";
+        for (auto& p : cfg.seeds) std::cout << "  [seed] " << p.name << " " << p.addr << std::endl;
+        for (auto& p : cfg.discovered) std::cout << "  [discovered] " << p.name << " " << p.addr << std::endl;
+        // Show live connection status if daemon is running
+        bs::mesh::MeshController mc(cfg, home_dir);
+        mc.show_peers_detail();
+        return 0;
+    }
+    if (peers_add->parsed()) {
+        bs::mesh::MeshConfig cfg = bs::mesh::load_config(config_path);
+        cfg.seeds.push_back({peer_add_name, peer_add_addr});
+        (void)bs::mesh::save_config(config_path, cfg);
+        std::cout << "added seed " << peer_add_name << " -> " << peer_add_addr << std::endl;
+        return 0;
+    }
+    if (peers_remove->parsed()) {
+        bs::mesh::MeshConfig cfg = bs::mesh::load_config(config_path);
+        cfg.seeds.erase(std::remove_if(cfg.seeds.begin(), cfg.seeds.end(),
+            [&](auto& p){ return p.name == peer_remove_name; }), cfg.seeds.end());
+        (void)bs::mesh::save_config(config_path, cfg);
+        std::cout << "removed seed " << peer_remove_name << std::endl;
         return 0;
     }
 
-    Backoff backoff;
-    auto deadline = std::chrono::steady_clock::now() + 30s;
-
-    while (g_running && std::chrono::steady_clock::now() < deadline) {
-        bool reconnect = connect_and_relay(
-            server_addr, server_port, session_name, command_override,
-            cert_file, key_file, cols, rows, term_str, quiet);
-        if (!reconnect || !g_running) break;
-        backoff.wait();
+    if (health_cmd_app->parsed()) {
+        bs::mesh::MeshConfig cfg = bs::mesh::load_config(config_path);
+        bs::mesh::bootstrap_identity(home_dir);
+        bs::mesh::MeshController mc(cfg, home_dir);
+        std::string status;
+        bool ok = mc.health_check(health_peer, &status);
+        std::cout << health_peer << " " << status << std::endl;
+        return ok ? 0 : 1;
     }
-
-    restore_terminal(saved_term);
-    if (g_running && !quiet) {
-        std::cerr << "session '" << session_name
-                  << "' survived — reattach with: bs-client --server="
-                  << server_addr << ":" << server_port
-                  << " --name=" << session_name << std::endl;
+    if (reconnect_cmd_app->parsed()) {
+        std::string result = daemon_simple_ipc("RECONNECT " + reconnect_peer, 25000, home_dir);
+        if (result.empty()) {
+            std::cerr << "ERROR no daemon running\n";
+            return 1;
+        }
+        std::cout << result << "\n";
+        return result.rfind("ERROR", 0) == 0 ? 1 : 0;
     }
+    if (invite_cmd_app->parsed()) {
+        std::string token = daemon_simple_ipc("INVITE", 2000, home_dir);
+        if (token.empty()) { std::cerr << "INVITE failed (daemon not running?)\n"; return 1; }
+        while (!token.empty() && (token.back() == '\n' || token.back() == '\r')) token.pop_back();
+        bs::mesh::MeshConfig cfg = bs::mesh::load_config(config_path);
+        std::string addr = cfg.listen_addr;
+        if (addr.empty() || addr == "0.0.0.0") {
+            // Detect reachable address: prefer Tailscale, then best non-loopback
+            FILE* ts = popen("tailscale ip -4 2>/dev/null", "r");
+            if (ts) {
+                char buf[64] = {};
+                if (fgets(buf, sizeof(buf), ts)) {
+                    std::string ts_ip(buf);
+                    while (!ts_ip.empty() && (ts_ip.back() == '\n' || ts_ip.back() == '\r')) ts_ip.pop_back();
+                    if (!ts_ip.empty()) addr = ts_ip;
+                }
+                pclose(ts);
+            }
+            if (addr.empty() || addr == "0.0.0.0") addr = "127.0.0.1";
+        }
+        int port = cfg.listen_port > 0 ? cfg.listen_port : 19949;
+        std::cout << "Invite (valid 2h):  " << token << "\n";
+        std::cout << "One-liner:\n";
+        std::cout << "  bridgesessions join " << addr << ":" << port << " " << token << "\n";
+        std::cout << "Or with curl install:\n";
+        std::cout << "  curl -fsSL https://codeberg.org/Mind-Dragon/BridgeSessions/raw/tag/" << bs::mesh::kBridgeSessionsVersion << "/scripts/install.sh | bash -s -- join " << addr << ":" << port << " " << token << "\n";
+        std::cout << "Windows PowerShell:\n";
+        std::cout << "  irm https://codeberg.org/Mind-Dragon/BridgeSessions/raw/tag/" << bs::mesh::kBridgeSessionsVersion << "/scripts/install.ps1 | iex\n  bridgesessions join " << addr << ":" << port << " " << token << "\n";
+        return 0;
+    }
+    if (join_cmd_app->parsed()) {
+        bs::mesh::MeshConfig cfg = bs::mesh::load_config(config_path);
+        std::string pubkey_hex;
+        {
+            bs::mesh::bootstrap_identity(home_dir);
+            std::string pub_path = home_dir + "/id_ed25519.pub";
+            std::ifstream pf(pub_path);
+            if (pf.is_open()) { std::getline(pf, pubkey_hex);
+                while (!pubkey_hex.empty() && (pubkey_hex.back() == '\n' || pubkey_hex.back() == '\r'))
+                    pubkey_hex.pop_back(); }
+        }
+        if (pubkey_hex.empty()) { std::cerr << "No identity found — run keygen first\n"; return 1; }
+        std::cout << "Identity: " << pubkey_hex.substr(0, 16) << "...\n";
+
+        // Parse addr:port
+        auto sep = join_addr.rfind(':');
+        std::string host = join_addr.substr(0, sep);
+        int port = 19949;
+        if (sep != std::string::npos) port = std::stoi(join_addr.substr(sep + 1));
+
+        // Create MeshController for TLS connect (trust established via invite token)
+        bs::mesh::MeshController mc(cfg, home_dir);
+        auto conn = mc.connect_and_hello(join_addr, {}, true);
+        if (!conn.ssl) {
+            std::cerr << "Cannot connect to " << join_addr << ": "
+                      << bs::mesh::MeshController::connect_fail_string(conn.fail) << "\n";
+            return 1;
+        }
+
+        // Send JoinRequest
+        bs::mesh::JoinRequestMsg jr;
+        jr.token = join_token;
+        write_frame(conn.ssl.get(), jr, bs::mesh::CONTROL_STREAM_ID);
+
+        // Read JoinReply
+        bs::mesh::Message msg = bs::mesh::read_frame(conn.ssl.get());
+        if (!std::holds_alternative<bs::mesh::JoinReplyMsg>(msg)) {
+            std::cerr << "Unexpected reply from host\n";
+            return 1;
+        }
+        auto& jrep = std::get<bs::mesh::JoinReplyMsg>(msg);
+        if (!jrep.ok) {
+            std::cerr << "Join rejected: " << jrep.error << "\n";
+            return 1;
+        }
+
+        // Bind TLS cert to host identity pubkey (P1-1: prevent
+        // MITM injecting a wrong seed pin during join handshake).
+        {
+            const std::string cert_pk = bs::mesh::peer_public_key_hex(conn.ssl.get());
+            if (cert_pk.empty() || cert_pk != jrep.host_pubkey) {
+                std::cerr << "Host identity mismatch: certificate key does not match "
+                          << "JoinReply host_pubkey\n";
+                return 1;
+            }
+        }
+
+        // Configure: update node name and add host as seed
+        cfg.node_name = join_node_name.empty() ? jrep.node_name : join_node_name;
+        cfg.listen_addr = "0.0.0.0";
+        cfg.listen_port = 19949;
+        cfg.require_seed_pins = true;
+        bs::mesh::PeerEntry host_seed;
+        host_seed.name = "host";
+        host_seed.addr = jrep.host_addr;
+        host_seed.pubkey_hex = jrep.host_pubkey;
+        cfg.seeds.push_back(std::move(host_seed));
+        save_config(config_path, cfg);
+
+        // Authorize host
+        std::string auth_path = bs::mesh::resolve_under_app_home(cfg.authorized_keys_path, home_dir);
+        {
+            std::string dir = auth_path;
+            auto slash = dir.rfind('/');
+            if (slash == std::string::npos) slash = dir.rfind('\\');
+            if (slash != std::string::npos) dir = dir.substr(0, slash);
+            bs::mesh::ensure_private_directory(dir);
+            std::ofstream af(auth_path, std::ios::app);
+            if (af.is_open()) af << "pubkey " << jrep.host_pubkey << "\n";
+        }
+        std::cout << "Joined. Node: " << cfg.node_name << "  Config: " << config_path << "\n";
+        if (join_start) {
+            // Start daemon in background
+            std::cout << "→ Starting daemon...\n";
+#ifdef _WIN32
+            std::string cmd = "start /B bridgesessions --daemon";
+#else
+            std::string cmd = "nohup bridgesessions --daemon > /dev/null 2>&1 &";
+#endif
+            std::system(cmd.c_str());
+            std::cout << "→ Daemon started. Run 'bridgesessions health <peer>' to verify.\n";
+        } else {
+            std::cout << "Start daemon: bridgesessions --daemon\n";
+        }
+        return 0;
+    }
+    if (image_cmd_app->parsed()) {
+        bs::mesh::render_image_to_terminal(image_file);
+        return 0;
+    }
+    if (anim_cmd_app->parsed()) {
+        bs::mesh::render_image_to_terminal(anim_file);
+        return 0;
+    }
+    if (stats_cmd_app->parsed()) {
+        bs::mesh::MeshConfig cfg = bs::mesh::load_config(config_path);
+        bs::mesh::MeshController mc(cfg, home_dir);
+        std::string ipc = daemon_simple_ipc("STATS", 3000, home_dir);
+        if (!ipc.empty() && ipc.rfind("ERROR", 0) != 0) {
+            std::cout << ipc << "\n";
+            return 0;
+        }
+        mc.show_stats();
+        return 0;
+    }
+    if (file_send_app->parsed()) {
+        bs::mesh::MeshConfig cfg = bs::mesh::load_config(config_path);
+        bs::mesh::bootstrap_identity(home_dir);
+        bs::mesh::MeshController mc(cfg, home_dir);
+        std::string result = mc.file_send(file_send_peer, file_send_path, file_send_wait);
+        std::cout << result << "\n";
+        return result.rfind("ERROR", 0) == 0 ? 1 : 0;
+    }
+    if (file_recv_app->parsed()) {
+        bs::mesh::MeshConfig cfg = bs::mesh::load_config(config_path);
+        bs::mesh::bootstrap_identity(home_dir);
+        bs::mesh::MeshController mc(cfg, home_dir);
+        std::string dest = !file_recv_to.empty() ? file_recv_to : file_recv_local;
+        std::string result = mc.file_recv(file_recv_peer, file_recv_remote, dest, file_recv_wait);
+        std::cout << result << "\n";
+        return result.rfind("ERROR", 0) == 0 ? 1 : 0;
+    }
+    if (edit_cmd_app->parsed()) {
+        bs::mesh::MeshConfig cfg = bs::mesh::load_config(config_path);
+        bs::mesh::bootstrap_identity(home_dir);
+        bs::mesh::MeshController mc(cfg, home_dir);
+        mc.edit_peer(edit_target);
+        return 0;
+    }
+    if (pane_publish->parsed()) {
+        // type whitelist
+        if (pane_type != "comms" && pane_type != "documents") {
+            std::cerr << "ERROR --type must be comms or documents\n";
+            return 2;
+        }
+        // session / title are used as directory + file names -> restrict to a safe charset
+        auto safe_name = [](const std::string& s) {
+            return std::all_of(s.begin(), s.end(), [](unsigned char c) {
+                return std::isalnum(c) || c == ' ' || c == '.' || c == '_' || c == '-';
+            });
+        };
+        if (!safe_name(pane_session) || !safe_name(pane_title)) {
+            std::cerr << "ERROR invalid --session or --title (use alnum, space, . _ -)\n";
+            return 2;
+        }
+        // locate the bridgepanel helper on PATH (installed to ~/.local/bin)
+        std::string bin = "bridgepanel";
+        FILE* which = popen("command -v bridgepanel 2>/dev/null", "r");
+        if (which) {
+            char buf[512];
+            std::string found;
+            while (std::fgets(buf, sizeof(buf), which)) found += buf;
+            pclose(which);
+            auto nl = found.find('\n');
+            if (nl != std::string::npos) found = found.substr(0, nl);
+            if (!found.empty()) bin = found;
+        }
+        // single-quote escape for safe shell passing of the file path
+        auto sq = [](const std::string& s) {
+            std::string o = "'";
+            for (char c : s) {
+                if (c == '\'') o += "'\\''";
+                else o += c;
+            }
+            return o + "'";
+        };
+        std::string cmd = bin + " publish --session " + sq(pane_session)
+                          + " --type " + sq(pane_type)
+                          + (pane_title.empty() ? std::string() : " --title " + sq(pane_title))
+                          + " " + sq(pane_file);
+        int rc = std::system(cmd.c_str());
+        if (rc != 0) {
+            std::cerr << "ERROR bridgepanel publish failed (rc=" << rc << ")\n";
+            return 1;
+        }
+        return 0;
+    }
+    if (vfolder_sync->parsed()) {
+        bs::mesh::bootstrap_identity(home_dir);
+        std::string ipc = daemon_simple_ipc("VFOLDER_SYNC " + vfolder_name, 300000, home_dir);
+        if (ipc.empty()) { std::cerr << "no daemon running\n"; return 1; }
+        std::cout << ipc << "\n";
+        return ipc.rfind("ERROR", 0) == 0 ? 1 : 0;
+    }
+    if (vfolder_list->parsed()) {
+        bs::mesh::MeshConfig cfg = bs::mesh::load_config(config_path);
+        std::cout << "=== Virtual folders ===\n";
+        for (auto& v : cfg.vfolders) {
+            std::cout << v.name << ": " << v.local_path << " <-> " << v.remote_peer << ":" << v.remote_path
+                      << " (" << v.direction << ", every " << v.sync_interval_secs << "s)\n";
+        }
+        return 0;
+    }
+    if (vfolder_add->parsed()) {
+        bs::mesh::MeshConfig cfg = bs::mesh::load_config(config_path);
+        bs::mesh::MeshConfig::VFolderEntry ve;
+        ve.name = vfolder_name; ve.local_path = vfolder_local;
+        ve.remote_peer = vfolder_peer; ve.remote_path = vfolder_remote;
+        ve.sync_interval_secs = vfolder_interval;
+        if (!vfolder_dir.empty()) ve.direction = vfolder_dir;
+        cfg.vfolders.push_back(ve);
+        if (!bs::mesh::save_config(config_path, cfg)) {
+            std::cerr << "failed to write config: " << config_path << "\n";
+            return 1;
+        }
+        std::cout << "added vfolder " << vfolder_name << "\n";
+        return 0;
+    }
+    // Default: daemon mode
+    bs::mesh::MeshConfig cfg = bs::mesh::load_config(config_path);
+    bs::mesh::bootstrap_identity(home_dir);
+#ifdef _WIN32
+    if (daemon_flag) {
+        FreeConsole();
+        FILE* nul = fopen("nul", "w");
+        if (nul) { fclose(stdout); _dup2(_fileno(nul), _fileno(stdout)); fclose(nul); }
+    }
+#else
+    if (daemon_flag) {
+        pid_t pid = fork();
+        if (pid < 0) { std::cerr << "fork failed\n"; return 1; }
+        if (pid > 0) { std::cout << pid << std::endl; return 0; }
+        setsid();
+        freopen("/dev/null", "r", stdin);
+        freopen("/dev/null", "w", stdout);
+        freopen("/dev/null", "w", stderr);
+    }
+#endif
+    bs::mesh::MeshController mc(cfg, home_dir);
+    mc.run();
     return 0;
 }
+
+#endif

@@ -23,7 +23,7 @@
 #undef max
 #endif
 
-#include "../bridgesessions.cpp"
+#include "../bs-protocol.h"
 
 #include <deque>
 #include <string>

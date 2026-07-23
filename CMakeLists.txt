@@ -41,8 +41,8 @@ endif()
 include(CTest)
 enable_testing()
 
-# ── Single-file mesh binary ────────────────────────────────────
-add_executable(bridgesessions bridgesessions.cpp)
+# ── Core library (header-only) + binary ──────────────────────────
+add_executable(bridgesessions main.cpp bs-protocol.h)
 if(NOT BS_ENABLE_NAT)
     target_compile_definitions(bridgesessions PRIVATE BS_NO_NAT)
 endif()

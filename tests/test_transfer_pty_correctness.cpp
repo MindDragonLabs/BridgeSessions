@@ -22,7 +22,7 @@
 #undef max
 #endif
 
-#include "../bridgesessions.cpp"
+#include "../bs-protocol.h"
 
 #ifndef _WIN32
 #include <fcntl.h>
