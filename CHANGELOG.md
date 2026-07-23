@@ -2,6 +2,20 @@
 
 All notable public releases are documented here.
 
+## [2.0.10] — alpha5 (2026-07-23)
+
+**Structural refactor + Windows -x hang fix.**
+
+### Refactor
+- **R1+R3:** Extracted `bs-protocol.h` (12,193 lines) + `main.cpp` (835 lines) from the 13,490-line monolith. Protocol is header-only; CLI/daemon entry is a separate translation unit. 25 test files updated.
+- **R5:** Extracted `RingBuffer` + `Session` types into `bs-session.h` (470 lines, self-contained).
+
+### Fixes
+- **Windows -x hang:** `SessionDiedMsg` now fans out to `DirectSession` connections (non-interactive mode). Previously only `attached_session` connections received the death notice, causing `shell -x` to spin forever when the child process exited.
+
+### Build
+- CTest: 329/329 pass. Fleet: healthy.
+
 ## [2.0.9] — alpha5 (2026-07-22)
 
 **BridgePanel remote session discovery — sessions from all mesh peers now appear in the session tree.**
