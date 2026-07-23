@@ -8692,16 +8692,31 @@ public:
                 }
             }
             if (reply.ok && !conn.peer_pubkey.empty()) {
-                // Auto-authorize the joiner
+                // Auto-authorize the joiner (skip if already present)
                 std::string auth_path = config_.authorized_keys_path;
                 std::string dir = auth_path;
                 auto slash = dir.rfind('/');
                 if (slash == std::string::npos) slash = dir.rfind('\\');
                 if (slash != std::string::npos) dir = dir.substr(0, slash);
                 bs::mesh::ensure_private_directory(dir);
-                std::ofstream af(auth_path, std::ios::app);
-                if (af.is_open()) {
-                    af << "pubkey " << conn.peer_pubkey << "\n";
+                bool already_authorized = false;
+                {
+                    std::ifstream existing(auth_path);
+                    std::string line;
+                    while (std::getline(existing, line)) {
+                        if (!line.empty() && line.back() == '\r') line.pop_back();
+                        if (line == "pubkey " + conn.peer_pubkey ||
+                            line == conn.peer_pubkey) {
+                            already_authorized = true;
+                            break;
+                        }
+                    }
+                }
+                if (!already_authorized) {
+                    std::ofstream af(auth_path, std::ios::app);
+                    if (af.is_open()) {
+                        af << "pubkey " << conn.peer_pubkey << "\n";
+                    }
                 }
             }
             try { write_frame(conn.ssl.get(), reply, CONTROL_STREAM_ID); } catch (...) {}
