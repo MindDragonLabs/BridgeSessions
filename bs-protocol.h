@@ -7498,13 +7498,33 @@ private:
     // responsive. The worker exclusively owns this SSL transport while busy.
     void handle_file_request(Conn& c, const FileRequestMsg& m) {
         log_event("file_request_received", m.path + " from " + c.peer_name);
-        // v2.0.12: run synchronously on event loop — worker thread pool shared-SSL
-        // races on Windows/MinGW, breaking serve-side file transfers.
-        // Screen capture (cua_execute) already uses the same synchronous pattern.
-        c.exec_busy->store(true);
-        auto result = file_request_on_transport(c.ssl.get(), c.sock_fd, m.path);
-        c.exec_busy->store(false);
-        log_event("file_request_complete", c.peer_name + " " + result);
+        if (c.exec_busy->exchange(true)) {
+            log_event("file_request_busy", m.path + " from " + c.peer_name);
+            try { write_frame(c.ssl.get(), FileAckMsg{0, 0, true, "peer busy with another transfer"}, CONTROL_STREAM_ID); } catch (...) {}
+            return;
+        }
+        c.exec_completed->store(false);
+        c.exec_cancelled = std::make_shared<std::atomic<bool>>(false);
+        c.exec_started_at = std::chrono::steady_clock::now();
+        // Reset the shared last-progress timestamp to now so a healthy,
+        // actively-streaming inbound file pull survives the 90s exec watchdog
+        // (BUG-1 guarantee). Without this, check_stale_exec() falls back to
+        // exec_started_at and force-cancels any pull that exceeds 90s.
+        c.exec_last_progress_at->store(
+            std::chrono::steady_clock::now().time_since_epoch().count());
+
+        LongOperationTask task;
+        task.type = LongOperationTask::Type::RemoteFileRequest;
+        task.peer_name = c.peer_name;
+        task.path1 = m.path;
+        task.ssl = c.ssl.get();
+        task.sock_fd = c.sock_fd;
+        task.exec_busy = c.exec_busy;
+        task.exec_completed = c.exec_completed;
+        task.cancelled = c.exec_cancelled;
+        task.last_progress_at = c.exec_last_progress_at;
+        task.ipc_fd = INVALID_SOCKET;
+        worker_pool_->enqueue(std::move(task));
     }
 
     bool begin_async_receive(Conn& target, const std::string& dest_dir) {
