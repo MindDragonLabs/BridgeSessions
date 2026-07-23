@@ -13017,6 +13017,15 @@ int main(int argc, char** argv) {
     // Resolve config path
     std::string home_dir;
     if (!config_dir.empty()) { home_dir = config_dir; }
+    else if (!config_path.empty()) {
+        // Derive config dir from explicit --config path
+        // (needed on Windows when daemon runs as SYSTEM via schtasks —
+        //  USERPROFILE is the SYSTEM profile, not the user's home).
+        home_dir = config_path;
+        auto slash = home_dir.rfind('/');
+        if (slash == std::string::npos) slash = home_dir.rfind('\\');
+        if (slash != std::string::npos) home_dir = home_dir.substr(0, slash);
+    }
     else { home_dir = resolve_home("~/.bridgesessions"); }
     if (config_path.empty()) { config_path = home_dir + "/config"; }
     // Ensure isolated app root exists for --config-dir runs
