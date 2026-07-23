@@ -87,7 +87,7 @@ def make_repo(tmp_path: Path, extra_files: dict[str, str] | None = None) -> Path
 
     copy_script_sources(repo)
     (repo / "VERSION").write_text(VERSION + "\n")
-    (repo / "bridgesessions.cpp").write_text(
+    (repo / "bs-protocol.h").write_text(
         f'// BridgeSessions {VERSION}\nint main(){{return 0;}}\n'
     )
     if extra_files:
@@ -146,7 +146,7 @@ def test_package_release_mode_success(tmp_path: Path):
 def test_package_release_refuses_dirty_tree(tmp_path: Path):
     repo = make_repo(tmp_path)
     run(["git", "tag", TAG], cwd=repo)
-    (repo / "bridgesessions.cpp").write_text("// dirty\n")
+    (repo / "bs-protocol.h").write_text("// dirty\n")
     result = run(package_cmd(repo, "--release"), cwd=repo, check=False)
     assert result.returncode != 0
     assert "dirty" in result.stderr.lower()
@@ -186,7 +186,7 @@ def test_package_release_commit_override(tmp_path: Path):
     with tarfile.open(archive_path(repo), "r:gz") as tf:
         names = tf.getnames()
         assert any(f"bridgesessions-{VERSION}/new.txt" in n for n in names) is False
-        assert any(f"bridgesessions-{VERSION}/bridgesessions.cpp" in n for n in names)
+        assert any(f"bridgesessions-{VERSION}/bs-protocol.h" in n for n in names)
 
 
 def test_package_archive_excludes_export_ignored_paths(tmp_path: Path):
@@ -244,7 +244,7 @@ def test_zip_archive_contains_tracked_source(tmp_path: Path):
     run(package_cmd(repo, "--release"), cwd=repo)
     with zipfile.ZipFile(zip_archive_path(repo)) as archive:
         names = archive.namelist()
-    assert f"bridgesessions-{VERSION}/bridgesessions.cpp" in names
+    assert f"bridgesessions-{VERSION}/bs-protocol.h" in names
 
 
 # ─────────────────────────────────────────────────────────────────────────────
