@@ -7136,7 +7136,6 @@ private:
 #ifndef BS_NO_WEBRTC
         if (!config_.webrtc_enabled) return;
         try {
-            // TODO: full WebRTC DataChannel setup would complete here
             log_event("webrtc_answer_received", "from " + answer.peer_name);
         } catch (...) {}
 #endif
@@ -11474,7 +11473,7 @@ public:
             am.cols = cols; am.rows = rows; am.term = term;
             am.command = cmd;
             write_frame(sc.ssl.get(), am, CONTROL_STREAM_ID);
-            // Read AttachAck to confirm session was created
+            // Read AttachAck or error response to confirm session was created
             Message resp = read_frame(sc.ssl.get());
             if (std::holds_alternative<AttachAckMsg>(resp)) {
                 auto& ack = std::get<AttachAckMsg>(resp);
@@ -11484,6 +11483,17 @@ public:
                 std::cout << "Reattach: bs shell " << peer_name
                           << " -n " << ack.session_name << "\n";
                 return 0;
+            }
+            if (std::holds_alternative<SessionDiedMsg>(resp)) {
+                auto& sd = std::get<SessionDiedMsg>(resp);
+                std::cerr << "Session died (exit=" << sd.exit_code
+                          << " signal=" << sd.signal_num << ")\n";
+                return sd.exit_code != 0 ? sd.exit_code : 1;
+            }
+            if (std::holds_alternative<OutputMsg>(resp)) {
+                std::cerr << "Session output (detached): "
+                          << std::get<OutputMsg>(resp).data << "\n";
+                return 255;
             }
         } catch (...) {}
         // If we didn't get AttachAck, the session might still have been created
@@ -12600,7 +12610,9 @@ static std::string sess_text_to_json(const std::string& text) {
         auto sp2 = rest.find(' ');
         std::string name = (sp2 == std::string::npos) ? rest : rest.substr(0, sp2);
         std::string kv = (sp2 == std::string::npos) ? "" : rest.substr(sp2 + 1);
-        std::string state = "unknown", command = "", pid = "", uptime = "0", bytes = "0";
+        std::string state, command, pid, uptime, bytes;
+        bool has_state = false, has_command = false, has_pid = false,
+             has_uptime = false, has_bytes = false;
         std::istringstream kvs(kv);
         std::string token;
         while (kvs >> token) {
@@ -12608,18 +12620,23 @@ static std::string sess_text_to_json(const std::string& text) {
             if (eq == std::string::npos) continue;
             std::string k = token.substr(0, eq);
             std::string v = token.substr(eq + 1);
-            if (k == "state") state = v;
-            else if (k == "command") command = v;
-            else if (k == "pid") pid = v;
-            else if (k == "uptime") uptime = v;
-            else if (k == "bytes") bytes = v;
+            if (k == "state")      { state = v;   has_state = true; }
+            else if (k == "command") { command = v; has_command = true; }
+            else if (k == "pid")     { pid = v;     has_pid = true; }
+            else if (k == "uptime")  { uptime = v;  has_uptime = true; }
+            else if (k == "bytes")   { bytes = v;   has_bytes = true; }
         }
+        // Omit fields that were not present in the IPC record instead of
+        // emitting misleading "unknown"/"0" defaults (P2-3 audit finding).
         if (!first) out << ",";
         first = false;
-        out << "{\"name\":\"" << name << "\",\"kind\":\"" << kind
-            << "\",\"state\":\"" << state << "\",\"command\":\""
-            << command << "\",\"pid\":\"" << pid
-            << "\",\"uptime_s\":" << uptime << ",\"bytes\":" << bytes << "}";
+        out << "{\"name\":\"" << name << "\",\"kind\":\"" << kind << "\"";
+        if (has_state)   out << ",\"state\":\"" << state << "\"";
+        if (has_command) out << ",\"command\":\"" << command << "\"";
+        if (has_pid)     out << ",\"pid\":\"" << pid << "\"";
+        if (has_uptime)  out << ",\"uptime_s\":" << uptime;
+        if (has_bytes)   out << ",\"bytes\":" << bytes;
+        out << "}";
     }
     out << "]";
     return out.str();
@@ -13256,6 +13273,17 @@ int main(int argc, char** argv) {
         if (!jrep.ok) {
             std::cerr << "Join rejected: " << jrep.error << "\n";
             return 1;
+        }
+
+        // Bind TLS cert to host identity pubkey (P1-1: prevent
+        // MITM injecting a wrong seed pin during join handshake).
+        {
+            const std::string cert_pk = bs::mesh::peer_public_key_hex(conn.ssl.get());
+            if (cert_pk.empty() || cert_pk != jrep.host_pubkey) {
+                std::cerr << "Host identity mismatch: certificate key does not match "
+                          << "JoinReply host_pubkey\n";
+                return 1;
+            }
         }
 
         // Configure: update node name and add host as seed
