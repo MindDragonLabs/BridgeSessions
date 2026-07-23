@@ -346,6 +346,7 @@ struct CuaResponseMsg {
     uint32_t screen_w = 0;
     uint32_t screen_h = 0;
     uint8_t format = 0;         // 0=none 1=png 2=jpeg (capture result format)
+    std::vector<uint8_t> data;  // capture payload (empty for non-capture responses)
     bool operator==(const CuaResponseMsg&) const = default;
 };
 
@@ -746,6 +747,8 @@ void serialize_msg(Serializer& s, const CuaRequestMsg& m) {
 void serialize_msg(Serializer& s, const CuaResponseMsg& m) {
     s.u32be(m.request_id); s.u8(m.status); s.str_prefixed(m.error);
     s.u32be(m.screen_w); s.u32be(m.screen_h); s.u8(m.format);
+    s.u32be(static_cast<uint32_t>(m.data.size()));
+    if (!m.data.empty()) s.bytes(std::span<const uint8_t>(m.data.data(), m.data.size()));
 }
 void serialize_msg(Serializer& s, const JoinRequestMsg& m) {
     s.str_prefixed(m.token);
@@ -1330,6 +1333,10 @@ Message decode(std::span<const uint8_t> raw) {
         m.request_id = d.u32be(); m.status = d.u8();
         m.error = d.str_prefixed();
         m.screen_w = d.u32be(); m.screen_h = d.u32be(); m.format = d.u8();
+        uint32_t data_size = d.u32be();
+        if (data_size > 0) {
+            m.data = d.bytes_size(data_size);
+        }
         return m;
     }
     case 0x28: {
@@ -2604,11 +2611,88 @@ inline void close_nonstdio_fds_before_exec() {
 
 // ── 2.0.8 P5: Cross-platform Computer Use dispatch ─────────────────────
 // Dispatches CuaRequestMsg to the appropriate OS backend.
+
+#ifndef _WIN32
+[[nodiscard]] std::optional<std::string> find_binary(std::string_view name) {
+    if (name.find('/') != std::string_view::npos) {
+        std::filesystem::path p{name};
+        if (::access(p.c_str(), X_OK) == 0) return p.string();
+        return std::nullopt;
+    }
+    const char* path_env = std::getenv("PATH");
+    if (!path_env || !*path_env) return std::nullopt;
+    std::string path_str(path_env);
+    size_t start = 0;
+    while (start <= path_str.size()) {
+        size_t end = path_str.find(':', start);
+        std::string_view part = end == std::string::npos
+            ? std::string_view(path_str).substr(start)
+            : std::string_view(path_str).substr(start, end - start);
+        std::filesystem::path dir = part.empty() ? std::filesystem::path(".") : std::filesystem::path(part);
+        std::filesystem::path candidate = dir / name;
+        if (::access(candidate.c_str(), X_OK) == 0) return candidate.string();
+        if (end == std::string::npos) break;
+        start = end + 1;
+    }
+    return std::nullopt;
+}
+#endif // _WIN32
+
 [[nodiscard]] CuaResponseMsg cua_execute(const CuaRequestMsg& req) {
     CuaResponseMsg resp;
     resp.status = 0;
 
 #ifdef _WIN32
+    // Windows: use PowerShell GDI screen capture (v2.0.11 P5c)
+    if (req.action == 6) {
+        std::string tmp_path;
+        char tmpl[MAX_PATH];
+        char tmpPathBuf[MAX_PATH];
+        GetTempPathA(sizeof(tmpPathBuf), tmpPathBuf);
+        GetTempFileNameA(tmpPathBuf, "bsc", 0, tmpl);
+        tmp_path = std::string(tmpl) + ".png";
+        ::unlink(tmpl);
+        // PowerShell one-liner: GDI screen capture to PNG
+        std::string ps_cmd =
+            "powershell -NoProfile -Command \""
+            "Add-Type -AssemblyName System.Drawing;"
+            "$b=[System.Drawing.Rectangle]::FromLTRB("
+            "[System.Windows.Forms.SystemInformation]::VirtualScreen.Left,"
+            "[System.Windows.Forms.SystemInformation]::VirtualScreen.Top,"
+            "[System.Windows.Forms.SystemInformation]::VirtualScreen.Right,"
+            "[System.Windows.Forms.SystemInformation]::VirtualScreen.Bottom);"
+            "$img=New-Object System.Drawing.Bitmap($b.Width,$b.Height);"
+            "$g=[System.Drawing.Graphics]::FromImage($img);"
+            "$g.CopyFromScreen($b.Location,[System.Drawing.Point]::Empty,$b.Size);"
+            "$g.Dispose();$img.Save('" + tmp_path + "',[System.Drawing.Imaging.ImageFormat]::Png);"
+            "$img.Dispose()\" 2>nul";
+        int rc = std::system(ps_cmd.c_str());
+        if (rc != 0 || !std::filesystem::exists(tmp_path)) {
+            resp.status = 1;
+            resp.error = "windows screen capture failed (PowerShell GDI)";
+            ::unlink(tmpl);
+            return resp;
+        }
+        // Read captured PNG
+        std::ifstream cap(tmp_path, std::ios::binary | std::ios::ate);
+        if (!cap) {
+            resp.status = 1; resp.error = "failed to open capture file";
+            ::unlink(tmp_path.c_str()); return resp;
+        }
+        auto cap_size = cap.tellg();
+        if (cap_size > 0 && static_cast<size_t>(cap_size) <= MAX_IMAGE_BYTES) {
+            resp.data.resize(static_cast<size_t>(cap_size));
+            cap.seekg(0);
+            cap.read(reinterpret_cast<char*>(resp.data.data()), cap_size);
+            resp.format = 1; resp.status = 0;
+            resp.screen_w = GetSystemMetrics(SM_CXVIRTUALSCREEN);
+            resp.screen_h = GetSystemMetrics(SM_CYVIRTUALSCREEN);
+        } else {
+            resp.status = 1; resp.error = "capture empty or exceeds 50MB";
+        }
+        ::unlink(tmp_path.c_str());
+        return resp;
+    }
     resp.status = 1;
     resp.error = "windows cua-helper not yet deployed (P5c)";
     return resp;
@@ -2647,14 +2731,62 @@ inline void close_nonstdio_fds_before_exec() {
         case 5: // mouse wheel
             cmd = std::string("xdotool click ") + ((req.button == 0) ? "4" : "5") + " 2>/dev/null";
             break;
-        case 6: // screen capture
-            // 2.0.8 MoA fix: this ran `xdotool getactivewindow` and returned
-            // success with NO capture data — a fake-success stub. Report it as
-            // unimplemented (like the other platforms) until P5c lands a real
-            // capture path (import/scrot/grim → CuaResponse payload).
-            resp.status = 1;
-            resp.error = "linux screen capture not yet deployed (P5c)";
+        case 6: { // screen capture — v2.0.11 P5c
+            // Try multiple capture tools in order: grim (Wayland), import (X11/ImageMagick), scrot (X11 fallback)
+            std::string tmp_path;
+            const char* tools[] = {"grim", "import", "scrot", nullptr};
+            for (int i = 0; tools[i]; ++i) {
+                auto bin = find_binary(tools[i]);
+                if (!bin) continue;
+                tmp_path = "/tmp/bs-capture-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + ".png";
+                std::string capture_cmd;
+                if (std::string(tools[i]) == "grim") {
+                    capture_cmd = *bin + " " + tmp_path + " 2>/dev/null";
+                } else if (std::string(tools[i]) == "import") {
+                    capture_cmd = *bin + " -window root " + tmp_path + " 2>/dev/null";
+                } else {
+                    capture_cmd = *bin + " " + tmp_path + " 2>/dev/null";
+                }
+                if (std::system(capture_cmd.c_str()) == 0) break;
+                ::unlink(tmp_path.c_str());
+                tmp_path.clear();
+            }
+            if (tmp_path.empty()) {
+                resp.status = 1;
+                resp.error = "no screen capture tool available (install grim, imagemagick, or scrot)";
+                return resp;
+            }
+            // Read captured PNG into response
+            std::ifstream cap(tmp_path, std::ios::binary | std::ios::ate);
+            if (!cap) {
+                resp.status = 1;
+                resp.error = "failed to open capture temp file";
+                ::unlink(tmp_path.c_str());
+                return resp;
+            }
+            auto cap_size = cap.tellg();
+            if (cap_size > 0 && static_cast<size_t>(cap_size) <= MAX_IMAGE_BYTES) {
+                resp.data.resize(static_cast<size_t>(cap_size));
+                cap.seekg(0);
+                cap.read(reinterpret_cast<char*>(resp.data.data()), cap_size);
+                resp.format = 1; // PNG
+                resp.status = 0;
+                // Try to get screen dimensions from xdpyinfo or xrandr
+                FILE* xr = popen("xdpyinfo 2>/dev/null | grep 'dimensions:' | awk '{print $2}'", "r");
+                if (xr) {
+                    char dims[64] = {};
+                    if (fgets(dims, sizeof(dims), xr)) {
+                        sscanf(dims, "%ux%u", &resp.screen_w, &resp.screen_h);
+                    }
+                    pclose(xr);
+                }
+            } else {
+                resp.status = 1;
+                resp.error = "capture file empty or exceeds size limit";
+            }
+            ::unlink(tmp_path.c_str());
             return resp;
+        }
         default:
             resp.status = 1;
             resp.error = "unknown CUA action " + std::to_string(req.action);
