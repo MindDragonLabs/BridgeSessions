@@ -10367,7 +10367,7 @@ public:
         }
         std::string cmd = token + " " + (wait_for_completion
             ? ("FILE_SEND_WAIT_B64 " + peer_name + " " + b64enc(path) + "\n")
-            : ("FILE_SEND " + peer_name + " " + path + "\n"));
+            : ("FILE_SEND_WAIT_B64 " + peer_name + " " + b64enc(path) + "\n"));
         send(sfd, cmd.data(), (int)cmd.size(), 0);
         std::string pending;
         char buf[8192];
@@ -10510,7 +10510,7 @@ public:
         }
         std::string cmd = token + " " + (wait_for_completion
             ? ("FILE_RECV_WAIT_B64 " + peer_name + " " + b64enc(path) + " " + b64enc(local_dest) + "\n")
-            : ("FILE_RECV_B64 " + peer_name + " " + b64enc(path) + " " + b64enc(local_dest) + "\n"));
+            : ("FILE_RECV_WAIT_B64 " + peer_name + " " + b64enc(path) + " " + b64enc(local_dest) + "\n"));
         send(sfd, cmd.data(), (int)cmd.size(), 0);
         std::string acc;
         char buf[8192];
