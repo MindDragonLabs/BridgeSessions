@@ -7273,6 +7273,30 @@ private:
             const std::function<bool()>& is_cancelled = {},
             const std::function<void(const std::string&)>& on_progress = {}) {
         if (!socket_selectable(sock_fd)) return "ERROR socket exceeds select limit";
+        // v2.0.12c: temporarily set blocking mode for the duration of the transfer.
+        // Mesh sockets are non-blocking; SSL_write_ex on non-blocking sockets
+        // returns SSL_ERROR_WANT_WRITE and fails on Windows/MinGW.
+        struct BlockingGuard {
+            SOCKET fd;
+#ifdef _WIN32
+            u_long orig;
+            explicit BlockingGuard(SOCKET f) : fd(f), orig(0) {
+                ioctlsocket(f, FIONBIO, &orig);
+            }
+            ~BlockingGuard() {
+                u_long restore = 1;
+                ioctlsocket(fd, FIONBIO, &restore);
+            }
+#else
+            int orig;
+            explicit BlockingGuard(SOCKET f) : fd(f), orig(fcntl(f, F_GETFL, 0)) {
+                fcntl(f, F_SETFL, orig & ~O_NONBLOCK);
+            }
+            ~BlockingGuard() {
+                fcntl(fd, F_SETFL, orig);
+            }
+#endif
+        } guard{sock_fd};
         namespace fs = std::filesystem;
         auto emit = [&](const std::string& line) {
             if (on_progress) on_progress(line);
