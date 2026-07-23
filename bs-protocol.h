@@ -8909,9 +8909,17 @@ public:
                 sdm.exit_code = static_cast<int32_t>(exit_code);
                 sdm.signal_num = 0;
                 for (auto& target : conns_) {
-                    if (target.attached_session != s || target.sock_fd == INVALID_SOCKET ||
-                        !target.ssl) continue;
+                    if (target.sock_fd == INVALID_SOCKET || !target.ssl) continue;
                     if (target.exec_busy && target.exec_busy->load()) continue;
+                    // 2.0.9 fix: deliver SessionDied to both attached sessions
+                    // AND DirectSession connections (non-interactive -x mode).
+                    // Previously only matched attached_session, so -x callers
+                    // spun forever waiting for a death notice that never arrived
+                    // (RCA 2026-07-23: Start-Process descendants → -x hangs).
+                    const bool match =
+                        target.attached_session == s ||
+                        target.purpose == ConnectionPurpose::DirectSession;
+                    if (!match) continue;
                     try {
                         write_frame(target.ssl.get(), sdm, CONTROL_STREAM_ID);
                     } catch (...) {}
