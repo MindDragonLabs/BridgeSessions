@@ -47,6 +47,7 @@
 #include <cstdio>
 #include <fstream>
 #include <sstream>
+#include <iomanip>
 #include <iostream>
 #include <array>
 #include <utility>
@@ -382,6 +383,8 @@ enum class MessageType : uint8_t {
     ConversationBatch   = 0x25, // server → client: ordered message run
     CuaRequest     = 0x26,  // client → server: computer-use action (HID usage IDs on wire)
     CuaResponse    = 0x27,  // server → client: {status, error, screen_w/h, format}
+    JoinRequest    = 0x28,  // client → server: {token}
+    JoinReply      = 0x29,  // server → client: {ok, node_name, seeds_csv, host_pubkey, error}
 };
 
 // ── Empty Message Structs (must be declared before variant) ──────
@@ -572,6 +575,21 @@ struct CuaResponseMsg {
     bool operator==(const CuaResponseMsg&) const = default;
 };
 
+struct JoinRequestMsg {
+    std::string token;
+    bool operator==(const JoinRequestMsg&) const = default;
+};
+
+struct JoinReplyMsg {
+    bool ok = false;
+    std::string node_name;
+    std::string seeds_csv;
+    std::string host_pubkey;
+    std::string host_addr;
+    std::string error;
+    bool operator==(const JoinReplyMsg&) const = default;
+};
+
 // ── NEW Mesh Message Structs ────────────────────────────────────
 
 struct PeerInfo {
@@ -709,7 +727,9 @@ using Message = std::variant<
     ConversationQueryMsg,  // 33 — 2.0.8-alpha3
     ConversationBatchMsg,  // 34 — 2.0.8-alpha3
     CuaRequestMsg,     // 35 — 2.0.8-alpha3
-    CuaResponseMsg     // 36 — 2.0.8-alpha3
+    CuaResponseMsg,    // 36 — 2.0.8-alpha3
+    JoinRequestMsg,    // 37 — 2.0.9-alpha5
+    JoinReplyMsg       // 38 — 2.0.9-alpha5
 >;
 
 // ── Frame ──────────────────────────────────────────────────────────
@@ -776,7 +796,9 @@ constexpr MessageType index_to_type[] = {
     MessageType::ConversationQuery, // 33 — 2.0.8-alpha3
     MessageType::ConversationBatch, // 34 — 2.0.8-alpha3
     MessageType::CuaRequest,        // 35 — 2.0.8-alpha3
-    MessageType::CuaResponse        // 36 — 2.0.8-alpha3
+    MessageType::CuaResponse,       // 36 — 2.0.8-alpha3
+    MessageType::JoinRequest,       // 37 — 2.0.9-alpha5
+    MessageType::JoinReply          // 38 — 2.0.9-alpha5
 };
 
 static_assert(std::size(index_to_type) == std::variant_size_v<Message>,
@@ -950,6 +972,18 @@ void serialize_msg(Serializer& s, const CuaRequestMsg& m) {
 void serialize_msg(Serializer& s, const CuaResponseMsg& m) {
     s.u32be(m.request_id); s.u8(m.status); s.str_prefixed(m.error);
     s.u32be(m.screen_w); s.u32be(m.screen_h); s.u8(m.format);
+}
+void serialize_msg(Serializer& s, const JoinRequestMsg& m) {
+    s.str_prefixed(m.token);
+}
+void serialize_msg(Serializer& s, const JoinReplyMsg& m) {
+    s.u8(m.ok ? 1 : 0);
+    if (m.ok) {
+        s.str_prefixed(m.node_name); s.str_prefixed(m.seeds_csv);
+        s.str_prefixed(m.host_pubkey); s.str_prefixed(m.host_addr);
+    } else {
+        s.str_prefixed(m.error);
+    }
 }
 
 // ── Zstd ──────────────────────────────────────────────────────
@@ -1522,6 +1556,22 @@ Message decode(std::span<const uint8_t> raw) {
         m.request_id = d.u32be(); m.status = d.u8();
         m.error = d.str_prefixed();
         m.screen_w = d.u32be(); m.screen_h = d.u32be(); m.format = d.u8();
+        return m;
+    }
+    case 0x28: {
+        JoinRequestMsg m;
+        m.token = d.str_prefixed();
+        return m;
+    }
+    case 0x29: {
+        JoinReplyMsg m;
+        m.ok = (d.u8() != 0);
+        if (m.ok) {
+            m.node_name = d.str_prefixed(); m.seeds_csv = d.str_prefixed();
+            m.host_pubkey = d.str_prefixed(); m.host_addr = d.str_prefixed();
+        } else {
+            m.error = d.str_prefixed();
+        }
         return m;
     }
     }
@@ -5908,11 +5958,17 @@ private:
     MeshConfig config_;
     SessionRegistry sessions_;
     // ── 2.0.8 P4 conversation store ──────────────────────────────
-    // In-memory store keyed by conv_id. Messages are ordered by seq.
-    // Full persistence to sessions/<name>/conversations/ is deferred.
     std::unordered_map<std::string, std::vector<ConversationAppendMsg>> conversations_;
     std::mutex conversations_mutex_;
     uint64_t next_conv_seq_ = 1;
+    // ── 2.0.9 join/invite ────────────────────────────────────────
+    struct PendingInvite {
+        std::string token;
+        std::chrono::steady_clock::time_point created_at;
+        std::string claimed_by;
+    };
+    std::vector<PendingInvite> pending_invites_;
+    mutable std::mutex invite_mutex_;
     // ── BridgePanel v3 mesh plane ────────────────────────────────
     // Pre-rendered JSON arrays of session summaries per peer, populated by
     // session gossip (ServerInfoMsg trailing field). Empty until gossip lands.
@@ -8606,6 +8662,52 @@ public:
     // 1. handle_inbound_session — messages from a remote peer
     //    operating on OUR local sessions
     void handle_inbound_session(Conn& conn, Message& msg) {
+        // JoinRequest — new node onboarding
+        if (std::holds_alternative<JoinRequestMsg>(msg)) {
+            auto& jr = std::get<JoinRequestMsg>(msg);
+            JoinReplyMsg reply;
+            {
+                std::lock_guard lock(invite_mutex_);
+                auto now = std::chrono::steady_clock::now();
+                pending_invites_.erase(
+                    std::remove_if(pending_invites_.begin(), pending_invites_.end(),
+                        [now](auto& p) { return (now - p.created_at) > std::chrono::hours(2); }),
+                    pending_invites_.end());
+                auto it = std::find_if(pending_invites_.begin(), pending_invites_.end(),
+                    [&](auto& p) { return p.token == jr.token && p.claimed_by.empty(); });
+                if (it == pending_invites_.end()) {
+                    reply.ok = false;
+                    reply.error = "invalid or expired token";
+                } else {
+                    it->claimed_by = conn.peer_pubkey;
+                    reply.ok = true;
+                    reply.node_name = "node-" + jr.token.substr(0, 8);
+                    std::ostringstream seeds;
+                    for (size_t si = 0; si < config_.seeds.size(); ++si) {
+                        if (si) seeds << '|';
+                        seeds << config_.seeds[si].name << ':' << config_.seeds[si].addr;
+                    }
+                    reply.seeds_csv = seeds.str();
+                    reply.host_pubkey = our_pubkey_;
+                    reply.host_addr = config_.listen_addr + ":" + std::to_string(config_.listen_port);
+                }
+            }
+            if (reply.ok && !conn.peer_pubkey.empty()) {
+                // Auto-authorize the joiner
+                std::string auth_path = config_.authorized_keys_path;
+                std::string dir = auth_path;
+                auto slash = dir.rfind('/');
+                if (slash == std::string::npos) slash = dir.rfind('\\');
+                if (slash != std::string::npos) dir = dir.substr(0, slash);
+                bs::mesh::ensure_private_directory(dir);
+                std::ofstream af(auth_path, std::ios::app);
+                if (af.is_open()) {
+                    af << "pubkey " << conn.peer_pubkey << "\n";
+                }
+            }
+            try { write_frame(conn.ssl.get(), reply, CONTROL_STREAM_ID); } catch (...) {}
+            return;
+        }
         // AttachMsg — peer wants to attach to one of our sessions
         if (std::holds_alternative<AttachMsg>(msg)) {
             auto& a = std::get<AttachMsg>(msg);
@@ -10073,6 +10175,25 @@ public:
             else if (line == "STATS") {
                 response = daemon_stats_summary() + "\n";
             }
+            else if (line == "INVITE") {
+                // Generate a 2-hour invite token
+                std::lock_guard lock(invite_mutex_);
+                unsigned char raw_bytes[16];
+                RAND_bytes(raw_bytes, sizeof(raw_bytes));
+                std::ostringstream tok;
+                for (size_t i = 0; i < sizeof(raw_bytes); ++i)
+                    tok << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(raw_bytes[i]);
+                auto now = std::chrono::steady_clock::now();
+                pending_invites_.erase(
+                    std::remove_if(pending_invites_.begin(), pending_invites_.end(),
+                        [now](auto& p) { return (now - p.created_at) > std::chrono::hours(2); }),
+                    pending_invites_.end());
+                PendingInvite pi;
+                pi.token = tok.str();
+                pi.created_at = now;
+                response = pi.token + "\n";
+                pending_invites_.push_back(std::move(pi));
+            }
             else if (line == "SESSIONS") {
                 response = sessions_.summary() + "\n";
             }
@@ -11239,9 +11360,10 @@ public:
         }
     }
     SslConn connect_and_hello(const std::string& addr,
-                              const std::string& expected_pubkey = {}) {
+                              const std::string& expected_pubkey = {},
+                              bool trust_on_first_use = false) {
         SslConn out;
-        if (expected_pubkey.empty()) {
+        if (expected_pubkey.empty() && !trust_on_first_use) {
             out.fail = ConnectFailReason::TlsRejected;
             out.fail_detail = "peer key not pinned";
             return out;
@@ -11332,6 +11454,43 @@ public:
     // ── Shutdown ───────────────────────────────────────────────
 
     void shutdown() { mdns_shutdown(); running_ = false; }
+
+    // ── CLI: shell_peer_detach (--detach) ──────────────────────
+    // Returns: 0 on success, 255 on failure (fire-and-forget).
+    int shell_peer_detach(const std::string& peer_name, const std::string& session_name,
+                          const std::string& cmd, uint16_t cols, uint16_t rows,
+                          const std::string& term) {
+        std::string addr = find_peer_addr(peer_name);
+        if (addr.empty()) { std::cerr << "Peer not found: " << peer_name << "\n"; return 255; }
+        const std::string expected_pubkey = trusted_peer_pubkey(config_, peer_name);
+        auto sc = connect_and_hello(addr, expected_pubkey);
+        if (!sc.ssl || sc.sfd == INVALID_SOCKET) {
+            print_connect_failure(peer_name, sc);
+            return 255;
+        }
+        try {
+            AttachMsg am;
+            am.session_name = session_name;
+            am.cols = cols; am.rows = rows; am.term = term;
+            am.command = cmd;
+            write_frame(sc.ssl.get(), am, CONTROL_STREAM_ID);
+            // Read AttachAck to confirm session was created
+            Message resp = read_frame(sc.ssl.get());
+            if (std::holds_alternative<AttachAckMsg>(resp)) {
+                auto& ack = std::get<AttachAckMsg>(resp);
+                std::cout << "Session " << ack.session_name
+                          << " started on " << peer_name
+                          << " (attach_id=" << ack.attach_id << ")\n";
+                std::cout << "Reattach: bs shell " << peer_name
+                          << " -n " << ack.session_name << "\n";
+                return 0;
+            }
+        } catch (...) {}
+        // If we didn't get AttachAck, the session might still have been created
+        std::cout << "Session sent to " << peer_name
+                  << ". Use 'bs sessions' to verify.\n";
+        return 0;
+    }
 
     void print_connect_failure(const std::string& peer_name, const SslConn& sc) const {
         if (sc.fail != ConnectFailReason::None)
@@ -12421,6 +12580,52 @@ inline void render_image_to_terminal(const std::string& path_str) {
 } // namespace bs::mesh
 
 // ────────────────────────────────────────────────────────────────────
+// Convert daemon pipe-separated SESSIONS output to JSON (global helper)
+
+static std::string sess_text_to_json(const std::string& text) {
+    if (text.empty() || text.find("No sessions.") == 0) return "[]";
+    // Convert daemon pipe-separated SESSIONS output to JSON array
+    std::ostringstream out;
+    out << "[";
+    bool first = true;
+    std::istringstream ss(text);
+    std::string record;
+    while (std::getline(ss, record, '|')) {
+        while (!record.empty() && (record.back() == '\n' || record.back() == '\r')) record.pop_back();
+        if (record.empty()) continue;
+        auto sp = record.find(' ');
+        if (sp == std::string::npos) continue;
+        std::string kind = record.substr(0, sp);
+        std::string rest = record.substr(sp + 1);
+        auto sp2 = rest.find(' ');
+        std::string name = (sp2 == std::string::npos) ? rest : rest.substr(0, sp2);
+        std::string kv = (sp2 == std::string::npos) ? "" : rest.substr(sp2 + 1);
+        std::string state = "unknown", command = "", pid = "", uptime = "0", bytes = "0";
+        std::istringstream kvs(kv);
+        std::string token;
+        while (kvs >> token) {
+            auto eq = token.find('=');
+            if (eq == std::string::npos) continue;
+            std::string k = token.substr(0, eq);
+            std::string v = token.substr(eq + 1);
+            if (k == "state") state = v;
+            else if (k == "command") command = v;
+            else if (k == "pid") pid = v;
+            else if (k == "uptime") uptime = v;
+            else if (k == "bytes") bytes = v;
+        }
+        if (!first) out << ",";
+        first = false;
+        out << "{\"name\":\"" << name << "\",\"kind\":\"" << kind
+            << "\",\"state\":\"" << state << "\",\"command\":\""
+            << command << "\",\"pid\":\"" << pid
+            << "\",\"uptime_s\":" << uptime << ",\"bytes\":" << bytes << "}";
+    }
+    out << "]";
+    return out.str();
+}
+
+// ────────────────────────────────────────────────────────────────────
 // 2. MAIN — CLI + daemon (guarded for test builds)
 // ────────────────────────────────────────────────────────────────────
 
@@ -12680,6 +12885,7 @@ int main(int argc, char** argv) {
     // Subcommand: shell
     std::string shell_peer, shell_session = "default", shell_cmd;
     uint16_t shell_cols = 80, shell_rows = 24;
+    bool shell_detach = false, shell_wait = false;
     bool shell_record = false, shell_signal_forward = true;
     std::string shell_signal_on_detach;
     auto* shell_cmd_app = app.add_subcommand("shell", "Open shell on a peer");
@@ -12691,13 +12897,17 @@ int main(int argc, char** argv) {
     shell_cmd_app->add_flag("-r,--record", shell_record, "Record session output to file");
     shell_cmd_app->add_flag("--signal-forward{true}", shell_signal_forward, "Forward Ctrl-C to remote child (default: on)")->default_str("true");
     shell_cmd_app->add_option("--signal-on-detach", shell_signal_on_detach, "Send HUP/TERM/INT/QUIT/KILL to the child when the last peer detaches (default: none)")->check(CLI::IsMember({"HUP","TERM","INT","QUIT","KILL"}));
+    shell_cmd_app->add_flag("--detach", shell_detach, "Send command and return immediately (session runs on peer)");
+    shell_cmd_app->add_flag("--wait", shell_wait, "Block until the named session exits, then return its exit code");
 
     // Subcommand: sessions
     std::string sessions_peer;
     bool sessions_all = false;
+    bool sessions_json = false;
     auto* sessions_cmd_app = app.add_subcommand("sessions", "List sessions");
     sessions_cmd_app->add_option("peer", sessions_peer, "Peer name (omit for local)");
     sessions_cmd_app->add_flag("--all", sessions_all, "All peers");
+    sessions_cmd_app->add_flag("--json", sessions_json, "Output as JSON");
 
     // Subcommand: keygen
     auto* keygen_cmd_app = app.add_subcommand("keygen", "Generate ed25519 keypair");
@@ -12730,6 +12940,18 @@ int main(int argc, char** argv) {
     std::string reconnect_peer;
     auto* reconnect_cmd_app = app.add_subcommand("reconnect", "Tear down and re-handshake one peer via the running daemon");
     reconnect_cmd_app->add_option("peer", reconnect_peer, "Peer name")->required();
+    // invite
+    auto* invite_cmd_app = app.add_subcommand("invite", "Generate an invite token for new nodes");
+    // join
+    std::string join_addr;
+    std::string join_token;
+    bool join_start = false;
+    std::string join_node_name;
+    auto* join_cmd_app = app.add_subcommand("join", "Join a mesh via invite token");
+    join_cmd_app->add_option("addr", join_addr, "Host:port")->required();
+    join_cmd_app->add_option("token", join_token, "Invite token")->required();
+    join_cmd_app->add_flag("--start", join_start, "Start daemon after joining");
+    join_cmd_app->add_option("--node-name", join_node_name, "Node name (default: assigned by host)");
     // image
     std::string image_file;
     auto* image_cmd_app = app.add_subcommand("image", "Preview an image in the terminal");
@@ -12828,12 +13050,19 @@ int main(int argc, char** argv) {
                              "xterm-256color");
     }
     if (shell_cmd_app->parsed()) {
+        bs::mesh::MeshConfig cfg = bs::mesh::load_config(config_path);
+        bs::mesh::bootstrap_identity(home_dir);
+        bs::mesh::MeshController mc(cfg, home_dir);
+
+        // --detach: fire-and-forget (works with -x too)
+        if (shell_detach) {
+            return mc.shell_peer_detach(shell_peer, shell_session, shell_cmd,
+                                        shell_cols, shell_rows, "xterm-256color");
+        }
+
         // Commands launched from a real terminal keep full PTY input/output. Piped or
         // automated commands use daemon IPC and capture a finite result.
         if (!shell_cmd.empty() && !bs::mesh::stdin_is_terminal()) {
-            bs::mesh::MeshConfig cfg = bs::mesh::load_config(config_path);
-            bs::mesh::bootstrap_identity(home_dir);
-            bs::mesh::MeshController mc(cfg, home_dir);
             std::string output;
             int ec = mc.daemon_shell_via_ipc(shell_peer, shell_session, shell_cmd, &output);
             if (ec == -1) {
@@ -12852,21 +13081,36 @@ int main(int argc, char** argv) {
             return ec;
         }
         // Interactive shell: direct TLS (needs full terminal passthrough).
-        // `shell -x` historically kept the parser defaults (80x24), unlike the
-        // quick-connect path. That forces full-screen TUIs into a tiny remote PTY.
+        // `--detach`: send attach and return immediately (session runs on peer).
+        // `--wait`: block on daemon IPC until session completes, return exit code.
         auto [detected_cols, detected_rows] = bs::mesh::get_winsize();
         if (shell_cols_opt->count() == 0) shell_cols = detected_cols;
         if (shell_rows_opt->count() == 0) shell_rows = detected_rows;
-        bs::mesh::MeshConfig cfg = bs::mesh::load_config(config_path);
-        bs::mesh::bootstrap_identity(home_dir);
-        bs::mesh::MeshController mc(cfg, home_dir);
+        if (shell_detach) {
+            return mc.shell_peer_detach(shell_peer, shell_session, shell_cmd,
+                                        shell_cols, shell_rows, "xterm-256color");
+        }
+        if (shell_wait) {
+            std::string output;
+            int ec = mc.daemon_shell_via_ipc(shell_peer, shell_session, shell_cmd, &output);
+            if (ec >= 0) { std::cout << output; return ec; }
+            // Fallthrough: session not local, do direct wait
+            return mc.shell_peer(shell_peer, shell_session, shell_cmd,
+                                 shell_cols, shell_rows, "xterm-256color",
+                                 shell_signal_forward, shell_signal_on_detach);
+        }
         return mc.shell_peer(shell_peer, shell_session, shell_cmd, shell_cols, shell_rows, "xterm-256color", shell_signal_forward, shell_signal_on_detach);
     }
     if (sessions_cmd_app->parsed()) {
         if (sessions_peer.empty()) {
             std::string ipc = daemon_simple_ipc("SESSIONS", 3000, home_dir);
             if (!ipc.empty() && ipc.rfind("ERROR", 0) != 0) {
-                std::cout << ipc << "\n";
+                if (sessions_json) {
+                    // Convert pipe-separated SESSIONS output to JSON
+                    std::cout << sess_text_to_json(ipc) << "\n";
+                } else {
+                    std::cout << ipc << "\n";
+                }
                 return 0;
             }
         }
@@ -12928,6 +13172,121 @@ int main(int argc, char** argv) {
         }
         std::cout << result << "\n";
         return result.rfind("ERROR", 0) == 0 ? 1 : 0;
+    }
+    if (invite_cmd_app->parsed()) {
+        std::string token = daemon_simple_ipc("INVITE", 2000, home_dir);
+        if (token.empty()) { std::cerr << "INVITE failed (daemon not running?)\n"; return 1; }
+        while (!token.empty() && (token.back() == '\n' || token.back() == '\r')) token.pop_back();
+        bs::mesh::MeshConfig cfg = bs::mesh::load_config(config_path);
+        std::string addr = cfg.listen_addr;
+        if (addr.empty() || addr == "0.0.0.0") {
+            // Detect reachable address: prefer Tailscale, then best non-loopback
+            FILE* ts = popen("tailscale ip -4 2>/dev/null", "r");
+            if (ts) {
+                char buf[64] = {};
+                if (fgets(buf, sizeof(buf), ts)) {
+                    std::string ts_ip(buf);
+                    while (!ts_ip.empty() && (ts_ip.back() == '\n' || ts_ip.back() == '\r')) ts_ip.pop_back();
+                    if (!ts_ip.empty()) addr = ts_ip;
+                }
+                pclose(ts);
+            }
+            if (addr.empty() || addr == "0.0.0.0") addr = "127.0.0.1";
+        }
+        int port = cfg.listen_port > 0 ? cfg.listen_port : 19949;
+        std::cout << "Invite (valid 2h):  " << token << "\n";
+        std::cout << "One-liner:\n";
+        std::cout << "  bridgesessions join " << addr << ":" << port << " " << token << "\n";
+        std::cout << "Or with curl install:\n";
+        std::cout << "  curl -fsSL https://codeberg.org/Mind-Dragon/BridgeSessions/raw/tag/" << bs::mesh::kBridgeSessionsVersion << "/scripts/install.sh | bash -s -- join " << addr << ":" << port << " " << token << "\n";
+        std::cout << "Windows PowerShell:\n";
+        std::cout << "  irm https://codeberg.org/Mind-Dragon/BridgeSessions/raw/tag/" << bs::mesh::kBridgeSessionsVersion << "/scripts/install.ps1 | iex\n  bridgesessions join " << addr << ":" << port << " " << token << "\n";
+        return 0;
+    }
+    if (join_cmd_app->parsed()) {
+        bs::mesh::MeshConfig cfg = bs::mesh::load_config(config_path);
+        std::string pubkey_hex;
+        {
+            bs::mesh::bootstrap_identity(home_dir);
+            std::string pub_path = home_dir + "/id_ed25519.pub";
+            std::ifstream pf(pub_path);
+            if (pf.is_open()) { std::getline(pf, pubkey_hex);
+                while (!pubkey_hex.empty() && (pubkey_hex.back() == '\n' || pubkey_hex.back() == '\r'))
+                    pubkey_hex.pop_back(); }
+        }
+        if (pubkey_hex.empty()) { std::cerr << "No identity found — run keygen first\n"; return 1; }
+        std::cout << "Identity: " << pubkey_hex.substr(0, 16) << "...\n";
+
+        // Parse addr:port
+        auto sep = join_addr.rfind(':');
+        std::string host = join_addr.substr(0, sep);
+        int port = 19949;
+        if (sep != std::string::npos) port = std::stoi(join_addr.substr(sep + 1));
+
+        // Create MeshController for TLS connect (trust established via invite token)
+        bs::mesh::MeshController mc(cfg, home_dir);
+        auto conn = mc.connect_and_hello(join_addr, {}, true);
+        if (!conn.ssl) {
+            std::cerr << "Cannot connect to " << join_addr << ": "
+                      << bs::mesh::MeshController::connect_fail_string(conn.fail) << "\n";
+            return 1;
+        }
+
+        // Send JoinRequest
+        bs::mesh::JoinRequestMsg jr;
+        jr.token = join_token;
+        write_frame(conn.ssl.get(), jr, bs::mesh::CONTROL_STREAM_ID);
+
+        // Read JoinReply
+        bs::mesh::Message msg = bs::mesh::read_frame(conn.ssl.get());
+        if (!std::holds_alternative<bs::mesh::JoinReplyMsg>(msg)) {
+            std::cerr << "Unexpected reply from host\n";
+            return 1;
+        }
+        auto& jrep = std::get<bs::mesh::JoinReplyMsg>(msg);
+        if (!jrep.ok) {
+            std::cerr << "Join rejected: " << jrep.error << "\n";
+            return 1;
+        }
+
+        // Configure: update node name and add host as seed
+        cfg.node_name = join_node_name.empty() ? jrep.node_name : join_node_name;
+        cfg.listen_addr = "0.0.0.0";
+        cfg.listen_port = 19949;
+        cfg.require_seed_pins = true;
+        bs::mesh::PeerEntry host_seed;
+        host_seed.name = "host";
+        host_seed.addr = jrep.host_addr;
+        host_seed.pubkey_hex = jrep.host_pubkey;
+        cfg.seeds.push_back(std::move(host_seed));
+        save_config(config_path, cfg);
+
+        // Authorize host
+        std::string auth_path = bs::mesh::resolve_under_app_home(cfg.authorized_keys_path, home_dir);
+        {
+            std::string dir = auth_path;
+            auto slash = dir.rfind('/');
+            if (slash == std::string::npos) slash = dir.rfind('\\');
+            if (slash != std::string::npos) dir = dir.substr(0, slash);
+            bs::mesh::ensure_private_directory(dir);
+            std::ofstream af(auth_path, std::ios::app);
+            if (af.is_open()) af << "pubkey " << jrep.host_pubkey << "\n";
+        }
+        std::cout << "Joined. Node: " << cfg.node_name << "  Config: " << config_path << "\n";
+        if (join_start) {
+            // Start daemon in background
+            std::cout << "→ Starting daemon...\n";
+#ifdef _WIN32
+            std::string cmd = "start /B bridgesessions --daemon";
+#else
+            std::string cmd = "nohup bridgesessions --daemon > /dev/null 2>&1 &";
+#endif
+            std::system(cmd.c_str());
+            std::cout << "→ Daemon started. Run 'bridgesessions health <peer>' to verify.\n";
+        } else {
+            std::cout << "Start daemon: bridgesessions --daemon\n";
+        }
+        return 0;
     }
     if (image_cmd_app->parsed()) {
         bs::mesh::render_image_to_terminal(image_file);

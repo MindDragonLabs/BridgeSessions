@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Tests for BridgePanel v2 (tools/bridgepanel/bridgepanel.py).
+"""Tests for BridgePanel v3 (tools/bridgepanel/ package).
 
 Stdlib-only (unittest) so it runs anywhere Python 3.10+ is present.
 Covers: filename safety, path-traversal protection, markdown rendering,
 BS IPC multi-chunk parse (regression for P1-1), and the live HTTP
-surface (auth, tree, content, save, health check).
+surface (auth, tree, content, save, health check, session create, connect).
 
 Run:  python3 -m unittest test_bridgepanel -v
 """
@@ -12,7 +12,7 @@ Run:  python3 -m unittest test_bridgepanel -v
 import importlib.util
 import json
 import os
-
+import sys
 import tempfile
 import threading
 import unittest
@@ -20,11 +20,8 @@ from http.client import HTTPConnection
 from http.server import ThreadingHTTPServer
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-SPEC = importlib.util.spec_from_file_location("bridgepanel_under_test",
-                                            os.path.join(HERE, "bridgepanel.py"))
-assert SPEC is not None and SPEC.loader is not None, "failed to load bridgepanel.py spec"
-bp = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(bp)
+sys.path.insert(0, os.path.dirname(HERE))
+import bridgepanel as bp  # noqa: E402
 
 
 class TestPureFunctions(unittest.TestCase):
@@ -82,15 +79,16 @@ class TestPureFunctions(unittest.TestCase):
                 self.closed = True
 
         fake = FakeSock()
-        orig_sock = bp.socket.socket
+        import bridgepanel.api as bp_api
+        orig_sock = bp_api.socket.socket
         orig_tok = bp.bs_ipc_token
-        bp.socket.socket = lambda *a, **k: fake
-        bp.bs_ipc_token = lambda: "x" * 64
+        bp_api.socket.socket = lambda *a, **k: fake
+        bp_api.bs_ipc_token = lambda: "x" * 64
         try:
             sessions = bp.query_bs_sessions()
         finally:
-            bp.socket.socket = orig_sock
-            bp.bs_ipc_token = orig_tok
+            bp_api.socket.socket = orig_sock
+            bp_api.bs_ipc_token = orig_tok
         # Request must be token-prefixed (daemon rejects bare verbs).
         self.assertTrue(fake.sent.startswith(b"x" * 64 + b" "))
         names = {s["name"] for s in sessions}
@@ -98,6 +96,7 @@ class TestPureFunctions(unittest.TestCase):
 
     def _fake_ipc(self, payload_chunks):
         """Install a fake socket returning payload_chunks; returns the fake sock."""
+        import bridgepanel.api as bp_api
 
         class FakeSock:
             def __init__(self):
@@ -120,23 +119,28 @@ class TestPureFunctions(unittest.TestCase):
                 pass
 
         fake = FakeSock()
-        orig_sock = bp.socket.socket
-        orig_tok = bp.bs_ipc_token
-        bp.socket.socket = lambda *a, **k: fake
-        bp.bs_ipc_token = lambda: "t" * 64
-        return fake, orig_sock, orig_tok
+        self._orig_sock = bp_api.socket.socket
+        self._orig_tok = bp_api.bs_ipc_token
+        bp_api.socket.socket = lambda *a, **k: fake
+        bp_api.bs_ipc_token = lambda: "t" * 64
+        return fake
+
+    def _restore_ipc(self):
+        """Restore socket and token after _fake_ipc."""
+        import bridgepanel.api as bp_api
+        bp_api.socket.socket = getattr(self, '_orig_sock', bp_api.socket.socket)
+        bp.bs_ipc_token = getattr(self, '_orig_tok', bp.bs_ipc_token)
 
     def test_mesh_tree_parse(self):
         payload = (b'{"node":"test-pc1","uptime_s":12,"peers":[{"name":"test-pc2",'
                    b'"addr":"192.168.1.30:19949","healthy":true,"last_pong_s":3,'
                    b'"sessions":[{"name":"build","state":"attached","command":"make","bytes":42}]}],'
                    b'"sessions":[{"name":"hermes","state":"attached","command":"hermes","bytes":99}]}\n')
-        fake, orig_sock, orig_tok = self._fake_ipc([payload])
+        fake = self._fake_ipc([payload])
         try:
             tree = bp.query_mesh_tree()
         finally:
-            bp.socket.socket = orig_sock
-            bp.bs_ipc_token = orig_tok
+                self._restore_ipc()
         self.assertEqual(tree["node"], "test-pc1")
         self.assertEqual(tree["peers"][0]["name"], "test-pc2")
         self.assertEqual(tree["peers"][0]["sessions"][0]["name"], "build")
@@ -144,24 +148,22 @@ class TestPureFunctions(unittest.TestCase):
         self.assertNotIn("offline", tree)
 
     def test_mesh_tree_offline(self):
-        fake, orig_sock, orig_tok = self._fake_ipc([b"ERROR unauthorized\n"])
+        fake = self._fake_ipc([b"ERROR unauthorized\n"])
         try:
             tree = bp.query_mesh_tree()
         finally:
-            bp.socket.socket = orig_sock
-            bp.bs_ipc_token = orig_tok
+                self._restore_ipc()
         self.assertTrue(tree.get("offline"))
 
     def test_scrollback_parse_incremental(self):
         import base64
         chunk = base64.b64encode(b"hello world").rstrip(b"=")  # daemon strips padding
         payload = b"OK 11 " + chunk + b"\n"
-        fake, orig_sock, orig_tok = self._fake_ipc([payload])
+        fake = self._fake_ipc([payload])
         try:
             d = bp.query_scrollback("hermes", 0)
         finally:
-            bp.socket.socket = orig_sock
-            bp.bs_ipc_token = orig_tok
+                self._restore_ipc()
         self.assertEqual(d["offset"], 11)
         self.assertEqual(d["text"], "hello world")
         self.assertFalse(d["reset"])
@@ -171,46 +173,42 @@ class TestPureFunctions(unittest.TestCase):
         import base64
         chunk = base64.b64encode(b"tail-bytes").rstrip(b"=")
         payload = b"OK 4096 " + chunk + b" RESET\n"
-        fake, orig_sock, orig_tok = self._fake_ipc([payload])
+        fake = self._fake_ipc([payload])
         try:
             d = bp.query_scrollback("hermes", 0)
         finally:
-            bp.socket.socket = orig_sock
-            bp.bs_ipc_token = orig_tok
+                self._restore_ipc()
         self.assertTrue(d["reset"])
         self.assertEqual(d["text"], "tail-bytes")
         self.assertEqual(d["offset"], 4096)
 
     def test_scrollback_error(self):
-        fake, orig_sock, orig_tok = self._fake_ipc([b"ERROR no such session\n"])
+        fake = self._fake_ipc([b"ERROR no such session\n"])
         try:
             d = bp.query_scrollback("nope", 0)
         finally:
-            bp.socket.socket = orig_sock
-            bp.bs_ipc_token = orig_tok
+                self._restore_ipc()
         self.assertTrue(d["error"])
 
     def test_scrollback_empty_incremental(self):
         # Daemon replies 'OK <off>' (no payload) when nothing new arrived —
         # must NOT be treated as an error (v3 UI regression).
-        fake, orig_sock, orig_tok = self._fake_ipc([b"OK 2295\n"])
+        fake = self._fake_ipc([b"OK 2295\n"])
         try:
             d = bp.query_scrollback("hermes", 2295)
         finally:
-            bp.socket.socket = orig_sock
-            bp.bs_ipc_token = orig_tok
+                self._restore_ipc()
         self.assertEqual(d["error"], "")
         self.assertEqual(d["offset"], 2295)
         self.assertEqual(d["text"], "")
         self.assertFalse(d["reset"])
 
     def test_scrollback_bare_reset(self):
-        fake, orig_sock, orig_tok = self._fake_ipc([b"OK 4096 RESET\n"])
+        fake = self._fake_ipc([b"OK 4096 RESET\n"])
         try:
             d = bp.query_scrollback("hermes", 0)
         finally:
-            bp.socket.socket = orig_sock
-            bp.bs_ipc_token = orig_tok
+                self._restore_ipc()
         self.assertTrue(d["reset"])
         self.assertEqual(d["text"], "")
         self.assertEqual(d["error"], "")
@@ -285,12 +283,12 @@ class TestHttpSurface(unittest.TestCase):
 
     def test_tree_merges_peer_sessions(self):
         """build_tree() merges remote peer sessions from MESH_TREE gossip."""
-        import bridgepanel as bp_module
-        orig_bs = bp_module.query_bs_sessions
-        orig_mt = bp_module.query_mesh_tree
+        import bridgepanel.api as bp_api
+        orig_bs = bp_api.query_bs_sessions
+        orig_mt = bp_api.query_mesh_tree
         try:
-            bp_module.query_bs_sessions = lambda: []
-            bp_module.query_mesh_tree = lambda: {
+            bp_api.query_bs_sessions = lambda: []
+            bp_api.query_mesh_tree = lambda: {
                 "node": "testhost",
                 "uptime_s": 1,
                 "peers": [
@@ -307,7 +305,7 @@ class TestHttpSurface(unittest.TestCase):
                 ],
                 "sessions": [],
             }
-            tree = bp_module.build_tree()
+            tree = bp_api.build_tree()
             sessions = {s["name"]: s for s in tree["sessions"]}
             # Remote live session appears
             self.assertIn("remote-shell", sessions)
@@ -318,8 +316,8 @@ class TestHttpSurface(unittest.TestCase):
             self.assertFalse(sessions["dead-task"]["live"])
             self.assertEqual(sessions["dead-task"]["peer"], "peer-a")
         finally:
-            bp_module.query_bs_sessions = orig_bs
-            bp_module.query_mesh_tree = orig_mt
+            bp_api.query_bs_sessions = orig_bs
+            bp_api.query_mesh_tree = orig_mt
 
     def test_publish_then_content(self):
         src = os.path.join(self.tmp.name, "report.md")
@@ -365,6 +363,46 @@ class TestHttpSurface(unittest.TestCase):
         self.assertTrue(escaped.is_file())
         outside = bp.sessions_dir().parent / "escape.md"
         self.assertFalse(outside.exists())
+
+    def test_session_create_stub(self):
+        body = {
+            "machine": "test-pc2",
+            "name": "my-session",
+            "command": "bash -l",
+            "cols": 80,
+            "rows": 24,
+            "term": "xterm-256color",
+        }
+        status, raw = self._req("POST", f"/{self.token}/api/session/create", body)
+        self.assertEqual(status, 200)
+        payload = json.loads(raw)
+        self.assertFalse(payload["ok"])
+        self.assertIn("not yet implemented", payload["error"])
+
+    def test_session_create_requires_token(self):
+        status, _ = self._req("POST", "/api/session/create", {"name": "x"})
+        self.assertEqual(status, 404)
+
+    def test_session_connect(self):
+        status, raw = self._req(
+            "GET",
+            f"/{self.token}/api/session/connect?session=my-session&machine=test-pc2",
+        )
+        self.assertEqual(status, 200)
+        payload = json.loads(raw)
+        self.assertIn("cmd", payload)
+        self.assertEqual(payload["cmd"], "bs shell test-pc2 -n my-session")
+        # Without machine, uses (peer) placeholder
+        status2, raw2 = self._req(
+            "GET",
+            f"/{self.token}/api/session/connect?session=test",
+        )
+        self.assertEqual(status2, 200)
+        self.assertIn("(peer)", json.loads(raw2)["cmd"])
+
+    def test_session_connect_requires_session(self):
+        status, _ = self._req("GET", f"/{self.token}/api/session/connect?machine=test-pc2")
+        self.assertEqual(status, 400)
 
 
 if __name__ == "__main__":

@@ -2,7 +2,7 @@
 
 All notable public releases are documented here.
 
-## [2.0.9] — alpha4 (2026-07-22)
+## [2.0.9] — alpha5 (2026-07-22)
 
 **BridgePanel remote session discovery — sessions from all mesh peers now appear in the session tree.**
 
