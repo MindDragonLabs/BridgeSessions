@@ -546,6 +546,17 @@ main { min-width: 0; min-height: 0; display: flex; flex-direction: column; overf
 .event-row .ev-msg { color: var(--text-2); }
 .event-row .ev-hil { color: #c62828; font-weight: 600; }
 
+/* ── Models / Registry ── */
+#modelsPane { flex: 1; overflow-y: auto; padding: 16px 20px 40px; }
+#modelsPane a { color: var(--accent-deep); text-decoration: none; }
+#modelsPane a:hover { text-decoration: underline; }
+
+/* ── Health ── */
+#healthPane { flex: 1; overflow-y: auto; padding: 16px 20px 40px; }
+
+/* ── Settings ── */
+#settingsPane { flex: 1; overflow-y: auto; padding: 16px 20px 40px; }
+
 .pc-balance .bar-fill {
   height: 100%;
   border-radius: 2px;
@@ -677,6 +688,10 @@ main { min-width: 0; min-height: 0; display: flex; flex-direction: column; overf
       <button data-tab="connect">Connect</button>
       <button data-tab="providers" id="providersTab">Providers</button>
       <button data-tab="fleet" id="fleetTab">Fleet</button>
+      <button data-tab="events" id="eventsTab">Events</button>
+      <button data-tab="models" id="modelsTab">Models</button>
+      <button data-tab="health" id="healthTab">Health</button>
+      <button data-tab="settings" id="settingsTab">Settings</button>
     </div>
     <div class="toolbar" id="toolbar" style="display:none">
       <div class="btn-group">
@@ -697,6 +712,10 @@ main { min-width: 0; min-height: 0; display: flex; flex-direction: column; overf
       <div id="connectPane" style="display:none"></div>
       <div id="providersPane" style="display:none"></div>
       <div id="fleetPane" style="display:none"></div>
+      <div id="eventsPane" style="display:none"></div>
+      <div id="modelsPane" style="display:none"></div>
+      <div id="healthPane" style="display:none"></div>
+      <div id="settingsPane" style="display:none"></div>
       <div class="empty-state" id="welcomePane">
         <div>Select a machine, then a session.</div>
         <div class="hint">machines → sessions → output / comms / docs / connect</div>
@@ -751,6 +770,10 @@ main { min-width: 0; min-height: 0; display: flex; flex-direction: column; overf
   const connectPane = document.getElementById('connectPane');
   const providersPane = document.getElementById('providersPane');
   const fleetPane = document.getElementById('fleetPane');
+  const eventsPane = document.getElementById('eventsPane');
+  const modelsPane = document.getElementById('modelsPane');
+  const healthPane = document.getElementById('healthPane');
+  const settingsPane = document.getElementById('settingsPane');
   const welcomePane = document.getElementById('welcomePane');
   const filelistEl = document.getElementById('filelist');
   const contentEl = document.getElementById('content');
@@ -1058,6 +1081,38 @@ main { min-width: 0; min-height: 0; display: flex; flex-direction: column; overf
       renderWork();
     }
   });
+  document.getElementById('eventsTab').addEventListener('click', function() {
+    if (!selSession) {
+      tab = 'events';
+      for (var b of tabbarEl.querySelectorAll('button'))
+        b.classList.toggle('active', b.dataset.tab === 'events');
+      renderWork();
+    }
+  });
+  document.getElementById('modelsTab').addEventListener('click', function() {
+    if (!selSession) {
+      tab = 'models';
+      for (var b of tabbarEl.querySelectorAll('button'))
+        b.classList.toggle('active', b.dataset.tab === 'models');
+      renderWork();
+    }
+  });
+  document.getElementById('healthTab').addEventListener('click', function() {
+    if (!selSession) {
+      tab = 'health';
+      for (var b of tabbarEl.querySelectorAll('button'))
+        b.classList.toggle('active', b.dataset.tab === 'health');
+      renderWork();
+    }
+  });
+  document.getElementById('settingsTab').addEventListener('click', function() {
+    if (!selSession) {
+      tab = 'settings';
+      for (var b of tabbarEl.querySelectorAll('button'))
+        b.classList.toggle('active', b.dataset.tab === 'settings');
+      renderWork();
+    }
+  });
 
   // ── Work area ──
   function renderBreadcrumb() {
@@ -1083,14 +1138,23 @@ main { min-width: 0; min-height: 0; display: flex; flex-direction: column; overf
     var has = !!selSession;
     var isProviders = tab === 'providers';
     var isFleet = tab === 'fleet';
-    tabbarEl.style.display = has || isProviders || isFleet || !selSession ? '' : 'none';
+    var isEvents = tab === 'events';
+    var isModels = tab === 'models';
+    var isHealth = tab === 'health';
+    var isSettings = tab === 'settings';
+    var isGlobal = isProviders || isFleet || isEvents || isModels || isHealth || isSettings;
+    tabbarEl.style.display = has || isGlobal || !selSession ? '' : 'none';
     toolbarEl.style.display = has ? '' : 'none';
-    welcomePane.style.display = has || isProviders || isFleet ? 'none' : '';
+    welcomePane.style.display = has || isGlobal ? 'none' : '';
     outputPane.style.display = (has && tab === 'output') ? '' : 'none';
     filePane.style.display = (has && (tab === 'comms' || tab === 'docs')) ? 'flex' : 'none';
     connectPane.style.display = (has && tab === 'connect') ? '' : 'none';
     providersPane.style.display = isProviders ? '' : 'none';
     fleetPane.style.display = isFleet ? '' : 'none';
+    eventsPane.style.display = isEvents ? '' : 'none';
+    modelsPane.style.display = isModels ? '' : 'none';
+    healthPane.style.display = isHealth ? '' : 'none';
+    settingsPane.style.display = isSettings ? '' : 'none';
 
     if (outputTimer) { clearInterval(outputTimer); outputTimer = null; }
     if (has && tab === 'output') {
@@ -1113,6 +1177,18 @@ main { min-width: 0; min-height: 0; display: flex; flex-direction: column; overf
     }
     if (isFleet) {
       renderFleet();
+    }
+    if (isEvents) {
+      renderEvents();
+    }
+    if (isModels) {
+      renderModels();
+    }
+    if (isHealth) {
+      renderHealth();
+    }
+    if (isSettings) {
+      renderSettings();
     }
   }
 
@@ -1365,6 +1441,181 @@ main { min-width: 0; min-height: 0; display: flex; flex-direction: column; overf
       html += '<\/div>';
     }
     fleetPane.innerHTML = html;
+  }
+
+  // ── Events pane ──
+  var eventsCache = null;
+  function renderEvents() {
+    if (eventsCache) { drawEvents(eventsCache); return; }
+    eventsPane.innerHTML = '<div class=\"empty-state\">Loading events…</div>';
+    fetch(base + '/api/events?limit=200').then(function(r) {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    }).then(function(d) {
+      eventsCache = d;
+      drawEvents(d);
+    }).catch(function(err) {
+      eventsPane.innerHTML = '<div class=\"empty-state\">Failed to load events.<div class=\"hint\">' + esc(String(err.message || err)) + '</div></div>';
+    });
+  }
+  function drawEvents(d) {
+    var evs = d.events || [];
+    var html = '<div class=\"fleet-head\"><h2>Event Log</h2><span class=\"providers-summary\">' + evs.length + ' events</span></div>';
+    if (!evs.length) { html += '<div class=\"empty-state\">No events yet.</div>'; eventsPane.innerHTML = html; return; }
+    html += '<div class=\"events-list\">';
+    for (var i = 0; i < evs.length; i++) {
+      var ev = evs[i];
+      html += '<div class=\"event-row\">' +
+        '<span class=\"ev-time\">' + esc(ev.time || '') + '</span>' +
+        '<span class=\"ev-type\">' + esc(ev.type || '') + '</span>' +
+        '<span class=\"ev-msg\">' + esc(ev.msg || '') + '</span>' +
+      '</div>';
+    }
+    html += '</div>';
+    eventsPane.innerHTML = html;
+  }
+
+  // ── Models pane ──
+  var modelsCache = null;
+  function renderModels() {
+    if (modelsCache) { drawModels(modelsCache); return; }
+    modelsPane.innerHTML = '<div class=\"empty-state\">Loading model registry…</div>';
+    fetch(base + '/api/registry').then(function(r) {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    }).then(function(d) {
+      modelsCache = d;
+      drawModels(d);
+    }).catch(function(err) {
+      modelsPane.innerHTML = '<div class=\"empty-state\">Failed to load registry.<div class=\"hint\">' + esc(String(err.message || err)) + '</div></div>';
+    });
+  }
+  function drawModels(d) {
+    var provs = d.providers || [];
+    // Also show discovered models
+    var html = '<div class=\"fleet-head\"><h2>Model Registry</h2><span class=\"providers-summary\">' + provs.length + ' providers (models.dev)</span></div>';
+    html += '<div style=\"margin-bottom:12px;font-size:12px;color:var(--text-4)\">Models.dev registry — known model providers and their endpoints.</div>';
+    html += '<div class=\"spoke-cards\">';
+    for (var i = 0; i < provs.length; i++) {
+      var p = provs[i];
+      html += '<div class=\"spoke-card\" style=\"font-size:13px\">' +
+        '<div class=\"sc-head\"><span class=\"sc-ip\" style=\"font-size:13px\">' + esc(p.name || p.id) + '</span></div>' +
+        '<div class=\"sc-meta\">ID: <code>' + esc(p.id) + '</code>';
+      if (p.doc) html += ' · <a href=\"' + esc(p.doc) + '\" target=\"_blank\" style=\"color:var(--accent-deep)\">docs</a>';
+      html += '</div></div>';
+    }
+    html += '</div>';
+    modelsPane.innerHTML = html;
+  }
+
+  // ── Health pane ──
+  var healthCache = null;
+  function renderHealth() {
+    if (healthCache) { drawHealth(healthCache); return; }
+    healthPane.innerHTML = '<div class=\"empty-state\">Loading health…</div>';
+    fetch(base + '/api/fleet').then(function(r) {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    }).then(function(d) {
+      healthCache = d;
+      drawHealth(d);
+    }).catch(function(err) {
+      healthPane.innerHTML = '<div class=\"empty-state\">Failed to load health.<div class=\"hint\">' + esc(String(err.message || err)) + '</div></div>';
+    });
+  }
+  function drawHealth(d) {
+    var spokes = d.spokes || [];
+    var harnesses = d.harnesses || [];
+    var online = 0, offline = 0, degraded = 0, missing = 0;
+    for (var i = 0; i < spokes.length; i++) {
+      if (spokes[i].status === 'healthy') online++; else offline++;
+    }
+    for (var i = 0; i < harnesses.length; i++) {
+      if (harnesses[i].status === 'degraded') degraded++;
+      if (harnesses[i].status === 'missing') missing++;
+    }
+    var html = '<div class=\"fleet-head\"><h2>Fleet Health</h2></div>';
+    html += '<div class=\"stat-cards\">';
+    html += '<div class=\"fleet-stat\"><div class=\"fs-v ok\">' + online + '</div><div class=\"fs-l\">Spokes Up</div></div>';
+    html += '<div class=\"fleet-stat\"><div class=\"fs-v warn\">' + offline + '</div><div class=\"fs-l\">Spokes Down</div></div>';
+    html += '<div class=\"fleet-stat\"><div class=\"fs-v\">' + degraded + '</div><div class=\"fs-l\">Harness Degraded</div></div>';
+    html += '<div class=\"fleet-stat\"><div class=\"fs-v\">' + missing + '</div><div class=\"fs-l\">Harness Missing</div></div>';
+    html += '</div>';
+    // Spoke health
+    html += '<h3 style=\"margin-bottom:10px;font-size:14px;color:var(--text-2)\">Spoke Health</h3>';
+    html += '<div class=\"spoke-cards\">';
+    for (var i = 0; i < spokes.length; i++) {
+      var sp = spokes[i];
+      var st = sp.status === 'healthy' ? 'ok' : 'warn';
+      html += '<div class=\"spoke-card\"><div class=\"sc-head\">' +
+        '<span class=\"sc-status ' + st + '\"></span>' +
+        '<span class=\"sc-ip\">' + esc(sp.ip) + '</span></div>' +
+        '<div class=\"sc-meta\">' + esc(sp.status) + ' · ' + esc(sp.hostname || sp.ip) + '</div></div>';
+    }
+    html += '</div>';
+    // Harness summary
+    if (harnesses.length) {
+      html += '<h3 style=\"margin-top:16px;margin-bottom:8px;font-size:14px;color:var(--text-2)\">Harness Summary</h3>';
+      html += '<div class=\"spoke-cards\">';
+      for (var i = 0; i < harnesses.length; i++) {
+        var h = harnesses[i];
+        var badge = 'ok';
+        if (h.status === 'missing') badge = 'missing';
+        if (h.status === 'degraded') badge = 'degraded';
+        if (h.hil) badge = 'hil';
+        html += '<div class=\"sh-row\" style=\"border:1px solid var(--border);padding:5px 10px;border-radius:5px\">' +
+          '<span class=\"sh-name\">' + esc(h.host) + ' / ' + esc(h.harness) + '</span>' +
+          '<span class=\"sh-badge ' + badge + '\">' + esc(h.status) + '</span></div>';
+      }
+      html += '</div>';
+    }
+    healthPane.innerHTML = html;
+  }
+
+  // ── Settings pane ──
+  var settingsCache = null;
+  function renderSettings() {
+    if (settingsCache) { drawSettings(settingsCache); return; }
+    settingsPane.innerHTML = '<div class=\"empty-state\">Loading settings…</div>';
+    fetch(base + '/api/fleet').then(function(r) {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    }).then(function(d) {
+      settingsCache = d;
+      drawSettings(d);
+    }).catch(function(err) {
+      settingsPane.innerHTML = '<div class=\"empty-state\">Failed to load settings.<div class=\"hint\">' + esc(String(err.message || err)) + '</div></div>';
+    });
+  }
+  function drawSettings(d) {
+    var configs = d.spoke_configs || {};
+    var ips = Object.keys(configs).sort();
+    var model = '';
+    try {
+      model = ips.length ? (JSON.parse(JSON.stringify(configs[ips[0]])) || {}) : {};
+    } catch(_) { model = configs[ips[0]] || {}; }
+    var html = '<div class=\"fleet-head\"><h2>Settings</h2><span class=\"providers-summary\">fleet standard</span></div>';
+    html += '<div style=\"margin-bottom:14px;font-size:12px;color:var(--text-4)\">All fleet hosts should use identical config. First spoke config shown as reference.</div>';
+    if (model.provider) {
+      html += '<div class=\"spoke-card\" style=\"margin-bottom:12px\"><div class=\"sc-head\"><span class=\"sc-ip\">Fleet Standard</span></div>';
+      html += '<div class=\"sc-meta\">Provider: <code>' + esc(model.provider || '') + '</code><br>';
+      html += 'Model: <code>' + esc(model.default_model || '') + '</code><br>';
+      if (model.base_url) html += 'Base URL: <code>' + esc(model.base_url) + '</code><br>';
+      html += 'Path: <code>' + esc(model.path || '') + '</code></div></div>';
+    }
+    html += '<h3 style=\"margin-bottom:8px;font-size:14px;color:var(--text-2)\">Per-Host Configs</h3>';
+    html += '<div class=\"spoke-cards\">';
+    for (var i = 0; i < ips.length; i++) {
+      var ip = ips[i];
+      var cfg = configs[ip] || {};
+      html += '<div class=\"spoke-card\"><div class=\"sc-head\"><span class=\"sc-status ok\"></span>' +
+        '<span class=\"sc-ip\">' + esc(ip) + '</span></div>' +
+        '<div class=\"sc-meta\">Provider: <code>' + esc(cfg.provider || '?') + '</code> · Model: <code>' + esc(cfg.default_model || '?') + '</code></div>' +
+      '</div>';
+    }
+    html += '</div>';
+    html += '<div style=\"margin-top:16px;font-size:12px;color:var(--text-4)\">Quotas & Sessions tabs are planned for Phase 7. BridgePanel reads live from the 9warp sidecar (' + esc(ips.length) + ' hosts).</div>';
+    settingsPane.innerHTML = html;
   }
 
   // ── File list (comms/docs) ──

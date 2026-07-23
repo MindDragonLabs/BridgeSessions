@@ -262,6 +262,51 @@ def _sidecar_secret() -> str:
 _SIDECAR_URL = "http://192.168.1.20:9753"
 
 
+def query_registry() -> dict:
+    """Fetch models.dev registry from sidecar (170 providers)."""
+    import urllib.request
+    try:
+        req = urllib.request.Request(f"{_SIDECAR_URL}/v1/registry/")
+        secret = _sidecar_secret()
+        if secret:
+            req.add_header("Authorization", f"Bearer {secret}")
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            return {"ok": True, **_json.loads(resp.read())}
+    except Exception as e:
+        return {"ok": False, "error": str(e), "providers": []}
+
+def query_discovered() -> dict:
+    """Fetch newly discovered models from sidecar."""
+    return _sidecar_fetch("/v1/discovered/")
+
+def query_events(limit: int = 100) -> dict:
+    """Fetch recent events from sidecar."""
+    import urllib.request
+    try:
+        url = f"{_SIDECAR_URL}/v1/events/?limit={limit}"
+        req = urllib.request.Request(url)
+        secret = _sidecar_secret()
+        if secret:
+            req.add_header("Authorization", f"Bearer {secret}")
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            return {"ok": True, **_json.loads(resp.read())}
+    except Exception as e:
+        return {"ok": False, "error": str(e), "events": []}
+
+def _sidecar_fetch(path: str) -> dict:
+    """Generic sidecar fetch helper."""
+    import urllib.request
+    try:
+        req = urllib.request.Request(f"{_SIDECAR_URL}{path}")
+        secret = _sidecar_secret()
+        if secret:
+            req.add_header("Authorization", f"Bearer {secret}")
+        with urllib.request.urlopen(req, timeout=4) as resp:
+            return {"ok": True, **_json.loads(resp.read())}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
 def query_fleet() -> dict:
     """Aggregate fleet: spokes, harnesses, events, config per host."""
     import urllib.request

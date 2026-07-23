@@ -8,7 +8,7 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import parse_qs, urlparse
 
-from .api import build_tree, query_mesh_tree, query_providers, query_fleet, query_scrollback, daemon_create_session, daemon_connect_session
+from .api import build_tree, query_mesh_tree, query_providers, query_fleet, query_registry, query_events, query_scrollback, daemon_create_session, daemon_connect_session
 from .consts import MAX_UPLOAD, VERSION, APP
 from .files import (markdown_to_html, resolve_file, safe_name,
                     safe_session_name, safe_type, sessions_dir)
@@ -105,6 +105,14 @@ class BridgePanelHandler(BaseHTTPRequestHandler):
             self.send_json(query_providers())
         elif path == "/api/fleet":
             self.send_json(query_fleet())
+        elif path == "/api/registry":
+            self.send_json(query_registry())
+        elif path == "/api/events":
+            try:
+                limit = int(params.get("limit", ["100"])[0])
+            except ValueError:
+                limit = 100
+            self.send_json(query_events(limit))
         elif path == "/api/output":
             session = params.get("session", [""])[0]
             try:
