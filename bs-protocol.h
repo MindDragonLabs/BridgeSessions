@@ -2090,12 +2090,29 @@ void write_frame(SSL* ssl, const Message& msg, uint16_t stream_id) {
     auto frame = encode(msg, stream_id);
 
     size_t total = 0;
-    while (total < frame.size()) {
+    int retries = 0;
+    const int max_retries = 1000;
+    while (total < frame.size() && retries < max_retries) {
         size_t n = 0;
         clear_stale_ssl_errors_before_io();
         int ret = SSL_write_ex(ssl, frame.data() + total, frame.size() - total, &n);
+        int err = SSL_get_error(ssl, ret);
+        if (ret > 0) {
+            total += n;
+            retries = 0;
+            continue;
+        }
+        // v2.0.12c: retry on WANT_WRITE/WANT_READ — Windows/MinGW returns these
+        // even on blocking sockets for large writes.
+        if (err == SSL_ERROR_WANT_WRITE || err == SSL_ERROR_WANT_READ) {
+            ++retries;
+            std::this_thread::yield();
+            continue;
+        }
         ssl_check(ret, ssl, "SSL_write");
-        total += n;
+    }
+    if (total < frame.size()) {
+        throw std::runtime_error("SSL_write failed after retries");
     }
 }
 
@@ -6438,6 +6455,9 @@ private:
         c.last_pong = std::chrono::steady_clock::now();
         // Steady-state recv timeout for established links.
         set_socket_timeouts(ph.sock_fd, kPeerRecvTimeoutMs);
+        // v2.0.12c: increase socket buffers for large file transfers
+        { int sz = 262144; setsockopt(ph.sock_fd, SOL_SOCKET, SO_SNDBUF, (const char*)&sz, sizeof(sz));
+          setsockopt(ph.sock_fd, SOL_SOCKET, SO_RCVBUF, (const char*)&sz, sizeof(sz)); }
 
         merge_peers(hello.known_peers);
         conns_.push_back(std::move(c));
@@ -6803,6 +6823,9 @@ private:
             // Steady-state recv timeout (see kPeerRecvTimeoutMs): bound mid-frame
             // stalls to drop+reconnect instead of a single-threaded loop freeze.
             set_socket_timeouts(sfd, kPeerRecvTimeoutMs);
+            // v2.0.12c: increase socket buffers for large file transfers
+            { int sz = 262144; setsockopt(sfd, SOL_SOCKET, SO_SNDBUF, (const char*)&sz, sizeof(sz));
+              setsockopt(sfd, SOL_SOCKET, SO_RCVBUF, (const char*)&sz, sizeof(sz)); }
 
             // Merge known peers from Hello only after identity is verified.
             merge_peers(hello.known_peers);
@@ -7133,14 +7156,13 @@ private:
         for (uint32_t ci = 0; ci < total_chunks; ++ci) {
             infile.read(raw.data(), static_cast<std::streamsize>(kTransferChunkRawSize));
             size_t chunk_sz = static_cast<size_t>(infile.gcount());
-            std::vector<uint8_t> compressed;
-            if (chunk_sz > 0) {
-                compressed = zstd_compress(
-                    std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(raw.data()), chunk_sz));
-            }
+            // v2.0.12c: let encode() handle compression — manual zstd_compress here
+            // causes double compression which breaks on Windows/MinGW.
             FileChunkMsg chunk;
             chunk.chunk_index = ci; chunk.total_chunks = total_chunks;
-            chunk.data = std::move(compressed);
+            if (chunk_sz > 0) {
+                chunk.data.assign(raw.data(), raw.data() + chunk_sz);
+            }
             try { write_frame(target->ssl.get(), chunk, CONTROL_STREAM_ID); } catch (...) { return false; }
         }
         log_event("file_send_complete", filename + " " + std::to_string(filesize) + " bytes " + std::to_string(total_chunks) + " chunks");
@@ -7155,6 +7177,30 @@ private:
             const std::function<bool()>& is_cancelled = {},
             const std::function<void(const std::string&)>& on_progress = {}) {
         if (!socket_selectable(sock_fd)) return "ERROR socket exceeds select limit";
+        // v2.0.12c: temporarily set blocking mode for the duration of the transfer.
+        // Mesh sockets are non-blocking; SSL_write_ex on non-blocking sockets
+        // returns SSL_ERROR_WANT_WRITE and fails on Windows/MinGW.
+        struct BlockingGuard {
+            SOCKET fd;
+#ifdef _WIN32
+            u_long orig;
+            explicit BlockingGuard(SOCKET f) : fd(f), orig(0) {
+                ioctlsocket(f, FIONBIO, &orig);
+            }
+            ~BlockingGuard() {
+                u_long restore = 1;
+                ioctlsocket(fd, FIONBIO, &restore);
+            }
+#else
+            int orig;
+            explicit BlockingGuard(SOCKET f) : fd(f), orig(fcntl(f, F_GETFL, 0)) {
+                fcntl(f, F_SETFL, orig & ~O_NONBLOCK);
+            }
+            ~BlockingGuard() {
+                fcntl(fd, F_SETFL, orig);
+            }
+#endif
+        } guard{sock_fd};
         namespace fs = std::filesystem;
         auto emit = [&](const std::string& line) {
             if (on_progress) on_progress(line);
@@ -7244,6 +7290,9 @@ private:
             try { write_frame(ssl, chunk, CONTROL_STREAM_ID); }
             catch (const std::exception& e) { return "ERROR send chunk: " + std::string(e.what()); }
             bytes_sent += chunk_sz;
+            // v2.0.12c: small delay between chunks to let the mesh event loop
+            // process Ping/Pong and prevent connection timeout.
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
             ack = wait_ack(ci + 1);
             if (ack.rfind("ERROR", 0) == 0) return ack;
 
@@ -7357,14 +7406,13 @@ private:
 
             infile.read(raw.data(), static_cast<std::streamsize>(kTransferChunkRawSize));
             size_t chunk_sz = static_cast<size_t>(infile.gcount());
-            std::vector<uint8_t> compressed;
-            if (chunk_sz > 0) {
-                compressed = zstd_compress(
-                    std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(raw.data()), chunk_sz));
-            }
+            // v2.0.12c: let encode() handle compression — manual zstd_compress here
+            // causes double compression which breaks on Windows/MinGW.
             FileChunkMsg chunk;
             chunk.chunk_index = ci; chunk.total_chunks = total_chunks;
-            chunk.data = std::move(compressed);
+            if (chunk_sz > 0) {
+                chunk.data.assign(raw.data(), raw.data() + chunk_sz);
+            }
 
             // Wait for write readiness with bounded deadline so a throttled peer
             // cannot stall the event loop indefinitely.
@@ -7379,8 +7427,9 @@ private:
             if (sel < 0) return "ERROR select failed at chunk " + std::to_string(ci);
             if (sel == 0) return "ERROR transfer idle timeout at chunk " + std::to_string(ci);
 
-            // Drain any pings before writing so the peer stays alive.
-            if (FD_ISSET(sock_fd, &rfds) || SSL_pending(ssl) > 0) {
+            // Drain ALL pending frames before writing so the peer's acks don't
+            // pile up in the socket buffer and block our write.
+            while (SSL_pending(ssl) > 0) {
                 try {
                     Message resp = read_frame(ssl);
                     if (std::holds_alternative<PingMsg>(resp)) {
@@ -7389,7 +7438,23 @@ private:
                         auto& ack = std::get<FileAckMsg>(resp);
                         if (ack.error) return "ERROR remote: " + ack.error_msg;
                     }
-                } catch (...) {}
+                } catch (...) { break; }
+            }
+            // Also check socket-level readability for frames not yet in SSL buffer.
+            {
+                fd_set rfds2; FD_ZERO(&rfds2); FD_SET(sock_fd, &rfds2);
+                timeval tv2{0, 0};
+                if (select(static_cast<int>(sock_fd) + 1, &rfds2, nullptr, nullptr, &tv2) > 0) {
+                    try {
+                        Message resp = read_frame(ssl);
+                        if (std::holds_alternative<PingMsg>(resp)) {
+                            write_frame(ssl, PongMsg{}, CONTROL_STREAM_ID);
+                        } else if (std::holds_alternative<FileAckMsg>(resp)) {
+                            auto& ack = std::get<FileAckMsg>(resp);
+                            if (ack.error) return "ERROR remote: " + ack.error_msg;
+                        }
+                    } catch (...) {}
+                }
             }
 
             try { write_frame(ssl, chunk, CONTROL_STREAM_ID); }
@@ -9219,6 +9284,10 @@ public:
                 target.output_gap_pending = false;
                 continue;
             }
+            // v2.0.12c: skip busy connections — a worker thread owns the SSL
+            // transport for file transfer; writing here would race and corrupt
+            // the TLS record stream.
+            if (target.exec_busy && target.exec_busy->load()) continue;
             // Emit OutputGap first if pending (client needs to know about drops
             // before receiving the next queued OutputMsg).
             if (target.output_gap_pending) {
