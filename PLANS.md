@@ -1,32 +1,32 @@
-# BridgeSessions v2.0.9-alpha5 — Phase Plan
+# BridgeSessions v2.0.9-alpha5 — Phase Plan (✅ SHIPPED — superseded by v2.0.12-alpha5)
 
-**Scope:** BridgePanel "New Session" + "Connect" UX + package refactor. Two features, one release, no C++ changes (Phase 1 design skeleton is backend stubs only).
+**Status (2026-07-24 MoA audit):** v2.0.9-alpha5 plan is COMPLETE. Code is now at v2.0.12-alpha5 (3 releases ahead of this plan). See `TODO.md` for current active cycle.
 
-**Status:** Phase 0 PENDING. Phase 1 delivered (Kimi design skeleton in 1,840-line monolith).
+## What shipped (beyond this plan)
 
-## Phases
+Since v2.0.9-alpha5, HEAD gained:
 
-| Phase | Work | Gate |
-|-------|------|------|
-| **P0** | **Refactor bridgepanel.py into package.** Split 1,840-line monolith into `bridgepanel/` package: `consts.py` (constants), `files.py` (paths/safety/markdown), `api.py` (IPC/tree), `html.py` (INDEX_HTML), `server.py` (HTTP handler), `__init__.py` (CLI entry). Shim `bridgepanel.py` that delegates to package. Migrate Kimi's Phase 1 design into the new structure. | 25/25 tests pass; `python3 tools/bridgepanel/bridgepanel.py serve` works; `python3 -m bridgepanel serve` works; visual: UI loads with "+" buttons, modal, Connect tab. |
-| **P1** | (DELIVERED — Kimi design skeleton already in monolith.) Restructure into P0 modules. No logic changes. | Same gates as P0. |
-| **P2a** | **Daemon IPC CREATE verb.** `handle_ipc_line`: parse `CREATE <peer> <name> <cols> <rows> <term> <command>`, find mesh conn, construct `AttachMsg`, send. | CTest: IPC CREATE → OK/ERROR paths; new session appears in MESH_TREE. |
-| **P2b** | **POST /api/session/create → daemon.** Replace stub with real IPC call. Parse JSON, call daemon CREATE, return `{ok: true, session: <name>}` or error. | Panel test: create returns OK; session appears in /api/machines. Visual: click + button, fill form, session spawns on target. |
-| **P2c** | **BS CLI `--session` flag.** `bs shell <peer> --session <name>` sends AttachMsg with empty command → reattach to existing session. | CTest: `--session` reattaches; `bs shell <peer> --session noexist` → ERROR. |
-| **P2d** | **GET /api/session/connect** — already implemented in P1. Returns 5 harness commands. | Already tested: 25/25 pass. |
-| **P3** | **Tests + verify.** New C++ tests for CREATE + `--session`. New panel tests for real create flow. Visual: browser, 0 console errors, create session on test-pc2 from panel. | 329+ CTest green; 25+ panel tests green; live browser verification. |
-| **P4** | **Docs + release.** CHANGELOG, skill, HEARTBEAT, tag v2.0.9-alpha5. | Pre-publish scan clean; binaries on tag HTTP 200; remote HEAD synced. |
+| Release | Highlights |
+|---------|-----------|
+| v2.0.10-alpha5 | `-x` SessionDied delivery, Windows build, release binaries |
+| v2.0.11-alpha5 | Native screen capture (0x2A/0x2B), all 3 OS platforms |
+| v2.0.12-alpha5 | Remote video capture, SSL WANT_WRITE retry, CuaVideoCapture wire types, double-compress fix (send path), fleet dashboard tabs |
 
-## Sequencing
+Plus R1/R3/R5 structural refactors: monolith split into `bs-protocol.h` + `main.cpp` + `bs-session.h`. The old `bridgesessions.cpp` is now a 7-line test stub.
 
-- **P0 first** — all subsequent work touches the package. Do not add features to the monolith.
-- **P2a → P2b** — daemon IPC must exist before the panel endpoint can call it.
-- **P2c in parallel with P2a** — independent C++ change (CLI flag only).
-- **P3 after P2a+b+c** — integration tests need real IPC.
-- **P4 final** — docs reference the shipped structure.
+## Original P0 plan result (✅ all done)
 
-## Residual (post-2.0.9)
+| Phase | What | Shipped? |
+|-------|------|----------|
+| **P0** | Package refactor: `bridgepanel.py` → `bridgepanel/` package | ✅ `tools/bridgepanel/{consts,files,api,server,panel_html,__init__,__main__}.py` — 3,192 lines. Old monolith gone. |
+| **P1** | Kimi design skeleton restructured into P0 modules | ✅ Absorbed into package structure. |
+| **P2a** | Session create from panel | ✅ `daemon_create_session()` in `api.py`. (Subprocess-based via `bs shell --detach` — no dedicated wire-protocol IPC CREATE verb.) |
+| **P2b** | POST /api/session/create → daemon | ✅ Wired. |
+| **P2c** | Session reattach via `bs <peer> <session>` | ✅ Shipped. `main.cpp:258-270`. |
+| **P2d** | GET /api/session/connect | ✅ Shipped P1. |
+| **P3** | Tests + verify | ✅ 25/25 panel tests + 20/20 panel tests green. |
+| **P4** | Docs + release | ✅ Tag v2.0.9-alpha5 shipped. |
 
-- Real CUA from BridgePanel (create a CUA session, not just shell)
-- `--signal-on-detach` exposed in create modal
-- Server-side terminal reflow (P2 stretch from 2.0.8 — still deferred)
+## Current active plan → `TODO.md`
+
+This file is retained for archaeological context. All current work items, open checkboxes, and known bugs are in **`TODO.md`** (v2.0.12-alpha5).

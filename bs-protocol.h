@@ -7278,15 +7278,17 @@ private:
             if (is_cancelled && is_cancelled()) return "ERROR cancelled";
             infile.read(raw.data(), static_cast<std::streamsize>(kTransferChunkRawSize));
             size_t chunk_sz = static_cast<size_t>(infile.gcount());
-            std::vector<uint8_t> compressed;
+            // v2.0.12c: let encode() handle compression — manual zstd_compress here
+            // causes double compression which breaks on Windows/MinGW.
+            std::vector<uint8_t> raw_chunk;
             if (chunk_sz > 0) {
-                compressed = zstd_compress(
-                    std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(raw.data()), chunk_sz));
+                raw_chunk.assign(reinterpret_cast<const uint8_t*>(raw.data()),
+                                 reinterpret_cast<const uint8_t*>(raw.data()) + chunk_sz);
             }
             FileChunkMsg chunk;
             chunk.chunk_index = ci;
             chunk.total_chunks = total_chunks;
-            chunk.data = std::move(compressed);
+            chunk.data = std::move(raw_chunk);
             try { write_frame(ssl, chunk, CONTROL_STREAM_ID); }
             catch (const std::exception& e) { return "ERROR send chunk: " + std::string(e.what()); }
             bytes_sent += chunk_sz;
@@ -8137,9 +8139,10 @@ private:
             size_t off = static_cast<size_t>(ci) * kChunkRawSize;
             size_t sz = (std::min)(kChunkRawSize, total - off);
             std::string raw = content.substr(off, sz);
-            std::vector<uint8_t> comp;
-            if (!raw.empty()) comp = zstd_compress(std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(raw.data()), raw.size()));
-            FileChunkMsg c; c.chunk_index = ci; c.total_chunks = total_chunks; c.data = std::move(comp);
+            // v2.0.12c: let encode() handle compression — avoid double-compress
+            FileChunkMsg c; c.chunk_index = ci; c.total_chunks = total_chunks;
+            c.data.assign(reinterpret_cast<const uint8_t*>(raw.data()),
+                          reinterpret_cast<const uint8_t*>(raw.data()) + raw.size());
             try { write_frame(target->ssl.get(), c, CONTROL_STREAM_ID); } catch (...) { return "ERROR upload: chunk " + std::to_string(ci); }
         }
         log_event("edit_up_complete", filename + " to " + peer_name);
@@ -8208,9 +8211,10 @@ private:
                 size_t offset = static_cast<size_t>(ci) * kChunkRawSize;
                 size_t chunk_sz = (std::min)(kChunkRawSize, total - offset);
                 std::string raw = content.substr(offset, chunk_sz);
-                std::vector<uint8_t> comp;
-                if (!raw.empty()) comp = zstd_compress(std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(raw.data()), raw.size()));
-                FileChunkMsg c; c.chunk_index = ci; c.total_chunks = total_chunks; c.data = std::move(comp);
+                // v2.0.12c: let encode() handle compression — avoid double-compress
+                FileChunkMsg c; c.chunk_index = ci; c.total_chunks = total_chunks;
+                c.data.assign(reinterpret_cast<const uint8_t*>(raw.data()),
+                              reinterpret_cast<const uint8_t*>(raw.data()) + raw.size());
                 try { write_frame(target->ssl.get(), c, CONTROL_STREAM_ID); } catch (...) { return "ERROR chunk " + std::to_string(ci); }
             }
             ++sent;
