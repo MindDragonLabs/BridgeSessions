@@ -259,7 +259,7 @@ def _sidecar_secret() -> str:
     return ""
 
 
-_SIDECAR_URL = "http://192.168.1.20:9753"
+_SIDECAR_URL = os.environ.get("SIDECAR_URL", "http://<sidecar-host>:9753")
 
 
 def query_registry() -> dict:
