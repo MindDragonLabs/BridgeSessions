@@ -2,6 +2,22 @@
 
 All notable public releases are documented here.
 
+## [2.0.17] — alpha6 (2026-07-27)
+
+**Hotfix follow-on: frame reads now tolerate WANT_READ/WANT_WRITE — Windows-source
+pulls no longer die at TLS record boundaries.**
+
+### Fixes
+- **`bs file recv` (pull) from Windows peers aborted mid-transfer** with
+  `SSL_read header failed: SSL error 2` (WANT_READ): `select()` readiness
+  guarantees bytes, not a complete TLS record, and multi-record chunk frames
+  surfaced WANT_READ inside `read_frame`, which treated any `SSL_read_ex <= 0`
+  as fatal. `read_frame` now retries WANT_READ/WANT_WRITE with a bounded budget
+  (400 × 25 ms = 10 s cap) before failing — benefits every frame consumer
+  (transfers, health probes, edit sync).
+- Carries the 2.0.16 zstd-magic receiver sniff (raw + legacy double-compressed
+  senders both accepted).
+
 ## [2.0.16] — alpha6 (2026-07-27)
 
 **Hotfix: file transfer between v2.0.14/2.0.15 nodes was broken. Receivers now

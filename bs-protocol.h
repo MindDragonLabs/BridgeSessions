@@ -2032,7 +2032,23 @@ void ssl_check(int ret, SSL* ssl, const char* op) {
 
 } // anonymous namespace
 
+// Bounded WANT_READ/WANT_WRITE tolerance for frame reads. select() readiness
+// only guarantees *some* bytes, not a complete TLS record — large chunk frames
+// split across records can surface WANT_READ mid-frame (observed pulling 1 MiB
+// from a Windows peer: transfer died on the first record boundary). Retry
+// briefly instead of tearing the connection down; the budget caps the stall.
+inline bool ssl_want_retry(SSL* ssl, int ret, int& budget) {
+    int err = SSL_get_error(ssl, ret);
+    if (err != SSL_ERROR_WANT_READ && err != SSL_ERROR_WANT_WRITE) return false;
+    if (--budget <= 0) return false;
+    // Plain sleep (no select): this header's SOCKET/select compat layer is
+    // defined further down, and 25 ms granularity is plenty for frame I/O.
+    std::this_thread::sleep_for(std::chrono::milliseconds(25));
+    return true;
+}
+
 Message read_frame(SSL* ssl) {
+    int want_budget = 400;  // 400 x 25 ms = 10 s worst-case mid-frame stall
     // Read header
     uint8_t header[FRAME_HEADER_SIZE];
     size_t total = 0;
@@ -2040,6 +2056,7 @@ Message read_frame(SSL* ssl) {
         size_t n = 0;
         clear_stale_ssl_errors_before_io();
         int ret = SSL_read_ex(ssl, header + total, FRAME_HEADER_SIZE - total, &n);
+        if (ret <= 0 && ssl_want_retry(ssl, ret, want_budget)) continue;
         ssl_check(ret, ssl, "SSL_read header");
         total += n;
     }
@@ -2059,6 +2076,7 @@ Message read_frame(SSL* ssl) {
             size_t n = 0;
             clear_stale_ssl_errors_before_io();
             int ret = SSL_read_ex(ssl, raw.data() + FRAME_HEADER_SIZE + total, length - total, &n);
+            if (ret <= 0 && ssl_want_retry(ssl, ret, want_budget)) continue;
             ssl_check(ret, ssl, "SSL_read payload");
             total += n;
         }
