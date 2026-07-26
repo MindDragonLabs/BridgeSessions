@@ -2,6 +2,54 @@
 
 All notable public releases are documented here.
 
+## [2.0.14] — alpha6 (2026-07-26)
+
+**File-transfer double-compression fix + release housekeeping. First tag with all three platform binaries rebuilt post-refactor.**
+
+### Fixes
+- **file-xfer double-compression (3 sites):** `file_send_wait_on_transport`, `daemon_edit_up`,
+  and `daemon_vfolder_sync` each ran a manual `zstd_compress()` on chunk data before
+  `write_frame()`, whose `encode()` compresses again — the receiver decompressed once and
+  got zstd frames instead of payload, breaking transfers (worst on Windows/MinGW). All 6
+  send paths now pass raw bytes to `write_frame()` → single `encode()` compress.
+- **SSL large frames:** `SSL_write` now retries on `WANT_WRITE`/`WANT_READ` instead of
+  failing the frame (large transfers over slow links).
+- **Windows file-xfer stability:** serve transfers run synchronously and worker-thread
+  transfers use blocking socket mode (kills the worker-pool SSL race behind the 2.0.12-era
+  hang reports).
+
+### Housekeeping
+- **Linux dist binary is properly static again** — the 2.0.10-alpha5 artifact was a
+  dynamically-linked host build (libssl/libzstd/libfmt/libspdlog all `.so`), the exact
+  "missing-library on older hosts" failure the static recipe exists to prevent.
+- Removed 3-site manual compression; added regression coverage; 329/329 CTest green.
+- PLANS.md archived as SHIPPED; dead monolith-era root `test_config.cpp` removed.
+- `ARCHITECTURE.md` + `docs/HOW-TO-COMPILE.md` updated for the R1/R3/R5 layout
+  (`bs-protocol.h` + `main.cpp` + `bs-session.h`); Linux static-builder Dockerfile is now
+  versioned in `scripts/`.
+- Scrubbed a hardcoded tailnet IP from the tree (env-var placeholder).
+
+## [2.0.12] — alpha5 (2026-07-24)
+
+**BridgePanel 10-tab fleet dashboard, remote screen/video capture, transfer reliability.**
+
+> The screen-capture work landed under the in-flight name "2.0.11-alpha5"; `VERSION` moved
+> 2.0.10 → 2.0.12 directly, so there is no separate 2.0.11 tag — it is folded in here.
+
+### Features
+- **Remote video capture:** `CuaVideoCaptureMsg` (0x2A) / `CuaVideoCaptureResultMsg` (0x2B)
+  wired through dispatch — capture on a peer, receive frames on any other peer.
+- **Native screen capture** backends for all three platforms (Linux/macOS/Windows).
+- **BridgePanel Fleet dashboard:** new Fleet tab (spoke health, harness status, event log)
+  plus Events, Models, Health, and Settings tabs — 10 tabs total.
+
+### Fixes
+- **file-xfer:** removed the silent fire-and-forget send path — all sends use the WAIT
+  variant so errors surface instead of vanishing.
+- **BridgePanel:** phantom sessions filtered from the tree, Create endpoint wired,
+  `html.escape` fix.
+- **Windows:** static PE rebuilt from `main.cpp` (post-refactor source layout).
+
 ## [2.0.10] — alpha5 (2026-07-23)
 
 **Structural refactor + Windows -x hang fix.**

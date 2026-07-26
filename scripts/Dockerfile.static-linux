@@ -1,0 +1,111 @@
+# BridgeSessions portable static Linux x86_64 builder (glibc 2.35 floor)
+#
+# Recovered into git 2026-07-26 (previously lived only at /tmp/bs-static/Dockerfile
+# on test-pc1 and was lost once). Reconstructed verbatim from the working
+# `bs-static-builder:latest` image history.
+#
+# Usage (from repo root):
+#   docker build -f scripts/Dockerfile.static-linux -t bs-static-builder .
+#   # then either copy out of a baked image:
+#   docker create --name x bs-static-builder && docker cp x:/src/build/bridgesessions dist/bridgesessions-linux-x86_64 && docker rm x
+#   # or mount fresh source and build without re-baking:
+#   docker run --rm --user $(id -u):$(id -g) -v "$PWD":/src -w /src bs-static-builder bash -c \
+#     'cmake -GNinja -DCMAKE_BUILD_TYPE=Release \
+#       -DCMAKE_PREFIX_PATH="/opt/ossl;/opt/zstd;/opt/fmt;/opt/spdlog;/opt/catch2" \
+#       -DOPENSSL_ROOT_DIR=/opt/ossl -DZSTD_ROOT=/opt/zstd -DSPDLOG_ROOT=/opt/spdlog \
+#       -DCMAKE_FIND_PACKAGE_PREFER_CONFIG=ON \
+#       -DCMAKE_EXE_LINKER_FLAGS="-static-libstdc++ -static-libgcc" \
+#       -B build-static . && cmake --build build-static -j"$(nproc)" --target bridgesessions'
+#
+# Verify: ldd dist/bridgesessions-linux-x86_64 → only libc.so.6 + ld-linux.
+
+FROM ubuntu:22.04
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Base toolchain + header-only deps (nlohmann_json, CLI11) via apt.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential cmake ninja-build make perl wget ca-certificates \
+    pkg-config git nlohmann-json3-dev libcli11-dev \
+    libgmp10 libmpfr6 libmpc3 && \
+    rm -rf /var/lib/apt/lists/*
+
+# CMake 3.28 (ubuntu:22.04 ships 3.22; repo requires >= 3.25)
+RUN wget -q https://github.com/Kitware/CMake/releases/download/v3.28.3/cmake-3.28.3-linux-x86_64.tar.gz && \
+    tar xf cmake-3.28.3-linux-x86_64.tar.gz -C /opt && \
+    ln -sf /opt/cmake-3.28.3-linux-x86_64/bin/cmake /usr/local/bin/cmake && \
+    ln -sf /opt/cmake-3.28.3-linux-x86_64/bin/ctest /usr/local/bin/ctest && \
+    rm -f cmake-3.28.3-linux-x86_64.tar.gz
+
+# gcc-13 via toolchain PPA. GPG key MUST come over HTTPS (keyserver import
+# fails in sandboxes); let apt resolve deps — bare .deb install breaks on
+# missing libstdc++6 upgrade.
+RUN apt-get update && apt-get install -y --no-install-recommends gnupg ca-certificates && \
+    wget -qO- "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0xC8EC952E2A0E1FBDC5090F6A2C277A0A352154E5" \
+      | gpg --dearmor -o /etc/apt/trusted.gpg.d/ubuntu-toolchain-r.gpg && \
+    echo "deb https://ppa.launchpadcontent.net/ubuntu-toolchain-r/test/ubuntu jammy main" \
+      > /etc/apt/sources.list.d/toolchain.list && \
+    apt-get update && apt-get install -y --no-install-recommends g++-13 && \
+    update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-13 60 && \
+    update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-13 60 && \
+    gcc-13 --version | head -1
+
+# Catch2 v3 (tests). Tarball path: archive/refs/tags — the releases/download path 404s.
+RUN wget -q https://github.com/catchorg/Catch2/archive/refs/tags/v3.8.0.tar.gz -O Catch2-3.8.0.tar.gz && \
+    tar xf Catch2-3.8.0.tar.gz && cd Catch2-3.8.0 && \
+    cmake -GNinja -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF \
+          -DCATCH_INSTALL_HELPERS=ON -DCMAKE_INSTALL_PREFIX=/opt/catch2 -B build . && \
+    cmake --build build -j$(nproc) && cmake --install build && \
+    cd /tmp && rm -rf Catch2-3.8.0*
+
+WORKDIR /build
+
+# OpenSSL static
+RUN wget -q https://www.openssl.org/source/openssl-3.3.2.tar.gz && \
+    tar xf openssl-3.3.2.tar.gz && cd openssl-3.3.2 && \
+    ./Configure linux-x86_64 no-shared no-tests --prefix=/opt/ossl && \
+    make -j$(nproc) && make install_sw && cd /build && rm -rf openssl-3.3.2*
+
+# zstd static
+RUN wget -q https://github.com/facebook/zstd/releases/download/v1.5.7/zstd-1.5.7.tar.gz && \
+    tar xf zstd-1.5.7.tar.gz && cd zstd-1.5.7/build/cmake && \
+    cmake -GNinja -DCMAKE_BUILD_TYPE=Release -DZSTD_BUILD_SHARED=OFF \
+          -DCMAKE_INSTALL_PREFIX=/opt/zstd -B build . && \
+    cmake --build build -j$(nproc) && cmake --install build && \
+    cd /build && rm -rf zstd-1.5.7*
+
+# fmt static
+RUN wget -q https://github.com/fmtlib/fmt/archive/refs/tags/11.0.2.tar.gz -O fmt.tar.gz && \
+    tar xf fmt.tar.gz && cd fmt-11.0.2 && \
+    cmake -GNinja -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF \
+          -DCMAKE_INSTALL_PREFIX=/opt/fmt -B build . && \
+    cmake --build build -j$(nproc) && cmake --install build && \
+    cd /build && rm -rf fmt-11.0.2*
+
+# spdlog static (needs fmt in prefix)
+RUN wget -q https://github.com/gabime/spdlog/archive/refs/tags/v1.15.0.tar.gz -O spdlog.tar.gz && \
+    tar xf spdlog.tar.gz && cd spdlog-1.15.0 && \
+    cmake -GNinja -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF \
+          -DCMAKE_PREFIX_PATH=/opt/fmt -DCMAKE_INSTALL_PREFIX=/opt/spdlog -B build . && \
+    cmake --build build -j$(nproc) && cmake --install build && \
+    cd /build && rm -rf spdlog-1.15.0*
+
+# Build the repo baked into the image (or mount fresh source over /src).
+# .dockerignore MUST exclude build/ (stale host CMakeCache.txt poisons configure).
+# -static-libstdc++ -static-libgcc is MANDATORY (test-pc4 dies with
+# GLIBCXX_3.4.32 not found without it). glibc stays dynamic (DNS/nsswitch).
+WORKDIR /src
+COPY . /src
+RUN cmake -GNinja \
+      -DCMAKE_BUILD_TYPE=Release \
+      -DCMAKE_PREFIX_PATH="/opt/ossl;/opt/zstd;/opt/fmt;/opt/spdlog;/opt/catch2" \
+      -DOPENSSL_ROOT_DIR=/opt/ossl \
+      -DZSTD_ROOT=/opt/zstd \
+      -DSPDLOG_ROOT=/opt/spdlog \
+      -DCMAKE_FIND_PACKAGE_PREFER_CONFIG=ON \
+      -DCMAKE_EXE_LINKER_FLAGS="-static-libstdc++ -static-libgcc" \
+      -B build . && \
+    cmake --build build -j$(nproc)
+
+RUN ls -la /src/build/bridgesessions && \
+    echo "=== NEEDED libs (expect only glibc, no spdlog/zstd/ssl/fmt) ===" && \
+    ldd /src/build/bridgesessions

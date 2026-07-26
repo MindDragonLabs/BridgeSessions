@@ -32,14 +32,29 @@ lines must pass it).
 ## Linux x86_64 — `ubuntu:22.04` container (glibc 2.35 floor)
 
 Build inside a container so the binary targets glibc **2.35** (runs on test-pc4/Ubuntu 22.04
-through current Arch). Full Dockerfile at `/tmp/bs-static/Dockerfile` on the operator host;
-build from the repo root:
+through current Arch). The Dockerfile is **versioned at `scripts/Dockerfile.static-linux`**
+(it previously lived at `/tmp/bs-static/Dockerfile` on test-pc1 and was lost once — do not
+move it back out of git). Build from the repo root:
 
 ```bash
-docker build -f /tmp/bs-static/Dockerfile -t bs-static-builder .
+docker build -f scripts/Dockerfile.static-linux -t bs-static-builder .
 docker create --name x bs-static-builder
 docker cp x:/src/build/bridgesessions dist/bridgesessions-linux-x86_64
 docker rm x
+```
+
+To rebuild against **current source without re-baking the image**, mount the repo over
+`/src` and build in a side dir (keeps your host `build/` untouched):
+
+```bash
+docker run --rm --user $(id -u):$(id -g) -v "$PWD":/src -w /src bs-static-builder bash -c \
+  'cmake -GNinja -DCMAKE_BUILD_TYPE=Release \
+     -DCMAKE_PREFIX_PATH="/opt/ossl;/opt/zstd;/opt/fmt;/opt/spdlog;/opt/catch2" \
+     -DOPENSSL_ROOT_DIR=/opt/ossl -DZSTD_ROOT=/opt/zstd -DSPDLOG_ROOT=/opt/spdlog \
+     -DCMAKE_FIND_PACKAGE_PREFER_CONFIG=ON \
+     -DCMAKE_EXE_LINKER_FLAGS="-static-libstdc++ -static-libgcc" \
+     -B build-static . && cmake --build build-static -j"$(nproc)" --target bridgesessions'
+cp build-static/bridgesessions dist/bridgesessions-linux-x86_64
 ```
 
 Container essentials (traps baked in):
@@ -102,9 +117,18 @@ Traps:
 
 ## Windows x86_64 PE — MinGW cross-compile on test-pc1 (no sshd on target)
 
-test-pc1 has `x86_64-w64-mingw32-g++`. Build static deps into `~/bs-win`, then compile the
-single-file monolith **directly** with `g++` (avoids CMake `find_package` IMPORTED_IMPLIB
-pain on Windows cross-builds).
+test-pc1 has `x86_64-w64-mingw32-g++`. Build static deps into `~/bs-win`, then compile
+**`main.cpp` directly** with `g++` (avoids CMake `find_package` IMPORTED_IMPLIB
+pain on Windows cross-builds). Post-refactor the product TU is `main.cpp` (which includes
+`bs-protocol.h` → `bs-session.h`); the pre-refactor `bridgesessions.cpp` monolith is a
+7-line stub — do NOT feed it to the compiler.
+
+Include shim: the source wants `<CLI/CLI.hpp>` and `<nlohmann/json.hpp>`, but `~/bs-win/include`
+has a flat `CLI11.hpp` plus an `nlohmann/` tree. One-time:
+
+```bash
+mkdir -p /tmp/bs-win-shim/CLI && ln -sf ~/bs-win/include/CLI11.hpp /tmp/bs-win-shim/CLI/CLI.hpp
+```
 
 ```bash
 TRIPLE=x86_64-w64-mingw32
@@ -120,8 +144,8 @@ PREFIX=$HOME/bs-win
 mkdir -p build-win
 $TRIPLE-g++ -static -std=c++23 -O3 -DNDEBUG \
   -DBS_VERSION=\"$(cat VERSION)\" -DBS_NO_NAT -DBS_NO_WEBRTC -DBS_NO_DHT \
-  -isystem $PREFIX/include \
-  bridgesessions.cpp -o build-win/bridgesessions.exe \
+  -isystem $PREFIX/include -isystem /tmp/bs-win-shim \
+  main.cpp -o build-win/bridgesessions.exe \
   $PREFIX/lib/libspdlog.a $PREFIX/lib/libfmt.a \
   $PREFIX/lib64/libssl.a $PREFIX/lib64/libcrypto.a $PREFIX/lib/libzstd.a \
   -lpthread -lws2_32 -lcrypt32 -lgdi32 -luser32

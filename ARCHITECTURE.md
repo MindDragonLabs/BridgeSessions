@@ -13,10 +13,15 @@ One protocol. One binary. One mesh. No SSH. No mosh. No zellij.
 
 ---
 
-## Shipping 2.0.8-alpha3 reality (canonical SoT)
+## Shipping reality (canonical SoT) — v2.0.14-alpha6
 
-The canonical implementation is the single `bridgesessions.cpp` monolith
-(~12,004 LOC; `BS_VERSION` single source of truth). `MeshController::run` owns
+The canonical implementation is the **`bs-protocol.h` + `main.cpp` + `bs-session.h`**
+tree (post-R1/R3/R5 refactor, 2026-07-23): `bs-protocol.h` (~12.6k LOC) is the header-only
+protocol/daemon SoT including the wire `MessageType` enum, `main.cpp` (~0.9k LOC) is the
+CLI/daemon entrypoint, and `bs-session.h` (~0.5k LOC) holds `RingBuffer`/`Session`.
+`VERSION` in the repo root is the version single source of truth (`BS_VERSION` is defined
+from it at build time). The pre-refactor `bridgesessions.cpp` monolith survives only as a
+7-line test stub. `MeshController::run` owns
 established connections and PTYs on one select loop; TLS/initial-Hello handshakes
 are incremental, nonblocking, deadline-bounded, and limited to 16 pending sockets.
 Long file-transfer operations borrow exactly one established TLS transport through
@@ -33,10 +38,10 @@ below is macOS-centric for illustration only — every node in the mesh may be a
 OS, and **any** peer may drive computer use or read a conversation on **any**
 other peer (CUA dispatch is v2.0.8-alpha3 design + Windows helper proof; see §15.5).
 
-> **Wire SoT rule:** the monolith `MessageType` enum (`:300-330`, 0x01–0x1F) is
-> authoritative. The `bs-protocol/` library enum is **stale** (stops at 0x14).
-> New message types land in the monolith first; reconcile or freeze the library
-> in v2.0.8-alpha3 P0 (decision recorded in TODO.md).
+> **Wire SoT rule:** the `bs-protocol.h` `MessageType` enum is authoritative
+> (0x01–0x2B). The `bs-protocol/` library enum is **frozen, test-only** (stops at 0x14) —
+> decision recorded in TODO.md (2026-07-22, held 2026-07-24). New wire types land in
+> `bs-protocol.h` only; regenerate the library from it if it is ever needed as a real codec.
 
 Remote edit/vfolder sync and large image-on-wire claims are intentionally disabled
 until they have dedicated nonblocking transports. This section overrides older
@@ -151,9 +156,9 @@ connection path.
 ```
 
 > **Correction (v2.0.8-alpha3):** the table above stops at `ClipboardEcho`
-> (0x11). The **shipped monolith** (`bridgesessions.cpp:300-330`) defines
-> **0x12–0x1F** as well. The `bs-protocol/` library enum is **stale** (stops at
-> 0x14). Monolith is wire SoT. Full current set:
+> (0x11). The shipped daemon (`bs-protocol.h`) defines **0x12–0x2B** as well.
+> The `bs-protocol/` library enum is **frozen test-only** (stops at 0x14).
+> `bs-protocol.h` is wire SoT. Extended set:
 
 | Type | Dir | Code | Semantics |
 |------|-----|------|-----------|
@@ -742,7 +747,10 @@ bridgesessions/
 │   │   ├── clipboard_bridge.mm # Objective-C++ for NSPasteboard (macOS)
 │   │   └── terminal_raw.cpp    # tcsetattr cfmakeraw
 │   └── tests/
-├── bridgesessions.cpp          # CANONICAL single-binary monolith (Wire SoT; ~12,004 LOC; BS_VERSION)
+├── bs-protocol.h               # CANONICAL wire + daemon SoT (header-only; ~12.6k LOC)
+├── main.cpp                    # CLI + daemon entrypoint (~0.9k LOC)
+├── bs-session.h                # RingBuffer + Session types (~0.5k LOC)
+├── bridgesessions.cpp          # 7-line pre-refactor test stub (not the product)
 ├── tools/
 │   ├── bridgepanel/            # BridgePanel HTTP server (publish/note/message)
 │   └── windows-cua/        # Windows CUA PowerShell scripts
@@ -760,10 +768,11 @@ bridgesessions/
 └── README.md
 ```
 
-> **Correction (v2.0.8-alpha3):** the `bs-client`/`bs-server` directories are
+> **Correction (v2.0.14-alpha6):** the `bs-client`/`bs-server` directories are
 > **library/reference code that builds on all three OSes**, not OS-specific. The
-> shipped product is the single `bridgesessions.cpp` monolith (one binary, three
-> portable static builds). `bs-protocol` enum is stale vs the monolith (see §2.2).
+> shipped product is the `bs-protocol.h` + `main.cpp` + `bs-session.h` tree (one
+> binary, three portable static builds). The `bs-protocol/` library enum is frozen
+> test-only (see §15.6).
 
 ---
 
@@ -957,14 +966,14 @@ spectator receives output but cannot inject.
 
 ### 15.6 bs-protocol library drift (P0 decision)
 
-The `bs-protocol/` library enum (stops at 0x14) is **behind** the monolith (0x01–0x1F) and
-its `AttachMsg` lacks `command`/`signal_on_detach`. In alpha3 P0 decide: **(a) regenerate
-the library codec from the monolith, or (b) freeze it as test-only**. Monolith is wire SoT
-regardless. Encode the decision in PLANS.md/TODO.md.
+The `bs-protocol/` library enum (stops at 0x14) is **behind** `bs-protocol.h` (0x01–0x2B)
+and its `AttachMsg` lacks `command`/`signal_on_detach`. **Decided 2026-07-22 (option b):
+freeze the library as test-only.** `bs-protocol.h` is wire SoT; regenerate the library
+from it only if a real codec is ever needed. Recorded in TODO.md.
 
 ---
 
-**Status:** v2.0.7-alpha2 shipped (single `bridgesessions.cpp` monolith, ~12,004 LOC, 3-platform portable static binaries: linux-x86_64 / macos-arm64 / windows-x86_64.exe). v2.0.8-alpha3 is the active cycle — building all five features to full functionality (see `PLANS.md` phases + `TODO.md` items + §15).
+**Status:** v2.0.14-alpha6 shipped (`bs-protocol.h` + `main.cpp` + `bs-session.h`; 3-platform portable static binaries: linux-x86_64 / macos-arm64 / windows-x86_64.exe). All five v2.0.8-alpha3 features are built and wired at the protocol/daemon layer; remaining gaps are UI/CLI-level (`bs use` subcommand, panel Conversations render, Win/Mac CUA injection backends, parameterized geometry tests — see `TODO.md`).
 **Language:** C++23 (firm; gcc 14+ / clang 18+).
 **Transport:** TLS 1.2+/1.3 over TCP :19949 (QUIC/msquic noted as v2 research only — not built).
 **Auth:** ed25519 mutual TLS + `authorized_keys` flat-file (firm).
