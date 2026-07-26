@@ -666,7 +666,10 @@ int main(int argc, char** argv) {
         host_seed.addr = jrep.host_addr;
         host_seed.pubkey_hex = jrep.host_pubkey;
         cfg.seeds.push_back(std::move(host_seed));
-        save_config(config_path, cfg);
+        if (!save_config(config_path, cfg)) {
+            std::cerr << "join failed: could not save config to " << config_path << "\n";
+            return 1;
+        }
 
         // Authorize host
         std::string auth_path = bs::mesh::resolve_under_app_home(cfg.authorized_keys_path, home_dir);
@@ -675,7 +678,10 @@ int main(int argc, char** argv) {
             auto slash = dir.rfind('/');
             if (slash == std::string::npos) slash = dir.rfind('\\');
             if (slash != std::string::npos) dir = dir.substr(0, slash);
-            bs::mesh::ensure_private_directory(dir);
+            if (!bs::mesh::ensure_private_directory(dir)) {
+                std::cerr << "join failed: could not create " << dir << "\n";
+                return 1;
+            }
             std::ofstream af(auth_path, std::ios::app);
             if (af.is_open()) af << "pubkey " << jrep.host_pubkey << "\n";
         }
@@ -688,8 +694,13 @@ int main(int argc, char** argv) {
 #else
             std::string cmd = "nohup bridgesessions --daemon > /dev/null 2>&1 &";
 #endif
-            std::system(cmd.c_str());
-            std::cout << "→ Daemon started. Run 'bridgesessions health <peer>' to verify.\n";
+            int rc = std::system(cmd.c_str());
+            if (rc != 0) {
+                std::cout << "→ Could not auto-start daemon (system rc=" << rc
+                          << "). Start it manually: bridgesessions --daemon\n";
+            } else {
+                std::cout << "→ Daemon started. Run 'bridgesessions health <peer>' to verify.\n";
+            }
         } else {
             std::cout << "Start daemon: bridgesessions --daemon\n";
         }
@@ -845,9 +856,11 @@ int main(int argc, char** argv) {
         if (pid < 0) { std::cerr << "fork failed\n"; return 1; }
         if (pid > 0) { std::cout << pid << std::endl; return 0; }
         setsid();
-        freopen("/dev/null", "r", stdin);
-        freopen("/dev/null", "w", stdout);
-        freopen("/dev/null", "w", stderr);
+        if (!freopen("/dev/null", "r", stdin) ||
+            !freopen("/dev/null", "w", stdout) ||
+            !freopen("/dev/null", "w", stderr)) {
+            return 1;  // stdio detach failed; nothing reliable left to report on
+        }
     }
 #endif
     bs::mesh::MeshController mc(cfg, home_dir);

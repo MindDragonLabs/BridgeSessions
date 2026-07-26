@@ -8556,7 +8556,10 @@ public:
                 auto slash = dir.rfind('/');
                 if (slash == std::string::npos) slash = dir.rfind('\\');
                 if (slash != std::string::npos) dir = dir.substr(0, slash);
-                bs::mesh::ensure_private_directory(dir);
+                if (!bs::mesh::ensure_private_directory(dir)) {
+                    reply.ok = false;
+                    reply.error = "host could not prepare authorized_keys dir";
+                } else {
                 bool already_authorized = false;
                 {
                     std::ifstream existing(auth_path);
@@ -8574,7 +8577,11 @@ public:
                     std::ofstream af(auth_path, std::ios::app);
                     if (af.is_open()) {
                         af << "pubkey " << conn.peer_pubkey << "\n";
+                    } else {
+                        reply.ok = false;
+                        reply.error = "host could not persist authorization";
                     }
+                }
                 }
             }
             try { write_frame(conn.ssl.get(), reply, CONTROL_STREAM_ID); } catch (...) {}

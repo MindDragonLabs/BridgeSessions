@@ -2,6 +2,22 @@
 
 All notable public releases are documented here.
 
+## [2.0.15] — alpha6 (2026-07-26)
+
+**Warning hygiene: quick-connect `join` and daemonize paths now check return values
+instead of silently ignoring failures.**
+
+### Fixes
+- **`join --start` silent failures:** `save_config()` and `ensure_private_directory()`
+  failures now abort the join with a clear error (previously ignored — a failed config
+  save or authorized_keys dir create left a "joined" node with no persisted config/keys).
+  `std::system()` auto-start of the daemon now reports non-zero rc instead of printing
+  "Daemon started" unconditionally.
+- **daemonize stdio detach:** all three `freopen("/dev/null", …)` calls are checked;
+  failure exits the child instead of running the daemon with half-attached stdio.
+- Build is now clean of `-Wunused-result` warnings on both gcc-13 (Linux) and
+  MinGW g++ (Windows).
+
 ## [2.0.14] — alpha6 (2026-07-26)
 
 **File-transfer double-compression fix + release housekeeping. First tag with all three platform binaries rebuilt post-refactor.**
