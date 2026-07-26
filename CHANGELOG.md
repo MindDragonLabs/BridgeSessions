@@ -2,6 +2,33 @@
 
 All notable public releases are documented here.
 
+## [2.0.16] — alpha6 (2026-07-27)
+
+**Hotfix: file transfer between v2.0.14/2.0.15 nodes was broken. Receivers now
+sniff the zstd magic and accept both raw (v2.0.14+) and double-compressed
+(pre-2.0.14) chunk payloads.**
+
+### Fixes
+- **xfer regression in 2.0.14/2.0.15:** the alpha6 double-compression fix
+  converted all 6 send paths to raw bytes (`encode()` compresses once), but the
+  3 receiver sites still ran a compensating manual `zstd_decompress()` — so a
+  2.0.14+ receiver tore down the connection (`zstd: invalid frame`) on the
+  first chunk from a 2.0.14+ sender. New `decompress_chunk_payload()` sniffs
+  the zstd magic (`28 B5 2F FD`) at all 3 receiver sites; raw payloads pass
+  through untouched, legacy double-compressed payloads are unwrapped. Magic
+  collisions on raw data fall back to raw (end-to-end sha256 stays the
+  integrity backstop).
+- **Interop note:** a 2.0.16 receiver accepts senders of any version.
+  Pre-2.0.14 receivers cannot receive from ≥2.0.14 senders — upgrade receivers.
+- **Regression test:** chunk-payload sniffer covers raw, legacy-compressed, and
+  magic-collision shapes (`tests/test_config.cpp`, `[transfer][alpha6]`).
+
+### Also found during diagnosis (not wire-related)
+- Long-running daemons leak `/dev/ptmx` FDs (~1 per shell/health session),
+  eventually hitting the 1024 soft limit — daemon then fails every `open()`
+  (`ERROR cannot hash …` on sends). Restart clears it; lifecycle fix tracked
+  for 2.0.17. Workaround: restart the daemon periodically on busy hubs.
+
 ## [2.0.15] — alpha6 (2026-07-26)
 
 **Warning hygiene: quick-connect `join` and daemonize paths now check return values

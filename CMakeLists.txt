@@ -81,7 +81,8 @@ foreach(TEST_SRC ${TEST_SOURCES})
         continue()
     endif()
     add_executable(${TEST_NAME} ${TEST_SRC})
-    target_compile_definitions(${TEST_NAME} PRIVATE BS_TESTING BS_NO_NAT BS_NO_WEBRTC BS_NO_DHT)
+    target_compile_definitions(${TEST_NAME} PRIVATE BS_TESTING BS_NO_NAT BS_NO_WEBRTC BS_NO_DHT
+        BS_VERSION_FILE_PATH="${CMAKE_CURRENT_SOURCE_DIR}/VERSION")
     target_link_libraries(${TEST_NAME}
         OpenSSL::SSL OpenSSL::Crypto
         ${ZSTD_TARGET}

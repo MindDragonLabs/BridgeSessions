@@ -823,6 +823,26 @@ std::vector<uint8_t> zstd_decompress(std::span<const uint8_t> data) {
     return out;
 }
 
+// File-chunk payloads are ambiguous across versions: v2.0.14+ senders pass raw
+// bytes to write_frame() and let encode() compress at the frame layer, while
+// pre-2.0.14 senders manually zstd_compress()ed each chunk first (double
+// compression). Sniff the zstd magic (0xFD2FB528, little-endian on the wire)
+// and decompress only when it is present; otherwise treat payload as raw.
+// The end-to-end sha256 check guards integrity if a raw chunk happens to start
+// with the magic bytes (decompress failure falls back to raw, hash then fails
+// loudly rather than corrupting silently).
+std::vector<uint8_t> decompress_chunk_payload(std::span<const uint8_t> data) {
+    if (data.size() >= 4 &&
+        data[0] == 0x28 && data[1] == 0xB5 && data[2] == 0x2F && data[3] == 0xFD) {
+        try {
+            return zstd_decompress(data);
+        } catch (...) {
+            // Magic collision on raw data — fall through and treat as raw.
+        }
+    }
+    return std::vector<uint8_t>(data.begin(), data.end());
+}
+
 // ── Decode helpers ─────────────────────────────────────────────
 
 struct Decoder {
@@ -7043,10 +7063,11 @@ private:
             try { write_frame(c.ssl.get(), FileAckMsg{m.chunk_index, 0, true, "no active receive"}, CONTROL_STREAM_ID); } catch (...) {}
             return;
         }
-        // Decompress chunk data (zstd)
+        // Decompress chunk data (zstd magic sniff — v2.0.16: handles both
+        // pre-2.0.14 double-compressed and v2.0.14+ raw senders)
         std::vector<uint8_t> decompressed;
         if (!m.data.empty()) {
-            decompressed = zstd_decompress(std::span<const uint8_t>(m.data.data(), m.data.size()));
+            decompressed = decompress_chunk_payload(std::span<const uint8_t>(m.data.data(), m.data.size()));
         }
         const auto chunk_valid = validate_transfer_chunk(
             state.expected_size, state.received_bytes, state.received_chunks,
@@ -7762,7 +7783,7 @@ private:
                     auto& chunk = std::get<FileChunkMsg>(resp);
                     std::vector<uint8_t> data;
                     if (!chunk.data.empty())
-                        data = zstd_decompress(std::span<const uint8_t>(chunk.data.data(), chunk.data.size()));
+                        data = decompress_chunk_payload(std::span<const uint8_t>(chunk.data.data(), chunk.data.size()));
                     const auto chunk_valid = validate_transfer_chunk(
                         meta->filesize, bytes_recv, chunks_recv, meta->total_chunks,
                         chunk.chunk_index, chunk.total_chunks, data.size());
@@ -8060,7 +8081,7 @@ private:
                         auto& chunk = std::get<FileChunkMsg>(resp);
                         if (chunk.chunk_index == chunks_recv) {
                             std::vector<uint8_t> d;
-                            if (!chunk.data.empty()) d = zstd_decompress(std::span<const uint8_t>(chunk.data.data(), chunk.data.size()));
+                            if (!chunk.data.empty()) d = decompress_chunk_payload(std::span<const uint8_t>(chunk.data.data(), chunk.data.size()));
                             if (!d.empty()) {
                                 out_file.write(reinterpret_cast<const char*>(d.data()),
                                                static_cast<std::streamsize>(d.size()));

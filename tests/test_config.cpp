@@ -554,6 +554,31 @@ TEST_CASE("incoming chunks cannot exceed declared file shape",
     REQUIRE(validate_transfer_chunk(0, 0, 0, 1, 0, 1, 0).ok);
 }
 
+TEST_CASE("chunk payload sniffer accepts raw and legacy double-compressed",
+          "[config][transfer][alpha6]") {
+    // v2.0.16 regression guard: receivers must accept both v2.0.14+ raw chunks
+    // (encode() compresses at the frame layer) and pre-2.0.14 chunks that were
+    // manually zstd_compress()ed by the sender (double compression).
+    std::vector<uint8_t> raw(8192);
+    for (size_t i = 0; i < raw.size(); ++i) raw[i] = static_cast<uint8_t>(i * 31 + 7);
+
+    // New wire shape: raw bytes straight from the sender.
+    auto got_raw = decompress_chunk_payload(std::span<const uint8_t>(raw.data(), raw.size()));
+    REQUIRE(got_raw == raw);
+
+    // Legacy wire shape: chunk manually compressed before encode().
+    auto legacy = zstd_compress(std::span<const uint8_t>(raw.data(), raw.size()));
+    auto got_legacy = decompress_chunk_payload(std::span<const uint8_t>(legacy.data(), legacy.size()));
+    REQUIRE(got_legacy == raw);
+
+    // Raw payload that happens to start with the zstd magic falls back to raw
+    // (the end-to-end sha256 remains the integrity backstop).
+    std::vector<uint8_t> collision = {0x28, 0xB5, 0x2F, 0xFD, 0x00, 0x01, 0x02};
+    auto got_collision = decompress_chunk_payload(
+        std::span<const uint8_t>(collision.data(), collision.size()));
+    REQUIRE(got_collision == collision);
+}
+
 TEST_CASE("MeshController watches the explicitly loaded config path",
           "[config][config-dir][alpha2]") {
     auto root = fs::temp_directory_path() / "bs_explicit_config_test";
@@ -701,7 +726,16 @@ TEST_CASE("bounded TCP connect does not exceed its deadline",
 
 TEST_CASE("release and mesh Hello share the canonical version",
           "[config][release][version]") {
-    REQUIRE(std::string(kBridgeSessionsVersion) == "2.0.14-alpha6");
+    // Canonical version lives in the repo VERSION file — never hardcode it here,
+    // otherwise every version bump silently breaks this test.
+    std::ifstream vf(BS_VERSION_FILE_PATH);
+    std::string file_version;
+    REQUIRE(std::getline(vf, file_version));
+    while (!file_version.empty() &&
+           (file_version.back() == '\n' || file_version.back() == '\r' ||
+            file_version.back() == ' ' || file_version.back() == '\t'))
+        file_version.pop_back();
+    REQUIRE(std::string(kBridgeSessionsVersion) == file_version);
 
     namespace fs = std::filesystem;
     auto root = fs::temp_directory_path() /
