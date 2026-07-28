@@ -43,6 +43,16 @@ enable_testing()
 
 # ── Core library (header-only) + binary ──────────────────────────
 add_executable(bridgesessions main.cpp bs-protocol.h)
+if(APPLE)
+    enable_language(OBJCXX)
+    target_sources(bridgesessions PRIVATE macos-capture.mm)
+    target_link_libraries(bridgesessions
+        "-framework Foundation"
+        "-framework CoreGraphics"
+        "-framework ScreenCaptureKit"
+        "-framework ImageIO"
+        "-framework UniformTypeIdentifiers")
+endif()
 if(NOT BS_ENABLE_NAT)
     target_compile_definitions(bridgesessions PRIVATE BS_NO_NAT)
 endif()
@@ -71,6 +81,11 @@ add_test(NAME cli_quick_connect_requires_trust
 set_tests_properties(cli_quick_connect_requires_trust PROPERTIES
     WILL_FAIL TRUE
     PASS_REGULAR_EXPRESSION "Refusing untrusted first contact")
+add_test(NAME cli_keygen_refuses_identity_overwrite
+    COMMAND ${CMAKE_COMMAND}
+        -DBS_BINARY=$<TARGET_FILE:bridgesessions>
+        -DTEST_DIR=${CMAKE_CURRENT_BINARY_DIR}/keygen-refuse-test
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_keygen_refuse.cmake)
 
 # ── Tests ──────────────────────────────────────────────────────
 file(GLOB TEST_SOURCES "tests/*.cpp")
@@ -81,6 +96,10 @@ foreach(TEST_SRC ${TEST_SOURCES})
         continue()
     endif()
     add_executable(${TEST_NAME} ${TEST_SRC})
+    if(APPLE)
+        target_compile_options(${TEST_NAME} PRIVATE
+            -include ${CMAKE_CURRENT_SOURCE_DIR}/tests/catch2_apple_shim.h)
+    endif()
     target_compile_definitions(${TEST_NAME} PRIVATE BS_TESTING BS_NO_NAT BS_NO_WEBRTC BS_NO_DHT
         BS_VERSION_FILE_PATH="${CMAKE_CURRENT_SOURCE_DIR}/VERSION")
     target_link_libraries(${TEST_NAME}
@@ -115,7 +134,8 @@ if(BRIDGESESSIONS_PYTHON)
     if(BRIDGESESSIONS_PYTEST_AVAILABLE EQUAL 0)
         add_test(NAME release_python_tests
             COMMAND ${BRIDGESESSIONS_PYTHON} -m pytest
-                "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_release.py" -v)
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_release.py"
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_install_script.py" -v)
         set_tests_properties(release_python_tests PROPERTIES
             ENVIRONMENT "PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}")
     endif()

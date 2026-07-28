@@ -2907,6 +2907,16 @@ inline void close_nonstdio_fds_before_exec() {
 }
 
 // ── 2.0.12: Video capture via ffmpeg ─────────────────────────────
+#ifdef __APPLE__
+#ifdef BS_TESTING
+inline int bs_macos_capture_png(const char*, unsigned, char* error, size_t capacity) {
+    if (error && capacity) std::snprintf(error, capacity, "ScreenCaptureKit test stub");
+    return 0;
+}
+#else
+extern "C" int bs_macos_capture_png(const char*, unsigned, char*, size_t);
+#endif
+#endif
 [[nodiscard]] CuaVideoCaptureResultMsg video_capture_execute(const CuaVideoCaptureMsg& req) {
     CuaVideoCaptureResultMsg result;
     result.request_id = req.request_id;
@@ -2926,31 +2936,46 @@ inline void close_nonstdio_fds_before_exec() {
 #elif defined(__APPLE__)
     std::string tmp_path = "/tmp/bs-video-" + std::to_string(
         std::chrono::steady_clock::now().time_since_epoch().count()) + ".mp4";
+    const std::string frames_dir = tmp_path + ".frames";
+    std::error_code frames_ec;
+    std::filesystem::create_directories(frames_dir, frames_ec);
+    if (frames_ec) {
+        result.error = "failed to create macOS capture frame directory";
+        return result;
+    }
+
+    const uint32_t fps = (std::max)(uint32_t{1}, static_cast<uint32_t>(req.fps));
+    const uint32_t duration = (std::max)(uint32_t{1}, static_cast<uint32_t>(req.duration_sec));
+    const uint32_t max_width = req.max_width == 0 ? 1920u : static_cast<uint32_t>(req.max_width);
+    const uint64_t frame_count = static_cast<uint64_t>(fps) * duration;
+    const auto interval = std::chrono::duration<double>(1.0 / static_cast<double>(fps));
+    auto next_frame = std::chrono::steady_clock::now();
+    for (uint64_t frame = 0; frame < frame_count; ++frame) {
+        char filename[64]{};
+        std::snprintf(filename, sizeof(filename), "frame-%06llu.png",
+                      static_cast<unsigned long long>(frame));
+        const std::string frame_path =
+            (std::filesystem::path(frames_dir) / filename).string();
+        char capture_error[1024]{};
+        if (!bs_macos_capture_png(frame_path.c_str(), max_width,
+                                  capture_error, sizeof(capture_error))) {
+            std::filesystem::remove_all(frames_dir, frames_ec);
+            result.error = "ScreenCaptureKit failed: " + std::string(capture_error);
+            return result;
+        }
+        next_frame += std::chrono::duration_cast<std::chrono::steady_clock::duration>(interval);
+        std::this_thread::sleep_until(next_frame);
+    }
+
     auto ffmpeg = find_binary("/opt/homebrew/bin/ffmpeg");
     if (!ffmpeg) ffmpeg = find_binary("/usr/local/bin/ffmpeg");
     if (!ffmpeg) ffmpeg = find_binary("ffmpeg");
     std::string cmd;
     if (ffmpeg) {
-        const uint32_t fps = (std::max)(uint32_t{1}, static_cast<uint32_t>(req.fps));
-        const uint32_t duration = (std::max)(uint32_t{1}, static_cast<uint32_t>(req.duration_sec));
-        const uint32_t max_width = req.max_width == 0 ? 1920u : static_cast<uint32_t>(req.max_width);
-        const uint32_t watchdog_sec = duration + 10;
-        const uint64_t frame_count = static_cast<uint64_t>(fps) * duration;
-        // AVFoundation screen device 0 is "Capture screen 0" on macOS. A
-        // watchdog is required because AVFoundation can block forever without
-        // producing frames when Screen Recording permission is absent.
-        const std::string ffmpeg_cmd =
-            *ffmpeg + " -hide_banner -loglevel error -y -f avfoundation" +
-            " -framerate " + std::to_string(fps) +
-            " -pixel_format nv12 -capture_cursor 1 -i \"0:none\"" +
-            " -frames:v " + std::to_string(frame_count) +
-            " -vf \"scale='min(" + std::to_string(max_width) + ",iw)':-2\"" +
-            " -c:v libx264 -preset ultrafast -crf 28 -pix_fmt yuv420p " +
-            tmp_path + " 2>/tmp/bs-video-ffmpeg.log";
-        cmd = "( " + ffmpeg_cmd + " & pid=$!; "
-              "( sleep " + std::to_string(watchdog_sec) +
-              "; kill -TERM $pid 2>/dev/null; sleep 2; kill -KILL $pid 2>/dev/null ) & wd=$!; "
-              "wait $pid; rc=$?; kill $wd 2>/dev/null; wait $wd 2>/dev/null; exit $rc )";
+        cmd = *ffmpeg + " -hide_banner -loglevel error -y -framerate " +
+              std::to_string(fps) + " -i " + frames_dir +
+              "/frame-%06d.png -c:v libx264 -preset ultrafast -crf 28" +
+              " -pix_fmt yuv420p " + tmp_path + " 2>/tmp/bs-video-ffmpeg.log";
     }
 #else
     std::string tmp_path = "/tmp/bs-video-" + std::to_string(
@@ -4684,10 +4709,14 @@ public:
     }
 
     // ── Reap dead children ──────────────────────────────────────
-    void reap_dead() {
+    void reap_dead(bool include_attached = true) {
         std::unique_lock lock(mutex_);
         for (auto it = sessions_.begin(); it != sessions_.end(); ) {
             auto* s = it->second.get();
+            if (!include_attached && s->state == SessionState::Attached) {
+                ++it;
+                continue;
+            }
             if (s->state != SessionState::Running && s->state != SessionState::Attached &&
                 s->state != SessionState::Detached) { ++it; continue; }
             bool died = false;
@@ -4719,6 +4748,7 @@ public:
             }
 #endif
             if (died) {
+                s->release_exited_runtime();
                 // Auto-restart logic
                 if (s->auto_restart) {
                     auto now = std::chrono::steady_clock::now();
@@ -5303,8 +5333,20 @@ inline bool stdin_is_terminal() {
 }
 
 [[nodiscard]] inline bool shell_command_uses_interactive_mode(
-    std::string_view command, bool stdin_tty) {
-    return command.empty() || stdin_tty;
+    std::string_view command, bool /*stdin_tty*/) {
+    // An explicit command is always finite, even when invoked from a PTY.
+    // Only an empty command requests an attachable interactive shell.
+    return command.empty();
+}
+
+// Health commands can report process exit before their final OutputMsg reaches
+// the stream. A successful probe therefore drains until the nonce is observed
+// or the transport reaches EOF; failed probes can complete immediately.
+[[nodiscard]] inline bool health_probe_drain_complete(
+        int32_t exit_code, std::string_view output,
+        std::string_view nonce, bool transport_eof) {
+    if (exit_code != 0) return true;
+    return transport_eof || output.find(nonce) != std::string_view::npos;
 }
 
 // ── TLS close_notify helper — clean TLS shutdown before closing socket ──
@@ -9322,7 +9364,7 @@ public:
                 sessions_.record_finished(*s, static_cast<int32_t>(exit_code), "died");
                 CloseHandle(s->child_pid);
                 s->child_pid = nullptr;
-                // master_fd / write_handle closed by Session dtor or reattach path
+                s->release_exited_runtime();
                 s->state = SessionState::Died;
 
                 SessionDiedMsg sdm;
@@ -9359,6 +9401,7 @@ public:
                     }
                     sessions_.record_finished(*s, sdm.exit_code, "died");
                     s->child_pid = -1;
+                    s->release_exited_runtime();
                     s->state = SessionState::Died;
                     fanout(sdm);
                 }
@@ -11219,7 +11262,10 @@ public:
 #endif
 
             // 10. Reap dead sessions
-            sessions_.reap_dead();
+            // Attached-session death is owned by pty_output_poller(), which
+            // drains final output and emits SessionDied. Reaping it here first
+            // steals waitpid() and leaves the client waiting forever.
+            sessions_.reap_dead(false);
         }
     }
 
@@ -11966,6 +12012,38 @@ public:
             write_frame(sc.ssl.get(), am, CONTROL_STREAM_ID);
             std::string stdout_buf;
             int32_t exit_code = -1;
+            auto drain_late_output = [&](int32_t code) {
+                bool transport_eof = false;
+                const auto drain_deadline =
+                    std::chrono::steady_clock::now() + std::chrono::milliseconds(300);
+                while (!health_probe_drain_complete(
+                           code, stdout_buf, nonce, transport_eof) &&
+                       std::chrono::steady_clock::now() < drain_deadline) {
+                    if (SSL_pending(sc.ssl.get()) <= 0) {
+                        fd_set drain_fds;
+                        FD_ZERO(&drain_fds);
+                        FD_SET(sc.sfd, &drain_fds);
+                        timeval drain_tv{0, 50'000};
+#ifdef _WIN32
+                        if (select(0, &drain_fds, nullptr, nullptr, &drain_tv) <= 0) continue;
+#else
+                        if (select(static_cast<int>(sc.sfd) + 1,
+                                   &drain_fds, nullptr, nullptr, &drain_tv) <= 0) continue;
+#endif
+                    }
+                    try {
+                        Message late = read_frame(sc.ssl.get());
+                        if (std::holds_alternative<OutputMsg>(late)) {
+                            stdout_buf += strip_ansi_escapes(
+                                std::get<OutputMsg>(late).data);
+                        } else if (std::holds_alternative<PingMsg>(late)) {
+                            write_frame(sc.ssl.get(), PongMsg{}, CONTROL_STREAM_ID);
+                        }
+                    } catch (...) {
+                        transport_eof = true;
+                    }
+                }
+            };
             auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(15);
             while (std::chrono::steady_clock::now() < deadline) {
                 if (SSL_pending(sc.ssl.get()) <= 0) {
@@ -11982,50 +12060,12 @@ public:
                     stdout_buf += strip_ansi_escapes(std::get<OutputMsg>(resp).data);
                 } else if (std::holds_alternative<ExitCodeMsg>(resp)) {
                     exit_code = std::get<ExitCodeMsg>(resp).code;
-                    // v2.0.1: brief post-death drain for late Windows OutputMsg
-                    const auto ddeadline =
-                        std::chrono::steady_clock::now() + std::chrono::milliseconds(300);
-                    while (std::chrono::steady_clock::now() < ddeadline) {
-                        if (SSL_pending(sc.ssl.get()) <= 0) {
-                            fd_set drfds; FD_ZERO(&drfds); FD_SET(sc.sfd, &drfds);
-                            timeval dtv{0, 50'000};
-#ifdef _WIN32
-                            if (select(0, &drfds, nullptr, nullptr, &dtv) <= 0) continue;
-#else
-                            if (select(static_cast<int>(sc.sfd) + 1, &drfds, nullptr, nullptr, &dtv) <= 0) continue;
-#endif
-                        }
-                        try {
-                            Message late = read_frame(sc.ssl.get());
-                            if (std::holds_alternative<OutputMsg>(late))
-                                stdout_buf += strip_ansi_escapes(std::get<OutputMsg>(late).data);
-                            else if (std::holds_alternative<PingMsg>(late))
-                                write_frame(sc.ssl.get(), PongMsg{}, CONTROL_STREAM_ID);
-                        } catch (...) { break; }
-                    }
+                    // Exit can race ahead of the final OutputMsg on Windows.
+                    drain_late_output(exit_code);
                     break;
                 } else if (std::holds_alternative<SessionDiedMsg>(resp)) {
                     exit_code = std::get<SessionDiedMsg>(resp).exit_code;
-                    const auto ddeadline =
-                        std::chrono::steady_clock::now() + std::chrono::milliseconds(300);
-                    while (std::chrono::steady_clock::now() < ddeadline) {
-                        if (SSL_pending(sc.ssl.get()) <= 0) {
-                            fd_set drfds; FD_ZERO(&drfds); FD_SET(sc.sfd, &drfds);
-                            timeval dtv{0, 50'000};
-#ifdef _WIN32
-                            if (select(0, &drfds, nullptr, nullptr, &dtv) <= 0) continue;
-#else
-                            if (select(static_cast<int>(sc.sfd) + 1, &drfds, nullptr, nullptr, &dtv) <= 0) continue;
-#endif
-                        }
-                        try {
-                            Message late = read_frame(sc.ssl.get());
-                            if (std::holds_alternative<OutputMsg>(late))
-                                stdout_buf += strip_ansi_escapes(std::get<OutputMsg>(late).data);
-                            else if (std::holds_alternative<PingMsg>(late))
-                                write_frame(sc.ssl.get(), PongMsg{}, CONTROL_STREAM_ID);
-                        } catch (...) { break; }
-                    }
+                    drain_late_output(exit_code);
                     break;
                 } else if (std::holds_alternative<PingMsg>(resp)) {
                     write_frame(sc.ssl.get(), PongMsg{}, CONTROL_STREAM_ID);
@@ -12075,43 +12115,67 @@ public:
     }
 
     // ── CLI: capture_video ────────────────────────────────────────
-    std::string capture_video(const std::string& peer_name, const CuaVideoCaptureMsg& req) {
-        std::string token = load_ipc_token(home_dir_);
-        if (token.empty()) return "ERROR no daemon running — no IPC token";
-        SOCKET sfd = socket(AF_INET, SOCK_STREAM, 0);
-        if (sfd == INVALID_SOCKET) return "ERROR socket failed";
-        sockaddr_in sa{};
-        sa.sin_family = AF_INET;
-        sa.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-        sa.sin_port = htons(mesh_cli_port());
-        set_socket_timeouts(sfd, 300000);
-        if (connect(sfd, (sockaddr*)&sa, sizeof(sa)) == SOCKET_ERROR) {
-            CLOSESOCK(sfd); return "ERROR cannot connect to daemon IPC";
+    // Use a dedicated direct TLS connection. The old daemon-IPC path only
+    // checked for a peer connection and then captured on the local machine.
+    std::string capture_video(const std::string& peer_name, const CuaVideoCaptureMsg& request) {
+        const std::string addr = find_peer_addr(peer_name);
+        if (addr.empty()) return "ERROR peer not found: " + peer_name;
+        const std::string expected_pubkey = trusted_peer_pubkey(config_, peer_name);
+        auto sc = connect_and_hello(addr, expected_pubkey);
+        if (!sc.ssl || sc.sfd == INVALID_SOCKET) {
+            const std::string detail = sc.fail_detail.empty()
+                ? connect_fail_string(sc.fail)
+                : sc.fail_detail;
+            return "ERROR failed to connect to " + peer_name + ": " + detail;
         }
-        // Send video capture request via encoded IPC frame
-        std::string params = std::to_string(req.fps) + ":" + std::to_string(req.duration_sec) +
-                            ":" + std::to_string(req.quality) + ":" + std::to_string(req.max_width);
-        std::string cmd = token + " CUA_VIDEO_CAPTURE_B64 " + peer_name + " " + b64enc(params) + "\n";
-        send(sfd, cmd.data(), (int)cmd.size(), 0);
-        std::string acc;
-        char buf[8192];
-        while (true) {
-            int n = recv(sfd, buf, (int)sizeof(buf) - 1, 0);
-            if (n <= 0) break;
-            buf[n] = '\0';
-            acc.append(buf, n);
-            auto nl = acc.rfind('\n');
-            if (nl != std::string::npos) break;
+
+        CuaVideoCaptureMsg req = request;
+        req.request_id = static_cast<uint32_t>(
+            std::chrono::steady_clock::now().time_since_epoch().count());
+        const auto deadline = std::chrono::steady_clock::now() +
+            std::chrono::seconds((std::max)(30, static_cast<int>(req.duration_sec) + 30));
+        try {
+            write_frame(sc.ssl.get(), req, CONTROL_STREAM_ID);
+            while (std::chrono::steady_clock::now() < deadline) {
+                fd_set read_fds;
+                FD_ZERO(&read_fds);
+                FD_SET((int)sc.sfd, &read_fds);
+                timeval tv{1, 0};
+#ifdef _WIN32
+                const int ready = select(0, &read_fds, nullptr, nullptr, &tv);
+#else
+                const int ready = select((int)sc.sfd + 1, &read_fds, nullptr, nullptr, &tv);
+#endif
+                if (ready < 0) {
+#ifndef _WIN32
+                    if (errno == EINTR) continue;
+#endif
+                    throw std::runtime_error("select failed while waiting for video capture");
+                }
+                if (ready == 0 && SSL_pending(sc.ssl.get()) <= 0) continue;
+
+                Message msg = read_frame(sc.ssl.get());
+                if (std::holds_alternative<CuaVideoCaptureResultMsg>(msg)) {
+                    const auto& result = std::get<CuaVideoCaptureResultMsg>(msg);
+                    if (result.request_id != req.request_id) continue;
+                    ssl_close(sc.ssl.get(), sc.sfd);
+                    sc.sfd = INVALID_SOCKET;
+                    if (result.status != 0) return "ERROR " + result.error;
+                    return "video captured at " + result.file_path +
+                           " — use 'file recv " + peer_name + " " +
+                           result.file_path + " .' to retrieve";
+                }
+                if (std::holds_alternative<PingMsg>(msg)) {
+                    write_frame(sc.ssl.get(), PongMsg{}, CONTROL_STREAM_ID);
+                }
+            }
+            ssl_close(sc.ssl.get(), sc.sfd);
+            sc.sfd = INVALID_SOCKET;
+            return "ERROR timed out waiting for remote video capture";
+        } catch (const std::exception& e) {
+            if (sc.sfd != INVALID_SOCKET) ssl_close(sc.ssl.get(), sc.sfd);
+            return "ERROR remote video capture transport failed: " + std::string(e.what());
         }
-        CLOSESOCK(sfd);
-        // Parse result: OK <file_path> or ERROR <reason>
-        while (!acc.empty() && (acc.back() == '\r' || acc.back() == '\n')) acc.pop_back();
-        if (acc.rfind("OK ", 0) == 0) {
-            std::string remote_path = acc.substr(3);
-            return "video captured at " + remote_path +
-                   " — use 'file recv " + peer_name + " " + remote_path + " .' to retrieve";
-        }
-        return acc.empty() ? "ERROR no response from daemon" : acc;
     }
 
     // ── CLI: edit_peer ──────────────────────────────────────────

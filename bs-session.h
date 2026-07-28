@@ -327,6 +327,7 @@ struct Session {
 
     void touch_output();
     void reset_restart_failures();
+    void release_exited_runtime();
 #ifdef _WIN32
     bool is_valid() const { return master_fd != nullptr; }
     bool is_pollable() const { return master_fd != nullptr && child_pid != nullptr; }
@@ -468,4 +469,28 @@ void Session::touch_output() {
 void Session::reset_restart_failures() {
     restart_failures = 0;
     restart_window_start = std::chrono::steady_clock::now();
+}
+
+void Session::release_exited_runtime() {
+#ifdef _WIN32
+    if (master_fd) {
+        CloseHandle(master_fd);
+        master_fd = nullptr;
+    }
+    if (write_handle) {
+        CloseHandle(write_handle);
+        write_handle = nullptr;
+    }
+    if (hpcon) {
+        ClosePseudoConsole(hpcon);
+        hpcon = nullptr;
+    }
+#else
+    if (master_fd >= 0) {
+        close(master_fd);
+        master_fd = -1;
+    }
+    pending_input.clear();
+    input_backpressured = false;
+#endif
 }

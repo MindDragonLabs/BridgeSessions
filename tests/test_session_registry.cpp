@@ -138,6 +138,30 @@ TEST_CASE("SessionRegistry: detached child exit is reaped", "[session_registry][
     registry.kill("detached-dead");
 }
 
+TEST_CASE("SessionRegistry: mesh reaper defers attached children to PTY poller",
+          "[session_registry][reconnect][pty]") {
+    SessionRegistry registry;
+    auto* s = registry.attach("attached-reaper-owner",
+                              BS_CMD("cmd.exe /c exit /b 0", "exit 0"),
+                              80, 24, "xterm", "peer-a");
+    REQUIRE(s != nullptr);
+    REQUIRE(s->state == SessionState::Attached);
+
+    std::this_thread::sleep_for(500ms);
+    registry.reap_dead(false);
+
+    // MeshController::pty_output_poller owns attached-child reaping because it
+    // must fan out SessionDied. The registry's end-of-tick reaper must not steal
+    // waitpid() first and suppress that protocol frame.
+    REQUIRE(s->state == SessionState::Attached);
+    REQUIRE(s->is_pollable());
+
+    registry.reap_dead();
+    REQUIRE(s->state == SessionState::Died);
+    REQUIRE_FALSE(s->is_valid());
+    registry.kill("attached-reaper-owner");
+}
+
 TEST_CASE("SessionRegistry: transport detach after child exit preserves resurrection eligibility",
           "[session_registry][reconnect]") {
     SessionRegistry registry;
@@ -149,7 +173,10 @@ TEST_CASE("SessionRegistry: transport detach after child exit preserves resurrec
     std::this_thread::sleep_for(500ms);
     registry.reap_dead();
     REQUIRE(s->state == SessionState::Died);
-    REQUIRE(s->is_valid());
+    // A dead child must not retain its PTY master until a future reattach.
+    // Scrollback/session metadata preserve resurrection eligibility without
+    // holding an OS descriptor open.
+    REQUIRE_FALSE(s->is_valid());
     REQUIRE_FALSE(s->is_pollable());
 
     registry.detach("died-before-detach", "peer-a");

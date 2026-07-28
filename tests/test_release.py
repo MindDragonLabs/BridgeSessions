@@ -58,6 +58,22 @@ def run(cmd, cwd=None, check=True, env=None, **kw):
     return result
 
 
+@pytest.mark.parametrize(
+    ("name", "magic"),
+    [
+        ("bridgesessions-linux-x86_64", b"\x7fELF"),
+        ("bridgesessions-macos-arm64", b"\xcf\xfa\xed\xfe"),
+        ("bridgesessions-windows-x86_64.exe", b"MZ"),
+    ],
+)
+def test_committed_dist_binary_matches_platform(name: str, magic: bytes):
+    artifact = REPO_ROOT / "dist" / name
+    assert artifact.is_file(), f"missing release artifact: {name}"
+    assert artifact.read_bytes()[: len(magic)] == magic, (
+        f"{name} has the wrong executable format"
+    )
+
+
 def copy_script_sources(repo: Path) -> None:
     """Copy the release scripts and supporting files into an isolated repo."""
     scripts_dir = repo / "scripts"

@@ -28,12 +28,18 @@ int cmd_keygen(const std::string& app_home) {
         return 1;
     }
 
-    auto [cert, key] = bs::mesh::generate_cert_key_pair("bridgesessions");
-    auto pubkey = bs::mesh::pubkey_hex_from_pem(key);
-
     std::string key_path  = dir + "/id_ed25519.pem";
     std::string cert_path = dir + "/id_ed25519-cert.pem";
     std::string pub_path  = dir + "/id_ed25519.pub";
+    if (std::filesystem::exists(key_path) || std::filesystem::exists(cert_path) ||
+        std::filesystem::exists(pub_path)) {
+        std::cerr << "Refusing to overwrite existing identity in " << dir << "\n"
+                  << "Back up and move all id_ed25519 files before deliberate rotation.\n";
+        return 1;
+    }
+
+    auto [cert, key] = bs::mesh::generate_cert_key_pair("bridgesessions");
+    auto pubkey = bs::mesh::pubkey_hex_from_pem(key);
 
     if (!bs::mesh::write_private_text_file(key_path, key) ||
         !bs::mesh::write_private_text_file(cert_path, cert) ||

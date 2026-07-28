@@ -94,9 +94,10 @@ TEST_CASE("expand_home expands tilde to USERPROFILE or HOME", "[config]") {
 
 // ── Test 4: missing file returns defaults ──────────────────────────
 
-TEST_CASE("shell command uses terminal mode only when stdin is interactive", "[cli][shell]") {
+TEST_CASE("explicit shell command remains finite when stdin is interactive", "[cli][shell]") {
     REQUIRE(shell_command_uses_interactive_mode("", false));
-    REQUIRE(shell_command_uses_interactive_mode("hermes --tui --yolo", true));
+    REQUIRE(shell_command_uses_interactive_mode("", true));
+    REQUIRE_FALSE(shell_command_uses_interactive_mode("hermes --tui --yolo", true));
     REQUIRE_FALSE(shell_command_uses_interactive_mode("uname -a", false));
 }
 

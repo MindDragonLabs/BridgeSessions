@@ -2,6 +2,47 @@
 
 All notable public releases are documented here.
 
+## [2.0.19] — alpha7 (2026-07-28)
+
+**macOS 26 remote video capture is operational end-to-end, and the release
+hardens identity, health, finite-shell, installer, and artifact safety.**
+
+### Capture and routing
+- Replaced FFmpeg AVFoundation screen input on macOS with native
+  **ScreenCaptureKit** frame capture. BridgeSessions captures PNG frames inside
+  the approved process, then uses FFmpeg only to encode H.264. This avoids the
+  macOS 26 `NSKVONotifying_AVCaptureScreenInput` failure and daemon
+  WindowServer-session limitations.
+- `capture-video <peer>` now uses a dedicated pinned direct-TLS request and
+  waits for the matching `CuaVideoCaptureResultMsg`. The previous daemon IPC
+  path only verified that the peer existed, then executed capture locally.
+- ScreenCaptureKit callback errors are copied into owned C++ storage before the
+  callback returns, eliminating a released-`NSString` crash on failure paths.
+
+### Reliability and safety
+- Health probes now drain late output after an exit notification until the
+  expected nonce, EOF, or timeout, fixing false negatives caused by
+  OutputMsg/ExitCodeMsg ordering.
+- Exited sessions now release PTY masters, ConPTY pipes, and pseudo-console
+  handles immediately instead of leaking one runtime descriptor set per shell.
+- The mesh reaper defers attached children to the PTY output poller so final
+  output and `SessionDiedMsg` delivery cannot be stolen by an earlier `waitpid`.
+- Explicit `shell --cmd` requests remain finite even when stdin is a PTY;
+  reconnecting interactive mode is reserved for commands with no explicit
+  command string.
+- `keygen` refuses to overwrite any existing `id_ed25519*` identity file,
+  preventing accidental fleet-wide trust invalidation.
+- The installer rejects unsupported OS/architecture pairs, validates ELF or
+  Mach-O format before replacement, checks the downloaded binary's reported
+  version, and installs atomically.
+- Release tests verify committed Linux, macOS, and Windows artifact magic.
+
+### Verification
+- Linux CTest: 336/336 passed; macOS CTest: 335/335 passed; release pytest: 31/31 passed.
+- Live test-pc5 capture verified as H.264, 1920x810, 2 fps, 3 seconds, 6 frames;
+  retrieval SHA-256:
+  `dae226d32cd16e2b13d21aa2d7899156dd5ef86fc9a9471a35b89490ff348761`.
+
 ## [2.0.17] — alpha6 (2026-07-27)
 
 **Hotfix follow-on: frame reads now tolerate WANT_READ/WANT_WRITE — Windows-source
