@@ -481,6 +481,20 @@ TEST_CASE("verify_inbound_peer_identity binds configured name key and Hello",
     REQUIRE(verify_inbound_peer_identity(cfg, "xyz", "xyz", "peer-new").ok);
 }
 
+TEST_CASE("authoritative seed pin overrides stale discovered key after rotation",
+          "[config][security][rotation]") {
+    MeshConfig cfg;
+    cfg.seeds.push_back(PeerEntry{
+        .name = "peer-a", .addr = "203.0.113.10:19949", .pubkey_hex = "new-key"});
+    cfg.discovered.push_back(PeerEntry{
+        .name = "peer-a", .addr = "203.0.113.10:19949", .pubkey_hex = "old-key"});
+
+    REQUIRE(verify_inbound_peer_identity(
+        cfg, "new-key", "new-key", "peer-a").ok);
+    REQUIRE_FALSE(verify_inbound_peer_identity(
+        cfg, "old-key", "old-key", "peer-a").ok);
+}
+
 TEST_CASE("sanitize_transfer_filename rejects traversal and device names",
           "[config][security][p0]") {
     REQUIRE(sanitize_transfer_filename("ok.txt").value() == "ok.txt");

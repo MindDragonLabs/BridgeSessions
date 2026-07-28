@@ -2923,6 +2923,35 @@ inline void close_nonstdio_fds_before_exec() {
         " -t " + std::to_string(req.duration_sec) +
         " -i desktop -c:v libx264 -preset ultrafast -crf 28 -pix_fmt yuv420p " +
         tmp_path + " 2>nul";
+#elif defined(__APPLE__)
+    std::string tmp_path = "/tmp/bs-video-" + std::to_string(
+        std::chrono::steady_clock::now().time_since_epoch().count()) + ".mp4";
+    auto ffmpeg = find_binary("/opt/homebrew/bin/ffmpeg");
+    if (!ffmpeg) ffmpeg = find_binary("/usr/local/bin/ffmpeg");
+    if (!ffmpeg) ffmpeg = find_binary("ffmpeg");
+    std::string cmd;
+    if (ffmpeg) {
+        const uint32_t fps = (std::max)(uint32_t{1}, static_cast<uint32_t>(req.fps));
+        const uint32_t duration = (std::max)(uint32_t{1}, static_cast<uint32_t>(req.duration_sec));
+        const uint32_t max_width = req.max_width == 0 ? 1920u : static_cast<uint32_t>(req.max_width);
+        const uint32_t watchdog_sec = duration + 10;
+        const uint64_t frame_count = static_cast<uint64_t>(fps) * duration;
+        // AVFoundation screen device 0 is "Capture screen 0" on macOS. A
+        // watchdog is required because AVFoundation can block forever without
+        // producing frames when Screen Recording permission is absent.
+        const std::string ffmpeg_cmd =
+            *ffmpeg + " -hide_banner -loglevel error -y -f avfoundation" +
+            " -framerate " + std::to_string(fps) +
+            " -pixel_format nv12 -capture_cursor 1 -i \"0:none\"" +
+            " -frames:v " + std::to_string(frame_count) +
+            " -vf \"scale='min(" + std::to_string(max_width) + ",iw)':-2\"" +
+            " -c:v libx264 -preset ultrafast -crf 28 -pix_fmt yuv420p " +
+            tmp_path + " 2>/tmp/bs-video-ffmpeg.log";
+        cmd = "( " + ffmpeg_cmd + " & pid=$!; "
+              "( sleep " + std::to_string(watchdog_sec) +
+              "; kill -TERM $pid 2>/dev/null; sleep 2; kill -KILL $pid 2>/dev/null ) & wd=$!; "
+              "wait $pid; rc=$?; kill $wd 2>/dev/null; wait $wd 2>/dev/null; exit $rc )";
+    }
 #else
     std::string tmp_path = "/tmp/bs-video-" + std::to_string(
         std::chrono::steady_clock::now().time_since_epoch().count()) + ".mp4";
@@ -2941,7 +2970,12 @@ inline void close_nonstdio_fds_before_exec() {
     }
     int rc = std::system(cmd.c_str());
     if (rc != 0 || !std::filesystem::exists(tmp_path)) {
+#ifdef __APPLE__
+        result.error = "macOS video capture failed (ffmpeg exit " + std::to_string(rc) +
+                       "); verify Screen Recording permission for bridgesessions/ffmpeg";
+#else
         result.error = "video capture failed (ffmpeg exit " + std::to_string(rc) + ")";
+#endif
         return result;
     }
     result.status = 0;
@@ -3563,9 +3597,19 @@ struct OutboundPeerVerifyResult {
         }
         return std::nullopt;
     };
+    bool matched_authoritative_seed = false;
     for (const auto& peer : cfg.seeds) {
         if (auto reason = check_peer(peer)) return {false, *reason};
+        if (!peer.pubkey_hex.empty() && peer.pubkey_hex == cert_pubkey &&
+            config_peer_name_eq(peer.name, hello_name)) {
+            matched_authoritative_seed = true;
+        }
     }
+    // Explicit seed pins are operator-controlled and authoritative. Gossip may
+    // retain a peer's previous key after a legitimate rotation; once the seed
+    // name/key pair matches, stale discovered entries must not poison that
+    // identity indefinitely.
+    if (matched_authoritative_seed) return {true, {}};
     for (const auto& peer : cfg.discovered) {
         if (auto reason = check_peer(peer)) return {false, *reason};
     }
