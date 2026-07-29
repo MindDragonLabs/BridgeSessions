@@ -1,6 +1,6 @@
 # BridgeSessions 2.0.19-alpha7
 
-BridgeSessions 2.0.19-alpha7 repairs remote video capture on macOS 26 and closes the identity, installer, health-probe, and finite-shell regressions found during fleet recovery.
+BridgeSessions 2.0.19-alpha7 repairs remote video capture on macOS 26 and closes the identity, installer, health-probe, finite-shell, and PTY-lifecycle regressions found during fleet recovery.
 
 ## Highlights
 

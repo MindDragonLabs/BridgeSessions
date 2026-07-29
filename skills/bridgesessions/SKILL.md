@@ -224,7 +224,7 @@ Gameplay GUI / desktop input: **WinRM Session-1** (or documented Session-1 helpe
 ```bash
 # Linux
 cmake -S . -B build && cmake --build build -j
-./build/bridgesessions --version   # 2.0.19-alpha7
+test "$(./build/bridgesessions --version)" = "$(cat VERSION)"
 ctest --test-dir build --output-on-failure
 ./build/test_config "[security]"
 
@@ -235,13 +235,24 @@ ctest --test-dir build --output-on-failure
 Cross-platform build notes: `docs/building.md`.  
 Release packaging: `scripts/package-release.sh` + `scripts/release-checksums.sh`.
 
+### macOS Catch2 compatibility
+
+- Current Homebrew Catch2 provides `Catch::StringMaker<std::string_view>` in
+  `libCatch2.a`; keep `BS_CATCH2_APPLE_SHIM=OFF` (the default).
+- Enable `-DBS_CATCH2_APPLE_SHIM=ON` only for a proven older/mismatched Catch2
+  headers/archive where that symbol is missing. Enabling it with current Catch2 causes a
+  duplicate-symbol linker failure.
+- Use a clean build directory when changing this option and invoke Homebrew CTest by its
+  absolute path (`/opt/homebrew/bin/ctest`) when the remote non-login PATH omits it.
+
 Primary source: `bs-protocol.h` + `main.cpp` + `bs-session.h`.
 
 ## Deploy (fleet sketch)
 
 1. Never overwrite live `~/.bridgesessions/{config,authorized_keys}` with empty templates.
 2. Order typical: build host → peers; Windows via PE binary (not Linux ELF).
-3. After deploy: `--version`, `health <peer>`, `shell <peer> --cmd hostname`.
+3. After deploy: exact artifact hash, `--version`, `health <peer>`, and
+   `shell <peer> --cmd hostname`.
 4. Seeds without `pubkey=` are skipped when `require_seed_pins` is true.
 
 ### Identity and binary safety gates
@@ -260,15 +271,27 @@ Primary source: `bs-protocol.h` + `main.cpp` + `bs-session.h`.
    `--version`, and the deployed binary `--version`. A stale CMake cache can produce a
    binary label that no longer matches the checked-out source; use a clean build dir for
    fleet artifacts.
-5. **Use a unique remote filename for every `bs file send`.** Receivers preserve an
+5. **Verify the supervisor's actual executable, not an idle copy.** On Linux, resolve
+   `/proc/$(systemctl --user show bridgesessions -p MainPID --value)/exe`; on macOS,
+   inspect the launchd PID's `lsof -d txt` path; on Windows, compare the scheduled-task
+   action with `Win32_Process.ExecutablePath`. Hash that live path. A correct build-tree
+   binary proves nothing if launchd runs `~/.local/bin/bridgesessions`.
+6. **Converge to one supervisor.** Disable legacy launch agents or scheduled tasks that
+   reference old install paths. Otherwise logon or a sibling agent can silently relaunch
+   or redeploy a stale binary.
+7. **Use a unique remote filename for every `bs file send`.** Receivers preserve an
    existing same-name file; a later send can report success while the old payload remains.
    Verify the received SHA-256 before install.
-6. **Windows task-account CLIs need an explicit config:**
+8. **Windows task-account CLIs need an explicit config:**
    `bridgesessions --config C:\Users\<user>\.bridgesessions\config ...`.
    A shell spawned by the scheduled-task daemon may otherwise resolve the SYSTEM profile.
-7. **Pre-2.0.18 nested `--cmd` warning:** when a remote `bs shell -x` inherits a PTY, it
+9. **Pre-2.0.18 nested `--cmd` warning:** when a remote `bs shell -x` inherits a PTY, it
    can enter persistent reconnect mode and replay the command after exit. Redirect nested
    stdin from `/dev/null` (POSIX) / a pipe (Windows), or deploy the finite-command fix.
+10. **Prove PTY lifecycle on busy hubs.** Count the daemon's `/dev/ptmx` descriptors,
+    run repeated health/shell probes, then count again. Growth means child reaping or
+    runtime-handle closure regressed. A health nonce without `SessionDied` is not enough;
+    do not mask the leak by treating nonce output alone as success.
 
 ## Harness install map
 
@@ -306,12 +329,13 @@ ln -sfn "$(pwd)/skills/bridgesessions" ~/.hermes/skills/devops/bridgesessions
 ## Verification before claiming success
 
 ```bash
-bs --version                          # 2.0.19-alpha7
+expected="$(cat VERSION)"
+test "$(bs --version)" = "$expected"
 bs health <peer>                      # healthy (data-plane ok)
 bs shell <peer> --cmd "…"             # real stdout, correct host
 bs file send <peer> /tmp/big.bin --wait   # PROGRESS then OK
 # Public tag contains the reviewed platform binaries:
-curl -fsI https://codeberg.org/Mind-Dragon/BridgeSessions/raw/tag/v2.0.19-alpha7/dist/bridgesessions-linux-x86_64
+curl -fsI "https://codeberg.org/Mind-Dragon/BridgeSessions/raw/tag/v${expected}/dist/bridgesessions-linux-x86_64"
 ```
 
 Subagent claims are not evidence — re-probe in this session.

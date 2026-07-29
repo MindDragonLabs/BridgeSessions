@@ -1,4 +1,8 @@
 cmake_minimum_required(VERSION 3.25)
+if(POLICY CMP0144)
+    cmake_policy(SET CMP0144 NEW)
+endif()
+
 file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/VERSION" BRIDGESESSIONS_VERSION
      LIMIT_COUNT 1)
 string(STRIP "${BRIDGESESSIONS_VERSION}" BRIDGESESSIONS_VERSION)
@@ -17,6 +21,8 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 option(BS_ENABLE_NAT "Enable miniupnpc NAT traversal" OFF)
 option(BS_ENABLE_WEBRTC "Enable libdatachannel WebRTC transport" OFF)
 option(BS_ENABLE_DHT "Enable DHT prototype" OFF)
+option(BS_CATCH2_APPLE_SHIM
+       "Enable the legacy macOS shim for mismatched Catch2 headers/archive" OFF)
 
 # ── MSVC-specific ──────────────────────────────────────────────
 if(MSVC)
@@ -96,7 +102,7 @@ foreach(TEST_SRC ${TEST_SOURCES})
         continue()
     endif()
     add_executable(${TEST_NAME} ${TEST_SRC})
-    if(APPLE)
+    if(APPLE AND BS_CATCH2_APPLE_SHIM)
         target_compile_options(${TEST_NAME} PRIVATE
             -include ${CMAKE_CURRENT_SOURCE_DIR}/tests/catch2_apple_shim.h)
     endif()
