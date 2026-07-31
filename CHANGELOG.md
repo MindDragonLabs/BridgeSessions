@@ -2,6 +2,29 @@
 
 All notable public releases are documented here.
 
+## [2.0.20] — alpha10 (2026-08-01)
+
+**Fleet directory, mesh-wide trust propagation, and remote version tracking.**
+
+### Fleet directory (`bs fleet`)
+- New `FLEET` IPC command returns JSON fleet table: node name, address, version, status, uptime.
+- `bs fleet` CLI prints a markdown table. Daemon aggregates local + connected peer data in one call.
+- `Conn` struct gains `remote_version`, populated from Hello handshake and ServerInfo gossip — each node now knows every peer's running version.
+
+### Mesh-wide trust propagation (join flow)
+- `JoinReplyMsg` now carries `peer_pubkeys_json`: a JSON array of all configured seeds with their pubkeys.
+- The joiner's `bs join` handler adds all mesh seeds as configured seeds and authorizes their pubkeys.
+- New nodes can now reach every mesh peer after a single join, not just the host that issued the invite.
+
+### Fleet version audit
+- Live fleet survey: 14 peers visible across the mesh, versions ranging from 1.6.0 (test-pc2 old binary) to 2.0.20-alpha10.
+- Identified version drift: test-pc5 (2.0.19-alpha7), test-pc6 (2.0.19-alpha8), test-pc12 (2.0.19-alpha7), test-pc15 (2.0.19-alpha7).
+- Deployed 2.0.20-alpha10 to test-pc1, test-pc2, test-pc3, test-pc14. macOS/Windows/container nodes pending.
+
+### Verification
+- Linux CTest: 336/336 passed.
+- Live fleet output clean, all peer versions match reality.
+
 ## [2.0.20] — alpha9 (2026-07-31)
 
 **Transfer pipelining, background service on Windows, and fleet-wide

@@ -147,8 +147,9 @@ Optional Codeberg "Releases" UI assets are cosmetics only; **git `dist/` is the 
 
 ```bash
 export PATH="$HOME/.local/bin:$PATH"
-bs --version                          # expect 2.0.19-alpha7
+bs --version                          # expect 2.0.20-alpha10
 bs health <peer>                      # must say healthy (data-plane ok)
+bs fleet                              # fleet directory: all peers with name/addr/version/status/uptime
 bs shell <peer> --cmd '…'             # one-shot; exit code propagates
 bs file send <peer> /local/path --wait
 bs file recv <peer> /remote/path --to ./out --wait

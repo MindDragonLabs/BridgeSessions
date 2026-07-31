@@ -385,6 +385,7 @@ struct JoinReplyMsg {
     std::string seeds_csv;
     std::string host_pubkey;
     std::string host_addr;
+    std::string peer_pubkeys_json; // 2.0.20: [{name,addr,pubkey_hex}] for all configured seeds
     std::string error;
     bool operator==(const JoinReplyMsg&) const = default;
 };
@@ -795,6 +796,7 @@ void serialize_msg(Serializer& s, const JoinReplyMsg& m) {
     if (m.ok) {
         s.str_prefixed(m.node_name); s.str_prefixed(m.seeds_csv);
         s.str_prefixed(m.host_pubkey); s.str_prefixed(m.host_addr);
+        s.str_prefixed(m.peer_pubkeys_json); // 2.0.20
     } else {
         s.str_prefixed(m.error);
     }
@@ -1577,6 +1579,7 @@ Message decode(std::span<const uint8_t> raw) {
         if (m.ok) {
             m.node_name = d.str_prefixed(); m.seeds_csv = d.str_prefixed();
             m.host_pubkey = d.str_prefixed(); m.host_addr = d.str_prefixed();
+            m.peer_pubkeys_json = d.str_prefixed(); // 2.0.20
         } else {
             m.error = d.str_prefixed();
         }
@@ -5948,6 +5951,8 @@ public:
         // Initial handshake Hello. Later Hello frames are ignored only if
         // identical; any mismatch closes the connection.
         std::optional<HelloMsg> initial_hello;
+        // Remote peer version, populated from Hello or ServerInfo gossip.
+        std::string remote_version;
         // ── 2.0.8 P3 per-connection output queue ──────────────────────
         // When a fanout write fails (slow client, full socket buffer), the
         // OutputMsg is enqueued here instead of silently dropped. The event
@@ -6730,6 +6735,7 @@ private:
         c.peer_pubkey = ph.peer_pk;
         c.peer_addr = ph.expected_addr;
         c.initial_hello = hello;
+        c.remote_version = hello.version;
         c.ssl = std::move(ph.ssl);
         c.sock_fd = ph.sock_fd;
         c.rx_buffer = std::move(ph.rx_buffer);
@@ -7098,6 +7104,7 @@ private:
             c.peer_pubkey = peer_pk;
             c.peer_addr = addr;
             c.initial_hello = hello;
+            c.remote_version = hello.version;
             std::string subj_out = peer_cert_subject_oneline(ssl.get());  // R1.4 before move
             c.ssl = std::move(ssl);
             c.sock_fd = sfd;
@@ -8631,6 +8638,7 @@ private:
         }
         else if (std::holds_alternative<ServerInfoMsg>(msg)) {
             auto& info = std::get<ServerInfoMsg>(msg);
+            if (!info.version.empty()) c.remote_version = info.version;
             if (!info.sessions_summary_json.empty() && !c.peer_name.empty()) {
                 // 2.0.8 MoA fix: validate at the trust boundary. The payload is
                 // re-interpolated VERBATIM into MESH_TREE output — a malformed
@@ -8884,6 +8892,18 @@ public:
                     reply.seeds_csv = seeds.str();
                     reply.host_pubkey = our_pubkey_;
                     reply.host_addr = config_.listen_addr + ":" + std::to_string(config_.listen_port);
+                    // 2.0.20: include all seed pubkeys so joiner trusts the full mesh
+                    std::ostringstream pkjson;
+                    pkjson << "[";
+                    for (size_t si = 0; si < config_.seeds.size(); ++si) {
+                        if (si) pkjson << ",";
+                        pkjson << "{\"name\":\"" << gossip_json_escape(config_.seeds[si].name)
+                                << "\",\"addr\":\"" << gossip_json_escape(config_.seeds[si].addr)
+                                << "\",\"pubkey_hex\":\"" << gossip_json_escape(config_.seeds[si].pubkey_hex)
+                                << "\"}";
+                    }
+                    pkjson << "]";
+                    reply.peer_pubkeys_json = pkjson.str();
                 }
             }
             if (reply.ok && !conn.peer_pubkey.empty()) {
@@ -10450,6 +10470,35 @@ public:
                         << " last_pong_s=" << age << "\n";
                 }
                 out << "END\n";
+                response = out.str();
+            }
+            else if (line == "FLEET") {
+                // JSON fleet directory: name, addr, version, status, uptime_s
+                std::ostringstream out;
+                out << "{";
+                auto now = std::chrono::steady_clock::now();
+                auto fresh = std::chrono::seconds(config_.pong_timeout_secs > 0
+                                                  ? config_.pong_timeout_secs : 30);
+                // 2.0.20: include local node first
+                out << "\"" << gossip_json_escape(config_.node_name) << "\":{\"name\":\""
+                    << gossip_json_escape(config_.node_name)
+                    << "\",\"addr\":\""
+                    << gossip_json_escape(config_.listen_addr + ":" + std::to_string(config_.listen_port))
+                    << "\",\"version\":\"" << gossip_json_escape(std::string(kBridgeSessionsVersion))
+                    << "\",\"status\":\"self\"}";
+                // then live mesh peers
+                for (auto& c : conns_) {
+                    if (c.purpose != ConnectionPurpose::Mesh || c.sock_fd == INVALID_SOCKET) continue;
+                    bool ok = (now - c.last_pong) <= fresh;
+                    auto uptime = std::chrono::duration_cast<std::chrono::seconds>(now - c.connected_at).count();
+                    out << ",\"" << gossip_json_escape(c.peer_name) << "\":{";
+                    out << "\"addr\":\"" << gossip_json_escape(c.peer_addr) << "\",";
+                    out << "\"version\":\"" << gossip_json_escape(c.remote_version) << "\",";
+                    out << "\"status\":\"" << (ok ? "healthy" : "no-pong") << "\",";
+                    out << "\"uptime_s\":" << uptime;
+                    out << "}";
+                }
+                out << "}\n";
                 response = out.str();
             }
             else if (line.rfind("SCROLLBACK ", 0) == 0) {

@@ -11,6 +11,7 @@
 #include <CLI/CLI.hpp>
 #include <cstdlib>
 #include <iostream>
+#include <unordered_set>
 
 namespace {
 
@@ -346,6 +347,10 @@ int main(int argc, char** argv) {
     // stats
     auto* stats_cmd_app = app.add_subcommand("stats", "Show connection and session statistics");
 
+    // fleet
+    bool fleet_json = false;
+    auto* fleet_cmd_app = app.add_subcommand("fleet", "Show live fleet directory with peer names, addresses, versions, and status");
+
     // telemetry
     bool telemetry_json = false;
     auto* telemetry_cmd_app = app.add_subcommand("telemetry", "Show transfer telemetry");
@@ -677,12 +682,28 @@ int main(int argc, char** argv) {
         host_seed.addr = jrep.host_addr;
         host_seed.pubkey_hex = jrep.host_pubkey;
         cfg.seeds.push_back(std::move(host_seed));
+        // 2.0.20: add all mesh seeds from the host's peer list
+        if (!jrep.peer_pubkeys_json.empty()) {
+            try {
+                auto pks = nlohmann::json::parse(jrep.peer_pubkeys_json);
+                for (auto& pk : pks) {
+                    bs::mesh::PeerEntry pe;
+                    pe.name = pk.value("name", "");
+                    pe.addr = pk.value("addr", "");
+                    pe.pubkey_hex = pk.value("pubkey_hex", "");
+                    if (!pe.name.empty() && !pe.addr.empty() && !pe.pubkey_hex.empty() &&
+                        pe.pubkey_hex != jrep.host_pubkey) {
+                        cfg.seeds.push_back(std::move(pe));
+                    }
+                }
+            } catch (...) {}
+        }
         if (!save_config(config_path, cfg)) {
             std::cerr << "join failed: could not save config to " << config_path << "\n";
             return 1;
         }
 
-        // Authorize host
+        // Authorize host + all mesh seeds
         std::string auth_path = bs::mesh::resolve_under_app_home(cfg.authorized_keys_path, home_dir);
         {
             std::string dir = auth_path;
@@ -693,8 +714,36 @@ int main(int argc, char** argv) {
                 std::cerr << "join failed: could not create " << dir << "\n";
                 return 1;
             }
+            // Collect set of pubkeys we already have in authorized_keys
+            std::unordered_set<std::string> existing_pks;
+            {
+                std::ifstream existing(auth_path);
+                std::string line;
+                while (std::getline(existing, line)) {
+                    if (!line.empty() && line.back() == '\r') line.pop_back();
+                    if (line.rfind("pubkey ", 0) == 0) existing_pks.insert(line.substr(7));
+                    else if (!line.empty()) existing_pks.insert(line);
+                }
+            }
             std::ofstream af(auth_path, std::ios::app);
-            if (af.is_open()) af << "pubkey " << jrep.host_pubkey << "\n";
+            if (af.is_open()) {
+                if (existing_pks.find(jrep.host_pubkey) == existing_pks.end())
+                    af << "pubkey " << jrep.host_pubkey << "\n";
+                // Authorize all mesh seed pubkeys too
+                if (!jrep.peer_pubkeys_json.empty()) {
+                    try {
+                        auto pks = nlohmann::json::parse(jrep.peer_pubkeys_json);
+                        for (auto& pk : pks) {
+                            std::string pkh = pk.value("pubkey_hex", "");
+                            if (!pkh.empty() && pkh != jrep.host_pubkey &&
+                                existing_pks.find(pkh) == existing_pks.end()) {
+                                af << "pubkey " << pkh << "\n";
+                                existing_pks.insert(pkh);
+                            }
+                        }
+                    } catch (...) {}
+                }
+            }
         }
         std::cout << "Joined. Node: " << cfg.node_name << "  Config: " << config_path << "\n";
         if (join_start) {
@@ -734,6 +783,39 @@ int main(int argc, char** argv) {
             return 0;
         }
         mc.show_stats();
+        return 0;
+    }
+    if (fleet_cmd_app->parsed()) {
+        std::string ipc = daemon_simple_ipc("FLEET", 3000, home_dir);
+        if (ipc.empty() || ipc.rfind("ERROR", 0) == 0) {
+            std::cerr << "fleet: daemon not running or returned error\n";
+            return 1;
+        }
+        try {
+            auto j = nlohmann::json::parse(ipc);
+            // Markdown table output
+            std::cout << "| Name | Address | Version | Status | Uptime |\n";
+            std::cout << "|------|---------|---------|--------|--------|\n";
+            for (auto& [key, val] : j.items()) {
+                std::string name = key;
+                std::string addr = val.value("addr", "");
+                std::string version = val.value("version", "");
+                std::string status = val.value("status", "");
+                std::string uptime;
+                if (val.contains("uptime_s") && status != "self") {
+                    uint64_t s = val.value("uptime_s", 0ULL);
+                    if (s >= 86400) uptime = std::to_string(s / 86400) + "d";
+                    else if (s >= 3600) uptime = std::to_string(s / 3600) + "h";
+                    else if (s >= 60) uptime = std::to_string(s / 60) + "m";
+                    else uptime = std::to_string(s) + "s";
+                }
+                std::cout << "| " << name << " | " << addr << " | " << version
+                          << " | " << status << " | " << uptime << " |\n";
+            }
+        } catch (...) {
+            std::cerr << "fleet: failed to parse JSON\\n";
+            return 1;
+        }
         return 0;
     }
     if (telemetry_cmd_app->parsed()) {
