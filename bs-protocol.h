@@ -976,6 +976,161 @@ constexpr int kTransferIdleTimeoutSec = 120;
 constexpr int kTransferProgressIntervalSec = 10;
 constexpr size_t kTransferChunkRawSize = 48 * 1024;
 
+// ── Transfer telemetry ──────────────────────────────────────────────
+// Accumulates per-chunk wall-clock timings during a transfer.  Emit a
+// summary line after the last chunk so operators can see exactly where
+// time is going (select / write / drain / overhead) on slow links.
+// Set BS_NOXFER_TIMING=1 to suppress.
+struct TransferChunkTiming {
+    int64_t select_us   = 0;
+    int64_t write_us    = 0;
+    int64_t drain_us    = 0;
+    int64_t total_us    = 0;
+    int64_t select_min  = INT64_MAX;
+    int64_t select_max  = 0;
+    int64_t write_min   = INT64_MAX;
+    int64_t write_max   = 0;
+    int64_t drain_min   = INT64_MAX;
+    int64_t drain_max   = 0;
+    int64_t total_min   = INT64_MAX;
+    int64_t total_max   = 0;
+    uint32_t count      = 0;
+
+    void record(int64_t s, int64_t w, int64_t d, int64_t t) {
+        select_us += s; write_us += w; drain_us += d; total_us += t;
+        select_min = std::min(select_min, s); select_max = std::max(select_max, s);
+        write_min  = std::min(write_min,  w); write_max  = std::max(write_max,  w);
+        drain_min  = std::min(drain_min,  d); drain_max  = std::max(drain_max,  d);
+        total_min  = std::min(total_min,  t); total_max  = std::max(total_max,  t);
+        count++;
+    }
+
+    [[nodiscard]] std::string format(const std::string& file, uint64_t bytes) const {
+        if (count == 0) return {};
+        const auto mean = [&](int64_t sum) { return static_cast<double>(sum) / count; };
+        const auto us2ms = [](int64_t us) { return static_cast<double>(us) / 1000.0; };
+        int64_t overhead_us = total_us - write_us;
+        double overhead_pct = total_us > 0
+            ? 100.0 * static_cast<double>(overhead_us) / static_cast<double>(total_us) : 0.0;
+        char buf[640];
+        snprintf(buf, sizeof(buf),
+            "XFER_TIMING file=%s bytes=%llu chunks=%u total_wall_ms=%.0f "
+            "select(total=%.0fms mean=%.0fus min=%.0fus max=%.0fus) "
+            "write(total=%.0fms mean=%.0fus min=%.0fus max=%.0fus) "
+            "drain(total=%.0fms mean=%.0fus min=%.0fus max=%.0fus) "
+            "overhead_pct=%.1f",
+            file.c_str(),
+            static_cast<unsigned long long>(bytes), count,
+            us2ms(total_us),
+            us2ms(select_us), mean(select_us), static_cast<double>(select_min), static_cast<double>(select_max),
+            us2ms(write_us),    mean(write_us),    static_cast<double>(write_min),    static_cast<double>(write_max),
+            us2ms(drain_us),    mean(drain_us),    static_cast<double>(drain_min),    static_cast<double>(drain_max),
+            overhead_pct);
+        return std::string(buf);
+    }
+};
+
+[[nodiscard]] inline TransferChunkTiming make_transfer_timing() {
+    TransferChunkTiming t{};
+    if (const char* e = getenv("BS_NOXFER_TIMING"); e && (e[0] == '1')) {
+        t.count = 0; // sentinel — format() short-circuits
+    }
+    return t;
+}
+
+// ── Transfer telemetry ring buffer ───────────────────────────────────
+// Bounded in-memory ring of recent transfer completions.  Exported via
+// `bs telemetry --json` (IPC "TELEMETRY") so a fleet controller can
+// poll peers without extra ports.
+struct TransferTelemetryEntry {
+    std::string file;        // filename (basename)
+    uint64_t bytes = 0;
+    uint32_t chunks = 0;
+    int64_t total_wall_ms = 0;
+    double rate_mibs = 0.0;
+    double overhead_pct = 0.0;
+    int64_t select_total_ms = 0;
+    int64_t write_total_ms = 0;
+    int64_t drain_total_ms = 0;
+    double select_mean_us = 0.0;
+    double write_mean_us = 0.0;
+    double drain_mean_us = 0.0;
+    int64_t timestamp_s = 0; // unix epoch second at completion
+    std::string direction;   // "send" or "recv"
+    std::string peer;        // remote peer name (empty if local)
+};
+
+struct TransferTelemetryRing {
+    static constexpr size_t kMaxEntries = 256;
+    std::vector<TransferTelemetryEntry> entries;
+    mutable std::mutex mutex;
+
+    void append(TransferTelemetryEntry e) {
+        std::lock_guard lock(mutex);
+        if (entries.size() >= kMaxEntries)
+            entries.erase(entries.begin());
+        entries.push_back(std::move(e));
+    }
+
+    [[nodiscard]] std::string to_json() const {
+        std::lock_guard lock(mutex);
+        nlohmann::json j = nlohmann::json::array();
+        for (auto& e : entries) {
+            nlohmann::json je;
+            je["file"] = e.file;
+            je["bytes"] = e.bytes;
+            je["chunks"] = e.chunks;
+            je["total_wall_ms"] = e.total_wall_ms;
+            je["rate_mibs"] = e.rate_mibs;
+            je["overhead_pct"] = e.overhead_pct;
+            je["select_total_ms"] = e.select_total_ms;
+            je["write_total_ms"] = e.write_total_ms;
+            je["drain_total_ms"] = e.drain_total_ms;
+            je["select_mean_us"] = e.select_mean_us;
+            je["write_mean_us"] = e.write_mean_us;
+            je["drain_mean_us"] = e.drain_mean_us;
+            je["ts"] = e.timestamp_s;
+            je["dir"] = e.direction;
+            je["peer"] = e.peer;
+            j.push_back(je);
+        }
+        return j.dump();
+    }
+
+    [[nodiscard]] size_t size() const {
+        std::lock_guard lock(mutex);
+        return entries.size();
+    }
+};
+
+// Helper: build a telemetry entry from TransferChunkTiming + context.
+[[nodiscard]] inline TransferTelemetryEntry make_telemetry_entry(
+        const TransferChunkTiming& t, const std::string& filename,
+        uint64_t filesize, const std::string& peer,
+        const std::string& direction) {
+    TransferTelemetryEntry e;
+    const auto us2ms = [](int64_t us) { return static_cast<double>(us) / 1000.0; };
+    e.file = filename;
+    e.bytes = filesize;
+    e.chunks = t.count;
+    e.total_wall_ms = static_cast<int64_t>(us2ms(t.total_us));
+    double elapsed_s = std::max(0.001, us2ms(t.total_us) / 1000.0);
+    e.rate_mibs = elapsed_s > 0.0
+        ? (static_cast<double>(filesize) / elapsed_s) / (1024.0 * 1024.0) : 0.0;
+    e.overhead_pct = t.total_us > 0
+        ? 100.0 * static_cast<double>(t.total_us - t.write_us) / static_cast<double>(t.total_us) : 0.0;
+    e.select_total_ms = static_cast<int64_t>(us2ms(t.select_us));
+    e.write_total_ms  = static_cast<int64_t>(us2ms(t.write_us));
+    e.drain_total_ms  = static_cast<int64_t>(us2ms(t.drain_us));
+    e.select_mean_us = t.count > 0 ? static_cast<double>(t.select_us) / t.count : 0.0;
+    e.write_mean_us  = t.count > 0 ? static_cast<double>(t.write_us) / t.count : 0.0;
+    e.drain_mean_us  = t.count > 0 ? static_cast<double>(t.drain_us) / t.count : 0.0;
+    e.timestamp_s = static_cast<int64_t>(std::time(nullptr));
+    e.direction = direction;
+    e.peer = peer;
+    return e;
+}
+
 struct TransferMetadataValidation {
     bool ok = false;
     uint32_t expected_chunks = 0;
@@ -5993,6 +6148,9 @@ private:
     std::optional<LongOperationWorkerPool> worker_pool_;
     static constexpr size_t kLongOperationWorkers = 2;
 
+    // ── Transfer telemetry ────────────────────────────────────────────
+    TransferTelemetryRing transfer_telemetry_;
+
 #ifdef _WIN32
     struct WindowsPtyWriteTask {
         HANDLE handle = nullptr;
@@ -7300,7 +7458,9 @@ private:
     std::string file_send_wait_on_transport(
             SSL* ssl, SOCKET sock_fd, const std::string& local_path,
             const std::function<bool()>& is_cancelled = {},
-            const std::function<void(const std::string&)>& on_progress = {}) {
+            const std::function<void(const std::string&)>& on_progress = {},
+            TransferTelemetryRing* telemetry_ring = nullptr,
+            const std::string& peer_name = {}) {
         if (!socket_selectable(sock_fd)) return "ERROR socket exceeds select limit";
         // v2.0.12c: temporarily set blocking mode for the duration of the transfer.
         // Mesh sockets are non-blocking; SSL_write_ex on non-blocking sockets
@@ -7398,6 +7558,7 @@ private:
         auto last_progress = t0;
         uint64_t bytes_sent = 0;
         std::vector<char> raw(kTransferChunkRawSize);
+        auto timing = make_transfer_timing();
 
         for (uint32_t ci = 0; ci < total_chunks; ++ci) {
             if (is_cancelled && is_cancelled()) return "ERROR cancelled";
@@ -7414,14 +7575,31 @@ private:
             chunk.chunk_index = ci;
             chunk.total_chunks = total_chunks;
             chunk.data = std::move(raw_chunk);
+
+            auto chunk_t0 = std::chrono::steady_clock::now();
             try { write_frame(ssl, chunk, CONTROL_STREAM_ID); }
             catch (const std::exception& e) { return "ERROR send chunk: " + std::string(e.what()); }
             bytes_sent += chunk_sz;
+            auto after_write = std::chrono::steady_clock::now();
+
             // v2.0.12c: small delay between chunks to let the mesh event loop
             // process Ping/Pong and prevent connection timeout.
             std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            auto after_sleep = std::chrono::steady_clock::now();
+
             ack = wait_ack(ci + 1);
             if (ack.rfind("ERROR", 0) == 0) return ack;
+            auto ack_done = std::chrono::steady_clock::now();
+
+            // Telemetry: write / sleep / ack-wait breakdown
+            {
+                int64_t w_us = std::chrono::duration_cast<std::chrono::microseconds>(after_write - chunk_t0).count();
+                int64_t s_us = std::chrono::duration_cast<std::chrono::microseconds>(after_sleep - after_write).count();
+                int64_t a_us = std::chrono::duration_cast<std::chrono::microseconds>(ack_done - after_sleep).count();
+                int64_t t_us = std::chrono::duration_cast<std::chrono::microseconds>(ack_done - chunk_t0).count();
+                // Map: select=ack-wait, write=write, drain=sleep
+                timing.record(a_us, w_us, s_us, t_us);
+            }
 
             auto now = std::chrono::steady_clock::now();
             if (now - last_progress >= std::chrono::seconds(kTransferProgressIntervalSec) ||
@@ -7437,7 +7615,11 @@ private:
                                               bytes_sent, filesize, rate, eta));
             }
         }
-
+        auto tel = timing.format(filename, filesize);
+        if (!tel.empty()) emit(tel);
+        if (telemetry_ring && timing.count > 0)
+            telemetry_ring->append(make_telemetry_entry(timing, filename, filesize,
+                peer_name, "send"));
         log_event("file_send_wait_complete", filename + " " + std::to_string(filesize) + " bytes");
         return "OK sent " + filename + " " + std::to_string(filesize) + " bytes sha256:" + checksum;
     }
@@ -7447,7 +7629,9 @@ private:
     std::string file_request_on_transport(
             SSL* ssl, SOCKET sock_fd, const std::string& path,
             const std::function<bool()>& is_cancelled = {},
-            const std::function<void(const std::string&)>& on_progress = {}) {
+            const std::function<void(const std::string&)>& on_progress = {},
+            TransferTelemetryRing* telemetry_ring = nullptr,
+            const std::string& peer_name = {}) {
         if (!socket_selectable(sock_fd)) return "ERROR socket exceeds select limit";
         // v2.0.12c: temporarily set blocking mode for the duration of the transfer.
         // Mesh sockets are non-blocking; SSL_write_ex on non-blocking sockets
@@ -7520,6 +7704,7 @@ private:
         uint64_t bytes_sent = 0;
         auto t0 = std::chrono::steady_clock::now();
         auto last_progress = t0;
+        auto timing = make_transfer_timing();
 
         for (uint32_t ci = 0; ci < total_chunks; ++ci) {
             if (is_cancelled && is_cancelled()) {
@@ -7541,6 +7726,8 @@ private:
                 chunk.data.assign(raw.data(), raw.data() + chunk_sz);
             }
 
+            auto chunk_t0 = std::chrono::steady_clock::now();
+
             // Wait for write readiness with bounded deadline so a throttled peer
             // cannot stall the event loop indefinitely.
             fd_set wfds; FD_ZERO(&wfds); FD_SET(sock_fd, &wfds);
@@ -7553,6 +7740,8 @@ private:
             int sel = select(static_cast<int>(sock_fd) + 1, &rfds, &wfds, nullptr, &tv);
             if (sel < 0) return "ERROR select failed at chunk " + std::to_string(ci);
             if (sel == 0) return "ERROR transfer idle timeout at chunk " + std::to_string(ci);
+
+            auto after_select = std::chrono::steady_clock::now();
 
             // Drain ALL pending frames before writing so the peer's acks don't
             // pile up in the socket buffer and block our write.
@@ -7584,14 +7773,27 @@ private:
                 }
             }
 
+            auto after_drain = std::chrono::steady_clock::now();
+
             try { write_frame(ssl, chunk, CONTROL_STREAM_ID); }
             catch (const std::exception& e) {
                 log_event("file_request_error", "send chunk failed " + std::to_string(ci));
                 return "ERROR send chunk " + std::to_string(ci) + ": " + e.what();
             }
+
+            auto after_write = std::chrono::steady_clock::now();
             bytes_sent += chunk_sz;
             idle_deadline = std::chrono::steady_clock::now() +
                             std::chrono::seconds(kTransferIdleTimeoutSec);
+
+            // Telemetry: wall-clock breakdown for this chunk
+            {
+                int64_t s_us = std::chrono::duration_cast<std::chrono::microseconds>(after_select - chunk_t0).count();
+                int64_t d_us = std::chrono::duration_cast<std::chrono::microseconds>(after_drain - after_select).count();
+                int64_t w_us = std::chrono::duration_cast<std::chrono::microseconds>(after_write - after_drain).count();
+                int64_t t_us = std::chrono::duration_cast<std::chrono::microseconds>(after_write - chunk_t0).count();
+                timing.record(s_us, w_us, d_us, t_us);
+            }
 
             auto now = std::chrono::steady_clock::now();
             if (now - last_progress >= std::chrono::seconds(kTransferProgressIntervalSec) ||
@@ -7607,6 +7809,11 @@ private:
                                               bytes_sent, filesize, rate, eta));
             }
         }
+        auto tel = timing.format(filename, filesize);
+        if (!tel.empty()) emit(tel);
+        if (telemetry_ring && timing.count > 0)
+            telemetry_ring->append(make_telemetry_entry(timing, filename, filesize,
+                peer_name, "send"));
         log_event("file_request_complete", filename + " " + std::to_string(filesize) + " bytes");
         return "OK sent " + filename + " " + std::to_string(filesize) + " bytes sha256:" + checksum;
     }
@@ -7633,7 +7840,8 @@ private:
         target->exec_started_at = std::chrono::steady_clock::now();
         target->exec_last_progress_at->store(
             std::chrono::steady_clock::now().time_since_epoch().count());
-        return file_send_wait_on_transport(target->ssl.get(), target->sock_fd, local_path, {}, on_progress);
+        return file_send_wait_on_transport(target->ssl.get(), target->sock_fd, local_path, {}, on_progress,
+                                           &transfer_telemetry_, peer_name);
     }
 
     // v2.0.6: dispatch entry point for long-operation worker pool.
@@ -7657,7 +7865,8 @@ private:
         case LongOperationTask::Type::FileSendWait: {
             auto is_cancelled = [&]() { return task.cancelled && task.cancelled->load(); };
             std::string result = file_send_wait_on_transport(
-                task.ssl, task.sock_fd, task.path1, is_cancelled, progress_to_ipc);
+                task.ssl, task.sock_fd, task.path1, is_cancelled, progress_to_ipc,
+                &transfer_telemetry_, task.peer_name);
             if (task.ipc_fd != INVALID_SOCKET) {
                 result += "\n";
                 send(task.ipc_fd, result.data(), (int)result.size(), 0);
@@ -7679,7 +7888,8 @@ private:
         case LongOperationTask::Type::RemoteFileRequest: {
             auto is_cancelled = [&]() { return task.cancelled && task.cancelled->load(); };
             std::string result = file_request_on_transport(
-                task.ssl, task.sock_fd, task.path1, is_cancelled, progress_to_ipc);
+                task.ssl, task.sock_fd, task.path1, is_cancelled, progress_to_ipc,
+                &transfer_telemetry_, task.peer_name);
             if (task.ipc_fd != INVALID_SOCKET) {
                 result += "\n";
                 send(task.ipc_fd, result.data(), (int)result.size(), 0);
@@ -10329,6 +10539,9 @@ public:
                 }
                 out << "]}\n";
                 response = out.str();
+            }
+            else if (line == "TELEMETRY") {
+                response = transfer_telemetry_.to_json() + "\n";
             }
             else if (line.rfind("CONV_APPEND ", 0) == 0) {
                 // CONV_APPEND <conv_id> <role> <b64_body> → OK <seq>

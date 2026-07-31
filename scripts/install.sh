@@ -2,16 +2,16 @@
 set -eu
 # BridgeSessions one-line install (Linux / macOS)
 #
-#   curl -fsSL https://codeberg.org/Mind-Dragon/BridgeSessions/raw/tag/v2.0.9-alpha5/scripts/install.sh | bash
+#   curl -fsSL https://codeberg.org/Mind-Dragon/BridgeSessions/raw/tag/v2.0.19-alpha8/scripts/install.sh | bash
 #
 # Or join a mesh in one command:
 #
 #   curl ... | bash -s -- join <host-addr> <invite-code>
 #
 # On Windows (PowerShell):
-#   Invoke-WebRequest -Uri "https://codeberg.org/Mind-Dragon/BridgeSessions/raw/tag/v2.0.9-alpha5/dist/bridgesessions-windows-x86_64.exe" -OutFile "$env:LOCALAPPDATA\bridgesessions.exe"
+#   Invoke-WebRequest -Uri "https://codeberg.org/Mind-Dragon/BridgeSessions/raw/tag/v2.0.19-alpha8/dist/bridgesessions-windows-x86_64.exe" -OutFile "$env:LOCALAPPDATA\bridgesessions.exe"
 
-TAG="${BRIDGESESSIONS_TAG:-v2.0.9-alpha5}"
+TAG="${BRIDGESESSIONS_TAG:-v2.0.19-alpha8}"
 BASE="https://codeberg.org/Mind-Dragon/BridgeSessions/raw/tag/${TAG}/dist"
 INSTALL_DIR="${HOME}/.local/bin"
 VERSION_FILE="${INSTALL_DIR}/.bridgesessions-version"

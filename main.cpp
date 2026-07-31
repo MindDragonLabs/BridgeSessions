@@ -346,6 +346,11 @@ int main(int argc, char** argv) {
     // stats
     auto* stats_cmd_app = app.add_subcommand("stats", "Show connection and session statistics");
 
+    // telemetry
+    bool telemetry_json = false;
+    auto* telemetry_cmd_app = app.add_subcommand("telemetry", "Show transfer telemetry");
+    telemetry_cmd_app->add_flag("--json", telemetry_json, "Output as JSON");
+
     // file
     auto* file_cmd = app.add_subcommand("file", "File transfer operations");
     file_cmd->require_subcommand(1);
@@ -600,9 +605,9 @@ int main(int argc, char** argv) {
         std::cout << "One-liner:\n";
         std::cout << "  bridgesessions join " << addr << ":" << port << " " << token << "\n";
         std::cout << "Or with curl install:\n";
-        std::cout << "  curl -fsSL https://codeberg.org/Mind-Dragon/BridgeSessions/raw/tag/" << bs::mesh::kBridgeSessionsVersion << "/scripts/install.sh | bash -s -- join " << addr << ":" << port << " " << token << "\n";
+        std::cout << "  curl -fsSL https://codeberg.org/Mind-Dragon/BridgeSessions/raw/tag/v" << bs::mesh::kBridgeSessionsVersion << "/scripts/install.sh | bash -s -- join " << addr << ":" << port << " " << token << "\n";
         std::cout << "Windows PowerShell:\n";
-        std::cout << "  irm https://codeberg.org/Mind-Dragon/BridgeSessions/raw/tag/" << bs::mesh::kBridgeSessionsVersion << "/scripts/install.ps1 | iex\n  bridgesessions join " << addr << ":" << port << " " << token << "\n";
+        std::cout << "  irm https://codeberg.org/Mind-Dragon/BridgeSessions/raw/tag/v" << bs::mesh::kBridgeSessionsVersion << "/scripts/install.ps1 | iex\n  bridgesessions join " << addr << ":" << port << " " << token << "\n";
         return 0;
     }
     if (join_cmd_app->parsed()) {
@@ -729,6 +734,43 @@ int main(int argc, char** argv) {
             return 0;
         }
         mc.show_stats();
+        return 0;
+    }
+    if (telemetry_cmd_app->parsed()) {
+        std::string ipc = daemon_simple_ipc("TELEMETRY", 3000, home_dir);
+        if (!ipc.empty() && ipc.rfind("ERROR", 0) != 0) {
+            if (telemetry_json) {
+                std::cout << ipc << "\n";
+            } else {
+                // Human-readable format
+                try {
+                    auto j = nlohmann::json::parse(ipc);
+                    if (j.is_array() && j.empty()) {
+                        std::cout << "No transfer telemetry recorded.\n";
+                    } else {
+                        for (auto& e : j) {
+                            std::cout << "[" << e.value("dir", "") << "] "
+                                      << e.value("file", "") << " -> " << e.value("peer", "") << "\n"
+                                      << "  " << e.value("bytes", 0ULL) << " bytes, "
+                                      << e.value("chunks", 0U) << " chunks, "
+                                      << e.value("total_wall_ms", 0LL) << " ms wall\n"
+                                      << "  rate=" << e.value("rate_mibs", 0.0) << " MiB/s"
+                                      << " overhead=" << e.value("overhead_pct", 0.0) << "%\n"
+                                      << "  select=" << e.value("select_total_ms", 0LL) << "ms"
+                                      << " write=" << e.value("write_total_ms", 0LL) << "ms"
+                                      << " drain=" << e.value("drain_total_ms", 0LL) << "ms\n"
+                                      << "  select_mean=" << e.value("select_mean_us", 0.0) << "us"
+                                      << " write_mean=" << e.value("write_mean_us", 0.0) << "us"
+                                      << " drain_mean=" << e.value("drain_mean_us", 0.0) << "us\n";
+                        }
+                    }
+                } catch (...) {
+                    std::cout << ipc << "\n";
+                }
+            }
+            return 0;
+        }
+        std::cout << "{}" << "\n";
         return 0;
     }
     if (file_send_app->parsed()) {
