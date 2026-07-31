@@ -975,6 +975,7 @@ private:
 constexpr int kTransferIdleTimeoutSec = 120;
 constexpr int kTransferProgressIntervalSec = 10;
 constexpr size_t kTransferChunkRawSize = 48 * 1024;
+constexpr int    kTransferPipelineSize = 8;     // chunks per ack batch (384 KB)
 
 // ── Transfer telemetry ──────────────────────────────────────────────
 // Accumulates per-chunk wall-clock timings during a transfer.  Emit a
@@ -7560,50 +7561,52 @@ private:
         std::vector<char> raw(kTransferChunkRawSize);
         auto timing = make_transfer_timing();
 
-        for (uint32_t ci = 0; ci < total_chunks; ++ci) {
-            if (is_cancelled && is_cancelled()) return "ERROR cancelled";
-            infile.read(raw.data(), static_cast<std::streamsize>(kTransferChunkRawSize));
-            size_t chunk_sz = static_cast<size_t>(infile.gcount());
-            // v2.0.12c: let encode() handle compression — manual zstd_compress here
-            // causes double compression which breaks on Windows/MinGW.
-            std::vector<uint8_t> raw_chunk;
-            if (chunk_sz > 0) {
-                raw_chunk.assign(reinterpret_cast<const uint8_t*>(raw.data()),
-                                 reinterpret_cast<const uint8_t*>(raw.data()) + chunk_sz);
+        for (uint32_t ci = 0; ci < total_chunks; /* incremented in batch */) {
+            uint32_t batch_end = std::min(ci + kTransferPipelineSize, total_chunks);
+
+            // ── Send batch: write all chunks without waiting for acks ──
+            for (; ci < batch_end; ++ci) {
+                if (is_cancelled && is_cancelled()) return "ERROR cancelled";
+                infile.read(raw.data(), static_cast<std::streamsize>(kTransferChunkRawSize));
+                size_t chunk_sz = static_cast<size_t>(infile.gcount());
+                // v2.0.12c: let encode() handle compression — manual zstd_compress here
+                // causes double compression which breaks on Windows/MinGW.
+                std::vector<uint8_t> raw_chunk;
+                if (chunk_sz > 0) {
+                    raw_chunk.assign(reinterpret_cast<const uint8_t*>(raw.data()),
+                                     reinterpret_cast<const uint8_t*>(raw.data()) + chunk_sz);
+                }
+                FileChunkMsg chunk;
+                chunk.chunk_index = ci;
+                chunk.total_chunks = total_chunks;
+                chunk.data = std::move(raw_chunk);
+
+                auto chunk_t0 = std::chrono::steady_clock::now();
+                try { write_frame(ssl, chunk, CONTROL_STREAM_ID); }
+                catch (const std::exception& e) { return "ERROR send chunk: " + std::string(e.what()); }
+                bytes_sent += chunk_sz;
+                auto after_write = std::chrono::steady_clock::now();
+
+                // Per-chunk write timing (ack wait measured at batch boundary)
+                {
+                    int64_t w_us = std::chrono::duration_cast<std::chrono::microseconds>(after_write - chunk_t0).count();
+                    timing.record(0, w_us, 0, w_us);
+                }
             }
-            FileChunkMsg chunk;
-            chunk.chunk_index = ci;
-            chunk.total_chunks = total_chunks;
-            chunk.data = std::move(raw_chunk);
 
-            auto chunk_t0 = std::chrono::steady_clock::now();
-            try { write_frame(ssl, chunk, CONTROL_STREAM_ID); }
-            catch (const std::exception& e) { return "ERROR send chunk: " + std::string(e.what()); }
-            bytes_sent += chunk_sz;
-            auto after_write = std::chrono::steady_clock::now();
+            // ── Batch boundary: small breath + drain acks ──
+            // v2.0.20: one sleep per batch instead of per-chunk; pipeline of
+            // kTransferPipelineSize chunks reduces ack round-trips ~8x.
+            std::this_thread::sleep_for(std::chrono::milliseconds(2));
 
-            // v2.0.12c: small delay between chunks to let the mesh event loop
-            // process Ping/Pong and prevent connection timeout.
-            std::this_thread::sleep_for(std::chrono::milliseconds(5));
-            auto after_sleep = std::chrono::steady_clock::now();
-
-            ack = wait_ack(ci + 1);
-            if (ack.rfind("ERROR", 0) == 0) return ack;
-            auto ack_done = std::chrono::steady_clock::now();
-
-            // Telemetry: write / sleep / ack-wait breakdown
-            {
-                int64_t w_us = std::chrono::duration_cast<std::chrono::microseconds>(after_write - chunk_t0).count();
-                int64_t s_us = std::chrono::duration_cast<std::chrono::microseconds>(after_sleep - after_write).count();
-                int64_t a_us = std::chrono::duration_cast<std::chrono::microseconds>(ack_done - after_sleep).count();
-                int64_t t_us = std::chrono::duration_cast<std::chrono::microseconds>(ack_done - chunk_t0).count();
-                // Map: select=ack-wait, write=write, drain=sleep
-                timing.record(a_us, w_us, s_us, t_us);
+            if (batch_end < total_chunks) {
+                ack = wait_ack(batch_end);
+                if (ack.rfind("ERROR", 0) == 0) return ack;
             }
 
             auto now = std::chrono::steady_clock::now();
             if (now - last_progress >= std::chrono::seconds(kTransferProgressIntervalSec) ||
-                ci + 1 == total_chunks) {
+                batch_end == total_chunks) {
                 last_progress = now;
                 double elapsed = std::max(0.001, std::chrono::duration<double>(now - t0).count());
                 double rate = (static_cast<double>(bytes_sent) / elapsed) / (1024.0 * 1024.0);
@@ -7611,10 +7614,13 @@ private:
                 if (rate > 0.001 && filesize > bytes_sent)
                     eta = static_cast<int>((static_cast<double>(filesize - bytes_sent) /
                                            (rate * 1024.0 * 1024.0)));
-                emit(format_transfer_progress("send", filename, ci + 1, total_chunks,
+                emit(format_transfer_progress("send", filename, batch_end, total_chunks,
                                               bytes_sent, filesize, rate, eta));
             }
         }
+        // Final ack (may already be acked; harmless to ask again)
+        ack = wait_ack(total_chunks);
+        if (ack.rfind("ERROR", 0) == 0) return ack;
         auto tel = timing.format(filename, filesize);
         if (!tel.empty()) emit(tel);
         if (telemetry_ring && timing.count > 0)
@@ -7706,7 +7712,8 @@ private:
         auto last_progress = t0;
         auto timing = make_transfer_timing();
 
-        for (uint32_t ci = 0; ci < total_chunks; ++ci) {
+        for (uint32_t ci = 0; ci < total_chunks; /* incremented in batch */) {
+            uint32_t batch_end = std::min(ci + kTransferPipelineSize, total_chunks);
             if (is_cancelled && is_cancelled()) {
                 try { write_frame(ssl, FileAckMsg{ci, ci, true, "cancelled"}, CONTROL_STREAM_ID); } catch (...) {}
                 return "ERROR cancelled";
@@ -7716,51 +7723,49 @@ private:
             if (std::chrono::steady_clock::now() >= idle_deadline)
                 return "ERROR transfer idle timeout at chunk " + std::to_string(ci);
 
-            infile.read(raw.data(), static_cast<std::streamsize>(kTransferChunkRawSize));
-            size_t chunk_sz = static_cast<size_t>(infile.gcount());
-            // v2.0.12c: let encode() handle compression — manual zstd_compress here
-            // causes double compression which breaks on Windows/MinGW.
-            FileChunkMsg chunk;
-            chunk.chunk_index = ci; chunk.total_chunks = total_chunks;
-            if (chunk_sz > 0) {
-                chunk.data.assign(raw.data(), raw.data() + chunk_sz);
+            // ── Send batch: write all chunks, one select+breather between ──
+            for (; ci < batch_end; ++ci) {
+                infile.read(raw.data(), static_cast<std::streamsize>(kTransferChunkRawSize));
+                size_t chunk_sz = static_cast<size_t>(infile.gcount());
+                // v2.0.12c: let encode() handle compression — manual zstd_compress here
+                // causes double compression which breaks on Windows/MinGW.
+                FileChunkMsg chunk;
+                chunk.chunk_index = ci; chunk.total_chunks = total_chunks;
+                if (chunk_sz > 0) {
+                    chunk.data.assign(raw.data(), raw.data() + chunk_sz);
+                }
+
+                auto chunk_t0 = std::chrono::steady_clock::now();
+
+                // Brief write+readiness check every 4 chunks (was every chunk)
+                if ((ci % 4) == 0) {
+                    fd_set wfds; FD_ZERO(&wfds); FD_SET(sock_fd, &wfds);
+                    fd_set rfds; FD_ZERO(&rfds); FD_SET(sock_fd, &rfds);
+                    timeval tv{2, 0};
+                    int sel = select(static_cast<int>(sock_fd) + 1, &rfds, &wfds, nullptr, &tv);
+                    if (sel == 0) return "ERROR transfer idle timeout at chunk " + std::to_string(ci);
+                }
+
+                try { write_frame(ssl, chunk, CONTROL_STREAM_ID); }
+                catch (const std::exception& e) {
+                    log_event("file_request_error", "send chunk failed " + std::to_string(ci));
+                    return "ERROR send chunk " + std::to_string(ci) + ": " + e.what();
+                }
+
+                auto after_write = std::chrono::steady_clock::now();
+                bytes_sent += chunk_sz;
+
+                {
+                    int64_t t_us = std::chrono::duration_cast<std::chrono::microseconds>(after_write - chunk_t0).count();
+                    timing.record(0, t_us, 0, t_us);
+                }
             }
 
-            auto chunk_t0 = std::chrono::steady_clock::now();
-
-            // Wait for write readiness with bounded deadline so a throttled peer
-            // cannot stall the event loop indefinitely.
-            fd_set wfds; FD_ZERO(&wfds); FD_SET(sock_fd, &wfds);
-            fd_set rfds; FD_ZERO(&rfds); FD_SET(sock_fd, &rfds);
-            timeval tv;
-            auto remaining = idle_deadline - std::chrono::steady_clock::now();
-            if (remaining.count() <= 0) return "ERROR transfer idle timeout at chunk " + std::to_string(ci);
-            tv.tv_sec = static_cast<long>(std::chrono::duration_cast<std::chrono::seconds>(remaining).count());
-            tv.tv_usec = static_cast<long>(std::chrono::duration_cast<std::chrono::microseconds>(remaining).count() % 1000000);
-            int sel = select(static_cast<int>(sock_fd) + 1, &rfds, &wfds, nullptr, &tv);
-            if (sel < 0) return "ERROR select failed at chunk " + std::to_string(ci);
-            if (sel == 0) return "ERROR transfer idle timeout at chunk " + std::to_string(ci);
-
-            auto after_select = std::chrono::steady_clock::now();
-
-            // Drain ALL pending frames before writing so the peer's acks don't
-            // pile up in the socket buffer and block our write.
-            while (SSL_pending(ssl) > 0) {
-                try {
-                    Message resp = read_frame(ssl);
-                    if (std::holds_alternative<PingMsg>(resp)) {
-                        write_frame(ssl, PongMsg{}, CONTROL_STREAM_ID);
-                    } else if (std::holds_alternative<FileAckMsg>(resp)) {
-                        auto& ack = std::get<FileAckMsg>(resp);
-                        if (ack.error) return "ERROR remote: " + ack.error_msg;
-                    }
-                } catch (...) { break; }
-            }
-            // Also check socket-level readability for frames not yet in SSL buffer.
+            // ── Batch boundary: drain pending acks ──
             {
-                fd_set rfds2; FD_ZERO(&rfds2); FD_SET(sock_fd, &rfds2);
-                timeval tv2{0, 0};
-                if (select(static_cast<int>(sock_fd) + 1, &rfds2, nullptr, nullptr, &tv2) > 0) {
+                auto drain_start = std::chrono::steady_clock::now();
+                // Drain ALL pending frames before next batch
+                while (SSL_pending(ssl) > 0) {
                     try {
                         Message resp = read_frame(ssl);
                         if (std::holds_alternative<PingMsg>(resp)) {
@@ -7769,35 +7774,32 @@ private:
                             auto& ack = std::get<FileAckMsg>(resp);
                             if (ack.error) return "ERROR remote: " + ack.error_msg;
                         }
-                    } catch (...) {}
+                    } catch (...) { break; }
+                }
+                // Also check socket-level readability for frames not yet in SSL buffer.
+                {
+                    fd_set rfds2; FD_ZERO(&rfds2); FD_SET(sock_fd, &rfds2);
+                    timeval tv2{0, 0};
+                    if (select(static_cast<int>(sock_fd) + 1, &rfds2, nullptr, nullptr, &tv2) > 0) {
+                        try {
+                            Message resp = read_frame(ssl);
+                            if (std::holds_alternative<PingMsg>(resp)) {
+                                write_frame(ssl, PongMsg{}, CONTROL_STREAM_ID);
+                            } else if (std::holds_alternative<FileAckMsg>(resp)) {
+                                auto& ack = std::get<FileAckMsg>(resp);
+                                if (ack.error) return "ERROR remote: " + ack.error_msg;
+                            }
+                        } catch (...) {}
+                    }
                 }
             }
 
-            auto after_drain = std::chrono::steady_clock::now();
-
-            try { write_frame(ssl, chunk, CONTROL_STREAM_ID); }
-            catch (const std::exception& e) {
-                log_event("file_request_error", "send chunk failed " + std::to_string(ci));
-                return "ERROR send chunk " + std::to_string(ci) + ": " + e.what();
-            }
-
-            auto after_write = std::chrono::steady_clock::now();
-            bytes_sent += chunk_sz;
             idle_deadline = std::chrono::steady_clock::now() +
                             std::chrono::seconds(kTransferIdleTimeoutSec);
 
-            // Telemetry: wall-clock breakdown for this chunk
-            {
-                int64_t s_us = std::chrono::duration_cast<std::chrono::microseconds>(after_select - chunk_t0).count();
-                int64_t d_us = std::chrono::duration_cast<std::chrono::microseconds>(after_drain - after_select).count();
-                int64_t w_us = std::chrono::duration_cast<std::chrono::microseconds>(after_write - after_drain).count();
-                int64_t t_us = std::chrono::duration_cast<std::chrono::microseconds>(after_write - chunk_t0).count();
-                timing.record(s_us, w_us, d_us, t_us);
-            }
-
             auto now = std::chrono::steady_clock::now();
             if (now - last_progress >= std::chrono::seconds(kTransferProgressIntervalSec) ||
-                ci + 1 == total_chunks) {
+                batch_end == total_chunks) {
                 last_progress = now;
                 double elapsed = std::max(0.001, std::chrono::duration<double>(now - t0).count());
                 double rate = (static_cast<double>(bytes_sent) / elapsed) / (1024.0 * 1024.0);
@@ -7805,7 +7807,7 @@ private:
                 if (rate > 0.001 && filesize > bytes_sent)
                     eta = static_cast<int>((static_cast<double>(filesize - bytes_sent) /
                                            (rate * 1024.0 * 1024.0)));
-                emit(format_transfer_progress("send", filename, ci + 1, total_chunks,
+                emit(format_transfer_progress("send", filename, batch_end, total_chunks,
                                               bytes_sent, filesize, rate, eta));
             }
         }

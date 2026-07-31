@@ -11,7 +11,7 @@ description: >-
 license: BUSL-1.1
 compatibility: Requires bridgesessions CLI (bs) or build from this repo; OpenSSL; optional WinRM for Windows gameplay Session-1.
 metadata:
-  version: "2.0.19-alpha8"
+  version: "2.0.20-alpha9"
   product: BridgeSessions
   harnesses: "hermes,codex,claude-code,opencode,cursor,grok,copilot"
   related: "docs/RELEASE-PROVENANCE.md"

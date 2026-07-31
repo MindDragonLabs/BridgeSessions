@@ -1,6 +1,6 @@
 # BridgeSessions one-line install (Windows PowerShell)
 #
-#   irm https://codeberg.org/Mind-Dragon/BridgeSessions/raw/tag/v2.0.19-alpha8/scripts/install.ps1 | iex
+#   irm https://codeberg.org/Mind-Dragon/BridgeSessions/raw/tag/v2.0.20-alpha9/scripts/install.ps1 | iex
 #
 # Or join a mesh in one command:
 #
@@ -8,7 +8,7 @@
 #   bridgesessions join <host-addr> <invite-code> --start
 
 $ErrorActionPreference = "Stop"
-$TAG = if ($env:BRIDGESESSIONS_TAG) { $env:BRIDGESESSIONS_TAG } else { "v2.0.19-alpha8" }
+$TAG = if ($env:BRIDGESESSIONS_TAG) { $env:BRIDGESESSIONS_TAG } else { "v2.0.20-alpha9" }
 $BASE = "https://codeberg.org/Mind-Dragon/BridgeSessions/raw/tag/$TAG/dist"
 $INSTALL_DIR = "$env:LOCALAPPDATA\bridgesessions"
 $BIN_PATH = "$INSTALL_DIR\bridgesessions.exe"

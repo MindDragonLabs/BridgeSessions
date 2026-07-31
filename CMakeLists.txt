@@ -49,6 +49,9 @@ enable_testing()
 
 # ── Core library (header-only) + binary ──────────────────────────
 add_executable(bridgesessions main.cpp bs-protocol.h)
+if(WIN32)
+    set_target_properties(bridgesessions PROPERTIES WIN32_EXECUTABLE TRUE)
+endif()
 if(APPLE)
     enable_language(OBJCXX)
     target_sources(bridgesessions PRIVATE macos-capture.mm)

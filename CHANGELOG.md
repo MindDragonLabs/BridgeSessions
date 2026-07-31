@@ -2,6 +2,41 @@
 
 All notable public releases are documented here.
 
+## [2.0.20] — alpha9 (2026-07-31)
+
+**Transfer pipelining, background service on Windows, and fleet-wide
+performance improvements.**
+
+### Performance
+- **Transfer pipelining:** `file_send_wait_on_transport` and
+  `file_request_on_transport` now batch up to 8 chunks (384 KB) per
+  ack round-trip instead of 1 chunk per ack. Bridges the gap between
+  the per-chunk write loop and TCP's send-buffer window (~256 KB).
+  Observed throughput on high-latency links improves ~4–8×.
+- Default pipeline depth: `kTransferPipelineSize = 8` (48 KB × 8 =
+  384 KB). One `sleep_for(2ms)` breath per batch instead of per chunk.
+- The receive path already acks on every chunk and requires no
+  protocol change — the sender simply writes more frames before
+  waiting for the accumulated acks.
+
+### Background service (Windows)
+- Windows binary now compiled as `/SUBSYSTEM:WINDOWS` (GUI) instead of
+  `CONSOLE`. `FreeConsole()` is no longer needed — the process never
+  allocates a console, eliminating the startup flash. The `--daemon`
+  flag is still accepted for compatibility.
+- `CMakeLists.txt` sets `WIN32_EXECUTABLE` on the `bridgesessions`
+  target. MinGW cross-builds pass `-Wl,--subsystem,windows`.
+
+### Install scripts
+- `scripts/install.sh` and `scripts/install.ps1` bumped to
+  `v2.0.20-alpha9`.
+
+### Verification
+- Linux CTest: 336/336 passed.
+- Linux static, macOS arm64, Windows x86_64 builds confirmed with
+  correct version strings.
+- Windows: `PE32+ ... (GUI)` — no console subsystem.
+
 ## [2.0.19] — alpha7 (2026-07-28)
 
 **macOS 26 remote video capture is operational end-to-end, and the release
