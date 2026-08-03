@@ -1,5 +1,5 @@
 # BridgeSessions Identity/Binary Audit Report
-## Incident: test-pc5 identity regeneration + stale binary downgrade
+## Incident: macOS node identity regeneration + stale binary downgrade
 
 ---
 
@@ -61,7 +61,7 @@ Remote platform is probed (`uname -s`, line 12346) and used only to:
 The updater script copies the binary to ALL discovered install targets
 (bs-protocol.h:12417-12420) without checking ELF/Mach-O magic.
 
-**Exploit scenario:** Running `bs update test-pc5` from an x86_64 Linux host sends
+**Exploit scenario:** Running `bs update <node>` from an x86_64 Linux host sends
 an ELF binary to an arm64 macOS target → lands as invalid Mach-O → daemon cannot
 restart → identity survives but binary is corrupted.
 

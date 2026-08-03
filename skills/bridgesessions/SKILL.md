@@ -7,7 +7,7 @@ description: >-
   Windows vs Linux commands, peer pin security, Codeberg publish (deploy-key SSH +
   dist/), or release hardening after the 2026-07 security audit. Do NOT use for
   raw SSH/SCP when a healthy bs mesh path exists. Do NOT confuse public Codeberg
-  publish with local user Forgejo.
+  publish with any other forge.
 license: BUSL-1.1
 compatibility: Requires bridgesessions CLI (bs) or build from this repo; OpenSSL; optional WinRM for Windows gameplay Session-1.
 metadata:
@@ -48,7 +48,7 @@ Portable skill for **Hermes**, **OpenAI Codex**, **Claude Code**, **OpenCode**,
 7. **Alpha posture:** public alpha is **not** a production-secure SSH replacement.
    See `SECURITY.md` and `.audit/moa-2.0.8a3/AUDIT.md`.
 8. **Public forge = Codeberg only** for this product repo. Do **not** route BridgeSessions
-   release/publish through local user **Forgejo** or invent a Forgejo requirement.
+   release/publish through any other forge or invent a Forgejo requirement.
 9. **Binaries ship in git `dist/`** and are published by **`git push` over SSH**.
    No API token is required to make binaries downloadable.
 10. **Pre-push security hook** blocks secrets/IPs before Codeberg pushes
@@ -70,7 +70,7 @@ Portable skill for **Hermes**, **OpenAI Codex**, **Claude Code**, **OpenCode**,
 | Branch | `main` |
 | Repo | https://codeberg.org/Mind-Dragon/BridgeSessions |
 | Artifacts | Linux x86_64, Windows x86_64 PE, macOS arm64 (`dist/`) |
-| Tests | Linux 336/336 + macOS 335/335 CTest; release pytest 31/31; live test-pc5 capture |
+| Tests | Linux 336/336 + macOS 335/335 CTest; release pytest 31/31; live macOS capture |
 | Audit | MoA 4-lane: 4 P0 + 10 P1 + 5 P2 fixed (`.audit/moa-2.0.8a3/AUDIT.md`) |
 | Notes | `docs/RELEASE-NOTES-2.0.19-alpha7.md` · provenance `docs/RELEASE-PROVENANCE.md` |
 
@@ -109,11 +109,11 @@ All three are **portable static** (no runtime dylib/DLL deps beyond OS libs):
 
 | Platform | Built on | Method |
 |----------|----------|--------|
-| Linux x86_64 | test-pc1 via `ubuntu:22.04` container | static OpenSSL/zstd/fmt/spdlog + `-static-libstdc++ -static-libgcc`; glibc kept dynamic (DNS). Dockerfile versioned at `scripts/Dockerfile.static-linux` (see `bridgesessions-static-build` skill). |
-| macOS arm64 | **test-pc5** (Apple clang 17) | native build, static deps into `~/local`, `cmake -DCMAKE_OSX_ARCHITECTURES=arm64`. Links only system `libc++`/`libSystem`. |
-| Windows x86_64 PE | **test-pc1 cross-compile** (`x86_64-w64-mingw32-g++`) | static deps into `~/bs-win`; compile `main.cpp` directly with `-static` (+ `CLI/CLI.hpp` shim). PE imports only OS DLLs (KERNEL32/USER32/WS2_32/ADVAPI32/CRYPT32 + UCRT). |
+| Linux x86_64 | Linux build host via `ubuntu:22.04` container | static OpenSSL/zstd/fmt/spdlog + `-static-libstdc++ -static-libgcc`; glibc kept dynamic (DNS). Dockerfile versioned at `scripts/Dockerfile.static-linux` (see `bridgesessions-static-build` skill). |
+| macOS arm64 | **macOS build host** (Apple clang 17) | native build, static deps into `~/local`, `cmake -DCMAKE_OSX_ARCHITECTURES=arm64`. Links only system `libc++`/`libSystem`. |
+| Windows x86_64 PE | **Linux cross-compile** (`x86_64-w64-mingw32-g++`) | static deps into `~/bs-win`; compile `main.cpp` directly with `-static` (+ `CLI/CLI.hpp` shim). PE imports only OS DLLs (KERNEL32/USER32/WS2_32/ADVAPI32/CRYPT32 + UCRT). |
 
-- **test-pc7 (Win11) has NO sshd** — ship the PE via **WinRM** (port 5985, NTLM, credentials in test-pc1 `~/.ssh/config` note / local vault). Host a temp `python3 -m http.server` on test-pc1's TS IP, then `curl.exe` it from a WinRM `run_ps`.
+- **Windows targets without sshd** — ship the PE via **WinRM** (port 5985, NTLM, credentials in the build host's `~/.ssh/config` note / local vault). Host a temp `python3 -m http.server` on the build host's TS IP, then `curl.exe` it from a WinRM `run_ps`.
 - mac/win release binaries ARE committed to `dist/` (the `.gitignore` only ignores the dev `bridgesessions.exe` + `*.o`/`*.obj`). `SHA256SUMS`/`SBOM` stay gitignored (downloader regenerates).
 - Re-tag after changing `dist/`: `git tag -f v2.0.19-alpha7 HEAD && git push --force codeberg main && git push --force codeberg v2.0.19-alpha7`.
 
@@ -122,21 +122,21 @@ All three are **portable static** (no runtime dylib/DLL deps beyond OS libs):
 On the operator host that has the **Mind-Dragon** Codeberg key:
 
 ```bash
-# Working identity: ~/.ssh/deploy-key  (default id_ed25519 is denied for this account)
-export GIT_SSH_COMMAND='ssh -i ~/.ssh/deploy-key -o IdentitiesOnly=yes -o BatchMode=yes'
-# Or permanent: Host codeberg.org → IdentityFile ~/.ssh/deploy-key in ~/.ssh/config
+# Working identity: ~/.ssh/<deploy-key>  (default id_ed25519 is denied for this account)
+export GIT_SSH_COMMAND='ssh -i ~/.ssh/<deploy-key> -o IdentitiesOnly=yes -o BatchMode=yes'
+# Or permanent: Host codeberg.org → IdentityFile ~/.ssh/<deploy-key> in ~/.ssh/config
 
 cd /path/to/BridgeSessions   # often ~/bridgesessions
 git push codeberg main
 git push codeberg v2.0.19-alpha7
 ```
 
-Probe: `ssh -i ~/.ssh/deploy-key -o IdentitiesOnly=yes -T git@codeberg.org`  
+Probe: `ssh -i ~/.ssh/<deploy-key> -o IdentitiesOnly=yes -T git@codeberg.org`  
 → "Hi there, Mind-Dragon!"
 
 **Do not:**
 
-- Use local user Forgejo for this public product release
+- Use any other forge for this public product release
 - Block on `FORGEJO_TOKEN` / Codeberg "Releases" API for binary delivery
 - Claim binaries missing if `dist/` on the tag is already pushed (raw URLs return 200)
 - Bypass the pre-push security hook (`.git/hooks/pre-push`)

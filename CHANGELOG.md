@@ -17,9 +17,9 @@ All notable public releases are documented here.
 - New nodes can now reach every mesh peer after a single join, not just the host that issued the invite.
 
 ### Fleet version audit
-- Live fleet survey: 14 peers visible across the mesh, versions ranging from 1.6.0 (test-pc2 old binary) to 2.0.20-alpha10.
-- Identified version drift: test-pc5 (2.0.19-alpha7), test-pc6 (2.0.19-alpha8), test-pc12 (2.0.19-alpha7), test-pc15 (2.0.19-alpha7).
-- Deployed 2.0.20-alpha10 to test-pc1, test-pc2, test-pc3, test-pc14. macOS/Windows/container nodes pending.
+- Live fleet survey: 14 peers visible across the mesh, versions ranging from 1.6.0 to 2.0.20-alpha10.
+- Identified version drift across macOS, Windows, and container nodes (2.0.19-alpha7/alpha8).
+- Deployed 2.0.20-alpha10 to the Linux spine nodes. macOS/Windows/container nodes pending.
 
 ### Verification
 - Linux CTest: 336/336 passed.
@@ -97,7 +97,7 @@ hardens identity, health, finite-shell, installer, and artifact safety.**
 
 ### Verification
 - Linux CTest: 336/336 passed; macOS CTest: 335/335 passed; release pytest: 31/31 passed.
-- Live test-pc5 capture verified as H.264, 1920x810, 2 fps, 3 seconds, 6 frames;
+- Live macOS capture verified as H.264, 1920x810, 2 fps, 3 seconds, 6 frames;
   retrieval SHA-256:
   `dae226d32cd16e2b13d21aa2d7899156dd5ef86fc9a9471a35b89490ff348761`.
 
@@ -322,10 +322,10 @@ files). Panel: 20/20 unittest + ruff clean.
   children (audited P1, fixed 2026-07-20). NOTE: the live verification above
   covered the Win→POSIX *receiver* path; the Windows-*child* sender path was the
   broken one and is now corrected.
-- **Verified end-to-end** (live, from `test-pc7` Windows origin):
-  - Win → Linux (`test-pc1`): interactive session, `Ctrl-C` delivered to the remote
+- **Verified end-to-end** (live, from a Windows origin):
+  - Win → Linux: interactive session, `Ctrl-C` delivered to the remote
     foreground child as SIGINT, session survives.
-  - Win → macOS (`test-pc5`): same — `Ctrl-C` delivered to the remote (zsh) child
+  - Win → macOS: same — `Ctrl-C` delivered to the remote (zsh) child
     as SIGINT, session survives.
 
 ### Ctrl-C safety (Phase B)

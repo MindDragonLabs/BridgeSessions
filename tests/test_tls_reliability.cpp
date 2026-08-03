@@ -1,7 +1,7 @@
 // test_tls_reliability.cpp — TLS reliability tests (v1.3 R1/R2 acceptance criteria)
 //
 // These tests target the specific TLS failures observed in the 3-node real-network
-// test (Shadow/Windows <-> test-pc2/test-pc1/Linux):
+// test (Windows <-> Linux):
 //
 //   Symptom A: connect error logged as "error:00000000:lib(0)::reason(0)" — the OpenSSL
 //              error queue was drained before the error string was captured.

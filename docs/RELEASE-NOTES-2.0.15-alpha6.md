@@ -21,7 +21,7 @@ values instead of silently ignoring failures.**
 ## Assets
 
 Same three platform binaries as 2.0.14-alpha6; build matrix unchanged
-(`scripts/Dockerfile.static-linux`, test-pc5 native arm64, MinGW cross on test-pc1).
+(`scripts/Dockerfile.static-linux`, native macOS arm64, MinGW cross on Linux).
 Raw download:
 
 ```text

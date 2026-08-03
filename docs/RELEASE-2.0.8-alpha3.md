@@ -64,7 +64,7 @@ Full phase table + per-phase gates are the authority in **`PLANS.md`**. Summary:
 
 **Gate:** 3-lane MoA audit → 0 P0 / 0 P1 before P2 starts.
 
-**Risk gate:** P5 Windows `cua-helper` PoC on cloud-pc is the only hard research risk. Linux/mac CUA ship regardless. If it fails, Windows injection is the sole blocked item (documented, not half-built) — do not let it block the rest of the release.
+**Risk gate:** P5 Windows `cua-helper` PoC on a Windows cloud PC is the only hard research risk. Linux/mac CUA ship regardless. If it fails, Windows injection is the sole blocked item (documented, not half-built) — do not let it block the rest of the release.
 
 ## 4. P0 decision required (bs-protocol drift)
 
@@ -73,7 +73,7 @@ Full phase table + per-phase gates are the authority in **`PLANS.md`**. Summary:
 
 ## 5. Top risks (full register in worker outputs)
 
-- **R-CUA-Win:** `Handle=0`/Session-1 injection — needs per-user helper agent; gate on cloud-pc proof.
+- **R-CUA-Win:** `Handle=0`/Session-1 injection — needs per-user helper agent; gate on cloud-PC proof.
 - **R-CUA-Linux:** Wayland input fragmentation — ship X11+XTest + uinput first; don't promise "any Linux".
 - **R-CUA-Mac:** TCC Accessibility prompt — one-time human grant; `doctor` reports state.
 - **R-keycode:** cross-OS keycodes differ — wire format = USB HID usage IDs; per-OS translation table.

@@ -22,7 +22,7 @@ ScreenCaptureKit requires **System Settings → Privacy & Security → Screen & 
 
 Linux CTest passed 336/336, macOS CTest passed 335/335, and the release pytest suite passed 31/31.
 
-A live capture from test-pc5 was retrieved and inspected as H.264, 1920×810, 2 fps, 3 seconds, 6 frames. The tested file SHA-256 was `dae226d32cd16e2b13d21aa2d7899156dd5ef86fc9a9471a35b89490ff348761`.
+A live capture from a macOS node was retrieved and inspected as H.264, 1920×810, 2 fps, 3 seconds, 6 frames. The tested file SHA-256 was `dae226d32cd16e2b13d21aa2d7899156dd5ef86fc9a9471a35b89490ff348761`.
 
 ## Upgrade caution
 

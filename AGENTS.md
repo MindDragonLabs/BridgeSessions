@@ -19,7 +19,7 @@ Shipping release: **v2.0.19-alpha7**. Probe live `--version`.
 7. Do not claim “production-secure SSH replacement” (public alpha posture; see SECURITY.md / AUDIT).
 8. No secrets in git or chat. English-only operator-facing text unless the user asks otherwise.
 9. Verify claims with real command output in this session.
-10. **Public forge = Codeberg** (`Mind-Dragon/BridgeSessions`) via **SSH deploy-key**. Binaries ship in git `dist/` (raw/tag URLs). Do **not** route this product through local user Forgejo or require FORGEJO_TOKEN for binary delivery.
+10. **Public forge = Codeberg** (`Mind-Dragon/BridgeSessions`) via SSH deploy key. Binaries ship in git `dist/` (raw/tag URLs). Do **not** route this product through any other forge or require FORGEJO_TOKEN for binary delivery.
 
 ## Key paths
 

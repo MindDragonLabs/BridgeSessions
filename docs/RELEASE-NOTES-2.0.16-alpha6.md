@@ -54,4 +54,4 @@ https://codeberg.org/Mind-Dragon/BridgeSessions/raw/tag/v2.0.16-alpha6/dist/brid
 ```
 
 330/330 CTest green (3 consecutive runs). Live-verified on the fleet:
-test-pc1 ↔ test-pc9 1 MiB transfer, both directions, hash-matched.
+Linux ↔ Windows nodes 1 MiB transfer, both directions, hash-matched.

@@ -848,7 +848,7 @@ TEST_CASE("SSH alias imports as a transient BridgeSessions peer",
     REQUIRE(cfg.seeds[0].addr == "refreshed.example:19949");
     REQUIRE(cfg.seeds[0].pubkey_hex == "trusted-fingerprint");
     REQUIRE(trusted_peer_pubkey(cfg, "test-pc1") == "trusted-fingerprint");
-    REQUIRE(trusted_peer_pubkey(cfg, "test-pc1") == "trusted-fingerprint");
+    REQUIRE(trusted_peer_pubkey(cfg, "TEST-PC1") == "trusted-fingerprint");
     REQUIRE(peer_identity_matches("trusted-fingerprint", "trusted-fingerprint"));
     REQUIRE_FALSE(peer_identity_matches("trusted-fingerprint", "attacker-fingerprint"));
     REQUIRE_FALSE(peer_identity_matches("", "untrusted-first-contact"));

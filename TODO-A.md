@@ -10,7 +10,7 @@ Start with v2.0.6 baseline. CTest 267/267.
 
 **Fix:** In `main()` / the shell subcommand handler, after connecting to the peer and before entering the PTY read/write loop, call `enable_raw_mode()` on the client side so keystrokes are forwarded without local line editing or echo.
 
-**Verification:** On test-pc7, after fix: `bs shell test-pc1` → type a character → it should appear on the remote immediately (not wait for Enter).
+**Verification:** On TEST-PC1, after fix: `bs shell TEST-PC2` → type a character → it should appear on the remote immediately (not wait for Enter).
 
 ## A.2 — Ensure ConPTY resize is called on ResizeMsg
 
@@ -20,7 +20,7 @@ Start with v2.0.6 baseline. CTest 267/267.
 
 **Fix:** In the interactive shell main loop on Windows, poll for console resize events (or use `ReadConsoleInput` with `WINDOW_BUFFER_SIZE_EVENT` detection) and send `ResizeMsg` to the peer.
 
-**Verification:** `bs shell test-pc1` from test-pc7 → resize the console window → `stty size` on test-pc1 shows new dimensions.
+**Verification:** `bs shell TEST-PC2` from TEST-PC1 → resize the console window → `stty size` on TEST-PC2 shows new dimensions.
 
 ## A.3 — Ensure GenerateConsoleCtrlEvent works for ConPTY sessions
 
@@ -33,8 +33,8 @@ Start with v2.0.6 baseline. CTest 267/267.
 ## A.4 — Cross-direction E2E: Windows → Linux interactive CUA
 
 **Test scenario:**
-1. On test-pc7: `bs shell test-pc1` (interactive, no `--cmd`)
-2. Type `hostname` → expect `test-pc1`
+1. On TEST-PC1: `bs shell TEST-PC2` (interactive, no `--cmd`)
+2. Type `hostname` → expect `TEST-PC2`
 3. Type `ls /home/user` → expect directory listing
 4. Resize the window → `stty size` should reflect new dimensions
 5. Start a long-running command: `bash -c 'trap "echo GOT_SIGINT" INT; sleep 30'`
@@ -42,7 +42,7 @@ Start with v2.0.6 baseline. CTest 267/267.
 
 ## A.5 — Cross-direction E2E: Windows → macOS interactive CUA
 
-Same as A.4 but target = test-pc5, zsh.
+Same as A.4 but target = TEST-PC3, zsh.
 
 **TODO-A.md done when:**
 - A.1 through A.5 all pass on live hardware

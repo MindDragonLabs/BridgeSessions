@@ -3,7 +3,7 @@
 Authoritative recipe for producing **portable static** BridgeSessions binaries that
 run on fleet hosts without missing-library errors. The naive `cmake`/`build.sh` build
 links spdlog/zstd/OpenSSL/fmt **dynamically** and targets the builder's glibc — it
-breaks on older hosts (e.g. test-pc4: `GLIBC_2.38 not found`, `libspdlog missing`). These
+breaks on older hosts (e.g. Ubuntu 22.04: `GLIBC_2.38 not found`, `libspdlog missing`). These
 recipes eliminate that by statically linking every app dependency.
 
 **Version stamp**: edit `VERSION` in the repo root (single source of truth). All recipes
@@ -31,9 +31,9 @@ lines must pass it).
 
 ## Linux x86_64 — `ubuntu:22.04` container (glibc 2.35 floor)
 
-Build inside a container so the binary targets glibc **2.35** (runs on test-pc4/Ubuntu 22.04
+Build inside a container so the binary targets glibc **2.35** (runs on Ubuntu 22.04
 through current Arch). The Dockerfile is **versioned at `scripts/Dockerfile.static-linux`**
-(it previously lived at `/tmp/bs-static/Dockerfile` on test-pc1 and was lost once — do not
+(it previously lived at `/tmp/bs-static/Dockerfile` on the build host and was lost once — do not
 move it back out of git). Build from the repo root:
 
 ```bash
@@ -69,15 +69,15 @@ Container essentials (traps baked in):
 - OpenSSL `./Configure linux-x86_64 no-shared no-tests`; zstd/fmt/spdlog cmake
   `BUILD_SHARED_LIBS=OFF` (spdlog gets `-DCMAKE_PREFIX_PATH=/opt/fmt`).
 - **Link**: `-DCMAKE_EXE_LINKER_FLAGS="-static-libstdc++ -static-libgcc"`. WITHOUT this,
-  test-pc4 dies with `GLIBCXX_3.4.32 not found`.
+  older hosts die with `GLIBCXX_3.4.32 not found`.
 - Add a `.dockerignore` excluding `build/` (a stale host `CMakeCache.txt` poisons configure).
 - Result check: `ldd dist/bridgesessions-linux-x86_64` → only `libc.so.6` + `ld-linux`.
 
 ---
 
-## macOS arm64 — native on test-pc5 (no brew, no sudo)
+## macOS arm64 — native on a macOS build host (no brew, no sudo)
 
-test-pc5 has Apple clang 17 + git + network, but **no cmake, no brew, no sudo**. Drop a
+The macOS build host has Apple clang 17 + git + network, but **no cmake, no brew, no sudo**. Drop a
 portable CMake, build static deps into `~/local`, compile.
 
 ```bash
@@ -108,16 +108,16 @@ cmake --build build -j"$(sysctl -n hw.ncpu)"
 ```
 
 Traps:
-- **Do NOT pass `-GNinja`** — test-pc5 has no Ninja; default Unix Makefiles only. A stale
+- **Do NOT pass `-GNinja`** — the macOS host has no Ninja; default Unix Makefiles only. A stale
   `CMakeCache.txt` from a failed Ninja run will keep erroring — `rm -rf build` first.
 - Result: `file build/bridgesessions` → `Mach-O 64-bit arm64`; `otool -L` → only
   `/usr/lib/libc++.1.dylib` + `/usr/lib/libSystem.B.dylib` (both always present).
 
 ---
 
-## Windows x86_64 PE — MinGW cross-compile on test-pc1 (no sshd on target)
+## Windows x86_64 PE — MinGW cross-compile on a Linux build host
 
-test-pc1 has `x86_64-w64-mingw32-g++`. Build static deps into `~/bs-win`, then compile
+The Linux build host has `x86_64-w64-mingw32-g++`. Build static deps into `~/bs-win`, then compile
 **`main.cpp` directly** with `g++` (avoids CMake `find_package` IMPORTED_IMPLIB
 pain on Windows cross-builds). Post-refactor the product TU is `main.cpp` (which includes
 `bs-protocol.h` → `bs-session.h`); the pre-refactor `bridgesessions.cpp` monolith is a
@@ -160,20 +160,20 @@ Traps:
 - Result: `$TRIPLE-objdump -p build-win/bridgesessions.exe | grep "DLL Name"` → only
   KERNEL32/USER32/WS2_32/ADVAPI32/CRYPT32 + `api-ms-win-crt-*` (OS-provided).
 
-### Shipping to test-pc7 (Win11, no sshd)
+### Shipping to Windows targets without sshd
 
-test-pc7 has **no SSH server** — use **WinRM** (port 5985, NTLM; credentials
-recorded locally in test-pc1 `~/.ssh/config` / vault — never commit them). Host a temp HTTP server on test-pc1's
+If the Windows target has **no SSH server** — use **WinRM** (port 5985, NTLM; credentials
+recorded locally in the build host's `~/.ssh/config` / vault — never commit them). Host a temp HTTP server on the build host's
 Tailscale IP, then `curl.exe` it from a WinRM PowerShell session:
 
 ```bash
-# test-pc1: serve the PE (bind TS IP only)
-cd ~/bridgesessions/dist && python3 -m http.server 8800 --bind <test-pc1-tailscale-ip> &
-# WinRM push (run from test-pc1):
+# build host: serve the PE (bind TS IP only)
+cd ~/bridgesessions/dist && python3 -m http.server 8800 --bind <build-host-tailscale-ip> &
+# WinRM push (run from the build host):
 python3 - <<'PY'
 import winrm
-s = winrm.Session('<windows-host-ip>', auth=('shadow','<winrm-password>'), transport='ntlm')
-ps = (r'$url="http://<test-pc1-tailscale-ip>:8800/bridgesessions-windows-x86_64.exe";'
+s = winrm.Session('<windows-host-ip>', auth=('<windows-user>','<winrm-password>'), transport='ntlm')
+ps = (r'$url="http://<build-host-tailscale-ip>:8800/bridgesessions-windows-x86_64.exe";'
       r'$d="$env:USERPROFILE\.local\bin\bridgesessions.exe";'
       r'New-Item -ItemType Directory -Force -Path (Split-Path $d) | Out-Null;'
       r'curl.exe -fL -o $d $url; & $d --version')

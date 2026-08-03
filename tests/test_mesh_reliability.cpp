@@ -321,7 +321,7 @@ TEST_CASE("duplicate_conn: direct session and mesh link with same identity coexi
     MeshController::Conn mesh;
     MeshController::Conn direct;
     mesh.peer_pubkey = direct.peer_pubkey = std::string(64, 'd');
-    mesh.peer_name = direct.peer_name = "test-pc6";
+    mesh.peer_name = direct.peer_name = "test-pc3";
     mesh.sock_fd = 1;
     direct.sock_fd = 2;
     mesh.purpose = MeshController::ConnectionPurpose::Mesh;
@@ -333,11 +333,11 @@ TEST_CASE("duplicate_conn: direct session and mesh link with same identity coexi
 
     direct.purpose = MeshController::ConnectionPurpose::Unknown;
     REQUIRE_FALSE(MeshController::connections_are_mesh_duplicates(mesh, direct));
-    REQUIRE(MeshController::is_live_mesh_transport_for(mesh, "test-pc6"));
+    REQUIRE(MeshController::is_live_mesh_transport_for(mesh, "test-pc3"));
     mesh.exec_busy->store(true);
-    REQUIRE_FALSE(MeshController::is_live_mesh_transport_for(mesh, "test-pc6"));
-    REQUIRE(MeshController::is_live_mesh_transport_for(mesh, "test-pc6", false));
-    REQUIRE_FALSE(MeshController::is_live_mesh_transport_for(direct, "test-pc6"));
+    REQUIRE_FALSE(MeshController::is_live_mesh_transport_for(mesh, "test-pc3"));
+    REQUIRE(MeshController::is_live_mesh_transport_for(mesh, "test-pc3", false));
+    REQUIRE_FALSE(MeshController::is_live_mesh_transport_for(direct, "test-pc3"));
 }
 
 TEST_CASE("duplicate_conn: lower pubkey keeps its outbound connection", "[mesh_reliability][duplicate]") {

@@ -1,7 +1,7 @@
 # BridgeSessions portable static Linux x86_64 builder (glibc 2.35 floor)
 #
 # Recovered into git 2026-07-26 (previously lived only at /tmp/bs-static/Dockerfile
-# on test-pc1 and was lost once). Reconstructed verbatim from the working
+# on the build host and was lost once). Reconstructed verbatim from the working
 # `bs-static-builder:latest` image history.
 #
 # Usage (from repo root):
@@ -91,7 +91,7 @@ RUN wget -q https://github.com/gabime/spdlog/archive/refs/tags/v1.15.0.tar.gz -O
 
 # Build the repo baked into the image (or mount fresh source over /src).
 # .dockerignore MUST exclude build/ (stale host CMakeCache.txt poisons configure).
-# -static-libstdc++ -static-libgcc is MANDATORY (test-pc4 dies with
+# -static-libstdc++ -static-libgcc is MANDATORY (older glibc hosts die with
 # GLIBCXX_3.4.32 not found without it). glibc stays dynamic (DNS/nsswitch).
 WORKDIR /src
 COPY . /src

@@ -753,7 +753,7 @@ bridgesessions/
 ├── bridgesessions.cpp          # 7-line pre-refactor test stub (not the product)
 ├── tools/
 │   ├── bridgepanel/            # BridgePanel HTTP server (publish/note/message)
-│   └── windows-cua/        # Windows CUA PowerShell scripts
+│   └── windows-cua/            # Windows CUA PowerShell scripts (local-only)
 ├── scripts/                    # build/CI/helper scripts
 ├── tests/                      # integration + multi-attach + protocol tests
 ├── docs/
@@ -884,7 +884,7 @@ SYSTEM cannot inject into the visible user desktop session. The alpha3 fix is a
 **per-user logon helper agent** (`bridgesessions cua-helper`) started at user login; the
 daemon delegates inject/capture to it over an authenticated named pipe. **This is the
 sole risk gate for the whole CUA feature** — Linux and macOS ship regardless of the
-Windows outcome. If the cloud-pc `cua-helper` PoC fails to resolve Handle=0, Windows
+Windows outcome. If the Windows cloud-PC `cua-helper` PoC fails to resolve Handle=0, Windows
 injection is the only blocked item (documented, not silently half-built).
 
 **6-pair matrix (from→to, all combinations):** Linux→{Win,Mac,Linux}, Win→{Linux,Mac,Win},
@@ -940,7 +940,7 @@ event-loop pass. The real gaps:
 
 **Tests:** long command → 2 attached clients, identical ordered bytes, bounded lag; throttle
 one → `OutputGap` observed, other unaffected; kill one mid-stream → survivor unaffected;
-E2E live-media cloud-pc→viewer with sub-second cadence.
+E2E live-media cloud-PC→viewer with sub-second cadence.
 
 ### 15.4 Cross-resolution display correctness — FULL harness + doctor (server-side reflow = stretch)
 

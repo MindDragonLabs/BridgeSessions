@@ -200,8 +200,8 @@ TEST_CASE("peer_name_eq is case-insensitive", "[shell]") {
     MeshController mc(cfg);
     REQUIRE(mc.peer_name_eq("Shadow", "shadow"));
     REQUIRE(mc.peer_name_eq("SHADOW", "shadow"));
-    REQUIRE(mc.peer_name_eq("test-pc1", "test-pc1"));
-    REQUIRE_FALSE(mc.peer_name_eq("shadow", "test-pc1"));
+    REQUIRE(mc.peer_name_eq("TEST-PC1", "test-pc1"));
+    REQUIRE_FALSE(mc.peer_name_eq("test-pc2", "test-pc1"));
     REQUIRE(mc.peer_name_eq("", ""));  // empty strings are equal
 }
 

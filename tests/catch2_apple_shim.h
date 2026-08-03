@@ -1,4 +1,4 @@
-// catch2_apple_shim.h — test-pc5's libCatch2.a predates its 3.8 headers:
+// catch2_apple_shim.h — a stale libCatch2.a predates the 3.8 headers:
 // the out-of-line StringMaker<std::string_view>::convert symbol is missing
 // from the archive, so any TU comparing std::string_view in a REQUIRE fails
 // to link. Provide the definition once per TU. Delete when the mac Catch2

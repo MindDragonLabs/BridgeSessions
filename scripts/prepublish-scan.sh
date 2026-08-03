@@ -9,12 +9,22 @@ set -u
 FAILED=0
 
 # ── BLOCK tier: high-precision value shapes ──────────────────────
-# Fleet tailnet ranges (never public)
-IP_PAT='100\.(112|84|126|127|115|73|102)\.[0-9]+'
+# Full CGNAT range — tailnet/overlay IPs are never public, regardless of subnet
+IP_PAT='100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\.[0-9]{1,3}\.[0-9]{1,3}'
+# Real tailnet hostnames (ts.net with a concrete tail identifier)
+TSNET_PAT='tail[0-9a-z]{6,}\.ts\.net'
 # Quoted auth tuples with a real (non-placeholder) second value: auth=('u','p')
 AUTH_TUPLE_PAT="auth=\\('[^']+','[^<][^']*'\\)"
 # PEM armor (the dashes distinguish a real block from prose about PEMs)
 PEM_PAT='-----BEGIN [A-Z ]*PRIVATE KEY-----'
+
+# ── BLOCK tier: operator network blocklist (PRIVATE overlay) ─────
+# Anything used on the operator's network, by name or IP. Generated from the
+# private fleet directory by gen-publish-blocklist.py; lives outside the repo
+# because the list itself maps the network. Matching is case-insensitive;
+# <angle-bracket> placeholders are stripped before matching. Test dummies
+# (TEST-PC1, 192.168.1.x, RFC5737 TEST-NET) match nothing and are permitted.
+BLOCKLIST="${BS_PUBLISH_BLOCKLIST:-$HOME/.config/bridgesessions/publish-blocklist}"
 
 # ── WARN tier ────────────────────────────────────────────────────
 WARN_PAT='Year25careful|password|ipc-token|api[_-]?key|BEGIN [A-Z ]*PRIVATE KEY'
@@ -29,11 +39,25 @@ scan_files() {
   [ -z "$files" ] && return 0
   local hits
   hits=$(echo "$files" | xargs grep -lnE "$IP_PAT" 2>/dev/null || true)
-  [ -n "$hits" ] && { echo "BLOCK: tailnet IPs in $label:"; echo "$hits" | sed 's/^/  /'; FAILED=1; }
+  [ -n "$hits" ] && { echo "BLOCK: tailnet/overlay IPs in $label:"; echo "$hits" | sed 's/^/  /'; FAILED=1; }
+  hits=$(echo "$files" | xargs grep -lnE "$TSNET_PAT" 2>/dev/null || true)
+  [ -n "$hits" ] && { echo "BLOCK: ts.net tailnet hostname in $label:"; echo "$hits" | sed 's/^/  /'; FAILED=1; }
   hits=$(echo "$files" | xargs grep -lnE "$AUTH_TUPLE_PAT" 2>/dev/null || true)
   [ -n "$hits" ] && { echo "BLOCK: credential tuple auth=('u','p') in $label:"; echo "$hits" | sed 's/^/  /'; FAILED=1; }
   hits=$(echo "$files" | xargs grep -lnE "$PEM_PAT" 2>/dev/null || true)
   [ -n "$hits" ] && { echo "BLOCK: PEM private-key block in $label:"; echo "$hits" | sed 's/^/  /'; FAILED=1; }
+  if [ -f "$BLOCKLIST" ]; then
+    while IFS= read -r pat; do
+      case "$pat" in ''|'#'*) continue ;; esac
+      hits=""
+      while IFS= read -r f; do
+        [ -f "$f" ] || continue
+        sed 's/<[^>]*>//g' "$f" 2>/dev/null | grep -qiE -- "$pat" && hits="$hits$f\n"
+      done <<< "$files"
+      hits=$(printf '%b' "$hits" | sed '/^$/d')
+      [ -n "$hits" ] && { echo "BLOCK: network blocklist pattern [$pat] in $label:"; echo "$hits" | sed 's/^/  /'; FAILED=1; }
+    done < "$BLOCKLIST"
+  fi
   hits=$(echo "$files" | xargs grep -lniE "$WARN_PAT" 2>/dev/null || true)
   [ -n "$hits" ] && { echo "WARN: secret-adjacent keywords in $label (review, not blocked):"; echo "$hits" | sed 's/^/  /'; }
 }

@@ -44,7 +44,7 @@ https://codeberg.org/Mind-Dragon/BridgeSessions/raw/tag/v2.0.17-alpha6/dist/brid
 ./bridgesessions --version   # → 2.0.17-alpha6
 ```
 
-330/330 CTest green. Live-verified on the fleet: test-pc1 ↔ test-pc9,
+330/330 CTest green. Live-verified on the fleet: Linux ↔ Windows nodes,
 1 MiB both directions, sha256-matched (push `e9a84dfa…`, pull `75c5e630…`).
 
 ### Known issue (tracked for 2.0.18)

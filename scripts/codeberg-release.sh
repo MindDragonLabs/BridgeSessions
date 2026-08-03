@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Create a Codeberg (Forgejo) release and upload dist assets.
 #
-# Git push uses SSH key deploy-key (git core.sshCommand / Host codeberg.org).
+# Git push uses SSH deploy key (git core.sshCommand / Host codeberg.org).
 # Attaching release assets requires a personal access token with repo write:
 #   export FORGEJO_TOKEN=...
 #   # or: ~/.vault/forgejo.token (mode 0600)
@@ -85,7 +85,7 @@ if [[ "$DRY_RUN" -eq 0 ]]; then
     TOKEN="$(tr -d '\r\n' <"${HOME}/.vault/forgejo.token")"
   else
     printf 'Need FORGEJO_TOKEN or ~/.vault/forgejo.token\n' >&2
-    printf 'SSH deploy-key can push tags/commits; it cannot attach release files.\n' >&2
+    printf 'The deploy key can push tags/commits; it cannot attach release files.\n' >&2
     printf 'Codeberg → Settings → Applications → Generate New Token (repo write).\n' >&2
     exit 1
   fi

@@ -5,18 +5,18 @@ Public product forge: **https://codeberg.org/Mind-Dragon/BridgeSessions**
 ## Identity
 
 - Git remote: `git@codeberg.org:Mind-Dragon/BridgeSessions.git`
-- SSH key that works: **`~/.ssh/deploy-key`** (greets as Mind-Dragon)
+- SSH deploy key: **`~/.ssh/<deploy-key>`**
 - Default `~/.ssh/id_ed25519` → Permission denied for this account
 
 ```bash
-export GIT_SSH_COMMAND='ssh -i ~/.ssh/deploy-key -o IdentitiesOnly=yes -o BatchMode=yes'
-ssh -i ~/.ssh/deploy-key -o IdentitiesOnly=yes -T git@codeberg.org
+export GIT_SSH_COMMAND='ssh -i ~/.ssh/<deploy-key> -o IdentitiesOnly=yes -o BatchMode=yes'
+ssh -i ~/.ssh/<deploy-key> -o IdentitiesOnly=yes -T git@codeberg.org
 git push codeberg main
 git push codeberg v2.0.6-alpha2
 ```
 
-Permanent: `Host codeberg.org` → `IdentityFile ~/.ssh/deploy-key` in `~/.ssh/config`,
-and/or `git config core.sshCommand 'ssh -i ~/.ssh/deploy-key -o IdentitiesOnly=yes'`.
+Permanent: `Host codeberg.org` → `IdentityFile ~/.ssh/<deploy-key>` in `~/.ssh/config`,
+and/or `git config core.sshCommand 'ssh -i ~/.ssh/<deploy-key> -o IdentitiesOnly=yes'`.
 
 ## What “publish binaries” means
 
@@ -36,7 +36,7 @@ Binaries are downloadable from the Codeberg release attached to the exact tag.
 
 ## Not required
 
-- Local user **Forgejo** (unrelated product/host)
+- Any other forge (unrelated product/host)
 - Committing generated source archives, checksums, or SBOM metadata to the tag
 - Replacing assets on an already-published release
 

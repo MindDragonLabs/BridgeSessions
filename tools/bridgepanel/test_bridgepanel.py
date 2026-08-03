@@ -133,7 +133,7 @@ class TestPureFunctions(unittest.TestCase):
 
     def test_mesh_tree_parse(self):
         payload = (b'{"node":"test-pc1","uptime_s":12,"peers":[{"name":"test-pc2",'
-                   b'"addr":"192.168.1.30:19949","healthy":true,"last_pong_s":3,'
+                   b'"addr":"192.168.1.2:19949","healthy":true,"last_pong_s":3,'
                    b'"sessions":[{"name":"build","state":"attached","command":"make","bytes":42}]}],'
                    b'"sessions":[{"name":"hermes","state":"attached","command":"hermes","bytes":99}]}\n')
         fake = self._fake_ipc([payload])
