@@ -309,10 +309,12 @@ int main(int argc, char** argv) {
     peers_cmd->require_subcommand(1);
 
     auto* peers_list = peers_cmd->add_subcommand("list", "List peers");
-    std::string peer_add_name, peer_add_addr;
+    std::string peer_add_name, peer_add_addr, peer_add_pubkey;
     auto* peers_add = peers_cmd->add_subcommand("add", "Add a seed peer");
     peers_add->add_option("name", peer_add_name)->required();
     peers_add->add_option("addr", peer_add_addr)->required();
+    peers_add->add_option("--pubkey", peer_add_pubkey,
+                          "Peer ed25519 pubkey (required when mesh.require_seed_pins=true)");
     std::string peer_remove_name;
     auto* peers_remove = peers_cmd->add_subcommand("remove", "Remove a peer");
     peers_remove->add_option("name", peer_remove_name)->required();
@@ -553,9 +555,20 @@ int main(int argc, char** argv) {
     }
     if (peers_add->parsed()) {
         bs::mesh::MeshConfig cfg = bs::mesh::load_config(config_path);
-        cfg.seeds.push_back({peer_add_name, peer_add_addr});
+        bs::mesh::PeerEntry pe;
+        pe.name = peer_add_name;
+        pe.addr = peer_add_addr;
+        pe.pubkey_hex = peer_add_pubkey;
+        cfg.seeds.push_back(std::move(pe));
         (void)bs::mesh::save_config(config_path, cfg);
-        std::cout << "added seed " << peer_add_name << " -> " << peer_add_addr << std::endl;
+        std::cout << "added seed " << peer_add_name << " -> " << peer_add_addr;
+        if (!peer_add_pubkey.empty())
+            std::cout << " pubkey=" << peer_add_pubkey;
+        std::cout << std::endl;
+        if (peer_add_pubkey.empty() && cfg.require_seed_pins)
+            std::cout << "warning: mesh.require_seed_pins=true but no pubkey given; "
+                         "this seed will be skipped on dial. Re-run with --pubkey "
+                         "or add pubkey= to the config line." << std::endl;
         return 0;
     }
     if (peers_remove->parsed()) {
