@@ -62,6 +62,26 @@ scan_files() {
   [ -n "$hits" ] && { echo "WARN: secret-adjacent keywords in $label (review, not blocked):"; echo "$hits" | sed 's/^/  /'; }
 }
 
+# ── dist/ binaries: strings-level leak check ──────────────────────
+# Binaries are exempt from content grep (binary noise), but baked-in build
+# paths (/home/<user>, /Users/<user>) and blocklisted names must not ship.
+scan_dist() {
+  local b hits
+  for b in dist/*; do
+    [ -f "$b" ] || continue
+    case "$b" in *.json|*.txt|SHA256SUMS) continue ;; esac
+    hits=$(strings "$b" 2>/dev/null | grep -E '/home/[a-z]+/|/Users/[a-z]+/' | head -3)
+    [ -n "$hits" ] && { echo "BLOCK: build-path bake-in in $b:"; echo "$hits" | sed 's/^/  /'; FAILED=1; }
+    if [ -f "$BLOCKLIST" ]; then
+      while IFS= read -r pat; do
+        case "$pat" in ''|'#'*) continue ;; esac
+        strings "$b" 2>/dev/null | grep -qiE -- "$pat" && { echo "BLOCK: network blocklist pattern [$pat] in binary $b"; FAILED=1; }
+      done < "$BLOCKLIST"
+    fi
+  done
+}
+scan_dist
+
 # 1) tracked tip
 scan_files "tracked tip" "$(git ls-files)"
 
