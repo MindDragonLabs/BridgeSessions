@@ -12979,6 +12979,7 @@ inline void render_image_to_terminal(const std::string& path_str) {
     }
     return std::nullopt;
 }
+#include "bs-session-worker.h"
 
 } // namespace bs::mesh
 // ────────────────────────────────────────────────────────────────────
