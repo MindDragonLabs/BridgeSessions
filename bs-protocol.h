@@ -2104,9 +2104,7 @@ SslCtxPtr create_node_tls(const NodeTlsConfig& cfg, TlsMode mode,
     // across macOS/Linux/Windows Tailscale paths with self-signed Ed25519 certs
     // (fleet RCA). Product docs: TLS 1.2 minimum, TLS 1.3 preferred — not 1.3-only.
     SSL_CTX_set_min_proto_version(ctx.get(), TLS1_2_VERSION);
-#if defined(TLS1_3_VERSION)
-    SSL_CTX_set_max_proto_version(ctx.get(), TLS1_3_VERSION);
-#endif
+    SSL_CTX_set_max_proto_version(ctx.get(), TLS1_2_VERSION);  // force 1.2: OpenSSL 3.3.2 vs 3.6.3 TLS1.3 data-plane breaks
 
     // Load own certificate + key
     if (!cfg.cert_file.empty()) {
