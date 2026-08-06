@@ -3002,7 +3002,7 @@ inline void close_socket(int fd) {
     return resp;
 }
 
-[[nodiscard]] CuaResponseMsg cua_execute(const CuaRequestMsg& req) {
+[[nodiscard]] CuaResponseMsg cua_execute(const CuaRequestMsg& req, const std::string& app_home = "") {
     CuaResponseMsg resp;
     resp.status = 0;
 
@@ -3060,7 +3060,7 @@ inline void close_socket(int fd) {
     resp.status = 1;
     // Try the cua-helper first (runs in user session for desktop access)
     {
-        auto helper_resp = cua_helper_rpc(req, "");
+        auto helper_resp = cua_helper_rpc(req, app_home);
         if (helper_resp.status == 0) return helper_resp;
         // Fall through to in-process fallback if helper not running
     }
@@ -6466,20 +6466,19 @@ private:
         if (host == "localhost") host = "127.0.0.1";
         if (host.empty()) host = "127.0.0.1";
 
-#ifdef _WIN32
-        sa.sin_addr.s_addr = inet_addr(host.c_str());
-        if (sa.sin_addr.s_addr == INADDR_NONE) {
-            struct hostent* he = gethostbyname(host.c_str());
-            if (!he) throw std::runtime_error("gethostbyname failed: " + host);
-            sa.sin_addr.s_addr = *reinterpret_cast<unsigned long*>(he->h_addr_list[0]);
-        }
-#else
+        // P1 fix: use getaddrinfo instead of gethostbyname (thread-safe, non-blocking)
         if (inet_pton(AF_INET, host.c_str(), &sa.sin_addr) <= 0) {
-            struct hostent* he = gethostbyname(host.c_str());
-            if (!he) throw std::runtime_error("gethostbyname failed: " + host);
-            sa.sin_addr.s_addr = *reinterpret_cast<unsigned long*>(he->h_addr_list[0]);
+            struct addrinfo hints{}, *res = nullptr;
+            hints.ai_family = AF_INET;
+            hints.ai_socktype = SOCK_STREAM;
+            int gai_rc = getaddrinfo(host.c_str(), nullptr, &hints, &res);
+            if (gai_rc != 0 || !res) {
+                std::string err = gai_rc != 0 ? gai_strerror(gai_rc) : "no results";
+                throw std::runtime_error("DNS resolution failed for '" + host + "': " + err);
+            }
+            sa.sin_addr = reinterpret_cast<struct sockaddr_in*>(res->ai_addr)->sin_addr;
+            freeaddrinfo(res);
         }
-#endif
         return sa;
     }
 
@@ -9324,7 +9323,7 @@ public:
                 return;
             }
             // Non-spectator: dispatch to platform CUA backend (2.0.8 P5).
-            CuaResponseMsg resp = cua_execute(req);
+            CuaResponseMsg resp = cua_execute(req, home_dir_);
             resp.request_id = req.request_id;
             try { write_frame(conn.ssl.get(), resp, CONTROL_STREAM_ID); } catch (...) {}
             return;
