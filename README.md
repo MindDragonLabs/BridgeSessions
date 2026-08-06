@@ -6,7 +6,7 @@
 file transfer for media artifacts, Windows CUA peers, and **Bridge Panel** for long
 Markdown reviews.
 
-> **Beta status:** `26.08.05-beta1` is a feature-complete beta. The canonical
+> **Beta status:** `26.08.06-beta1` is a feature-complete beta. The canonical
 > shipping implementation is [`main.cpp`](main.cpp) + [`bs-protocol.h`](bs-protocol.h) +
 > [`bs-session.h`](bs-session.h); macOS capture backend: [`macos-capture.mm`](macos-capture.mm).
 > See [LEGACY_CODE.md](LEGACY_CODE.md) for the non-shipping modular experiment.
@@ -60,7 +60,7 @@ Install/refresh harness links: `./scripts/install-agent-skill.sh`.
 
 ## Install from binary
 
-Current release: **`26.08.05-beta1`** (git tag `v26.08.05-beta1`).
+Current release: **`26.08.06-beta1`** (git tag `v26.08.06-beta1`).
 Platform binaries live under `dist/`; checksums and the SBOM are generated from
 the exact tag.
 
@@ -69,7 +69,7 @@ the exact tag.
 | Linux x86_64 | `bridgesessions-linux-x86_64` |
 | Windows x86_64 | `bridgesessions-windows-x86_64.exe` |
 | macOS arm64 | `bridgesessions-macos-arm64` |
-| Source | `bridgesessions-26.08.05-beta1-source.tar.gz`, `bridgesessions-26.08.05-beta1-source.zip` |
+| Source | `bridgesessions-26.08.06-beta1-source.tar.gz`, `bridgesessions-26.08.06-beta1-source.zip` |
 
 ```bash
 cd /path/to/downloaded-release-assets
@@ -77,7 +77,7 @@ sha256sum -c SHA256SUMS
 # Linux example
 install -m 0755 bridgesessions-linux-x86_64 ~/.local/bin/bridgesessions
 ln -sfn ~/.local/bin/bridgesessions ~/.local/bin/bs
-bridgesessions --version   # → 26.08.05-beta1
+bridgesessions --version   # → 26.08.06-beta1
 bridgesessions keygen
 ```
 
@@ -88,7 +88,7 @@ bridgesessions keygen
 | macOS arm64 | Homebrew OpenSSL/fmt/spdlog dylibs; zstd linked statically (or rebuild) |
 
 Provenance and build notes: [docs/RELEASE-PROVENANCE.md](docs/RELEASE-PROVENANCE.md) ·  
-Release notes: [CHANGELOG.md](CHANGELOG.md) (26.08.05-beta1 entry)
+Release notes: [CHANGELOG.md](CHANGELOG.md) (26.08.06-beta1 entry)
 
 ## Build from source
 
@@ -96,7 +96,7 @@ Release notes: [CHANGELOG.md](CHANGELOG.md) (26.08.05-beta1 entry)
 # Linux / macOS (needs OpenSSL, zstd, fmt, spdlog, CLI11, nlohmann-json)
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --parallel
-./build/bridgesessions --version  # → 26.08.05-beta1
+./build/bridgesessions --version  # → 26.08.06-beta1
 ```
 
 Or: `./build.sh` on Linux. Windows MinGW and macOS flags:
@@ -132,7 +132,7 @@ bridgesessions health <peer>   # → healthy (data-plane ok)
 See [docs/usage.md](docs/usage.md) for the full command reference and
 [docs/configuration.md](docs/configuration.md) for the config reference.
 
-## What's new in 26.08.05-beta1
+## What's new in 26.08.06-beta1
 
 ### CUA — Computer-Use Automation
 
@@ -206,8 +206,8 @@ Release candidates are accepted only when:
 2. `sha256sum -c SHA256SUMS` passes in the downloaded release bundle
 3. The downloaded `SBOM-binaries.json` is valid CycloneDX 1.5
 
-**26.08.05-beta1** ships Linux x86_64, Windows x86_64, and macOS arm64 from this
-source. Prefer the annotated git tag `v26.08.05-beta1` over floating branch tips.
+**26.08.06-beta1** ships Linux x86_64, Windows x86_64, and macOS arm64 from this
+source. Prefer the annotated git tag `v26.08.06-beta1` over floating branch tips.
 
 ## Contributing
 

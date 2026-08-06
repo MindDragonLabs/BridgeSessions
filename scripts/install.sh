@@ -11,7 +11,7 @@ set -eu
 # On Windows (PowerShell):
 #   Invoke-WebRequest -Uri "https://codeberg.org/Mind-Dragon/BridgeSessions/raw/tag/v2.0.20-alpha9/dist/bridgesessions-windows-x86_64.exe" -OutFile "$env:LOCALAPPDATA\bridgesessions.exe"
 
-TAG="${BRIDGESESSIONS_TAG:-26.08.05-beta1}"
+TAG="${BRIDGESESSIONS_TAG:-26.08.06-beta1}"
 BASE="https://codeberg.org/Mind-Dragon/BridgeSessions/raw/tag/${TAG}/dist"
 INSTALL_DIR="${HOME}/.local/bin"
 VERSION_FILE="${INSTALL_DIR}/.bridgesessions-version"
