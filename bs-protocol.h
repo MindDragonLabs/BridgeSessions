@@ -6140,6 +6140,9 @@ public:
         // from one pubkey detach independently.
         uint32_t attach_id = 0;
         bool spectator = false;
+        // Delta gossip: generation this connection last received. 0 = needs
+        // full snapshot on next broadcast.
+        uint32_t last_gossip_generation = 0;
         // v1.7 fix (Known Issue #2): set while a background thread owns this
         // conn's socket/SSL object for a one-shot `daemon_shell_exec` relay.
         // The main event loop must not select()/read/write this fd while
@@ -6340,6 +6343,9 @@ private:
     std::atomic<uint16_t> actual_listen_port_{0};
 
     std::string config_file_path_;
+    // Delta gossip: bumped whenever the peer set changes so build_gossip
+    // can send only what changed since a connection's last snapshot.
+    std::atomic<uint32_t> gossip_generation_{1};
     std::chrono::steady_clock::time_point last_config_reload_check_{};
     std::chrono::steady_clock::time_point last_authorization_check_{};
     std::filesystem::file_time_type config_mtime_{};
@@ -6755,6 +6761,7 @@ private:
     // pubkey remains trusted. Untrusted announcements are dropped and never
     // persisted.
     void merge_peers(const std::vector<PeerInfo>& peers) {
+        bool changed = false;
         for (auto& p : peers) {
             if (p.pubkey_hex.empty()) continue;          // require identity
             if (p.pubkey_hex == our_pubkey_) continue;   // skip self
@@ -6767,7 +6774,7 @@ private:
             for (auto& s : config_.seeds) {
                 if (!s.pubkey_hex.empty() && s.pubkey_hex == p.pubkey_hex) {
                     is_seed = true;
-                    if (!p.addr.empty()) s.addr = p.addr;
+                    if (!p.addr.empty() && s.addr != p.addr) { s.addr = p.addr; changed = true; }
                     s.last_seen = now_unix_seconds();
                     break;
                 }
@@ -6781,8 +6788,8 @@ private:
             for (auto& d : config_.discovered) {
                 if (d.pubkey_hex == p.pubkey_hex) {
                     found = true;
-                    if (!p.addr.empty()) d.addr = p.addr;
-                    if (!p.name.empty()) d.name = p.name;
+                    if (!p.addr.empty() && d.addr != p.addr) { d.addr = p.addr; changed = true; }
+                    if (!p.name.empty() && d.name != p.name) { d.name = p.name; changed = true; }
                     d.last_seen = now_unix_seconds();
                     break;
                 }
@@ -6797,7 +6804,9 @@ private:
             pe.pubkey_hex = p.pubkey_hex;
             pe.last_seen = now_unix_seconds();
             config_.discovered.push_back(std::move(pe));
+            changed = true;  // new peer added
         }
+        if (changed) gossip_generation_.fetch_add(1, std::memory_order_relaxed);
     }
 
     // R4.2/R4.3: reload SEED list when config file changes on disk.
@@ -7382,9 +7391,15 @@ private:
 #endif
 
     // ── Build Gossip message ───────────────────────────────────
-
-    GossipMsg build_gossip() const {
+    // min_generation > 0: only meaningful when peers changed (delta). When
+    // gossip_generation_ <= min_generation the caller already has current
+    // state, so we return an empty peers list (nothing to send).
+    // min_generation == 0: full snapshot (backward compat / first contact).
+    GossipMsg build_gossip(uint32_t min_generation = 0) const {
         GossipMsg g;
+        if (min_generation > 0 && gossip_generation_.load() <= min_generation)
+            return g;  // caller is current — nothing changed
+
         for (auto& s : config_.seeds) {
             if (s.pubkey_hex.empty()) continue;
             PeerInfo pi;
@@ -10171,20 +10186,27 @@ private:
     }
 
     // ── Send Gossip to all connections ─────────────────────────
-
+    // Delta gossip: each connection receives only peers that changed since
+    // its last_gossip_generation. First contact (gen 0) gets a full snapshot.
     void broadcast_gossip() {
-        auto g = build_gossip();
+        uint32_t cur_gen = gossip_generation_.load();
         ServerInfoMsg info;
         info.hostname = config_.node_name;
         info.version = std::string(kBridgeSessionsVersion);
         info.sessions_summary_json = build_sessions_summary_json();
-        bool send_gossip = !g.peers.empty();
 
         for (auto& c : conns_) {
             if (c.sock_fd == INVALID_SOCKET) continue;
             if (c.exec_busy && c.exec_busy->load()) continue;
             try {
-                if (send_gossip) write_frame(c.ssl.get(), g, CONTROL_STREAM_ID);
+                // gen 0 → full snapshot; stale gen → delta; current gen → skip
+                if (c.last_gossip_generation == 0 ||
+                    c.last_gossip_generation < cur_gen) {
+                    auto g = build_gossip(c.last_gossip_generation);
+                    if (!g.peers.empty())
+                        write_frame(c.ssl.get(), g, CONTROL_STREAM_ID);
+                    c.last_gossip_generation = cur_gen;
+                }
                 write_frame(c.ssl.get(), info, CONTROL_STREAM_ID);
             } catch (...) {}
         }
