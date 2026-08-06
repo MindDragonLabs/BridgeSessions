@@ -7552,7 +7552,7 @@ private:
         return result;
     }
 
-    // Direct TLS file recv (no daemon required) — mirrors direct_connect_file_send
+    // Direct TLS file recv (no daemon required) — sends FileRequestMsg, receives file
     std::string direct_connect_file_recv(const std::string& peer_name,
                                          const std::string& remote_path,
                                          const std::string& local_dest) {
@@ -7565,9 +7565,9 @@ private:
                 ? connect_fail_string(sc.fail) : sc.fail_detail;
             return "ERROR failed to connect to " + peer_name + ": " + detail;
         }
-        std::string result = file_request_on_transport(
-            sc.ssl.get(), sc.sfd, remote_path, {}, {}, nullptr, peer_name);
-        // file_request_on_transport writes to recv dir; caller may need to move
+        // Use file_recv_wait_on_transport: sends request, receives meta + chunks, writes file
+        std::string result = file_recv_wait_on_transport(
+            sc.ssl.get(), sc.sfd, remote_path, local_dest, receive_dir_, {}, {});
         ssl_close(sc.ssl.get(), sc.sfd);
         sc.sfd = INVALID_SOCKET;
         return result;
