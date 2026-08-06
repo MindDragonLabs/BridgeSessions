@@ -12689,9 +12689,17 @@ public:
         // Try daemon IPC first (reuses existing mesh conns)
         std::string ipc = daemon_send_via_ipc(peer_name, local_path, 120000, wait_for_completion);
         if (!ipc.empty()) {
+            // If daemon IPC failed with "no conn", fall back to direct TLS
+            if (ipc.rfind("ERROR no conn", 0) == 0 || ipc.rfind("ERROR no daemon", 0) == 0) {
+                std::string direct = direct_connect_file_send(peer_name, local_path);
+                if (!direct.empty()) return direct;
+            }
             return ipc;
         }
-        return "ERROR no daemon running — cannot send without daemon mesh connection";
+        // No daemon at all — try direct TLS
+        std::string direct = direct_connect_file_send(peer_name, local_path);
+        if (!direct.empty()) return direct;
+        return "ERROR no daemon running and direct TLS file send failed — cannot send";
     }
 
     // ── CLI: file_recv ──────────────────────────────────────────
