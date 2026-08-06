@@ -3255,6 +3255,7 @@ struct MeshConfig {
     int gossip_interval_secs = 30;
     int reconnect_backoff_max_secs = 30;
     int startup_wait_secs = 30;  // boot-time network readiness gate (0 = skip)
+    std::string receive_dir_override;  // override default received/ path (for SYSTEM daemons)
     int ping_interval_secs = 5;
     int pong_timeout_secs = 30;
     // When true (default), outbound seed/discovered dials require pubkey= pin and
@@ -3470,6 +3471,8 @@ void write_peer_line(std::ostream& os, const std::string& prefix, const PeerEntr
         } else if (key_str == "mesh.startup_wait_secs") {
             auto v = parse_int(val);
             if (v.has_value() && *v >= 0) cfg.startup_wait_secs = *v;
+        } else if (key_str == "receive_dir") {
+            cfg.receive_dir_override = val;
         } else if (key_str == "mesh.ping_interval_secs") {
             auto v = parse_int(val);
             if (v.has_value()) cfg.ping_interval_secs = *v;
@@ -7474,10 +7477,10 @@ private:
             log_event("file_send_error", "not found or is dir: " + local_path);
             return false;
         }
-        // Find the connection
+        // Find the connection (allow file transfer even on busy conns)
         Conn* target = nullptr;
         for (auto& c : conns_) {
-            if (is_live_mesh_transport_for(c, peer_name)) { target = &c; break; }
+            if (is_live_mesh_transport_for(c, peer_name, false)) { target = &c; break; }
         }
         if (!target) {
             log_event("file_send_error", "no conn to " + peer_name);
@@ -10188,6 +10191,12 @@ public:
         apply_app_home_defaults(config_, app_home);
 
         receive_dir_ = paths.received;
+
+        // Config override: if config specifies a receive_dir, use that instead.
+        // Needed when daemon runs as SYSTEM but needs files in user's home.
+        if (!config_.receive_dir_override.empty()) {
+            receive_dir_ = expand_home(config_.receive_dir_override);
+        }
         bootstrap_identity(paths.root);
 
         std::string pub_path = paths.pub;
