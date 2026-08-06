@@ -31,8 +31,15 @@ CreateNamedPipeA(..., sd);
 ### 1c. Wire Protocol Version Negotiation (P2)
 **Current:** Chunk size is a compile-time constant. Mixed-version peers fail with
 "declared chunk count does not match file size" if one side changes it.
-**Fix:** Add protocol version byte to HelloMsg. Negotiate chunk size in FileMetaMsg
-(sender declares, receiver accepts).
+**IMPORTANT:** Adding new fields to serialized messages (HelloMsg, FileMetaMsg)
+is a **wire-breaking change** — all peers must upgrade simultaneously.
+Tested and confirmed: adding `protocol_version` to HelloMsg serialization
+causes `hello_rejected` on all old peers.
+**Fix (non-breaking):** Encode protocol version in the existing `version` string:
+`"26.08.05-beta1"` → `"26.08.05-beta1+pv2"`. Parse with regex on the receiver.
+Chunk size negotiation: sender already declares `total_chunks` in FileMetaMsg
+which the receiver uses. This is sufficient — the receiver doesn't need to know
+the raw chunk size, just how many chunks to expect.
 
 ### 1d. Session Token Rotation (P2)
 **Current:** `ipc-token` and `cua-helper-token` are static files.
