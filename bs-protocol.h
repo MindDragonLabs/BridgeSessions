@@ -3631,6 +3631,52 @@ void write_peer_line(std::ostream& os, const std::string& prefix, const PeerEntr
     return {};
 }
 
+// ── Peer name resolution: fuzzy matching helpers ──────────────
+// NO-FALLBACK CONTRACT: bs resolves peer names, connects, and either
+// succeeds or fails with diagnostics. It NEVER invokes ssh/winrm/telnet
+// as a fallback transport. There is no code path that does so. This is
+// a design invariant — see AUDIT-MOA-2026-08-06.md.
+
+// Classic two-row Wagner-Fischer. Returns edit distance.
+[[nodiscard]] inline size_t levenshtein(const std::string& a,
+                                        const std::string& b) {
+    const auto m = a.size(), n = b.size();
+    if (m == 0) return n;
+    if (n == 0) return m;
+    std::vector<size_t> prev(n + 1), curr(n + 1);
+    for (size_t j = 0; j <= n; ++j) prev[j] = j;
+    for (size_t i = 1; i <= m; ++i) {
+        curr[0] = i;
+        for (size_t j = 1; j <= n; ++j) {
+            size_t cost = std::tolower(static_cast<unsigned char>(a[i - 1])) !=
+                          std::tolower(static_cast<unsigned char>(b[j - 1]));
+            curr[j] = std::min({prev[j] + 1, curr[j - 1] + 1, prev[j - 1] + cost});
+        }
+        prev.swap(curr);
+    }
+    return prev[n];
+}
+
+// Case-insensitive suffix/prefix check for tier-3 matching.
+[[nodiscard]] inline bool name_has_segment(const std::string& name,
+                                           const std::string& query) {
+    if (query.empty() || name.size() < query.size()) return false;
+    auto ic_eq = [](unsigned char a, unsigned char b) {
+        return std::tolower(a) == std::tolower(b);
+    };
+    // Exact suffix: "shadow" matches "windows-peer"
+    if (name.size() > query.size() &&
+        name[name.size() - query.size() - 1] == '-' &&
+        std::equal(query.rbegin(), query.rend(), name.rbegin(), ic_eq))
+        return true;
+    // Exact prefix: "shadow" matches "shadow-df8uluc8"
+    if (name.size() > query.size() &&
+        name[query.size()] == '-' &&
+        std::equal(query.begin(), query.end(), name.begin(), ic_eq))
+        return true;
+    return false;
+}
+
 [[nodiscard]] bool config_peer_name_eq(const std::string& a,
                                        const std::string& b) {
     if (a.size() != b.size()) return false;
@@ -4393,6 +4439,10 @@ class SessionRegistry {
     std::vector<SessionHistoryEntry> recent_;
     std::string persistence_path_;
     static constexpr size_t kMaxRecentSessions = 50;
+
+    // P0 UAF fix: fires before a session is erased from the map so callers
+    // (MeshController) can null raw attached_session pointers that would dangle.
+    std::function<void(const std::string&)> on_session_erased_;
 
     static ResolvedSessionCommand complete_command(
         const std::string& command) {
@@ -11644,6 +11694,138 @@ public:
         return "";
     }
 
+    // ── Peer name resolution: 4-tier fuzzy matching ────────────
+    // Tier 1: exact case-insensitive (backward-compatible)
+    // Tier 2: (reserved for config aliases — not yet in config format)
+    // Tier 3: hyphen-segment suffix/prefix (shadow → windows-peer)
+    // Tier 4: Levenshtein ≤ 2 (shadwo → shadow)
+    struct PeerResolveResult {
+        std::string name;       // resolved canonical name, empty if not found
+        std::string addr;       // "host:port"
+        std::string pubkey_hex;
+        enum Tier { None_, Exact, Suffix, Levenshtein } tier = None_;
+        std::vector<std::string> suggestions; // when ambiguous, the candidates
+    };
+
+    // Collect all configured peer names (seeds + discovered).
+    std::vector<std::string> all_peer_names() const {
+        std::vector<std::string> names;
+        names.reserve(config_.seeds.size() + config_.discovered.size());
+        for (const auto& s : config_.seeds) names.push_back(s.name);
+        for (const auto& d : config_.discovered) names.push_back(d.name);
+        return names;
+    }
+
+    // Look up addr+pubkey for a canonical name.
+    bool peer_lookup(const std::string& canonical,
+                     std::string& addr, std::string& pubkey) const {
+        for (const auto& s : config_.seeds)
+            if (peer_name_eq(s.name, canonical)) { addr = s.addr; pubkey = s.pubkey_hex; return true; }
+        for (const auto& d : config_.discovered)
+            if (peer_name_eq(d.name, canonical)) { addr = d.addr; pubkey = d.pubkey_hex; return true; }
+        return false;
+    }
+
+    [[nodiscard]] PeerResolveResult resolve_peer(const std::string& query) const {
+        PeerResolveResult r;
+        // Tier 1: exact match (case-insensitive)
+        std::string addr, pubkey;
+        if (peer_lookup(query, addr, pubkey)) {
+            r.name = query; r.addr = addr; r.pubkey_hex = pubkey;
+            r.tier = PeerResolveResult::Exact;
+            return r;
+        }
+        // Tier 3: hyphen-segment suffix/prefix
+        std::vector<std::string> segment_matches;
+        auto check_segments = [&](const std::vector<PeerEntry>& peers) {
+            for (const auto& p : peers) {
+                if (name_has_segment(p.name, query))
+                    segment_matches.push_back(p.name);
+            }
+        };
+        check_segments(config_.seeds);
+        check_segments(config_.discovered);
+        // Deduplicate segment matches
+        if (segment_matches.size() == 1) {
+            if (peer_lookup(segment_matches[0], addr, pubkey)) {
+                r.name = segment_matches[0]; r.addr = addr; r.pubkey_hex = pubkey;
+                r.tier = PeerResolveResult::Suffix;
+                return r;
+            }
+        }
+        if (segment_matches.size() > 1) {
+            r.suggestions = segment_matches;
+            return r; // ambiguous
+        }
+        // Tier 4: Levenshtein ≤ 2
+        std::vector<std::string> fuzzy_matches;
+        auto check_fuzzy = [&](const std::vector<PeerEntry>& peers) {
+            for (const auto& p : peers) {
+                if (!query.empty() && query.size() >= 3 &&
+                    p.name.size() >= 3 &&
+                    levenshtein(query, p.name) <= 2)
+                    fuzzy_matches.push_back(p.name);
+            }
+        };
+        check_fuzzy(config_.seeds);
+        check_fuzzy(config_.discovered);
+        if (fuzzy_matches.size() == 1) {
+            if (peer_lookup(fuzzy_matches[0], addr, pubkey)) {
+                r.name = fuzzy_matches[0]; r.addr = addr; r.pubkey_hex = pubkey;
+                r.tier = PeerResolveResult::Levenshtein;
+                return r;
+            }
+        }
+        if (fuzzy_matches.size() > 1) {
+            r.suggestions = fuzzy_matches;
+            return r; // ambiguous
+        }
+        // No match at any tier
+        r.suggestions = segment_matches.empty() ? fuzzy_matches : segment_matches;
+        return r;
+    }
+
+    // Print "Peer not found" with suggestions and available peers list.
+    void print_peer_not_found(const std::string& query) const {
+        auto result = resolve_peer(query);
+        if (!result.suggestions.empty()) {
+            std::cerr << "Ambiguous peer name: \"" << query << "\"\n";
+            std::cerr << "Did you mean one of these?\n";
+            for (const auto& s : result.suggestions)
+                std::cerr << "  " << s << "\n";
+        } else {
+            std::cerr << "Peer not found: \"" << query << "\"\n";
+            // Offer fuzzy suggestions if any are close
+            std::vector<std::string> close;
+            auto check_close = [&](const std::vector<PeerEntry>& peers) {
+                for (const auto& p : peers) {
+                    if (!query.empty() && query.size() >= 3 &&
+                        p.name.size() >= 3 &&
+                        levenshtein(query, p.name) <= 3)
+                        close.push_back(p.name);
+                }
+            };
+            check_close(config_.seeds);
+            check_close(config_.discovered);
+            if (!close.empty()) {
+                std::cerr << "Did you mean one of these?\n";
+                for (const auto& s : close)
+                    std::cerr << "  " << s << "\n";
+            }
+        }
+        // Always list all available peers
+        auto names = all_peer_names();
+        if (!names.empty()) {
+            std::cerr << "\nAvailable peers:\n";
+            for (const auto& n : names)
+                std::cerr << "  " << n << "\n";
+        } else {
+            std::cerr << "\nNo peers configured. Use 'bs seed <host:port>' to add one.\n";
+        }
+    }
+
+    // print_connect_failure + connect_with_retry defined after SslConn/connect_and_hello below
+
     // Read frames until Pong or deadline (handles Gossip/Hello interleaved on mesh link).
     bool wait_for_pong(SSL* ssl, SOCKET sfd, std::chrono::steady_clock::time_point deadline) {
         while (std::chrono::steady_clock::now() < deadline) {
@@ -11783,6 +11965,72 @@ public:
         return out;
     }
 
+    // ── Rich connect failure diagnostics ───────────────────────
+    // Per-reason actionable error messages.
+    void print_connect_failure(const std::string& peer_name, const SslConn& sc) const {
+        std::cerr << "\nFailed to connect to " << peer_name << ": "
+                  << connect_fail_string(sc.fail);
+        if (!sc.fail_detail.empty())
+            std::cerr << " (" << sc.fail_detail << ")";
+        std::cerr << "\n\n";
+        switch (sc.fail) {
+        case ConnectFailReason::Refused:
+            std::cerr << "The peer refused the TCP connection.\n"
+                      << "  → Is the bridgesessions daemon running on " << peer_name << "?\n"
+                      << "    Try: bs activate  (on the remote host)\n"
+                      << "  → Check firewall rules allow port 19949.\n";
+            break;
+        case ConnectFailReason::Timeout:
+            std::cerr << "Connection timed out — no response from " << peer_name << ".\n"
+                      << "  → Check network/VPN/Tailscale connectivity.\n"
+                      << "    Try: ping <peer-ip>  or  tailscale status\n"
+                      << "  → The peer may be offline or overloaded.\n";
+            break;
+        case ConnectFailReason::TlsRejected:
+            std::cerr << "TLS handshake failed — key mismatch or rejection.\n"
+                      << "  → The peer's public key doesn't match the pinned key.\n"
+                      << "    Re-authorize: bs seed <host:port> pubkey=<new-key>\n"
+                      << "  → First connect uses trust-on-first-use (TOFU).\n"
+                      << "    Verify the key out-of-band before trusting.\n";
+            break;
+        case ConnectFailReason::HelloRejected:
+            std::cerr << "Hello/auth handshake failed.\n"
+                      << "  → Possible version incompatibility or authorization issue.\n"
+                      << "    Check: bs ctl logs  (on the remote peer)\n"
+                      << "  → Ensure both peers run compatible protocol versions.\n";
+            break;
+        default:
+            std::cerr << "Unknown connection failure.\n"
+                      << "  → Check: bs ctl logs\n";
+            break;
+        }
+        std::cerr << "\n";
+    }
+
+    // ── Connect with retry for transient failures ──────────────
+    // Retries only timeout/refused (transient). Permanent failures
+    // (tls_rejected/hello_rejected) fail immediately. NEVER falls back
+    // to ssh/winrm/telnet — see NO-FALLBACK CONTRACT at top of file.
+    SslConn connect_with_retry(const std::string& addr,
+                               const std::string& expected_pubkey,
+                               int max_attempts = 3,
+                               bool trust_on_first_use = false) {
+        SslConn result;
+        for (int attempt = 0; attempt < max_attempts; ++attempt) {
+            result = connect_and_hello(addr, expected_pubkey, trust_on_first_use);
+            if (result.ssl && result.sfd != INVALID_SOCKET) break;
+            const bool retryable = result.fail == ConnectFailReason::Timeout ||
+                                   result.fail == ConnectFailReason::Refused;
+            if (!retryable || attempt == max_attempts - 1) break;
+            // Linear backoff with jitter: 250ms, 500ms, ...
+            int base_ms = 250 * (attempt + 1);
+            int jitter = std::rand() % (base_ms / 4 + 1);
+            std::this_thread::sleep_for(
+                std::chrono::milliseconds(base_ms + jitter));
+        }
+        return result;
+    }
+
     // ── Shutdown ───────────────────────────────────────────────
 
     void shutdown() { mdns_shutdown(); running_ = false; }
@@ -11835,42 +12083,32 @@ public:
         return 0;
     }
 
-    void print_connect_failure(const std::string& peer_name, const SslConn& sc) const {
-        if (sc.fail != ConnectFailReason::None)
-            std::cerr << "Failed to connect to " << peer_name << ": " << connect_fail_string(sc.fail)
-                      << (sc.fail_detail.empty() ? "" : " (" + sc.fail_detail + ")") << "\n";
-        else
-            std::cerr << "Failed to connect to " << peer_name << "\n";
-    }
-
     // ── CLI: shell_peer ────────────────────────────────────────
     // Returns: 0 on success (interactive), session exit_code on non-interactive,
     //          255 on connection/peer failure.
     int shell_peer(const std::string& peer_name, const std::string& session_name,
                    const std::string& cmd, uint16_t cols, uint16_t rows, const std::string& term,
                    bool signal_forward = true, const std::string& signal_on_detach = "") {
-        std::string addr = find_peer_addr(peer_name);
-        if (addr.empty()) { std::cerr << "Peer not found: " << peer_name << "\n"; return 255; }
-        const std::string expected_pubkey = trusted_peer_pubkey(config_, peer_name);
+        // 4-tier peer name resolution (exact → suffix → levenshtein)
+        auto resolved = resolve_peer(peer_name);
+        if (resolved.name.empty()) {
+            print_peer_not_found(peer_name);
+            return 255;
+        }
+        // Warn on non-exact match
+        if (resolved.tier == PeerResolveResult::Suffix)
+            std::cerr << "Resolved \"" << peer_name << "\" → \"" << resolved.name << "\" (suffix match)\n";
+        else if (resolved.tier == PeerResolveResult::Levenshtein)
+            std::cerr << "Resolved \"" << peer_name << "\" → \"" << resolved.name << "\" (fuzzy match)\n";
+        std::string addr = resolved.addr;  // non-const: interactive loop re-resolves on reconnect
+        std::string expected_pubkey = resolved.pubkey_hex.empty()
+            ? trusted_peer_pubkey(config_, resolved.name) : resolved.pubkey_hex;
         const bool non_interactive = !shell_command_uses_interactive_mode(cmd, stdin_is_terminal());
 
-        auto connect_with_startup_retries = [&]() {
-            SslConn result;
-            for (int attempt = 0; attempt < 3; ++attempt) {
-                result = connect_and_hello(addr, expected_pubkey);
-                if (result.ssl && result.sfd != INVALID_SOCKET) break;
-                const bool retryable = result.fail == ConnectFailReason::Timeout ||
-                                       result.fail == ConnectFailReason::Refused;
-                if (!retryable || attempt == 2) break;
-                std::this_thread::sleep_for(std::chrono::milliseconds(250 * (attempt + 1)));
-            }
-            return result;
-        };
-
         if (non_interactive) {
-            auto sc = connect_with_startup_retries();
+            auto sc = connect_with_retry(addr, expected_pubkey);
             if (!sc.ssl || sc.sfd == INVALID_SOCKET) {
-                print_connect_failure(peer_name, sc);
+                print_connect_failure(resolved.name, sc);
                 return 255;
             }
             int32_t exit_code = 0;
@@ -12500,6 +12738,137 @@ public:
         std::cout << "file changed, uploading via daemon...\n";
         std::string up_result = daemon_edit_up_via_ipc(peer_name, remote_path, local_path, 120000);
         std::cout << up_result << "\n";
+    }
+
+    // ── CLI: run_script ─────────────────────────────────────────
+    // Sends a script file to a peer, then executes it via shell_peer.
+    // Composes file_send + shell execution — zero new wire protocol.
+    int run_script(const std::string& peer_name, const std::string& local_path,
+                   const std::string& interpreter = "auto",
+                   int timeout_ms = 120000) {
+        namespace fs = std::filesystem;
+
+        // 1. Resolve local script file (slurp stdin if "-")
+        std::string script_path = local_path;
+        std::string temp_local; // cleaned up at end
+        if (local_path == "-") {
+            // Read all of stdin into a temp file
+            std::string content((std::istreambuf_iterator<char>(std::cin)),
+                                std::istreambuf_iterator<char>());
+            if (content.empty()) {
+                std::cerr << "ERROR stdin is empty — nothing to run\n";
+                return 1;
+            }
+#ifdef _WIN32
+            char tmpdir_buf[MAX_PATH];
+            GetTempPathA(MAX_PATH, tmpdir_buf);
+            std::string tmpdir = tmpdir_buf;
+            temp_local = tmpdir + "bs-stdin-XXXXXX";
+#else
+            temp_local = "/tmp/bs-stdin-XXXXXX";
+#endif
+            // Detect extension from content shebang or default to .sh
+            std::string ext = ".sh";
+            if (content.size() >= 2 && content[0] == '#' && content[1] == '!') {
+                auto nl = content.find('\n');
+                std::string shebang = (nl != std::string::npos)
+                    ? content.substr(0, nl) : content;
+                if (shebang.find("python") != std::string::npos) ext = ".py";
+                else if (shebang.find("powershell") != std::string::npos
+                         || shebang.find("pwsh") != std::string::npos) ext = ".ps1";
+            }
+            temp_local += ext;
+            std::ofstream tf(temp_local, std::ios::binary | std::ios::trunc);
+            if (!tf) { std::cerr << "ERROR cannot write temp file\n"; return 1; }
+            tf.write(content.data(), static_cast<std::streamsize>(content.size()));
+            tf.close();
+            script_path = temp_local;
+        }
+
+        if (!fs::exists(script_path) || fs::is_directory(script_path)) {
+            std::cerr << "ERROR script not found: " << script_path << "\n";
+            if (!temp_local.empty()) fs::remove(temp_local);
+            return 1;
+        }
+
+        // 2. Send file to peer (lands in ~/.bridgesessions/received/)
+        std::string send_result = file_send(peer_name, script_path, true);
+        if (send_result.rfind("ERROR", 0) == 0) {
+            std::cerr << "file send failed: " << send_result << "\n";
+            if (!temp_local.empty()) fs::remove(temp_local);
+            return 1;
+        }
+
+        // 3. Compute remote path: received dir + basename
+        std::string basename = fs::path(script_path).filename().string();
+        std::string remote_dir = expand_home(receive_dir_);
+        std::string remote_path = remote_dir + "/" + basename;
+
+        // 4. Resolve interpreter
+        std::string interp = interpreter;
+        if (interp == "auto" || interp.empty()) {
+            interp = detect_interpreter(script_path);
+        }
+
+        // 5. Build execution command
+        std::string exec_cmd = build_script_exec_cmd(interp, remote_path, basename);
+
+        std::cerr << "executing on " << peer_name << ": " << exec_cmd << "\n";
+
+        // 6. Execute via daemon IPC (non-interactive shell)
+        std::string output;
+        int ec = daemon_shell_via_ipc(peer_name, "run-script-" + basename,
+                                      exec_cmd, &output, timeout_ms);
+
+        if (!temp_local.empty()) fs::remove(temp_local);
+
+        // Print captured output
+        if (!output.empty()) std::cout << output;
+
+        // ec == -1 means IPC failed — fall back to direct TLS shell
+        if (ec == -1) {
+            std::cerr << "daemon IPC unavailable, using direct TLS\n";
+            auto [cols, rows] = get_winsize();
+            return shell_peer(peer_name, "run-script-" + basename, exec_cmd,
+                              cols, rows, "xterm-256color");
+        }
+        return ec;
+    }
+
+    // Detect interpreter from file extension
+    static std::string detect_interpreter(const std::string& path) {
+        namespace fs = std::filesystem;
+        std::string ext = fs::path(path).extension().string();
+        // lowercase
+        for (auto& c : ext) { if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a'); }
+        if (ext == ".sh") return "bash";
+        if (ext == ".ps1") return "powershell";
+        if (ext == ".py") return "python";
+        if (ext == ".bat" || ext == ".cmd") return "cmd";
+        // No extension or unknown: assume sh
+        return "bash";
+    }
+
+    // Build the execution command for the remote shell
+    static std::string build_script_exec_cmd(const std::string& interpreter,
+                                             const std::string& remote_path,
+                                             const std::string& basename) {
+        if (interpreter == "bash" || interpreter == "sh") {
+            // chmod +x then run directly — POSIX path handles this via sh -c
+            return "chmod +x \"" + remote_path + "\" && exec \"" + remote_path + "\"";
+        }
+        if (interpreter == "powershell" || interpreter == "pwsh") {
+            std::string exe = (interpreter == "pwsh") ? "pwsh" : "powershell";
+            return exe + " -ExecutionPolicy Bypass -NoProfile -File \"" + remote_path + "\"";
+        }
+        if (interpreter == "python" || interpreter == "python3") {
+            return "python3 \"" + remote_path + "\" || python \"" + remote_path + "\"";
+        }
+        if (interpreter == "cmd") {
+            return "\"" + remote_path + "\"";
+        }
+        // Default: try direct execution
+        return "chmod +x \"" + remote_path + "\" && \"" + remote_path + "\"";
     }
 
     // ── CLI: show_stats ───────────────────────────────────────

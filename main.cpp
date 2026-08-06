@@ -407,6 +407,14 @@ int main(int argc, char** argv) {
     auto* edit_cmd_app = app.add_subcommand("edit", "Edit a file on a remote peer");
     edit_cmd_app->add_option("target", edit_target, "Peer:path (e.g. dev:/etc/nginx.conf)")->required();
 
+    // run-script
+    std::string rscript_peer, rscript_file, rscript_interpreter = "auto";
+    auto* rscript_cmd_app = app.add_subcommand("run-script", "Send a script file to a peer and execute it");
+    rscript_cmd_app->add_option("peer", rscript_peer, "Peer name")->required();
+    rscript_cmd_app->add_option("file", rscript_file, "Local script file (use - for stdin)")->required();
+    rscript_cmd_app->add_option("--interpreter", rscript_interpreter, "Interpreter: auto|bash|powershell|python")
+        ->check(CLI::IsMember({"auto", "bash", "powershell", "pwsh", "python", "python3", "cmd"}));
+
     // pane (BridgePanel publish from the mesh CLI)
     std::string pane_session = "default", pane_type = "documents", pane_title, pane_file;
     auto* pane_cmd_app = app.add_subcommand("pane", "Publish a file to the BridgePanel surface");
@@ -904,6 +912,12 @@ int main(int argc, char** argv) {
         bs::mesh::MeshController mc(cfg, home_dir);
         mc.edit_peer(edit_target);
         return 0;
+    }
+    if (rscript_cmd_app->parsed()) {
+        bs::mesh::MeshConfig cfg = bs::mesh::load_config(config_path);
+        bs::mesh::bootstrap_identity(home_dir);
+        bs::mesh::MeshController mc(cfg, home_dir);
+        return mc.run_script(rscript_peer, rscript_file, rscript_interpreter);
     }
     if (pane_publish->parsed()) {
         // type whitelist
