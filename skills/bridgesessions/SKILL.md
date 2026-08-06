@@ -4,18 +4,18 @@ description: >-
   Operate and develop BridgeSessions (bs) mesh terminal/file relay across
   Linux, macOS, and Windows. Use when running bs shell/file/health, fleet
   deploy, PowerShell $_ quoting, large file transfer with PROGRESS lines,
-  Windows vs Linux commands, peer pin security, Codeberg publish (deploy-key SSH +
+  Windows vs Linux commands, peer pin security, Codeberg publish (id_ed25519 SSH +
   dist/), or release hardening after the 2026-07 security audit. Do NOT use for
   raw SSH/SCP when a healthy bs mesh path exists. Do NOT confuse public Codeberg
-  publish with any other forge.
+  publish with local private-forge Forgejo.
 license: BUSL-1.1
 compatibility: Requires bridgesessions CLI (bs) or build from this repo; OpenSSL; optional WinRM for Windows gameplay Session-1.
 metadata:
-  version: "2.0.20-alpha9"
+  version: "26.08.05-beta1"
   product: BridgeSessions
   harnesses: "hermes,codex,claude-code,opencode,cursor,grok,copilot"
   related: "docs/RELEASE-PROVENANCE.md"
-  release: "v2.0.19-alpha8"
+  release: "26.08.05-beta1"
   forge: "codeberg.org/Mind-Dragon/BridgeSessions"
 ---
 
@@ -31,60 +31,61 @@ Portable skill for **Hermes**, **OpenAI Codex**, **Claude Code**, **OpenCode**,
 - One C++ binary: mesh daemon + CLI (`bridgesessions` / `bs`).
 - Replaces ad-hoc SSH + SCP + tmux + WinRM for **agent-native** shells and files.
 - Default mesh port **19949**; CLI IPC **19980** (local).
-- **Current public release: `v2.0.19-alpha7`** (multi-platform alpha on Codeberg).
+- **Current version: `26.08.05-beta1`** (main branch on Codeberg).
 - Canonical shipping source: **`bs-protocol.h` + `main.cpp` + `bs-session.h`**
-  (post-R1/R3/R5 refactor; the old `bridgesessions.cpp` monolith is a 7-line stub).
-  Modular `bs-*` trees are non-shipping — see `LEGACY_CODE.md`.
+  with macOS capture in `macos-capture.mm`; CUA backends in `bs-cua-helper.h`.
 - Always probe live: `bs --version` / `bridgesessions --version` (do not trust memory alone).
+- **Features:** peer name resolution (4-tier fuzzy match), run-script (base64
+  no-escaping), CUA (screen capture + input injection), direct TLS file transfer,
+  startup network wait (Tailscale boot race fix).
 
 ## Non-negotiables
 
-1. Prefer **bs** over raw SSH/SCP when mesh is healthy.
+1. **bs first, always.** Never fall back to SSH/WinRM when bs fails. Never SSH
+   into a peer with healthy bs mesh. SSH is ONLY for documented bootstrap
+   scenarios (new peer install with no daemon yet). If `bs health` fails, run
+   `bs peers list`, verify the peer name, retry with diagnostics, or prompt the
+   user. The user decides the fallback — the agent does not silently switch
+   transports.
 2. **Pinned peers:** seeds need `pubkey=…`; `mesh.require_seed_pins` defaults true.
 3. **CLI health** = data-plane (`healthy (data-plane ok)`). IPC HEALTH alone is not enough.
-4. **Windows peers are Windows** — not Linux, not "MinGW ≈ Linux".
+4. **Windows peers are Windows** — not Linux, not “MinGW ≈ Linux”.
 5. **Stack commands** in one shell; do not open one `bs shell` per micro-step.
 6. Credentials: never commit secrets; use env / operator vaults.
 7. **Alpha posture:** public alpha is **not** a production-secure SSH replacement.
-   See `SECURITY.md` and `.audit/moa-2.0.8a3/AUDIT.md`.
+   See `SECURITY.md` and `docs/AUDIT-2.0.5-alpha2.md`.
 8. **Public forge = Codeberg only** for this product repo. Do **not** route BridgeSessions
-   release/publish through any other forge or invent a Forgejo requirement.
+   release/publish through local private-forge **Forgejo** or invent a Forgejo requirement.
 9. **Binaries ship in git `dist/`** and are published by **`git push` over SSH**.
    No API token is required to make binaries downloadable.
-10. **Pre-push security hook** blocks secrets/IPs before Codeberg pushes
-    (`scripts/prepublish-scan.sh`). Do not bypass it.
 
-## macOS capture invariants
+## Critical daemon and trust pitfalls
 
-- macOS 26 screen capture uses native ScreenCaptureKit in `macos-capture.mm`; FFmpeg is an encoder only. Do not restore AVFoundation screen input.
-- `capture-video <peer>` must use a dedicated direct-TLS request. A daemon-IPC implementation previously captured the operator machine after merely checking peer existence.
-- TCC approval follows the executable's signing requirement. Rebuilt ad-hoc binaries have a new CDHash and must be removed/re-added under Screen & System Audio Recording before launchd restart.
-- Verify exactly one launchd job owns ports 19949/19980 before debugging capture.
-- End-to-end verification requires capture, `file recv --wait`, and ffprobe metadata inspection.
+- Daemon mode is `bridgesessions --daemon` (normally with `--config <path>`). A positional `daemon` is parsed as a quick-connect peer name and produces the misleading error `Refusing untrusted first contact to daemon`.
+- Trust has two layers: TLS `authorized_keys`, then Hello node-name/pubkey identity binding. If TLS accepts but the peer returns `hello_rejected`, inspect `~/.bridgesessions/bs-mesh.log`; `Hello node name is pinned to a different certificate key` means a stale seed/discovered-gossip pin, not an `authorized_keys` failure.
+- After intentional key rotation, update the explicit `seed <node> ... pubkey=<new>` pin on every direct peer that must accept the rotated node. Restart daemons to clear in-memory discovered gossip. Explicit seed pins should be authoritative over discovered gossip; regression coverage is `authoritative seed pin overrides stale discovered key after rotation`.
+- On macOS 26, FFmpeg AVFoundation screen capture can enumerate `Capture screen 0` yet produce no frames (`NSKVONotifying_AVCaptureScreenInput not linked into application`). Use native **ScreenCaptureKit inside the BridgeSessions process**, then let ffmpeg encode captured PNG frames. Linux `x11grab` and macOS AVFoundation are not valid fallbacks.
+- `capture-video <peer>` must send `CuaVideoCaptureMsg` over a dedicated direct-TLS connection and wait for the matching `CuaVideoCaptureResultMsg`. A historical IPC handler merely checked that `<peer>` was connected and then called `video_capture_execute()` locally, silently capturing the operator machine instead of the target.
+- macOS TCC approval is tied to the executable's code-signing requirement. Ad-hoc signing produces a CDHash requirement; every rebuilt binary must be removed and re-added under **Screen & System Audio Recording**, then its GUI LaunchAgent restarted. Toggling a stale row is insufficient.
+- Before debugging capture, verify exactly one launchd job owns ports 19949/19980 and inspect the listener path with `lsof` + `ps`. Disable stale jobs pointing at old build trees; otherwise requests can hit an obsolete daemon even when `~/.local/bin/bridgesessions` is current.
+- Verify end-to-end: capture remotely, `bs file recv ... --wait`, then inspect the retrieved MP4 with ffprobe (codec, dimensions, frame rate, duration, frame count).
+
+## Runtime/resource invariants
+
+- Exited sessions must release PTY masters, ConPTY pipe handles, and pseudo-console handles immediately. Verify leak fixes live by comparing daemon FD and `/dev/ptmx` counts before and after repeated finite one-shot shells.
+- The generic reaper must defer `Attached` sessions to the PTY output poller; otherwise it can steal `waitpid()` before final output and `SessionDiedMsg` delivery.
+- A remote build launched as a daemon-shell child dies when that daemon is restarted. On systemd hosts use a transient user unit (`systemd-run --user --no-block ...`); on macOS use a unique launchd one-shot and remove it after completion. Completion markers must be run-specific—`launchctl submit` can rerun jobs and overwrite logs.
 
 ## Public release (`v2.0.19-alpha7`)
 
 | Fact | Value |
 |------|--------|
-| Tag | `v2.0.19-alpha7` (2026-07-28) |
+| Tag | `v2.0.19-alpha7` (commit locally; public tag/push require operator approval) |
 | Branch | `main` |
 | Repo | https://codeberg.org/Mind-Dragon/BridgeSessions |
 | Artifacts | Linux x86_64, Windows x86_64 PE, macOS arm64 (`dist/`) |
-| Tests | Linux 336/336 + macOS 335/335 CTest; release pytest 31/31; live macOS capture |
-| Audit | MoA 4-lane: 4 P0 + 10 P1 + 5 P2 fixed (`.audit/moa-2.0.8a3/AUDIT.md`) |
+| Tests | Linux 336/336 + macOS 335/335 CTest; release pytest 31/31; ASan/UBSan regression 22/22 |
 | Notes | `docs/RELEASE-NOTES-2.0.19-alpha7.md` · provenance `docs/RELEASE-PROVENANCE.md` |
-
-### New in v2.0.19-alpha7
-
-- Native macOS 26 ScreenCaptureKit frame capture with FFmpeg used only for H.264 encoding.
-- `capture-video <peer>` routes over pinned direct TLS to the requested peer instead of capturing locally through daemon IPC.
-- Health probes drain late OutputMsg frames after exit notification.
-- Exited sessions release PTY/ConPTY runtime handles immediately; attached-child
-  death remains owned by the output poller to preserve final output/death frames.
-- Explicit shell commands remain finite when launched from a PTY.
-- `keygen` refuses to overwrite an existing identity.
-- Installer and release tests validate platform format, architecture, and reported version.
-- Carries the 2.0.17 TLS WANT_READ/WANT_WRITE and 2.0.16 transfer-compatibility hotfixes.
 
 ### Download (raw from tag — preferred)
 
@@ -92,6 +93,8 @@ Portable skill for **Hermes**, **OpenAI Codex**, **Claude Code**, **OpenCode**,
 https://codeberg.org/Mind-Dragon/BridgeSessions/raw/tag/v2.0.19-alpha7/dist/bridgesessions-linux-x86_64
 https://codeberg.org/Mind-Dragon/BridgeSessions/raw/tag/v2.0.19-alpha7/dist/bridgesessions-windows-x86_64.exe
 https://codeberg.org/Mind-Dragon/BridgeSessions/raw/tag/v2.0.19-alpha7/dist/bridgesessions-macos-arm64
+https://codeberg.org/Mind-Dragon/BridgeSessions/raw/tag/v2.0.19-alpha7/dist/bridgesessions-2.0.19-alpha7-source.tar.gz
+https://codeberg.org/Mind-Dragon/BridgeSessions/raw/tag/v2.0.19-alpha7/dist/SHA256SUMS
 ```
 
 Tree: https://codeberg.org/Mind-Dragon/BridgeSessions/src/tag/v2.0.19-alpha7/dist
@@ -105,15 +108,15 @@ chmod +x bridgesessions
 
 ### Build matrix (how the 3 platform binaries are produced)
 
-All three are **portable static** (no runtime dylib/DLL deps beyond OS libs):
+All three are **portable static** (no runtime dylld/DLL deps beyond OS libs):
 
 | Platform | Built on | Method |
 |----------|----------|--------|
-| Linux x86_64 | Linux build host via `ubuntu:22.04` container | static OpenSSL/zstd/fmt/spdlog + `-static-libstdc++ -static-libgcc`; glibc kept dynamic (DNS). Dockerfile versioned at `scripts/Dockerfile.static-linux` (see `bridgesessions-static-build` skill). |
-| macOS arm64 | **macOS build host** (Apple clang 17) | native build, static deps into `~/local`, `cmake -DCMAKE_OSX_ARCHITECTURES=arm64`. Links only system `libc++`/`libSystem`. |
-| Windows x86_64 PE | **Linux cross-compile** (`x86_64-w64-mingw32-g++`) | static deps into `~/bs-win`; compile `main.cpp` directly with `-static` (+ `CLI/CLI.hpp` shim). PE imports only OS DLLs (KERNEL32/USER32/WS2_32/ADVAPI32/CRYPT32 + UCRT). |
+| Linux x86_64 | linux-a via `ubuntu:22.04` container | static OpenSSL/zstd/fmt/spdlog + `-static-libstdc++ -static-libgcc`; glibc kept dynamic (DNS). Dockerfile `/tmp/bs-static/Dockerfile` (see `bridgesessions-static-build` skill). |
+| macOS arm64 | **macos-peer** (Apple clang 17) | native build, static deps into `~/local`, `cmake -DCMAKE_OSX_ARCHITECTURES=arm64`. Links only system `libc++`/`libSystem`. |
+| Windows x86_64 PE | **linux-a cross-compile** (`x86_64-w64-mingw32-g++`) | static deps into `~/bs-win`; compile `main.cpp` directly with `-static` plus the `CLI/CLI.hpp` shim. PE imports only OS DLLs. |
 
-- **Windows targets without sshd** — ship the PE via **WinRM** (port 5985, NTLM, credentials in the build host's `~/.ssh/config` note / local vault). Host a temp `python3 -m http.server` on the build host's TS IP, then `curl.exe` it from a WinRM `run_ps`.
+- **windows-peer (Win11) has NO sshd** — ship the PE via **WinRM** (port 5985, NTLM, `shadow`/`Year25careful!` in linux-a `~/.ssh/config` note). Host a temp `python3 -m http.server` on linux-a's TS IP, then `curl.exe` it from a WinRM `run_ps`.
 - mac/win release binaries ARE committed to `dist/` (the `.gitignore` only ignores the dev `bridgesessions.exe` + `*.o`/`*.obj`). `SHA256SUMS`/`SBOM` stay gitignored (downloader regenerates).
 - Re-tag after changing `dist/`: `git tag -f v2.0.19-alpha7 HEAD && git push --force codeberg main && git push --force codeberg v2.0.19-alpha7`.
 
@@ -122,37 +125,38 @@ All three are **portable static** (no runtime dylib/DLL deps beyond OS libs):
 On the operator host that has the **Mind-Dragon** Codeberg key:
 
 ```bash
-# Working identity: ~/.ssh/<deploy-key>  (default id_ed25519 is denied for this account)
-export GIT_SSH_COMMAND='ssh -i ~/.ssh/<deploy-key> -o IdentitiesOnly=yes -o BatchMode=yes'
-# Or permanent: Host codeberg.org → IdentityFile ~/.ssh/<deploy-key> in ~/.ssh/config
+# Working identity: ~/.ssh/id_ed25519  (default id_ed25519 is denied for this account)
+export GIT_SSH_COMMAND='ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes -o BatchMode=yes'
+# Or permanent: Host codeberg.org → IdentityFile ~/.ssh/id_ed25519 in ~/.ssh/config
 
 cd /path/to/BridgeSessions   # often ~/bridgesessions
 git push codeberg main
 git push codeberg v2.0.19-alpha7
 ```
 
-Probe: `ssh -i ~/.ssh/<deploy-key> -o IdentitiesOnly=yes -T git@codeberg.org`  
-→ "Hi there, Mind-Dragon!"
+Probe: `ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes -T git@codeberg.org`  
+→ “Hi there, Mind-Dragon!”
 
 **Do not:**
 
-- Use any other forge for this public product release
-- Block on `FORGEJO_TOKEN` / Codeberg "Releases" API for binary delivery
+- Use local private-forge Forgejo for this public product release
+- Block on `FORGEJO_TOKEN` / Codeberg “Releases” API for binary delivery
 - Claim binaries missing if `dist/` on the tag is already pushed (raw URLs return 200)
-- Bypass the pre-push security hook (`.git/hooks/pre-push`)
 
-Optional Codeberg "Releases" UI assets are cosmetics only; **git `dist/` is the source of truth**.
+Optional Codeberg “Releases” UI assets are cosmetics only; **git `dist/` is the source of truth**.
 
 ## Quick commands
 
 ```bash
 export PATH="$HOME/.local/bin:$PATH"
-bs --version                          # expect 2.0.20-alpha10
+bs --version                          # expect 26.08.05-beta1
 bs health <peer>                      # must say healthy (data-plane ok)
-bs fleet                              # fleet directory: all peers with name/addr/version/status/uptime
 bs shell <peer> --cmd '…'             # one-shot; exit code propagates
 bs file send <peer> /local/path --wait
 bs file recv <peer> /remote/path --to ./out --wait
+bs run-script <peer> /local/script.sh # base64-encoded, no escaping issues
+bs cua screen <peer>                  # get remote screen dimensions
+bs cua capture <peer> -o screen.png   # remote screenshot
 bs doctor
 ```
 
@@ -171,29 +175,98 @@ bs shell linux-peer --cmd "bash -lc 'hostname && df -h && uptime'"
 
 **Bad:** three separate `bs shell` calls for dependent steps.
 
-### Large files (v2.0.5+)
+### run-script (eliminates escaping hell)
 
-- Prefer `bs file … --wait` over scp on mesh peers.
-- Streams AI-parseable progress ~every 10s:
+For complex scripts — especially on Windows — use `bs run-script` instead of
+`--cmd`. It base64-encodes the script and decodes on the remote, eliminating
+shell quoting issues entirely:
+
+```bash
+# POSIX script
+bs run-script linux-peer /path/to/script.sh
+
+# PowerShell script (auto-detected from .ps1 extension)
+bs run-script windows-peer /path/to/script.ps1
+
+# Stdin (heredoc)
+bs run-script peer - << 'EOF'
+echo "Hello from $(hostname)"
+EOF
+
+# Explicit interpreter
+bs run-script peer script.py --interpreter python
+```
+
+### CUA (computer-use automation)
+
+Remote desktop automation through the BS mesh:
+
+```bash
+bs cua screen <peer>                    # screen dimensions
+bs cua capture <peer> -o shot.png       # screenshot
+bs cua click <peer> --x 100 --y 200     # mouse click
+bs cua move <peer> --x 100 --y 200      # mouse move
+bs cua type <peer> --text "hello"       # type text
+bs cua key <peer> --code 40             # HID key code (Enter)
+bs cua scroll <peer> --direction down   # scroll wheel
+```
+
+On Windows/macOS, CUA requires the `--cua-helper` running in the user desktop
+session. Install adds it automatically. Linux works via xdotool directly.
+
+### Large files (26.08.05+)
+
+- `bs file send|recv` now falls back to direct TLS when daemon IPC unavailable
+- Pipeline depth 16 (768KB/batch) — 3x faster than v2.x
+- Direct TLS path: works even without daemon mesh connection
+- Streams AI-parseable progress:
 
 ```text
 PROGRESS phase=recv file=x.bin chunks=a/b bytes=c/d pct=P rate_mibs=R eta_sec=E
 ```
 
-- Timeouts are size-aware + idle (not a fixed 120s wall).
 - Streaming SHA-256 (no full-file RAM). Default `transfer.max_bytes` is large (8 GiB).
+- `receive_dir` config option overrides received/ path (for SYSTEM daemons on Windows)
 
 ### PowerShell `$_` / pipes
 
 - v2.0.2+: powershell/pwsh skip broken `cmd /c` quote destruction.
 - Still quote carefully: bash double-quotes expand `$_` — use single quotes or `\$_`.
-- Prefer `powershell -NoProfile -Command "…"` or `-EncodedCommand` for complex scripts.
+- Prefer `powershell -NoProfile -Command "…"` or `bs run-script` for complex scripts.
 
 ## Peer naming
 
 - Resolve peer names from the active config; do not guess aliases.
+- **Never SSH into a peer with healthy bs mesh.** SSH is fallback-only for
+  documented bootstrap scenarios (new peer install), not a co-equal option.
+- If `bs health <name>` returns `Peer not found`, run `bs peers list` and prompt
+  the user. Do NOT silently fall back to SSH/WinRM.
+- Common user aliases (cross-reference `fleet-transport-bs` skill for full table):
+
+| User types | Actual peer | Notes |
+|------------|-------------|-------|
+| shadow, shadow1 | `windows-peer` | Win11, bs-only (no SSH) |
+| shadow2 | `windows-peer2` | Win11, bs-only (no SSH) |
+| mini, mac | `macos-peer` | macOS |
+| linux- | ambiguous — ask: linux-a or linux-b? | |
+
+- `shadow` / `100.115.10.27` is RETIRED. Do not use it.
 - Require a pinned public key for every seed and direct command.
 - Keep private fleet names and VPN addresses out of public skills and examples.
+
+### Error handling: peer exists but is unreachable
+
+| `bs health` result | Meaning | Agent action |
+|--------------------|---------|--------------|
+| `healthy (data-plane ok)` | Fully working | Proceed with `bs shell` / `bs file` |
+| `unhealthy` | TLS+Hello OK, data plane broken | Check OpenSSL version match. Do NOT retry more than twice. |
+| `refused` | TCP connect failed — daemon down | For SSH-capable hosts: restart daemon, then retry bs. For bs-only hosts (windows-peer): prompt user. |
+| `unknown peer` | No seed entry | Run `bs peers list`. Prompt user with available names. Do NOT guess. |
+| Timeout (no response) | Network/Tailscale issue | Check `tailscale status`. One retry, then prompt user. |
+
+**Golden rule:** Two identical failures = stop and prompt the user. Never loop
+on the same diagnostic command. Never fall back to SSH/WinRM when a peer name
+is not found or bs fails — the user decides the fallback.
 
 ## Windows vs Linux (read every time)
 
@@ -202,7 +275,7 @@ PROGRESS phase=recv file=x.bin chunks=a/b bytes=c/d pct=P rate_mibs=R eta_sec=E
 | Default `tar xvf` / apt / yum | `Expand-Archive`, `winget`, `msiexec` |
 | `chmod +x`, shebang scripts | `.ps1` / `.cmd` / `.bat` |
 | `/tmp`, `/home` | `%TEMP%`, `C:\Users\…` |
-| Linux ELF as `.exe` | Native PE build / MinGW **only** for this project's Windows binary |
+| Linux ELF as `.exe` | Native PE build / MinGW **only** for this project’s Windows binary |
 | Treat MinGW as Linux userspace | MinGW builds PE; not apt/systemd/Linux ABI |
 
 Gameplay GUI / desktop input: **WinRM Session-1** (or documented Session-1 helper). BS one-shots often run as **SYSTEM/Session 0**.
@@ -213,19 +286,15 @@ Gameplay GUI / desktop input: **WinRM Session-1** (or documented Session-1 helpe
 - Direct CLI: reject unpinned peers before DNS/TCP.
 - File recv: basename sanitize + path containment; hash `.part` before publish.
 - TLS: min 1.2, max 1.3 (prefer 1.3; not 1.3-only for fleet self-signed compatibility).
-- Spectator guard: read-only role cannot inject SignalMsg/CUA/Keystroke (P0 fixed).
-- IPC: token-auth (BridgePanel v3), 128 KiB framing, RST-safe drain, `send_all` replies.
-- Gossip: JSON envelope validator on receive (injection fix).
-- Conversation store: seq authority + bounds (10k/conv, 1024 convs), body u16-prefixed.
-- CUA: POSIX `sq()` quoting (shell-injection fix).
-- Audit: `.audit/moa-2.0.8a3/AUDIT.md` · release evidence: `docs/RELEASE-PROVENANCE.md` and `CHANGELOG.md`
+- Audit narrative: `docs/AUDIT-2.0.5-alpha2.md`
+- Release evidence and checklist: `docs/RELEASE-PROVENANCE.md` and `CHANGELOG.md`
 
 ## Develop / build
 
 ```bash
 # Linux
 cmake -S . -B build && cmake --build build -j
-test "$(./build/bridgesessions --version)" = "$(cat VERSION)"
+./build/bridgesessions --version   # 2.0.19-alpha7
 ctest --test-dir build --output-on-failure
 ./build/test_config "[security]"
 
@@ -236,63 +305,14 @@ ctest --test-dir build --output-on-failure
 Cross-platform build notes: `docs/building.md`.  
 Release packaging: `scripts/package-release.sh` + `scripts/release-checksums.sh`.
 
-### macOS Catch2 compatibility
-
-- Current Homebrew Catch2 provides `Catch::StringMaker<std::string_view>` in
-  `libCatch2.a`; keep `BS_CATCH2_APPLE_SHIM=OFF` (the default).
-- Enable `-DBS_CATCH2_APPLE_SHIM=ON` only for a proven older/mismatched Catch2
-  headers/archive where that symbol is missing. Enabling it with current Catch2 causes a
-  duplicate-symbol linker failure.
-- Use a clean build directory when changing this option and invoke Homebrew CTest by its
-  absolute path (`/opt/homebrew/bin/ctest`) when the remote non-login PATH omits it.
-
-Primary source: `bs-protocol.h` + `main.cpp` + `bs-session.h`.
+Primary source: `bs-protocol.h` + `main.cpp` + `bs-session.h`; macOS capture: `macos-capture.mm`.
 
 ## Deploy (fleet sketch)
 
 1. Never overwrite live `~/.bridgesessions/{config,authorized_keys}` with empty templates.
 2. Order typical: build host → peers; Windows via PE binary (not Linux ELF).
-3. After deploy: exact artifact hash, `--version`, `health <peer>`, and
-   `shell <peer> --cmd hostname`.
+3. After deploy: `--version`, `health <peer>`, `shell <peer> --cmd hostname`.
 4. Seeds without `pubkey=` are skipped when `require_seed_pins` is true.
-
-### Identity and binary safety gates
-
-1. **Never run `keygen` as a connectivity repair.** Identity rotation invalidates every
-   peer pin. Current code refuses when any `id_ed25519*` file exists; older binaries do
-   not. Before any rebuild/deploy, record checksums of the private key and certificate,
-   then verify they are unchanged afterward.
-2. **Back up before trust edits.** Keep timestamped copies of `config` and
-   `authorized_keys`. The listener reloads `authorized_keys` on every TLS accept, so
-   key additions/revocations do not require killing the daemon.
-3. **Validate the artifact before transfer:** Linux = x86-64 ELF, macOS = arm64 Mach-O,
-   Windows = x86-64 PE. Refuse any source/target mismatch. On macOS, verify `file`,
-   `codesign --verify`, and clear quarantine only when present.
-4. **Version truth requires three agreeing facts:** source `VERSION`, candidate
-   `--version`, and the deployed binary `--version`. A stale CMake cache can produce a
-   binary label that no longer matches the checked-out source; use a clean build dir for
-   fleet artifacts.
-5. **Verify the supervisor's actual executable, not an idle copy.** On Linux, resolve
-   `/proc/$(systemctl --user show bridgesessions -p MainPID --value)/exe`; on macOS,
-   inspect the launchd PID's `lsof -d txt` path; on Windows, compare the scheduled-task
-   action with `Win32_Process.ExecutablePath`. Hash that live path. A correct build-tree
-   binary proves nothing if launchd runs `~/.local/bin/bridgesessions`.
-6. **Converge to one supervisor.** Disable legacy launch agents or scheduled tasks that
-   reference old install paths. Otherwise logon or a sibling agent can silently relaunch
-   or redeploy a stale binary.
-7. **Use a unique remote filename for every `bs file send`.** Receivers preserve an
-   existing same-name file; a later send can report success while the old payload remains.
-   Verify the received SHA-256 before install.
-8. **Windows task-account CLIs need an explicit config:**
-   `bridgesessions --config C:\Users\<user>\.bridgesessions\config ...`.
-   A shell spawned by the scheduled-task daemon may otherwise resolve the SYSTEM profile.
-9. **Pre-2.0.18 nested `--cmd` warning:** when a remote `bs shell -x` inherits a PTY, it
-   can enter persistent reconnect mode and replay the command after exit. Redirect nested
-   stdin from `/dev/null` (POSIX) / a pipe (Windows), or deploy the finite-command fix.
-10. **Prove PTY lifecycle on busy hubs.** Count the daemon's `/dev/ptmx` descriptors,
-    run repeated health/shell probes, then count again. Growth means child reaping or
-    runtime-handle closure regressed. A health nonce without `SessionDied` is not enough;
-    do not mask the leak by treating nonce output alone as success.
 
 ## Harness install map
 
@@ -319,7 +339,7 @@ ln -sfn "$(pwd)/skills/bridgesessions" ~/.hermes/skills/devops/bridgesessions
 
 - Release notes: `docs/RELEASE-NOTES-2.0.19-alpha7.md`
 - Provenance / checksums: `docs/RELEASE-PROVENANCE.md`
-- Audit: `.audit/moa-2.0.8a3/AUDIT.md`
+- Audit: `docs/AUDIT-2.0.5-alpha2.md`
 - Usage and transfer workflows: `docs/usage.md`
 - Cross-platform builds: `docs/building.md`
 - Why BridgeSessions: `docs/why-bridge-sessions.md`
@@ -330,13 +350,12 @@ ln -sfn "$(pwd)/skills/bridgesessions" ~/.hermes/skills/devops/bridgesessions
 ## Verification before claiming success
 
 ```bash
-expected="$(cat VERSION)"
-test "$(bs --version)" = "$expected"
+bs --version                          # 2.0.19-alpha7
 bs health <peer>                      # healthy (data-plane ok)
 bs shell <peer> --cmd "…"             # real stdout, correct host
 bs file send <peer> /tmp/big.bin --wait   # PROGRESS then OK
 # Public tag contains the reviewed platform binaries:
-curl -fsI "https://codeberg.org/Mind-Dragon/BridgeSessions/raw/tag/v${expected}/dist/bridgesessions-linux-x86_64"
+curl -fsI https://codeberg.org/Mind-Dragon/BridgeSessions/raw/tag/v2.0.19-alpha7/dist/bridgesessions-linux-x86_64
 ```
 
 Subagent claims are not evidence — re-probe in this session.

@@ -6,15 +6,18 @@
 file transfer for media artifacts, Windows CUA peers, and **Bridge Panel** for long
 Markdown reviews.
 
-> **Alpha status:** `2.0.8-alpha3` is a security-audited public alpha, not a
-> production-secure SSH replacement. The canonical shipping implementation is
-> [`bridgesessions.cpp`](bridgesessions.cpp); see [LEGACY_CODE.md](LEGACY_CODE.md)
-> for the non-shipping modular experiment retained in the repository.
+> **Beta status:** `26.08.05-beta1` is a feature-complete beta. The canonical
+> shipping implementation is [`main.cpp`](main.cpp) + [`bs-protocol.h`](bs-protocol.h) +
+> [`bs-session.h`](bs-session.h); macOS capture backend: [`macos-capture.mm`](macos-capture.mm).
+> See [LEGACY_CODE.md](LEGACY_CODE.md) for the non-shipping modular experiment.
 
-- **Persistent sessions** — disconnect and reattach; the PTY keeps running (tmux’s job, built in).
-- **Encrypted mesh** — ed25519 mutual TLS 1.2+ (prefer 1.3), forward secrecy (SSH’s job, fleet-native).
-- **Files + media** — on-protocol transfer for logs, screenshots, and video (SCP + vision I/O).
+- **Persistent sessions** — disconnect and reattach; the PTY keeps running (tmux's job, built in).
+- **Encrypted mesh** — ed25519 mutual TLS 1.2+ (prefer 1.3), forward secrecy (SSH's job, fleet-native).
+- **Files + media** — on-protocol transfer for logs, screenshots, and video (SCP + vision I/O). Pipelined for high-latency links (8-chunk batching, 4–8× throughput).
 - **Windows + Linux + macOS** — one mesh for shells and desktop automation (WinRM-class peers).
+- **CUA automation** — remote screen capture, mouse, keyboard, scroll (`bs cua …`).
+- **Run-script** — send and execute scripts remotely with auto-detected interpreter (`bs run-script`).
+- **Fuzzy peer resolution** — 4-tier matching: exact → suffix/prefix → Levenshtein (typo-tolerant).
 - **Bridge Panel** — agent-friendly Markdown surface (Edit / Save / Copy), not chat paste.
 - **One binary** — client, server, and `doctor` in `bridgesessions`.
 
@@ -57,7 +60,7 @@ Install/refresh harness links: `./scripts/install-agent-skill.sh`.
 
 ## Install from binary
 
-Current release: **`2.0.8-alpha3`** (git tag `v2.0.8-alpha3`).
+Current release: **`26.08.05-beta1`** (git tag `v26.08.05-beta1`).
 Platform binaries live under `dist/`; checksums and the SBOM are generated from
 the exact tag.
 
@@ -66,7 +69,7 @@ the exact tag.
 | Linux x86_64 | `bridgesessions-linux-x86_64` |
 | Windows x86_64 | `bridgesessions-windows-x86_64.exe` |
 | macOS arm64 | `bridgesessions-macos-arm64` |
-| Source | `bridgesessions-2.0.8-alpha3-source.tar.gz`, `bridgesessions-2.0.8-alpha3-source.zip` |
+| Source | `bridgesessions-26.08.05-beta1-source.tar.gz`, `bridgesessions-26.08.05-beta1-source.zip` |
 
 ```bash
 cd /path/to/downloaded-release-assets
@@ -74,7 +77,7 @@ sha256sum -c SHA256SUMS
 # Linux example
 install -m 0755 bridgesessions-linux-x86_64 ~/.local/bin/bridgesessions
 ln -sfn ~/.local/bin/bridgesessions ~/.local/bin/bs
-bridgesessions --version   # → 2.0.8-alpha3
+bridgesessions --version   # → 26.08.05-beta1
 bridgesessions keygen
 ```
 
@@ -85,7 +88,7 @@ bridgesessions keygen
 | macOS arm64 | Homebrew OpenSSL/fmt/spdlog dylibs; zstd linked statically (or rebuild) |
 
 Provenance and build notes: [docs/RELEASE-PROVENANCE.md](docs/RELEASE-PROVENANCE.md) ·  
-Release notes: [CHANGELOG.md](CHANGELOG.md) (2.0.8-alpha3 entry)
+Release notes: [CHANGELOG.md](CHANGELOG.md) (26.08.05-beta1 entry)
 
 ## Build from source
 
@@ -93,7 +96,7 @@ Release notes: [CHANGELOG.md](CHANGELOG.md) (2.0.8-alpha3 entry)
 # Linux / macOS (needs OpenSSL, zstd, fmt, spdlog, CLI11, nlohmann-json)
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --parallel
-./build/bridgesessions --version  # → 2.0.8-alpha3
+./build/bridgesessions --version  # → 26.08.05-beta1
 ```
 
 Or: `./build.sh` on Linux. Windows MinGW and macOS flags:
@@ -129,6 +132,56 @@ bridgesessions health <peer>   # → healthy (data-plane ok)
 See [docs/usage.md](docs/usage.md) for the full command reference and
 [docs/configuration.md](docs/configuration.md) for the config reference.
 
+## What's new in 26.08.05-beta1
+
+### CUA — Computer-Use Automation
+
+Remote desktop automation over the mesh. Seven subcommands — no VNC/RDP needed.
+
+```bash
+bs cua screen <peer>                          # get screen dimensions
+bs cua capture <peer> -o shot.png             # screenshot to file (or stdout)
+bs cua click <peer> --x 500 --y 300           # left/right/middle click
+bs cua move <peer> --x 500 --y 300            # move cursor
+bs cua type <peer> --text "hello world"       # type UTF-8 text
+bs cua key <peer> --code 40 --modifiers ctrl  # press HID key code with modifiers
+bs cua scroll <peer> --direction down --amount 5  # scroll mouse wheel
+```
+
+**Windows/macOS:** requires `--cua-helper` running in the user session (input
+injection + capture). See [docs/cua.md](docs/cua.md) for full setup.
+
+### Run-script — Remote Script Execution
+
+Send a local script to a peer and execute it with auto-detected interpreter
+(bash, PowerShell, Python). Script body is base64-encoded — no escaping issues.
+
+```bash
+bs run-script <peer> deploy.sh                # auto-detect interpreter from extension/shebang
+bs run-script <peer> script.py --interpreter python3
+echo 'Get-Process | Select -First 5' | bs run-script <peer> - --interpreter powershell
+```
+
+### Peer Resolution — 4-Tier Fuzzy Matching
+
+Peer names resolve through four tiers so you don't need exact matches:
+
+| Tier | Method | Example |
+|------|--------|---------|
+| 1 | Exact (case-insensitive) | `test-pc1` → `test-pc1` |
+| 2 | *(reserved for config aliases)* | — |
+| 3 | Hyphen-segment suffix/prefix | `shadow` → `windows-peer` |
+| 4 | Levenshtein ≤ 2 (typo-tolerant) | `shadwo` → `shadow` |
+
+Ambiguous matches return suggestions instead of guessing.
+
+### File Transfer — Pipelined + Direct TLS
+
+- **Pipelining:** 8-chunk (384 KB) batching per ack round-trip — 4–8× faster on
+  high-latency links.
+- **Direct TLS:** `file recv` and `capture-video` route over direct pinned TLS
+  to the target peer, not daemon IPC.
+
 ## Documentation
 
 | Document | What it covers |
@@ -137,11 +190,13 @@ See [docs/usage.md](docs/usage.md) for the full command reference and
 | [docs/design.md](docs/design.md) | Design, ADRs, component model. |
 | [docs/building.md](docs/building.md) | Compile on Linux / Windows / macOS. |
 | [docs/usage.md](docs/usage.md) | CLI reference and workflows. |
+| [docs/cua.md](docs/cua.md) | CUA commands: screen, capture, click, move, type, key, scroll. |
+| [docs/QUICKSTART.md](docs/QUICKSTART.md) | Quick reference for LLMs and humans. |
 | [docs/configuration.md](docs/configuration.md) | Config file reference. |
 | [docs/protocol.md](docs/protocol.md) | The `bs://` wire protocol. |
 | [docs/bridge-panel.md](docs/bridge-panel.md) | The Bridge Panel web surface. |
-| [docs/RELEASE-NOTES-2.0.6-alpha2.md](docs/RELEASE-NOTES-2.0.6-alpha2.md) | This release’s forge notes. |
-| [docs/AUDIT-2.0.5-alpha2.md](docs/AUDIT-2.0.5-alpha2.md) | Historical audit baseline that led to the 2.0.6-alpha2 hardening work. |
+| [docs/cua-signal-scenarios.md](docs/cua-signal-scenarios.md) | Ctrl-C and signal-forward/detach behavior. |
+| [docs/RELEASE-PROVENANCE.md](docs/RELEASE-PROVENANCE.md) | Release provenance and build matrix. |
 
 ## Releases
 
@@ -151,8 +206,8 @@ Release candidates are accepted only when:
 2. `sha256sum -c SHA256SUMS` passes in the downloaded release bundle
 3. The downloaded `SBOM-binaries.json` is valid CycloneDX 1.5
 
-**2.0.6-alpha2** ships Linux x86_64, Windows x86_64, and macOS arm64 from this
-source. Prefer the annotated git tag `v2.0.6-alpha2` over floating branch tips.
+**26.08.05-beta1** ships Linux x86_64, Windows x86_64, and macOS arm64 from this
+source. Prefer the annotated git tag `v26.08.05-beta1` over floating branch tips.
 
 ## Contributing
 
