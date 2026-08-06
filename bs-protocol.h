@@ -3254,6 +3254,7 @@ struct MeshConfig {
     size_t max_peers = 50;
     int gossip_interval_secs = 30;
     int reconnect_backoff_max_secs = 30;
+    int startup_wait_secs = 30;  // boot-time network readiness gate (0 = skip)
     int ping_interval_secs = 5;
     int pong_timeout_secs = 30;
     // When true (default), outbound seed/discovered dials require pubkey= pin and
@@ -3466,6 +3467,9 @@ void write_peer_line(std::ostream& os, const std::string& prefix, const PeerEntr
         } else if (key_str == "mesh.reconnect_backoff_max_secs") {
             auto v = parse_int(val);
             if (v.has_value()) cfg.reconnect_backoff_max_secs = *v;
+        } else if (key_str == "mesh.startup_wait_secs") {
+            auto v = parse_int(val);
+            if (v.has_value() && *v >= 0) cfg.startup_wait_secs = *v;
         } else if (key_str == "mesh.ping_interval_secs") {
             auto v = parse_int(val);
             if (v.has_value()) cfg.ping_interval_secs = *v;
@@ -3705,13 +3709,18 @@ void write_peer_line(std::ostream& os, const std::string& prefix, const PeerEntr
     if (refresh_existing(cfg.seeds) || refresh_existing(cfg.discovered)) return true;
     if (resolved_addr.empty()) return false;
 
+    // Only copy pubkey when exactly ONE peer has that addr (multi-peer shared
+    // host must not blindly inherit another peer's key — name collision fix).
     auto copy_identity_for_addr = [&](const std::vector<PeerEntry>& peers) {
+        const PeerEntry* match = nullptr;
+        int count = 0;
         for (const auto& peer : peers) {
             if (peer.addr == resolved_addr && !peer.pubkey_hex.empty()) {
-                return peer.pubkey_hex;
+                match = &peer;
+                ++count;
             }
         }
-        return std::string{};
+        return (count == 1) ? match->pubkey_hex : std::string{};
     };
     std::string pubkey = copy_identity_for_addr(cfg.seeds);
     if (pubkey.empty()) pubkey = copy_identity_for_addr(cfg.discovered);
@@ -3814,10 +3823,10 @@ struct OutboundPeerVerifyResult {
             return {false, "Hello node name contains control characters"};
 
     auto check_peer = [&](const PeerEntry& peer) -> std::optional<std::string> {
-        if (!peer.pubkey_hex.empty() && peer.pubkey_hex == cert_pubkey &&
-            !config_peer_name_eq(peer.name, hello_name)) {
-            return "certificate key is configured for a different peer name";
-        }
+        // Name collision fix: do NOT reject when cert_pubkey matches a trusted
+        // key that belongs to a differently-named peer. Multiple peers may share
+        // a host/key legitimately. The name→key binding check below still guards
+        // against a different key claiming an existing name.
         if (!peer.pubkey_hex.empty() &&
             config_peer_name_eq(peer.name, hello_name) &&
             peer.pubkey_hex != cert_pubkey) {
@@ -7512,8 +7521,32 @@ private:
             try { write_frame(target->ssl.get(), chunk, CONTROL_STREAM_ID); } catch (...) { return false; }
         }
         log_event("file_send_complete", filename + " " + std::to_string(filesize) + " bytes " + std::to_string(total_chunks) + " chunks");
-        std::cout << "sent " << filename << " (" << filesize << " bytes, " << total_chunks << " chunks, sha256:" << checksum.substr(0, 12) << "...)\n";
+        std::cout << "sent " << filename << " (" << filesize << " bytes, " << total_chunks << " chunks, sha256:" << checksum.substr(0, 12) << "...)\\n";
         return true;
+    }
+
+    // ── Direct TLS file send (no daemon required) ──────────────
+    // Opens a direct TLS connection via connect_and_hello, then sends the file
+    // using file_send_wait_on_transport (same FileMetaMsg/FileChunkMsg/FileAckMsg
+    // protocol as daemon_file_send). Falls back when daemon IPC is unavailable.
+    std::string direct_connect_file_send(const std::string& peer_name,
+                                         const std::string& local_path,
+                                         bool wait_for_completion = true) {
+        std::string addr = find_peer_addr(peer_name);
+        if (addr.empty()) return "ERROR peer not found: " + peer_name;
+        std::string expected_pubkey = trusted_peer_pubkey(config_, peer_name);
+        auto sc = connect_and_hello(addr, expected_pubkey);
+        if (!sc.ssl || sc.sfd == INVALID_SOCKET) {
+            std::string detail = sc.fail_detail.empty()
+                ? connect_fail_string(sc.fail) : sc.fail_detail;
+            return "ERROR failed to connect to " + peer_name + ": " + detail;
+        }
+        // Delegate to the transport-agnostic send-with-acks path.
+        std::string result = file_send_wait_on_transport(
+            sc.ssl.get(), sc.sfd, local_path, {}, {}, nullptr, peer_name);
+        ssl_close(sc.ssl.get(), sc.sfd);
+        sc.sfd = INVALID_SOCKET;
+        return result;
     }
 
     // v2.0.6: transport-agnostic file send-wait. Runs on the event loop or a
@@ -11276,6 +11309,44 @@ public:
                             "OK bridgesessions") != std::string_view::npos;
     }
 
+    // ── Startup network readiness gate ────────────────────────
+    // Probes each seed's TCP port with a 2s connect timeout. Returns when any
+    // seed is reachable or after max_secs. Services inbound connections while
+    // waiting so the daemon isn't deaf during boot.
+    void startup_wait_for_network(int max_secs) {
+        if (max_secs <= 0 || config_.seeds.empty()) return;
+        auto deadline = std::chrono::steady_clock::now() +
+                        std::chrono::seconds(max_secs);
+        log_event("startup_network_wait_begin",
+                  "max_secs=" + std::to_string(max_secs) +
+                  " seeds=" + std::to_string(config_.seeds.size()));
+
+        while (running_ && std::chrono::steady_clock::now() < deadline) {
+            for (const auto& seed : config_.seeds) {
+                if (seed.addr.empty()) continue;
+                sockaddr_in sa = resolve_addr(seed.addr);
+                SOCKET sfd = socket(AF_INET, SOCK_STREAM, 0);
+                if (sfd == INVALID_SOCKET) continue;
+                set_socket_timeouts(sfd, 2000);
+                auto cr = connect_socket_with_timeout(
+                    sfd, reinterpret_cast<sockaddr*>(&sa), sizeof(sa), 2000);
+                if (cr.connected) {
+                    CLOSESOCK(sfd);
+                    log_event("startup_network_wait_ok", seed.addr);
+                    return;
+                }
+                CLOSESOCK(sfd);
+            }
+            // Service inbound connections while waiting (non-blocking 1s tick).
+            if (listen_fd_ != INVALID_SOCKET)
+                service_reconnect_wait_once(1000);
+            else
+                std::this_thread::sleep_for(std::chrono::seconds(1));
+        }
+        log_event("startup_network_wait_timeout",
+                  "no seed reachable in " + std::to_string(max_secs) + "s");
+    }
+
     // ── Main event loop ───────────────────────────────────────
 
     void run() {
@@ -11383,6 +11454,10 @@ public:
         last_ping_time_ = std::chrono::steady_clock::now();
         last_gossip_time_ = std::chrono::steady_clock::now();
         last_mdns_time_ = std::chrono::steady_clock::now();
+
+        // Boot-time network readiness gate: wait for at least one seed before
+        // entering the event loop (config: mesh.startup_wait_secs, default 30).
+        startup_wait_for_network(config_.startup_wait_secs);
 
         while (running_) {
             // 1. Build fd_set for select()

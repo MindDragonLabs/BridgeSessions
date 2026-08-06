@@ -6,19 +6,26 @@
   <string>com.bridgesessions.mesh</string>
   <key>ProgramArguments</key>
   <array>
-    <string>SED_HOME/bridgesessions/bridgesessions</string>
+    <string>/Users/jeffersonnunn/.local/bin/bridgesessions</string>
     <string>--config</string>
-    <string>SED_HOME/.bridgesessions/config</string>
+    <string>/Users/jeffersonnunn/.bridgesessions/config</string>
   </array>
-  <key>WorkingDirectory</key>
-  <string>SED_HOME/bridgesessions</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HOME</key>
+    <string>/Users/jeffersonnunn</string>
+  </dict>
   <key>RunAtLoad</key>
   <true/>
   <key>KeepAlive</key>
   <true/>
+  <key>ProcessType</key>
+  <string>Background</string>
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
   <key>StandardOutPath</key>
-  <string>SED_HOME/.bridgesessions/bs-mesh.log</string>
+  <string>/Users/jeffersonnunn/.bridgesessions/logs/bs-mesh.log</string>
   <key>StandardErrorPath</key>
-  <string>SED_HOME/.bridgesessions/bs-mesh.log</string>
+  <string>/Users/jeffersonnunn/.bridgesessions/logs/bs-mesh.err</string>
 </dict>
 </plist>

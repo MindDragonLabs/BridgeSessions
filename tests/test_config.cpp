@@ -475,7 +475,10 @@ TEST_CASE("verify_inbound_peer_identity binds configured name key and Hello",
     REQUIRE(verify_inbound_peer_identity(cfg, "abc", "abc", "peer-a").ok);
     REQUIRE_FALSE(verify_inbound_peer_identity(cfg, "abc", "", "peer-a").ok);
     REQUIRE_FALSE(verify_inbound_peer_identity(cfg, "abc", "zzz", "peer-a").ok);
-    REQUIRE_FALSE(verify_inbound_peer_identity(cfg, "abc", "abc", "peer-b").ok);
+    // Name collision fix: a known key presenting a different name is now ALLOWED
+    // (shared-host scenario). Only name THEFT (claiming a name pinned to a DIFFERENT
+    // key) is rejected.
+    REQUIRE(verify_inbound_peer_identity(cfg, "abc", "abc", "peer-b").ok);
     REQUIRE_FALSE(verify_inbound_peer_identity(cfg, "zzz", "zzz", "peer-a").ok);
 
     // A separately authorized key may introduce a new non-colliding name.
