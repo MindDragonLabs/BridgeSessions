@@ -461,6 +461,33 @@ int main(int argc, char** argv) {
     rscript_cmd_app->add_option("--interpreter", rscript_interpreter, "Interpreter: auto|bash|powershell|python")
         ->check(CLI::IsMember({"auto", "bash", "powershell", "pwsh", "python", "python3", "cmd"}));
 
+    // script — content-addressed script library
+    auto* script_cmd = app.add_subcommand("script", "Manage content-addressed script cache");
+    script_cmd->require_subcommand(1);
+    // script add <file> [--name alias]
+    std::string script_add_file, script_add_name;
+    auto* script_add_app = script_cmd->add_subcommand("add", "Add a script to the local cache");
+    script_add_app->add_option("file", script_add_file, "Script file path")->required();
+    script_add_app->add_option("--name", script_add_name, "Alias name for the script");
+    // script list
+    auto* script_list_app = script_cmd->add_subcommand("list", "List cached scripts");
+    // script push <name> --peer <peer>
+    std::string script_push_name, script_push_peer;
+    auto* script_push_app = script_cmd->add_subcommand("push", "Push a script to a peer");
+    script_push_app->add_option("name", script_push_name, "Script name or hash")->required();
+    script_push_app->add_option("--peer", script_push_peer, "Peer name")->required();
+    // script run <name> --peer <peer> [-- args...]
+    std::string script_run_name, script_run_peer;
+    std::vector<std::string> script_run_args;
+    auto* script_run_app = script_cmd->add_subcommand("run", "Run a cached script on a peer");
+    script_run_app->add_option("name", script_run_name, "Script name or hash")->required();
+    script_run_app->add_option("--peer", script_run_peer, "Peer name")->required();
+    script_run_app->add_option("args", script_run_args, "Arguments to pass to the script");
+    // script remove <name>
+    std::string script_remove_name;
+    auto* script_remove_app = script_cmd->add_subcommand("remove", "Remove a script from local cache");
+    script_remove_app->add_option("name", script_remove_name, "Script name or hash")->required();
+
     // pane (BridgePanel publish from the mesh CLI)
     std::string pane_session = "default", pane_type = "documents", pane_title, pane_file;
     auto* pane_cmd_app = app.add_subcommand("pane", "Publish a file to the BridgePanel surface");
@@ -1054,6 +1081,44 @@ int main(int argc, char** argv) {
         bs::mesh::bootstrap_identity(home_dir);
         bs::mesh::MeshController mc(cfg, home_dir);
         return mc.run_script(rscript_peer, rscript_file, rscript_interpreter);
+    }
+    // ── bs script dispatch ───────────────────────────────────────
+    if (script_add_app->parsed()) {
+        bs::mesh::MeshController mc(bs::mesh::load_config(config_path), home_dir);
+        std::string result = mc.script_add(script_add_file, script_add_name);
+        std::cout << result << "\n";
+        return result.rfind("ERROR", 0) == 0 ? 1 : 0;
+    }
+    if (script_list_app->parsed()) {
+        bs::mesh::MeshController mc(bs::mesh::load_config(config_path), home_dir);
+        mc.script_list();
+        return 0;
+    }
+    if (script_push_app->parsed()) {
+        bs::mesh::MeshConfig cfg = bs::mesh::load_config(config_path);
+        bs::mesh::bootstrap_identity(home_dir);
+        bs::mesh::MeshController mc(cfg, home_dir);
+        std::string result = mc.script_push(script_push_name, script_push_peer);
+        std::cout << result << "\n";
+        return result.rfind("ERROR", 0) == 0 ? 1 : 0;
+    }
+    if (script_run_app->parsed()) {
+        bs::mesh::MeshConfig cfg = bs::mesh::load_config(config_path);
+        bs::mesh::bootstrap_identity(home_dir);
+        bs::mesh::MeshController mc(cfg, home_dir);
+        // Join args into space-separated string
+        std::string args_str;
+        for (size_t i = 0; i < script_run_args.size(); ++i) {
+            if (i > 0) args_str += " ";
+            args_str += script_run_args[i];
+        }
+        return mc.script_run(script_run_name, script_run_peer, args_str);
+    }
+    if (script_remove_app->parsed()) {
+        bs::mesh::MeshController mc(bs::mesh::load_config(config_path), home_dir);
+        std::string result = mc.script_remove(script_remove_name);
+        std::cout << result << "\n";
+        return result.rfind("ERROR", 0) == 0 ? 1 : 0;
     }
     if (pane_publish->parsed()) {
         // type whitelist

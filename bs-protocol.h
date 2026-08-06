@@ -13276,6 +13276,237 @@ public:
         return "sh";
     }
 
+    // ── Content-addressed script cache (bs script) ───────────────────
+    // Scripts stored in ~/.bridgesessions/scripts/<sha256>.sh, named via symlink.
+
+    [[nodiscard]] std::string script_cache_dir() const {
+        return home_dir_ + "/scripts";
+    }
+
+    [[nodiscard]] std::string script_cache_path(const std::string& sha256) const {
+        return script_cache_dir() + "/" + sha256 + ".sh";
+    }
+
+    // Resolve a script name (or hash) to its cache path. Returns empty on not found.
+    [[nodiscard]] std::string script_resolve(const std::string& name_or_hash) const {
+        namespace fs = std::filesystem;
+        std::string dir = script_cache_dir();
+        // Direct hash file
+        std::string hash_path = script_cache_path(name_or_hash);
+        if (fs::exists(hash_path)) return hash_path;
+        // Symlink by name
+        std::string link_path = dir + "/" + name_or_hash;
+        if (fs::exists(link_path) && fs::is_symlink(link_path)) {
+            auto target = fs::read_symlink(link_path);
+            if (target.is_absolute()) return target.string();
+            return (fs::path(dir) / target).string();
+        }
+        return {};
+    }
+
+    // bs script add <file> [--name alias]
+    // Hashes content, stores as <sha256>.sh, optionally creates named symlink.
+    // Returns "OK <sha256> <path>" or "ERROR ...".
+    std::string script_add(const std::string& file_path, const std::string& alias) {
+        namespace fs = std::filesystem;
+        std::ifstream f(file_path, std::ios::binary);
+        if (!f) return "ERROR cannot read file: " + file_path;
+        std::string content((std::istreambuf_iterator<char>(f)),
+                            std::istreambuf_iterator<char>());
+        f.close();
+        std::string hash = sha256_hex(content);
+        std::string dir = script_cache_dir();
+        std::error_code ec;
+        fs::create_directories(dir, ec);
+        std::string dest = script_cache_path(hash);
+        if (!fs::exists(dest)) {
+            std::ofstream out(dest, std::ios::binary | std::ios::trunc);
+            if (!out) return "ERROR cannot write to cache: " + dest;
+            out.write(content.data(), static_cast<std::streamsize>(content.size()));
+            out.close();
+        }
+        std::string result = "OK " + hash + " " + dest;
+        if (!alias.empty()) {
+            std::string link = dir + "/" + alias;
+            std::error_code lec;
+            fs::remove(link, lec);
+            std::string target = hash + ".sh";
+            fs::create_symlink(target, link, lec);
+            if (lec) {
+                // Symlink may fail on Windows without admin — copy as fallback
+                std::ofstream cp(link, std::ios::binary | std::ios::trunc);
+                if (cp) cp.write(content.data(), static_cast<std::streamsize>(content.size()));
+            }
+            if (!lec) result += " alias=" + alias;
+        }
+        return result;
+    }
+
+    // bs script list — prints all cached scripts
+    void script_list() const {
+        namespace fs = std::filesystem;
+        std::string dir = script_cache_dir();
+        if (!fs::exists(dir)) { std::cout << "No scripts cached.\n"; return; }
+        std::cout << "=== Cached scripts (" << dir << ") ===\n";
+        // Collect symlinks (names) and hash files
+        std::vector<std::string> hashes, names;
+        for (auto& e : fs::directory_iterator(dir)) {
+            auto name = e.path().filename().string();
+            if (name.size() == 67 && name.substr(64) == ".sh") {
+                hashes.push_back(name.substr(0, 64));
+            } else if (e.is_symlink() || e.is_regular_file()) {
+                // Skip .sh hash files (already handled)
+                if (!(name.size() == 67 && name.substr(64) == ".sh"))
+                    names.push_back(name);
+            }
+        }
+        std::sort(hashes.begin(), hashes.end());
+        for (auto& h : hashes) {
+            std::cout << "  " << h.substr(0, 16) << "...";
+            // Find aliases pointing to this hash
+            std::string target_hash = h + ".sh";
+            std::vector<std::string> aliases;
+            for (auto& e : fs::directory_iterator(dir)) {
+                if (e.is_symlink()) {
+                    auto tgt = fs::read_symlink(e.path());
+                    if (tgt.filename().string() == target_hash)
+                        aliases.push_back(e.path().filename().string());
+                }
+            }
+            if (!aliases.empty()) {
+                std::cout << "  [";
+                for (size_t i = 0; i < aliases.size(); ++i) {
+                    if (i > 0) std::cout << ", ";
+                    std::cout << aliases[i];
+                }
+                std::cout << "]";
+            }
+            std::cout << "\n";
+        }
+        if (hashes.empty()) std::cout << "  (none)\n";
+    }
+
+    // bs script remove <name> — remove symlink or hash file
+    std::string script_remove(const std::string& name) {
+        namespace fs = std::filesystem;
+        std::string dir = script_cache_dir();
+        std::string link = dir + "/" + name;
+        std::error_code ec;
+        if (fs::exists(link) || fs::is_symlink(link)) {
+            fs::remove(link, ec);
+            if (ec) return "ERROR failed to remove: " + link;
+            return "OK removed " + name;
+        }
+        // Try as hash
+        std::string hash_path = script_cache_path(name);
+        if (fs::exists(hash_path)) {
+            fs::remove(hash_path, ec);
+            if (ec) return "ERROR failed to remove: " + hash_path;
+            // Also remove any symlinks pointing to it
+            for (auto& e : fs::directory_iterator(dir)) {
+                if (e.is_symlink()) {
+                    auto tgt = fs::read_symlink(e.path());
+                    if (tgt.filename().string() == name + ".sh")
+                        fs::remove(e.path(), ec);
+                }
+            }
+            return "OK removed " + name;
+        }
+        return "ERROR script not found: " + name;
+    }
+
+    // bs script push <name> --peer <peer>
+    // Sends script to peer's ~/.bridgesessions/scripts/ cache if not already present.
+    // Composes file_send + shell_peer — no new wire protocol.
+    std::string script_push(const std::string& name, const std::string& peer) {
+        std::string path = script_resolve(name);
+        if (path.empty()) return "ERROR script not found: " + name;
+        namespace fs = std::filesystem;
+        // Extract hash from filename (<hash>.sh)
+        std::string fname = fs::path(path).filename().string();
+        std::string hash;
+        if (fname.size() >= 4 && fname.substr(fname.size() - 3) == ".sh")
+            hash = fname.substr(0, fname.size() - 3);
+        else
+            return "ERROR unexpected cache filename: " + fname;
+
+        // Check if peer already has it
+        std::string check_cmd = "test -f ~/.bridgesessions/scripts/" + hash + ".sh && echo PRESENT || echo ABSENT";
+        auto [cols, rows] = get_winsize();
+        std::string check_output;
+        // Use daemon_shell_via_ipc for quick check (non-interactive)
+        int ec = daemon_shell_via_ipc(peer, "script-check-" + hash.substr(0, 8),
+                                      check_cmd, &check_output);
+        if (ec >= 0 && check_output.find("PRESENT") != std::string::npos) {
+            return "OK " + hash + " already on " + peer;
+        }
+        // Also try direct shell for peer check if IPC failed
+        if (ec < 0) {
+            // Use shell_peer in non-interactive mode to check
+            // (if daemon not available, shell_peer does direct TLS)
+            std::string cmd_out;
+            // Can't easily capture from shell_peer here — just push if check failed
+        }
+
+        // Ensure peer has the scripts directory
+        std::string mkdir_cmd = "mkdir -p ~/.bridgesessions/scripts";
+        daemon_shell_via_ipc(peer, "script-mkdir", mkdir_cmd, nullptr);
+
+        // Send the script file via existing file_send
+        std::string result = file_send(peer, path, true);
+        if (result.rfind("ERROR", 0) == 0) return result;
+
+        // Move received file to scripts cache on peer
+        // file_send delivers to peer's received/ dir — move it
+        std::string received_name = fname;
+        std::string move_cmd = "mv ~/.bridgesessions/received/" + received_name
+                             + " ~/.bridgesessions/scripts/" + hash + ".sh 2>/dev/null"
+                             + " || true";
+        daemon_shell_via_ipc(peer, "script-move-" + hash.substr(0, 8), move_cmd, nullptr);
+
+        return "OK pushed " + hash + " to " + peer;
+    }
+
+    // bs script run <name> --peer <peer> [-- args...]
+    // Ensures script is on peer (push if needed), then executes it.
+    int script_run(const std::string& name, const std::string& peer,
+                   const std::string& args) {
+        std::string path = script_resolve(name);
+        if (path.empty()) {
+            std::cerr << "ERROR script not found: " + name + "\n";
+            return 1;
+        }
+        namespace fs = std::filesystem;
+        std::string fname = fs::path(path).filename().string();
+        std::string hash;
+        if (fname.size() >= 4 && fname.substr(fname.size() - 3) == ".sh")
+            hash = fname.substr(0, fname.size() - 3);
+        else {
+            std::cerr << "ERROR unexpected cache filename: " + fname + "\n";
+            return 1;
+        }
+
+        // Check if peer has it; push if not
+        std::string check_cmd = "test -f ~/.bridgesessions/scripts/" + hash + ".sh && echo PRESENT || echo ABSENT";
+        std::string check_output;
+        int ec = daemon_shell_via_ipc(peer, "script-runcheck-" + hash.substr(0, 8),
+                                      check_cmd, &check_output);
+        bool need_push = (ec < 0) || (check_output.find("PRESENT") == std::string::npos);
+        if (need_push) {
+            std::cerr << "Script not on peer, pushing...\n";
+            std::string push_result = script_push(name, peer);
+            std::cerr << push_result << "\n";
+            if (push_result.rfind("ERROR", 0) == 0) return 1;
+        }
+
+        // Execute on peer
+        std::string exec_cmd = "bash ~/.bridgesessions/scripts/" + hash + ".sh";
+        if (!args.empty()) exec_cmd += " " + args;
+        auto [cols, rows] = get_winsize();
+        return shell_peer(peer, "script-" + hash.substr(0, 8), exec_cmd,
+                          cols, rows, "xterm-256color");
+    }
+
     // ── CLI: show_stats ───────────────────────────────────────
     void show_stats() const {
         auto now = std::chrono::steady_clock::now();

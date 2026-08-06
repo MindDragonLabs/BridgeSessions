@@ -11,7 +11,10 @@ namespace fs = std::filesystem;
 
 // Helper: write a temp config file, return path
 static std::string write_temp_config(const std::string& content) {
-    auto tmp = fs::temp_directory_path() / "bs_test_config";
+    // Use unique temp dir per call to avoid parallel test collisions
+    auto tmp = fs::temp_directory_path() / ("bs_test_config_" + std::to_string(
+        std::chrono::steady_clock::now().time_since_epoch().count()) + "_" +
+        std::to_string(rand()));
     fs::create_directories(tmp);
     auto cfg_path = (tmp / "config").string();
     std::ofstream f(cfg_path);
