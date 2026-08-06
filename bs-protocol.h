@@ -11733,7 +11733,15 @@ public:
 #else
                 if (errno == EINTR) continue;
 #endif
-                break;
+                // P0 fix: log and continue instead of killing the daemon
+                log_event("mesh_select_error", "errno=" + std::to_string(
+#ifdef _WIN32
+                    WSAGetLastError()
+#else
+                    errno
+#endif
+                ));
+                continue;
             }
 
             auto now = std::chrono::steady_clock::now();
@@ -11834,6 +11842,9 @@ public:
             // steals waitpid() and leaves the client waiting forever.
             sessions_.reap_dead(false);
         }
+
+        // P1 fix: persist sessions on graceful shutdown
+        try { sessions_.save_persisted_sessions(); } catch (...) {}
     }
 
     // ── mDNS LAN discovery ─────────────────────────────────────
@@ -12000,7 +12011,9 @@ public:
         };
         check_segments(config_.seeds);
         check_segments(config_.discovered);
-        // Deduplicate segment matches
+        // P2 fix: actually deduplicate (same peer in seeds + discovered)
+        std::sort(segment_matches.begin(), segment_matches.end());
+        segment_matches.erase(std::unique(segment_matches.begin(), segment_matches.end()), segment_matches.end());
         if (segment_matches.size() == 1) {
             if (peer_lookup(segment_matches[0], addr, pubkey)) {
                 r.name = segment_matches[0]; r.addr = addr; r.pubkey_hex = pubkey;
