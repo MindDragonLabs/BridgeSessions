@@ -76,34 +76,34 @@ Portable skill for **Hermes**, **OpenAI Codex**, **Claude Code**, **OpenCode**,
 - The generic reaper must defer `Attached` sessions to the PTY output poller; otherwise it can steal `waitpid()` before final output and `SessionDiedMsg` delivery.
 - A remote build launched as a daemon-shell child dies when that daemon is restarted. On systemd hosts use a transient user unit (`systemd-run --user --no-block ...`); on macOS use a unique launchd one-shot and remove it after completion. Completion markers must be run-specific—`launchctl submit` can rerun jobs and overwrite logs.
 
-## Public release (`v2.0.19-alpha7`)
+## Public release (`v26.08.05-beta1`)
 
 | Fact | Value |
 |------|--------|
-| Tag | `v2.0.19-alpha7` (commit locally; public tag/push require operator approval) |
+| Tag | `v26.08.05-beta1` (commit locally; public tag/push require operator approval) |
 | Branch | `main` |
 | Repo | https://codeberg.org/Mind-Dragon/BridgeSessions |
 | Artifacts | Linux x86_64, Windows x86_64 PE, macOS arm64 (`dist/`) |
 | Tests | Linux 336/336 + macOS 335/335 CTest; release pytest 31/31; ASan/UBSan regression 22/22 |
-| Notes | `docs/RELEASE-NOTES-2.0.19-alpha7.md` · provenance `docs/RELEASE-PROVENANCE.md` |
+| Notes | `docs/RELEASE-NOTES-26.08.05-beta1.md` · provenance `docs/RELEASE-PROVENANCE.md` |
 
 ### Download (raw from tag — preferred)
 
 ```text
-https://codeberg.org/Mind-Dragon/BridgeSessions/raw/tag/v2.0.19-alpha7/dist/bridgesessions-linux-x86_64
-https://codeberg.org/Mind-Dragon/BridgeSessions/raw/tag/v2.0.19-alpha7/dist/bridgesessions-windows-x86_64.exe
-https://codeberg.org/Mind-Dragon/BridgeSessions/raw/tag/v2.0.19-alpha7/dist/bridgesessions-macos-arm64
-https://codeberg.org/Mind-Dragon/BridgeSessions/raw/tag/v2.0.19-alpha7/dist/bridgesessions-2.0.19-alpha7-source.tar.gz
-https://codeberg.org/Mind-Dragon/BridgeSessions/raw/tag/v2.0.19-alpha7/dist/SHA256SUMS
+https://codeberg.org/Mind-Dragon/BridgeSessions/raw/tag/v26.08.05-beta1/dist/bridgesessions-linux-x86_64
+https://codeberg.org/Mind-Dragon/BridgeSessions/raw/tag/v26.08.05-beta1/dist/bridgesessions-windows-x86_64.exe
+https://codeberg.org/Mind-Dragon/BridgeSessions/raw/tag/v26.08.05-beta1/dist/bridgesessions-macos-arm64
+https://codeberg.org/Mind-Dragon/BridgeSessions/raw/tag/v26.08.05-beta1/dist/bridgesessions-26.08.05-beta1-source.tar.gz
+https://codeberg.org/Mind-Dragon/BridgeSessions/raw/tag/v26.08.05-beta1/dist/SHA256SUMS
 ```
 
-Tree: https://codeberg.org/Mind-Dragon/BridgeSessions/src/tag/v2.0.19-alpha7/dist
+Tree: https://codeberg.org/Mind-Dragon/BridgeSessions/src/tag/v26.08.05-beta1/dist
 
 ```bash
 curl -fL -o bridgesessions \
-  https://codeberg.org/Mind-Dragon/BridgeSessions/raw/tag/v2.0.19-alpha7/dist/bridgesessions-linux-x86_64
+  https://codeberg.org/Mind-Dragon/BridgeSessions/raw/tag/v26.08.05-beta1/dist/bridgesessions-linux-x86_64
 chmod +x bridgesessions
-./bridgesessions --version   # → 2.0.19-alpha7
+./bridgesessions --version   # → 26.08.05-beta1
 ```
 
 ### Build matrix (how the 3 platform binaries are produced)
@@ -118,7 +118,7 @@ All three are **portable static** (no runtime dylld/DLL deps beyond OS libs):
 
 - **windows-peer (Win11) has NO sshd** — ship the PE via **WinRM** (port 5985, NTLM, `shadow`/`Year25careful!` in linux-a `~/.ssh/config` note). Host a temp `python3 -m http.server` on linux-a's TS IP, then `curl.exe` it from a WinRM `run_ps`.
 - mac/win release binaries ARE committed to `dist/` (the `.gitignore` only ignores the dev `bridgesessions.exe` + `*.o`/`*.obj`). `SHA256SUMS`/`SBOM` stay gitignored (downloader regenerates).
-- Re-tag after changing `dist/`: `git tag -f v2.0.19-alpha7 HEAD && git push --force codeberg main && git push --force codeberg v2.0.19-alpha7`.
+- Re-tag after changing `dist/`: `git tag -f v26.08.05-beta1 HEAD && git push --force codeberg main && git push --force codeberg v26.08.05-beta1`.
 
 ### Publish to Codeberg (SSH only)
 
@@ -131,7 +131,7 @@ export GIT_SSH_COMMAND='ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes -o BatchM
 
 cd /path/to/BridgeSessions   # often ~/bridgesessions
 git push codeberg main
-git push codeberg v2.0.19-alpha7
+git push codeberg v26.08.05-beta1
 ```
 
 Probe: `ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes -T git@codeberg.org`  
@@ -261,6 +261,8 @@ PROGRESS phase=recv file=x.bin chunks=a/b bytes=c/d pct=P rate_mibs=R eta_sec=E
 | `healthy (data-plane ok)` | Fully working | Proceed with `bs shell` / `bs file` |
 | `unhealthy` | TLS+Hello OK, data plane broken | Check OpenSSL version match. Do NOT retry more than twice. |
 | `refused` | TCP connect failed — daemon down | For SSH-capable hosts: restart daemon, then retry bs. For bs-only hosts (windows-peer): prompt user. |
+| `tls_rejected` | TLS handshake failed — key mismatch | Peer's key changed (rotation/reinstall) or this is a different machine. Re-authorize: on the peer run `bs invite`, here run `bs accept <code>`. Or update `seed <name> <addr> pubkey=<new>` in config. |
+| `hello_rejected` | Connected at TCP+TLS but peer rejected Hello | Version incompatibility or stale key pin. Check `bs ctl logs` on the peer. |
 | `unknown peer` | No seed entry | Run `bs peers list`. Prompt user with available names. Do NOT guess. |
 | Timeout (no response) | Network/Tailscale issue | Check `tailscale status`. One retry, then prompt user. |
 
@@ -280,7 +282,7 @@ is not found or bs fails — the user decides the fallback.
 
 Gameplay GUI / desktop input: **WinRM Session-1** (or documented Session-1 helper). BS one-shots often run as **SYSTEM/Session 0**.
 
-## Security posture (v2.0.19-alpha7)
+## Security posture (v26.08.05-beta1)
 
 - Outbound mesh: pin ↔ TLS cert Ed25519 key ↔ Hello before trusting peer / `merge_peers`.
 - Direct CLI: reject unpinned peers before DNS/TCP.
@@ -294,7 +296,7 @@ Gameplay GUI / desktop input: **WinRM Session-1** (or documented Session-1 helpe
 ```bash
 # Linux
 cmake -S . -B build && cmake --build build -j
-./build/bridgesessions --version   # 2.0.19-alpha7
+./build/bridgesessions --version   # 26.08.05-beta1
 ctest --test-dir build --output-on-failure
 ./build/test_config "[security]"
 
@@ -337,7 +339,7 @@ ln -sfn "$(pwd)/skills/bridgesessions" ~/.hermes/skills/devops/bridgesessions
 
 ## Progressive docs (load on demand)
 
-- Release notes: `docs/RELEASE-NOTES-2.0.19-alpha7.md`
+- Release notes: `docs/RELEASE-NOTES-26.08.05-beta1.md`
 - Provenance / checksums: `docs/RELEASE-PROVENANCE.md`
 - Audit: `docs/AUDIT-2.0.5-alpha2.md`
 - Usage and transfer workflows: `docs/usage.md`
@@ -350,12 +352,12 @@ ln -sfn "$(pwd)/skills/bridgesessions" ~/.hermes/skills/devops/bridgesessions
 ## Verification before claiming success
 
 ```bash
-bs --version                          # 2.0.19-alpha7
+bs --version                          # 26.08.05-beta1
 bs health <peer>                      # healthy (data-plane ok)
 bs shell <peer> --cmd "…"             # real stdout, correct host
 bs file send <peer> /tmp/big.bin --wait   # PROGRESS then OK
 # Public tag contains the reviewed platform binaries:
-curl -fsI https://codeberg.org/Mind-Dragon/BridgeSessions/raw/tag/v2.0.19-alpha7/dist/bridgesessions-linux-x86_64
+curl -fsI https://codeberg.org/Mind-Dragon/BridgeSessions/raw/tag/v26.08.05-beta1/dist/bridgesessions-linux-x86_64
 ```
 
 Subagent claims are not evidence — re-probe in this session.
