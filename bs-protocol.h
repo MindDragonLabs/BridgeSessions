@@ -4513,6 +4513,12 @@ class SessionRegistry {
 public:
     SessionRegistry() = default;
 
+    // P0 UAF fix: allow MeshController to register a callback that fires
+    // before any session is erased, so it can null dangling attached_session pointers.
+    void set_on_session_erased(std::function<void(const std::string&)> cb) {
+        on_session_erased_ = std::move(cb);
+    }
+
     void set_persistence_path(const std::string& path) {
         persistence_path_ = path;
     }
@@ -4999,6 +5005,7 @@ public:
                 if (idle > max_idle) {
                     log_event("session_prune_idle", s->name);
                     record_history_locked(*s, -1, "pruned");
+                    if (on_session_erased_) on_session_erased_(s->name);
                     it = sessions_.erase(it);
                     continue;
                 }
@@ -11273,6 +11280,14 @@ public:
 
     void run() {
         running_ = true;
+
+        // P0 UAF fix: wire session-erased callback to null dangling attached_session pointers
+        sessions_.set_on_session_erased([this](const std::string& name) {
+            for (auto& c : conns_)
+                if (c.attached_session && c.attached_session->name == name)
+                    c.attached_session = nullptr;
+        });
+
         // The event loop also accepts inbound CLI sessions. Keep seed dials short so
         // several offline/discovered peers cannot starve accept() for 3s each.
         outbound_connect_timeout_ms_ = 1000;
@@ -12785,54 +12800,81 @@ public:
             script_path = temp_local;
         }
 
-        if (!fs::exists(script_path) || fs::is_directory(script_path)) {
-            std::cerr << "ERROR script not found: " << script_path << "\n";
+        // 2. Read script content locally — we'll pipe it to the remote via shell
+        std::ifstream sf(script_path, std::ios::binary);
+        if (!sf) {
+            std::cerr << "ERROR cannot read script: " << script_path << "\n";
             if (!temp_local.empty()) fs::remove(temp_local);
             return 1;
         }
+        std::string script_content((std::istreambuf_iterator<char>(sf)),
+                                   std::istreambuf_iterator<char>());
+        sf.close();
 
-        // 2. Send file to peer (lands in ~/.bridgesessions/received/)
-        std::string send_result = file_send(peer_name, script_path, true);
-        if (send_result.rfind("ERROR", 0) == 0) {
-            std::cerr << "file send failed: " << send_result << "\n";
-            if (!temp_local.empty()) fs::remove(temp_local);
-            return 1;
-        }
-
-        // 3. Compute remote path: received dir + basename
         std::string basename = fs::path(script_path).filename().string();
-        std::string remote_dir = expand_home(receive_dir_);
-        std::string remote_path = remote_dir + "/" + basename;
 
-        // 4. Resolve interpreter
+        // 3. Resolve interpreter
         std::string interp = interpreter;
         if (interp == "auto" || interp.empty()) {
             interp = detect_interpreter(script_path);
         }
 
-        // 5. Build execution command
-        std::string exec_cmd = build_script_exec_cmd(interp, remote_path, basename);
+        // 4. Build exec command that writes the script to a temp file on the
+        //    REMOTE host, then executes it. This avoids daemon file-send entirely —
+        //    the script body is base64-encoded and decoded on the remote side,
+        //    so no escaping issues regardless of content.
+        std::string b64 = base64_encode(script_content);
+        std::string remote_tmp;
+        std::string exec_cmd;
 
-        std::cerr << "executing on " << peer_name << ": " << exec_cmd << "\n";
-
-        // 6. Execute via daemon IPC (non-interactive shell)
-        std::string output;
-        int ec = daemon_shell_via_ipc(peer_name, "run-script-" + basename,
-                                      exec_cmd, &output, timeout_ms);
-
-        if (!temp_local.empty()) fs::remove(temp_local);
-
-        // Print captured output
-        if (!output.empty()) std::cout << output;
-
-        // ec == -1 means IPC failed — fall back to direct TLS shell
-        if (ec == -1) {
-            std::cerr << "daemon IPC unavailable, using direct TLS\n";
-            auto [cols, rows] = get_winsize();
-            return shell_peer(peer_name, "run-script-" + basename, exec_cmd,
-                              cols, rows, "xterm-256color");
+        if (interp == "powershell" || interp == "pwsh") {
+            // PowerShell: decode base64 to temp file, execute, clean up
+            std::string exe = (interp == "pwsh") ? "pwsh" : "powershell";
+            remote_tmp = "$env:TEMP\\bs-script-" + basename;
+            exec_cmd = exe + " -NoProfile -Command \""
+                "[IO.File]::WriteAllBytes('" + remote_tmp + "', [Convert]::FromBase64String('" + b64 + "'));"
+                + exe + " -ExecutionPolicy Bypass -NoProfile -File '" + remote_tmp + "';"
+                "Remove-Item '" + remote_tmp + "' -ErrorAction SilentlyContinue\"";
+        } else if (interp == "cmd" || interp == "bat") {
+            remote_tmp = "%TEMP%\\bs-script-" + basename;
+            exec_cmd = "powershell -NoProfile -Command \""
+                "[IO.File]::WriteAllBytes('" + remote_tmp + "', [Convert]::FromBase64String('" + b64 + "'));"
+                "cmd /c '\"" + remote_tmp + "\"';"
+                "Remove-Item '" + remote_tmp + "' -ErrorAction SilentlyContinue\"";
+        } else {
+            // POSIX (bash/sh/python): use base64 | decode > tmpfile
+            std::string runner = (interp == "python" || interp == "python3") ? "python3" : "sh";
+            exec_cmd = "echo '" + b64 + "' | base64 -d > /tmp/bs-script-" + basename + " && "
+                + runner + " /tmp/bs-script-" + basename + "; rm -f /tmp/bs-script-" + basename;
         }
-        return ec;
+
+        // 6. Execute via direct TLS shell (skip daemon IPC — simpler, no OOM risk)
+        std::cerr << "executing on " << peer_name << ": " << exec_cmd << "\n";
+        if (!temp_local.empty()) fs::remove(temp_local);
+        auto [cols, rows] = get_winsize();
+        return shell_peer(peer_name, "run-script-" + basename, exec_cmd,
+                          cols, rows, "xterm-256color");
+    }
+
+    // Base64 encode for run-script (no external deps)
+    static std::string base64_encode(const std::string& in) {
+        static const char tbl[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        std::string out;
+        out.reserve(((in.size() + 2) / 3) * 4);
+        size_t i = 0;
+        for (; i + 2 < in.size(); i += 3) {
+            uint32_t n = (uint8_t)in[i] << 16 | (uint8_t)in[i+1] << 8 | (uint8_t)in[i+2];
+            out += tbl[(n >> 18) & 63]; out += tbl[(n >> 12) & 63];
+            out += tbl[(n >> 6) & 63];  out += tbl[n & 63];
+        }
+        if (i < in.size()) {
+            uint32_t n = (uint8_t)in[i] << 16;
+            if (i + 1 < in.size()) n |= (uint8_t)in[i+1] << 8;
+            out += tbl[(n >> 18) & 63]; out += tbl[(n >> 12) & 63];
+            out += (i + 1 < in.size()) ? tbl[(n >> 6) & 63] : '=';
+            out += '=';
+        }
+        return out;
     }
 
     // Detect interpreter from file extension
