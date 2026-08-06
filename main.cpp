@@ -1,6 +1,7 @@
 // main.cpp — BridgeSessions CLI entrypoint + daemon launcher
 // Extracted from bridgesessions.cpp (R3 structural refactor, 2026-07-23)
 #include "bs-protocol.h"
+#include "bs-cua-helper.h"
 
 // ────────────────────────────────────────────────────────────────────
 // 2. MAIN — CLI + daemon (guarded for test builds)
@@ -10,6 +11,7 @@
 
 #include <CLI/CLI.hpp>
 #include <cstdlib>
+#include <fstream>
 #include <iostream>
 #include <unordered_set>
 
@@ -255,9 +257,11 @@ int main(int argc, char** argv) {
     std::string config_path = "";
     std::string config_dir = "";
     bool daemon_flag = false;
+    bool cua_helper_flag = false;
     app.add_option("--config", config_path, "Config file path (default: ~/.bridgesessions/config)");
     app.add_option("--config-dir", config_dir, "Config directory (default: ~/.bridgesessions)");
     app.add_flag("--daemon", daemon_flag, "Detach from terminal (daemonize)");
+    app.add_flag("--cua-helper", cua_helper_flag, "Run CUA helper server (screen capture + input injection in user session)");
 
     // Fast path: `bs dev hermes` (the `bs` executable is a symlink to this binary).
     // Unknown peer names are resolved through `ssh -G` for address discovery only;
@@ -385,6 +389,41 @@ int main(int argc, char** argv) {
     capvid_cmd->add_option("--duration", capvid_dur, "Duration in seconds (default 15)");
     capvid_cmd->add_option("--quality", capvid_quality, "Quality 1-100 (default 70)");
     capvid_cmd->add_option("--max-width", capvid_maxw, "Max width, 0=native (default 1280)");
+
+    // 2.0.20: bs cua — computer-use automation
+    std::string cua_peer;
+    int cua_x = 0, cua_y = 0;
+    std::string cua_button = "left", cua_text, cua_direction = "up", cua_modifiers, cua_output;
+    int cua_code = 0, cua_amount = 3, cua_format = 1, cua_quality = 80;
+    auto* cua_cmd = app.add_subcommand("cua", "Computer-use automation on a remote peer");
+    cua_cmd->require_subcommand(1);
+    auto* cua_screen = cua_cmd->add_subcommand("screen", "Get remote screen dimensions");
+    cua_screen->add_option("peer", cua_peer, "Peer name")->required();
+    auto* cua_capture = cua_cmd->add_subcommand("capture", "Capture screenshot from peer");
+    cua_capture->add_option("peer", cua_peer, "Peer name")->required();
+    cua_capture->add_option("--format", cua_format, "Image format: 1=png (default), 2=jpeg");
+    cua_capture->add_option("--quality", cua_quality, "JPEG quality 1-100 (default 80)");
+    cua_capture->add_option("--output,-o", cua_output, "Output file (default: stdout)");
+    auto* cua_click = cua_cmd->add_subcommand("click", "Click mouse at coordinates");
+    cua_click->add_option("peer", cua_peer, "Peer name")->required();
+    cua_click->add_option("--x", cua_x, "X coordinate")->required();
+    cua_click->add_option("--y", cua_y, "Y coordinate")->required();
+    cua_click->add_option("--button", cua_button, "left (default), right, middle");
+    auto* cua_move = cua_cmd->add_subcommand("move", "Move mouse to coordinates");
+    cua_move->add_option("peer", cua_peer, "Peer name")->required();
+    cua_move->add_option("--x", cua_x, "X coordinate")->required();
+    cua_move->add_option("--y", cua_y, "Y coordinate")->required();
+    auto* cua_type = cua_cmd->add_subcommand("type", "Type text");
+    cua_type->add_option("peer", cua_peer, "Peer name")->required();
+    cua_type->add_option("--text", cua_text, "Text to type")->required();
+    auto* cua_key = cua_cmd->add_subcommand("key", "Press a HID key code");
+    cua_key->add_option("peer", cua_peer, "Peer name")->required();
+    cua_key->add_option("--code", cua_code, "USB HID usage ID")->required();
+    cua_key->add_option("--modifiers", cua_modifiers, "ctrl,shift,alt,meta (comma-separated)");
+    auto* cua_scroll = cua_cmd->add_subcommand("scroll", "Scroll mouse wheel");
+    cua_scroll->add_option("peer", cua_peer, "Peer name")->required();
+    cua_scroll->add_option("--direction", cua_direction, "up (default) or down");
+    cua_scroll->add_option("--amount", cua_amount, "Scroll ticks (default 3)");
 
     // vfolder
     auto* vfolder_cmd = app.add_subcommand("vfolder", "Manage virtual folder sync");
@@ -906,6 +945,96 @@ int main(int argc, char** argv) {
         std::cout << result << "\n";
         return result.rfind("ERROR", 0) == 0 ? 1 : 0;
     }
+
+    // ── bs cua dispatch ──────────────────────────────────────────
+    auto parse_mods = [](const std::string& s) -> uint8_t {
+        uint8_t m = 0;
+        if (s.find("ctrl") != std::string::npos) m |= 1;
+        if (s.find("shift") != std::string::npos) m |= 2;
+        if (s.find("alt") != std::string::npos) m |= 4;
+        if (s.find("meta") != std::string::npos) m |= 8;
+        return m;
+    };
+    auto map_button = [](const std::string& b) -> uint8_t {
+        if (b == "right") return 2;
+        if (b == "middle") return 1;
+        return 0; // left
+    };
+
+    if (cua_screen->parsed() || cua_capture->parsed() || cua_click->parsed() ||
+        cua_move->parsed() || cua_type->parsed() || cua_key->parsed() ||
+        cua_scroll->parsed()) {
+        bs::mesh::MeshConfig cfg = bs::mesh::load_config(config_path);
+        bs::mesh::bootstrap_identity(home_dir);
+        bs::mesh::MeshController mc(cfg, home_dir);
+
+        if (cua_screen->parsed()) {
+            auto resp = mc.send_cua_request(cua_peer, 0, 0, 0, 0, 0, 0, "");
+            if (resp.status != 0) { std::cerr << "ERROR: " << resp.error << "\n"; return 1; }
+            std::cout << resp.screen_w << "x" << resp.screen_h << "\n";
+            return 0;
+        }
+        if (cua_capture->parsed()) {
+            // action 6=capture; pass format+quality in text field as "fmt:quality"
+            std::string fmt_param = std::to_string(cua_format) + ":" + std::to_string(cua_quality);
+            auto resp = mc.send_cua_request(cua_peer, 6, 0, 0, 0, 0, 0, fmt_param);
+            if (resp.status != 0) { std::cerr << "ERROR: " << resp.error << "\n"; return 1; }
+            if (resp.data.empty()) { std::cerr << "ERROR: no capture data returned\n"; return 1; }
+            const char* ext = resp.format == 2 ? "jpg" : "png";
+            if (!cua_output.empty()) {
+                std::ofstream f(cua_output, std::ios::binary);
+                f.write(reinterpret_cast<const char*>(resp.data.data()),
+                        static_cast<std::streamsize>(resp.data.size()));
+                std::cout << "Saved " << resp.data.size() << " bytes to " << cua_output << "\n";
+            } else {
+                // Binary to stdout for piping
+                std::fwrite(resp.data.data(), 1, resp.data.size(), stdout);
+                std::string chosen_ext = resp.format == 2 ? "jpeg" : "png";
+                std::cerr << resp.data.size() << " bytes (" << chosen_ext << ")\n";
+            }
+            return 0;
+        }
+        if (cua_click->parsed()) {
+            auto resp = mc.send_cua_request(cua_peer, 4,
+                static_cast<int16_t>(cua_x), static_cast<int16_t>(cua_y),
+                map_button(cua_button), 0, 0, "");
+            if (resp.status != 0) { std::cerr << "ERROR: " << resp.error << "\n"; return 1; }
+            std::cout << "Clicked at (" << cua_x << "," << cua_y << ") button=" << cua_button << "\n";
+            return 0;
+        }
+        if (cua_move->parsed()) {
+            auto resp = mc.send_cua_request(cua_peer, 3,
+                static_cast<int16_t>(cua_x), static_cast<int16_t>(cua_y),
+                0, 0, 0, "");
+            if (resp.status != 0) { std::cerr << "ERROR: " << resp.error << "\n"; return 1; }
+            std::cout << "Moved to (" << cua_x << "," << cua_y << ")\n";
+            return 0;
+        }
+        if (cua_type->parsed()) {
+            auto resp = mc.send_cua_request(cua_peer, 2, 0, 0, 0, 0, 0, cua_text);
+            if (resp.status != 0) { std::cerr << "ERROR: " << resp.error << "\n"; return 1; }
+            std::cout << "Typed " << cua_text.size() << " chars\n";
+            return 0;
+        }
+        if (cua_key->parsed()) {
+            auto resp = mc.send_cua_request(cua_peer, 1, 0, 0, 0,
+                static_cast<uint32_t>(cua_code), parse_mods(cua_modifiers), "");
+            if (resp.status != 0) { std::cerr << "ERROR: " << resp.error << "\n"; return 1; }
+            std::cout << "Pressed HID key 0x" << std::hex << cua_code << std::dec << "\n";
+            return 0;
+        }
+        if (cua_scroll->parsed()) {
+            // action 5=wheel; direction: down = negative y, up = positive y
+            int16_t scroll_y = cua_direction == "down"
+                ? static_cast<int16_t>(-cua_amount)
+                : static_cast<int16_t>(cua_amount);
+            auto resp = mc.send_cua_request(cua_peer, 5, 0, scroll_y, 0, 0, 0, "");
+            if (resp.status != 0) { std::cerr << "ERROR: " << resp.error << "\n"; return 1; }
+            std::cout << "Scrolled " << cua_direction << " " << cua_amount << " ticks\n";
+            return 0;
+        }
+    }
+
     if (edit_cmd_app->parsed()) {
         bs::mesh::MeshConfig cfg = bs::mesh::load_config(config_path);
         bs::mesh::bootstrap_identity(home_dir);
@@ -998,6 +1127,11 @@ int main(int argc, char** argv) {
         std::cout << "added vfolder " << vfolder_name << "\n";
         return 0;
     }
+    // CUA helper mode: run in user session for screen capture + input injection
+    if (cua_helper_flag) {
+        return bs::mesh::run_cua_helper(home_dir);
+    }
+
     // Default: daemon mode
     bs::mesh::MeshConfig cfg = bs::mesh::load_config(config_path);
     bs::mesh::bootstrap_identity(home_dir);

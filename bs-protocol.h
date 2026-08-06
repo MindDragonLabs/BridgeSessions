@@ -2901,6 +2901,107 @@ inline void close_nonstdio_fds_before_exec() {
 }
 #endif // _WIN32
 
+// CUA helper constants and helpers (used by bs-cua-helper.h)
+inline constexpr uint16_t kCuaHelperPort = 19986;
+[[nodiscard]] inline std::string cua_helper_token_path(const std::string& app_home) {
+    return (std::filesystem::path(app_home) / "cua-helper-token").string();
+}
+
+// Cross-platform socket close helper for cua_helper_rpc
+inline void close_socket(int fd) {
+#ifdef _WIN32
+    closesocket(fd);
+#else
+    close(fd);
+#endif
+}
+
+// CUA helper RPC: call the user-session helper at localhost:19986
+// The helper runs in the interactive desktop session (where capture/input work).
+// Returns {status=1, error} if helper not running — caller falls back.
+[[nodiscard]] inline CuaResponseMsg cua_helper_rpc(const CuaRequestMsg& req, const std::string& app_home) {
+    CuaResponseMsg resp;
+    resp.status = 1;
+
+    // Load auth token from app home
+    std::string token_path = app_home + "/cua-helper-token";
+    std::ifstream tf(token_path);
+    if (!tf) { resp.error = "no cua-helper token"; return resp; }
+    std::string token((std::istreambuf_iterator<char>(tf)), std::istreambuf_iterator<char>());
+    while (!token.empty() && (token.back() == '\n' || token.back() == '\r')) token.pop_back();
+    if (token.empty()) { resp.error = "empty cua-helper token"; return resp; }
+
+    int sfd = (int)socket(AF_INET, SOCK_STREAM, 0);
+    if (sfd < 0) { resp.error = "socket failed"; return resp; }
+    sockaddr_in sa{};
+    sa.sin_family = AF_INET;
+    sa.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    sa.sin_port = htons(kCuaHelperPort);
+    if (connect(sfd, (sockaddr*)&sa, sizeof(sa)) < 0) {
+        close_socket(sfd);
+        resp.error = "cua-helper not running (connect failed)";
+        return resp;
+    }
+
+    // Send request as JSON line
+    nlohmann::json j;
+    j["action"] = req.action;
+    j["x"] = req.x;
+    j["y"] = req.y;
+    j["button"] = req.button;
+    j["hid_key"] = req.hid_key;
+    j["modifiers"] = req.modifiers;
+    j["text"] = req.text;
+    j["token"] = token;
+    std::string line = j.dump() + "\n";
+    if (send(sfd, line.data(), (int)line.size(), 0) <= 0) {
+        close_socket(sfd);
+        resp.error = "cua-helper send failed";
+        return resp;
+    }
+
+    // Read response
+    std::string acc;
+    char buf[65536];
+    while (true) {
+        int n = (int)recv(sfd, buf, sizeof(buf) - 1, 0);
+        if (n <= 0) break;
+        acc.append(buf, n);
+        if (acc.find('\n') != std::string::npos) break;
+    }
+    close_socket(sfd);
+
+    if (acc.empty()) { resp.error = "cua-helper no response"; return resp; }
+    try {
+        auto r = nlohmann::json::parse(acc);
+        resp.status = r.value("status", 1);
+        resp.error = r.value("error", "");
+        resp.screen_w = r.value("screen_w", 0);
+        resp.screen_h = r.value("screen_h", 0);
+        resp.format = r.value("format", 0);
+        if (r.contains("data") && r["data"].is_string()) {
+            // Base64 decode inline (helper sends base64-encoded image data)
+            std::string b64 = r["data"].get<std::string>();
+            static const std::string b64chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+            int val = 0, valb = -8;
+            for (char c : b64) {
+                if (c == '=') break;
+                auto pos = b64chars.find(c);
+                if (pos == std::string::npos) continue;
+                val = (val << 6) | (int)pos;
+                valb += 6;
+                if (valb >= 0) {
+                    resp.data.push_back((uint8_t)((val >> valb) & 0xFF));
+                    valb -= 8;
+                }
+            }
+        }
+    } catch (const std::exception& e) {
+        resp.error = std::string("cua-helper parse error: ") + e.what();
+    }
+    return resp;
+}
+
 [[nodiscard]] CuaResponseMsg cua_execute(const CuaRequestMsg& req) {
     CuaResponseMsg resp;
     resp.status = 0;
@@ -2957,7 +3058,14 @@ inline void close_nonstdio_fds_before_exec() {
         return resp;
     }
     resp.status = 1;
-    resp.error = "windows cua-helper not yet deployed (P5c)";
+    // Try the cua-helper first (runs in user session for desktop access)
+    {
+        auto helper_resp = cua_helper_rpc(req, "");
+        if (helper_resp.status == 0) return helper_resp;
+        // Fall through to in-process fallback if helper not running
+    }
+    resp.status = 1;
+    resp.error = "windows CUA input requires cua-helper (run: bridgesessions --cua-helper in user session)";
     return resp;
 #elif defined(__APPLE__)
     resp.status = 1;
@@ -2967,6 +3075,27 @@ inline void close_nonstdio_fds_before_exec() {
     // Linux: dispatch via xdotool (ubiquitous on X11 desktops).
     std::string cmd;
     switch (req.action) {
+        case 0: { // screen info
+            std::string out;
+            FILE* p = popen("xdpyinfo 2>/dev/null | grep dimensions", "r");
+            if (p) { char buf[256]; while (fgets(buf, sizeof(buf), p)) out += buf; pclose(p); }
+            if (!out.empty()) {
+                // Parse "  dimensions:    1920 x 1080 pixels"
+                auto px = out.find('x');
+                if (px != std::string::npos) {
+                    auto w_start = out.rfind(' ', px - 1);
+                    auto h_end = out.find(' ', px + 1);
+                    if (w_start != std::string::npos && h_end != std::string::npos) {
+                        resp.screen_w = std::stoul(out.substr(w_start + 1, px - w_start - 2));
+                        resp.screen_h = std::stoul(out.substr(px + 2, h_end - px - 2));
+                        resp.status = 0;
+                        return resp;
+                    }
+                }
+            }
+            resp.status = 1; resp.error = "cannot determine screen size";
+            return resp;
+        }
         case 1: // key press
             cmd = "xdotool key --delay 0 " + std::to_string(req.hid_key) + " 2>/dev/null";
             break;
@@ -12818,6 +12947,75 @@ public:
         } catch (const std::exception& e) {
             if (sc.sfd != INVALID_SOCKET) ssl_close(sc.ssl.get(), sc.sfd);
             return "ERROR remote video capture transport failed: " + std::string(e.what());
+        }
+    }
+
+    // ── CLI: send_cua_request ──────────────────────────────────
+    // Sends CuaRequestMsg to a peer via direct TLS, returns CuaResponseMsg.
+    CuaResponseMsg send_cua_request(const std::string& peer_name, uint8_t action,
+                                    int16_t x, int16_t y, uint8_t button,
+                                    uint32_t hid_key, uint8_t modifiers,
+                                    const std::string& text) {
+        CuaResponseMsg err;
+        err.status = 1;
+        const std::string addr = find_peer_addr(peer_name);
+        if (addr.empty()) { err.error = "peer not found: " + peer_name; return err; }
+        const std::string expected_pubkey = trusted_peer_pubkey(config_, peer_name);
+        auto sc = connect_and_hello(addr, expected_pubkey);
+        if (!sc.ssl || sc.sfd == INVALID_SOCKET) {
+            err.error = "failed to connect to " + peer_name + ": " +
+                (sc.fail_detail.empty() ? connect_fail_string(sc.fail) : sc.fail_detail);
+            return err;
+        }
+        CuaRequestMsg req;
+        req.request_id = static_cast<uint32_t>(
+            std::chrono::steady_clock::now().time_since_epoch().count());
+        req.action = action;
+        req.x = x; req.y = y;
+        req.button = button;
+        req.hid_key = hid_key;
+        req.modifiers = modifiers;
+        req.text = text;
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+        try {
+            write_frame(sc.ssl.get(), req, CONTROL_STREAM_ID);
+            while (std::chrono::steady_clock::now() < deadline) {
+                fd_set read_fds;
+                FD_ZERO(&read_fds);
+                FD_SET((int)sc.sfd, &read_fds);
+                timeval tv{1, 0};
+#ifdef _WIN32
+                const int ready = select(0, &read_fds, nullptr, nullptr, &tv);
+#else
+                const int ready = select((int)sc.sfd + 1, &read_fds, nullptr, nullptr, &tv);
+#endif
+                if (ready < 0) {
+#ifndef _WIN32
+                    if (errno == EINTR) continue;
+#endif
+                    throw std::runtime_error("select failed while waiting for cua response");
+                }
+                if (ready == 0 && SSL_pending(sc.ssl.get()) <= 0) continue;
+                Message msg = read_frame(sc.ssl.get());
+                if (std::holds_alternative<CuaResponseMsg>(msg)) {
+                    auto resp = std::get<CuaResponseMsg>(msg);
+                    if (resp.request_id != req.request_id) continue;
+                    ssl_close(sc.ssl.get(), sc.sfd);
+                    sc.sfd = INVALID_SOCKET;
+                    return resp;
+                }
+                if (std::holds_alternative<PingMsg>(msg)) {
+                    write_frame(sc.ssl.get(), PongMsg{}, CONTROL_STREAM_ID);
+                }
+            }
+            ssl_close(sc.ssl.get(), sc.sfd);
+            sc.sfd = INVALID_SOCKET;
+            err.error = "timed out waiting for remote cua response";
+            return err;
+        } catch (const std::exception& e) {
+            if (sc.sfd != INVALID_SOCKET) ssl_close(sc.ssl.get(), sc.sfd);
+            err.error = std::string("cua transport failed: ") + e.what();
+            return err;
         }
     }
 
