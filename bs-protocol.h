@@ -7794,9 +7794,9 @@ private:
             resolved_path = (fs::path(receive_dir_) / path).string();
         }
         if (!fs::exists(resolved_path) || fs::is_directory(resolved_path)) {
-            log_event("file_request_error", "not found: " + resolved_path);
-            try { write_frame(ssl, FileAckMsg{0, 0, true, "file not found: " + path}, CONTROL_STREAM_ID); } catch (...) {}
-            return "ERROR file not found: " + path;
+            log_event("file_request_error", "not found: " + resolved_path + " (receive_dir=" + receive_dir_ + ")");
+            try { write_frame(ssl, FileAckMsg{0, 0, true, "file not found: " + path + " (looked in " + resolved_path + ")"}, CONTROL_STREAM_ID); } catch (...) {}
+            return "ERROR file not found: " + path + " (looked in " + resolved_path + ", receive_dir=" + receive_dir_ + ")";
         }
         uint64_t filesize = static_cast<uint64_t>(fs::file_size(resolved_path));
         const auto shape = calculate_transfer_metadata(filesize, config_.transfer_max_bytes);
