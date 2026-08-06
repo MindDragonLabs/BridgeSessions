@@ -7788,21 +7788,26 @@ private:
             else std::cerr << line << "\n";
         };
 
-        if (!fs::exists(path) || fs::is_directory(path)) {
-            log_event("file_request_error", "not found: " + path);
+        // Resolve relative paths against receive_dir_ (daemon's file recv directory)
+        std::string resolved_path = path;
+        if (!fs::path(path).is_absolute()) {
+            resolved_path = (fs::path(receive_dir_) / path).string();
+        }
+        if (!fs::exists(resolved_path) || fs::is_directory(resolved_path)) {
+            log_event("file_request_error", "not found: " + resolved_path);
             try { write_frame(ssl, FileAckMsg{0, 0, true, "file not found: " + path}, CONTROL_STREAM_ID); } catch (...) {}
             return "ERROR file not found: " + path;
         }
-        uint64_t filesize = static_cast<uint64_t>(fs::file_size(path));
+        uint64_t filesize = static_cast<uint64_t>(fs::file_size(resolved_path));
         const auto shape = calculate_transfer_metadata(filesize, config_.transfer_max_bytes);
         if (!shape.ok) {
             try { write_frame(ssl, FileAckMsg{0, 0, true, shape.reason}, CONTROL_STREAM_ID); } catch (...) {}
             return "ERROR " + shape.reason;
         }
-        std::string filename = fs::path(path).filename().string();
-        std::string checksum = sha256_file_stream(path);
+        std::string filename = fs::path(resolved_path).filename().string();
+        std::string checksum = sha256_file_stream(resolved_path);
         if (checksum.empty()) {
-            log_event("file_request_error", "cannot hash " + path);
+            log_event("file_request_error", "cannot hash " + resolved_path);
             try { write_frame(ssl, FileAckMsg{0, 0, true, "cannot hash file"}, CONTROL_STREAM_ID); } catch (...) {}
             return "ERROR cannot hash file";
         }
@@ -7818,8 +7823,8 @@ private:
         }
         log_event("file_request_sending", filename + " " + std::to_string(total_chunks) + " chunks");
 
-        std::ifstream infile(path, std::ios::binary);
-        if (!infile) { log_event("file_request_error", "cannot open " + path); return "ERROR cannot open " + path; }
+        std::ifstream infile(resolved_path, std::ios::binary);
+        if (!infile) { log_event("file_request_error", "cannot open " + resolved_path); return "ERROR cannot open " + path; }
         std::vector<char> raw(kTransferChunkRawSize);
 
         auto overall_deadline = std::chrono::steady_clock::now() + transfer_overall_timeout(filesize);
