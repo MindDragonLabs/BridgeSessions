@@ -5057,6 +5057,8 @@ public:
             std::string killed_name = it->second->name;
             it->second->state = SessionState::Killed;
             record_history_locked(*it->second, -1, "killed");
+            // P0 UAF fix: fire callback before erasing so Conn::attached_session can be nulled
+            if (on_session_erased_) on_session_erased_(killed_name);
             sessions_.erase(it);
             log_event("session_kill", killed_name);
         }
