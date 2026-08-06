@@ -803,10 +803,22 @@ void serialize_msg(Serializer& s, const JoinReplyMsg& m) {
 }
 
 // ── Zstd ──────────────────────────────────────────────────────
+// P2: reuse zstd contexts instead of creating/destroying per call.
+// Thread-local so each thread gets its own — zstd contexts are not thread-safe.
+inline ZSTD_CCtx* get_zstd_cctx() {
+    thread_local std::unique_ptr<ZSTD_CCtx, decltype(&ZSTD_freeCCtx)> ctx(
+        ZSTD_createCCtx(), &ZSTD_freeCCtx);
+    return ctx.get();
+}
+inline ZSTD_DCtx* get_zstd_dctx() {
+    thread_local std::unique_ptr<ZSTD_DCtx, decltype(&ZSTD_freeDCtx)> ctx(
+        ZSTD_createDCtx(), &ZSTD_freeDCtx);
+    return ctx.get();
+}
 
 std::vector<uint8_t> zstd_compress(std::span<const uint8_t> data) {
     std::vector<uint8_t> out(ZSTD_compressBound(data.size()));
-    size_t sz = ZSTD_compress(out.data(), out.size(), data.data(), data.size(), 3);
+    size_t sz = ZSTD_compressCCtx(get_zstd_cctx(), out.data(), out.size(), data.data(), data.size(), 3);
     if (ZSTD_isError(sz)) throw std::runtime_error(std::string("zstd compress: ") + ZSTD_getErrorName(sz));
     out.resize(sz);
     return out;
@@ -818,7 +830,7 @@ std::vector<uint8_t> zstd_decompress(std::span<const uint8_t> data) {
     if (bound == ZSTD_CONTENTSIZE_UNKNOWN) throw std::runtime_error("zstd: unknown decompressed size");
     if (bound > MAX_FRAME_SIZE) throw std::runtime_error("zstd: decompressed frame exceeds MAX_FRAME_SIZE");
     std::vector<uint8_t> out(static_cast<size_t>(bound));
-    size_t sz = ZSTD_decompress(out.data(), out.size(), data.data(), data.size());
+    size_t sz = ZSTD_decompressDCtx(get_zstd_dctx(), out.data(), out.size(), data.data(), data.size());
     if (ZSTD_isError(sz)) throw std::runtime_error(std::string("zstd decompress: ") + ZSTD_getErrorName(sz));
     if (sz > MAX_FRAME_SIZE) throw std::runtime_error("zstd: decoded frame exceeds MAX_FRAME_SIZE");
     out.resize(sz);
@@ -2942,6 +2954,14 @@ inline void close_socket(int fd) {
         resp.error = "cua-helper not running (connect failed)";
         return resp;
     }
+    // P2: set 10s recv timeout so recv loop can't hang forever
+#ifdef _WIN32
+    DWORD rcv_timeout_ms = 10000;
+    setsockopt(sfd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&rcv_timeout_ms, sizeof(rcv_timeout_ms));
+#else
+    struct timeval rcv_tv { 10, 0 };
+    setsockopt(sfd, SOL_SOCKET, SO_RCVTIMEO, &rcv_tv, sizeof(rcv_tv));
+#endif
 
     // Send request as JSON line
     nlohmann::json j;
@@ -7674,12 +7694,14 @@ private:
                 ? connect_fail_string(sc.fail) : sc.fail_detail;
             return "ERROR failed to connect to " + peer_name + ": " + detail;
         }
+        // P2: RAII guard — ensures ssl_close runs even if send throws
+        struct SslCloseGuard {
+            SslPtr* ssl; SOCKET* sfd;
+            ~SslCloseGuard() { if (*sfd != INVALID_SOCKET) { ssl_close(ssl->get(), *sfd); *sfd = INVALID_SOCKET; } }
+        } guard{&sc.ssl, &sc.sfd};
         // Delegate to the transport-agnostic send-with-acks path.
-        std::string result = file_send_wait_on_transport(
+        return file_send_wait_on_transport(
             sc.ssl.get(), sc.sfd, local_path, {}, {}, nullptr, peer_name);
-        ssl_close(sc.ssl.get(), sc.sfd);
-        sc.sfd = INVALID_SOCKET;
-        return result;
     }
 
     // Direct TLS file recv (no daemon required) — sends FileRequestMsg, receives file
@@ -7695,12 +7717,14 @@ private:
                 ? connect_fail_string(sc.fail) : sc.fail_detail;
             return "ERROR failed to connect to " + peer_name + ": " + detail;
         }
+        // P2: RAII guard — ensures ssl_close runs even if recv throws
+        struct SslCloseGuard {
+            SslPtr* ssl; SOCKET* sfd;
+            ~SslCloseGuard() { if (*sfd != INVALID_SOCKET) { ssl_close(ssl->get(), *sfd); *sfd = INVALID_SOCKET; } }
+        } guard{&sc.ssl, &sc.sfd};
         // Use file_recv_wait_on_transport: sends request, receives meta + chunks, writes file
-        std::string result = file_recv_wait_on_transport(
+        return file_recv_wait_on_transport(
             sc.ssl.get(), sc.sfd, remote_path, local_dest, receive_dir_, {}, {});
-        ssl_close(sc.ssl.get(), sc.sfd);
-        sc.sfd = INVALID_SOCKET;
-        return result;
     }
 
     // v2.0.6: transport-agnostic file send-wait. Runs on the event loop or a
@@ -10057,7 +10081,9 @@ private:
                 backoffs_.erase(s.addr);
             } else {
                 bo.attempt++;
-                bo.next_attempt = now + std::chrono::milliseconds(bo.delay_ms);
+                // P2: ±25% jitter to prevent thundering herd on reconnect
+                int jitter = bo.delay_ms * (rand() % 50 - 25) / 100;
+                bo.next_attempt = now + std::chrono::milliseconds(bo.delay_ms + jitter);
                 bo.delay_ms = std::min(std::max(bo.delay_ms * 2, 1000), bo.max_ms);
                 break; // one failed bounded dial per loop; keep accept/read responsive
             }
@@ -12025,13 +12051,13 @@ public:
             r.suggestions = segment_matches;
             return r; // ambiguous
         }
-        // Tier 4: Levenshtein ≤ 2
+        // Tier 4: Levenshtein ≤ 3 (consistent with print_peer_not_found close-check)
         std::vector<std::string> fuzzy_matches;
         auto check_fuzzy = [&](const std::vector<PeerEntry>& peers) {
             for (const auto& p : peers) {
                 if (!query.empty() && query.size() >= 3 &&
                     p.name.size() >= 3 &&
-                    levenshtein(query, p.name) <= 2)
+                    levenshtein(query, p.name) <= 3)
                     fuzzy_matches.push_back(p.name);
             }
         };
@@ -12056,7 +12082,9 @@ public:
     // Print "Peer not found" with suggestions and available peers list.
     void print_peer_not_found(const std::string& query) const {
         auto result = resolve_peer(query);
+        bool showed_suggestions = false;
         if (!result.suggestions.empty()) {
+            showed_suggestions = true;
             std::cerr << "Ambiguous peer name: \"" << query << "\"\n";
             std::cerr << "Did you mean one of these?\n";
             for (const auto& s : result.suggestions)
@@ -12076,19 +12104,22 @@ public:
             check_close(config_.seeds);
             check_close(config_.discovered);
             if (!close.empty()) {
+                showed_suggestions = true;
                 std::cerr << "Did you mean one of these?\n";
                 for (const auto& s : close)
                     std::cerr << "  " << s << "\n";
             }
         }
-        // Always list all available peers
-        auto names = all_peer_names();
-        if (!names.empty()) {
-            std::cerr << "\nAvailable peers:\n";
-            for (const auto& n : names)
-                std::cerr << "  " << n << "\n";
-        } else {
-            std::cerr << "\nNo peers configured. Use 'bs seed <host:port>' to add one.\n";
+        // P3: only dump the full peer list when no suggestions were shown
+        if (!showed_suggestions) {
+            auto names = all_peer_names();
+            if (!names.empty()) {
+                std::cerr << "\nAvailable peers:\n";
+                for (const auto& n : names)
+                    std::cerr << "  " << n << "\n";
+            } else {
+                std::cerr << "\nNo peers configured. Use 'bs seed <host:port>' to add one.\n";
+            }
         }
     }
 
@@ -13114,14 +13145,6 @@ public:
                 std::cerr << "ERROR stdin is empty — nothing to run\n";
                 return 1;
             }
-#ifdef _WIN32
-            char tmpdir_buf[MAX_PATH];
-            GetTempPathA(MAX_PATH, tmpdir_buf);
-            std::string tmpdir = tmpdir_buf;
-            temp_local = tmpdir + "bs-stdin-XXXXXX";
-#else
-            temp_local = "/tmp/bs-stdin-XXXXXX";
-#endif
             // Detect extension from content shebang or default to .sh
             std::string ext = ".sh";
             if (content.size() >= 2 && content[0] == '#' && content[1] == '!') {
@@ -13132,7 +13155,29 @@ public:
                 else if (shebang.find("powershell") != std::string::npos
                          || shebang.find("pwsh") != std::string::npos) ext = ".ps1";
             }
-            temp_local += ext;
+            // P3: use mkstemp for unpredictable temp file names
+#ifdef _WIN32
+            char tmpdir_buf[MAX_PATH];
+            GetTempPathA(MAX_PATH, tmpdir_buf);
+            std::string tmpdir = tmpdir_buf;
+            char tmpbase[MAX_PATH];
+            snprintf(tmpbase, sizeof(tmpbase), "%sbs-stdin-XXXXXX", tmpdir.c_str());
+            // Windows doesn't have mkstemp; use _mktemp_s + open
+            if (_mktemp_s(tmpbase, strlen(tmpbase) + 1) != 0) {
+                std::cerr << "ERROR cannot create temp file name\n"; return 1;
+            }
+            temp_local = std::string(tmpbase) + ext;
+#else
+            std::string tmpl = "/tmp/bs-stdin-XXXXXX" + ext;
+            std::vector<char> tmpl_buf(tmpl.begin(), tmpl.end());
+            tmpl_buf.push_back('\0');
+            int fd = mkstemps(tmpl_buf.data(), static_cast<int>(ext.size()));
+            if (fd < 0) {
+                std::cerr << "ERROR cannot create temp file\n"; return 1;
+            }
+            close(fd);
+            temp_local = std::string(tmpl_buf.data());
+#endif
             std::ofstream tf(temp_local, std::ios::binary | std::ios::trunc);
             if (!tf) { std::cerr << "ERROR cannot write temp file\n"; return 1; }
             tf.write(content.data(), static_cast<std::streamsize>(content.size()));
@@ -13217,40 +13262,18 @@ public:
         return out;
     }
 
-    // Detect interpreter from file extension
+    // P3: detect_interpreter returns "sh" for .sh to match the runner which uses "sh"
     static std::string detect_interpreter(const std::string& path) {
         namespace fs = std::filesystem;
         std::string ext = fs::path(path).extension().string();
         // lowercase
         for (auto& c : ext) { if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a'); }
-        if (ext == ".sh") return "bash";
+        if (ext == ".sh") return "sh";
         if (ext == ".ps1") return "powershell";
         if (ext == ".py") return "python";
         if (ext == ".bat" || ext == ".cmd") return "cmd";
         // No extension or unknown: assume sh
-        return "bash";
-    }
-
-    // Build the execution command for the remote shell
-    static std::string build_script_exec_cmd(const std::string& interpreter,
-                                             const std::string& remote_path,
-                                             const std::string& basename) {
-        if (interpreter == "bash" || interpreter == "sh") {
-            // chmod +x then run directly — POSIX path handles this via sh -c
-            return "chmod +x \"" + remote_path + "\" && exec \"" + remote_path + "\"";
-        }
-        if (interpreter == "powershell" || interpreter == "pwsh") {
-            std::string exe = (interpreter == "pwsh") ? "pwsh" : "powershell";
-            return exe + " -ExecutionPolicy Bypass -NoProfile -File \"" + remote_path + "\"";
-        }
-        if (interpreter == "python" || interpreter == "python3") {
-            return "python3 \"" + remote_path + "\" || python \"" + remote_path + "\"";
-        }
-        if (interpreter == "cmd") {
-            return "\"" + remote_path + "\"";
-        }
-        // Default: try direct execution
-        return "chmod +x \"" + remote_path + "\" && \"" + remote_path + "\"";
+        return "sh";
     }
 
     // ── CLI: show_stats ───────────────────────────────────────

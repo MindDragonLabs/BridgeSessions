@@ -11,6 +11,7 @@
 
 #include <CLI/CLI.hpp>
 #include <cstdlib>
+#include <random>
 #include <fstream>
 #include <iostream>
 #include <unordered_set>
@@ -249,6 +250,12 @@ int main(int argc, char** argv) {
     WSADATA wsa;
     WSAStartup(MAKEWORD(2,2), &wsa);
 #endif
+
+    // P3: seed PRNG from /dev/urandom (or random_device) — used by jitter, temp names
+    {
+        std::random_device rd;
+        srand(rd());
+    }
 
     CLI::App app{"bridgesessions — mesh terminal relay"};
     app.set_version_flag("--version,-V", std::string(bs::mesh::kBridgeSessionsVersion));
