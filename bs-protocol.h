@@ -976,8 +976,8 @@ private:
 }
 constexpr int kTransferIdleTimeoutSec = 120;
 constexpr int kTransferProgressIntervalSec = 10;
-constexpr size_t kTransferChunkRawSize = 48 * 1024;
-constexpr int    kTransferPipelineSize = 8;     // chunks per ack batch (384 KB)
+constexpr size_t kTransferChunkRawSize = 48 * 1024;   // 48KB (must match across peers)
+constexpr int    kTransferPipelineSize = 16;            // 768KB pipeline (was 8)
 
 // ── Transfer telemetry ──────────────────────────────────────────────
 // Accumulates per-chunk wall-clock timings during a transfer.  Emit a
@@ -7549,6 +7549,27 @@ private:
         return result;
     }
 
+    // Direct TLS file recv (no daemon required) — mirrors direct_connect_file_send
+    std::string direct_connect_file_recv(const std::string& peer_name,
+                                         const std::string& remote_path,
+                                         const std::string& local_dest) {
+        std::string addr = find_peer_addr(peer_name);
+        if (addr.empty()) return "ERROR peer not found: " + peer_name;
+        std::string expected_pubkey = trusted_peer_pubkey(config_, peer_name);
+        auto sc = connect_and_hello(addr, expected_pubkey);
+        if (!sc.ssl || sc.sfd == INVALID_SOCKET) {
+            std::string detail = sc.fail_detail.empty()
+                ? connect_fail_string(sc.fail) : sc.fail_detail;
+            return "ERROR failed to connect to " + peer_name + ": " + detail;
+        }
+        std::string result = file_request_on_transport(
+            sc.ssl.get(), sc.sfd, remote_path, {}, {}, nullptr, peer_name);
+        // file_request_on_transport writes to recv dir; caller may need to move
+        ssl_close(sc.ssl.get(), sc.sfd);
+        sc.sfd = INVALID_SOCKET;
+        return result;
+    }
+
     // v2.0.6: transport-agnostic file send-wait. Runs on the event loop or a
     // worker thread; caller must ensure exclusive SSL transport access.
     std::string file_send_wait_on_transport(
@@ -12708,8 +12729,18 @@ public:
                           const std::string& local_dest, bool wait_for_completion) {
         std::string dest = local_dest.empty() ? "." : local_dest;
         std::string ipc = daemon_recv_via_ipc(peer_name, remote_path, dest, 120000, wait_for_completion);
-        if (!ipc.empty()) return ipc;
-        return "ERROR no daemon running";
+        if (!ipc.empty()) {
+            // If daemon IPC failed with "no conn", fall back to direct TLS
+            if (ipc.rfind("ERROR no conn", 0) == 0 || ipc.rfind("ERROR no daemon", 0) == 0) {
+                std::string direct = direct_connect_file_recv(peer_name, remote_path, dest);
+                if (!direct.empty()) return direct;
+            }
+            return ipc;
+        }
+        // No daemon at all — try direct TLS
+        std::string direct = direct_connect_file_recv(peer_name, remote_path, dest);
+        if (!direct.empty()) return direct;
+        return "ERROR no daemon running and direct TLS file recv failed";
     }
 
     // ── CLI: capture_video ────────────────────────────────────────
