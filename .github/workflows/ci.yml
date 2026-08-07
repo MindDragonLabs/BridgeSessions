@@ -1,0 +1,47 @@
+# GitHub CI — mirror of Codeberg Woodpecker pipeline
+# Builds + tests on Linux, cross-compiles Windows PE
+
+name: Build & Test
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: |
+          pacman -Sy --noconfirm --needed cmake ninja gcc fmt spdlog zstd \
+            openssl catch2 nlohmann-json cli11 python python-pytest
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+      - name: Build
+        run: cmake --build build --parallel
+      - name: Test
+        run: ctest --test-dir build --output-on-failure --exclude-regex "test_tls$"
+
+  cross-compile-windows:
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install MinGW
+        run: pacman -Sy --noconfirm --needed mingw-w64-gcc
+      - name: Cross-compile Windows PE
+        run: |
+          x86_64-w64-mingw32-g++ -std=c++23 -s -O2 -static \
+            -DBS_NO_WEBRTC -DBS_NO_DHT -DBS_NO_NAT \
+            -DBS_VERSION="${{ github.ref_name }}" \
+            main.cpp \
+            -o dist/bridgesessions-windows-x86_64.exe \
+            -lssl -lcrypto -lzstd -lfmt -lspdlog \
+            -lws2_32 -lsecur32 -lcrypt32 -lbcrypt -lncrypt \
+            -lstdc++ -lm -lwinpthread

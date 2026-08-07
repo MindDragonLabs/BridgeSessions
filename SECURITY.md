@@ -4,10 +4,8 @@
 
 | Version | Supported |
 |---|---|
-| 2.0.6-alpha2 | ✅ public multi-platform alpha (current) |
-| 2.0.1 | ❌ superseded |
-| 2.0.0 | ❌ superseded |
-| < 2.0 | ❌ |
+| 26.08.06-beta1 | ✅ current public beta |
+| < 26.08.06 | ❌ superseded |
 
 ## Reporting a vulnerability
 
@@ -46,3 +44,21 @@ fix and disclosure timeline with you.
   access.
 - Daemon CLI IPC remains loopback-only and additionally requires the ephemeral
   owner-only token stored under the active BridgeSessions app home.
+
+## Invite token lifecycle
+
+Mesh join uses single-use invite tokens with the following properties:
+
+| Property | Value |
+|----------|-------|
+| **Generation** | 16 random bytes from `RAND_bytes` (OpenSSL CSPRNG), hex-encoded (32 chars) |
+| **Lifetime** | 2 hours from creation (`steady_clock`, not wall clock) |
+| **Single-use** | Yes — claimed on first successful `JoinRequest`; `claimed_by` field set to joiner's Ed25519 pubkey |
+| **Scope** | Node-specific — token is valid only on the node that generated it (`bs invite`) |
+| **Revocation** | Restart the daemon — all pending tokens are in-memory only, cleared on restart |
+| **Rotation** | Generate a new token with `bs invite` at any time; old tokens expire naturally |
+| **Storage** | In-memory only (`pending_invites_` vector). Never written to disk. No persistence across restarts. |
+| **Transport** | TLS-encrypted mesh channel — token never traverses plaintext |
+
+If a token is compromised before use: restart the daemon on the inviting node.
+All pending tokens are invalidated. Generate a new one with `bs invite`.

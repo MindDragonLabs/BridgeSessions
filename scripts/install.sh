@@ -72,6 +72,28 @@ else
   curl -fsSL --progress-bar "${BASE}/${BIN}" -o "${TMP_BIN}"
   chmod +x "${TMP_BIN}"
   validate_binary "${TMP_BIN}"
+
+  # SHA-256 checksum verification
+  TMP_SUMS="${INSTALL_DIR}/.SHA256SUMS.$$"
+  curl -fsSL "${BASE}/SHA256SUMS" -o "${TMP_SUMS}" 2>/dev/null || true
+  if [ -f "${TMP_SUMS}" ]; then
+    EXPECTED_HASH=$(grep " ${BIN}\$" "${TMP_SUMS}" | awk '{print $1}')
+    if [ -n "${EXPECTED_HASH}" ]; then
+      ACTUAL_HASH=$(sha256sum "${TMP_BIN}" 2>/dev/null | awk '{print $1}' || shasum -a 256 "${TMP_BIN}" | awk '{print $1}')
+      if [ "${ACTUAL_HASH}" != "${EXPECTED_HASH}" ]; then
+        echo "ERROR: SHA-256 mismatch!" >&2
+        echo "  expected: ${EXPECTED_HASH}" >&2
+        echo "  actual:   ${ACTUAL_HASH}" >&2
+        rm -f "${TMP_BIN}" "${TMP_SUMS}"
+        exit 1
+      fi
+      echo "→ SHA-256 verified."
+    fi
+  else
+    echo "→ WARNING: could not download SHA256SUMS — skipping checksum verification." >&2
+  fi
+  rm -f "${TMP_SUMS}"
+
   REPORTED_VERSION=$("${TMP_BIN}" --version)
   EXPECTED_VERSION=${TAG#v}
   if [ "${REPORTED_VERSION}" != "${EXPECTED_VERSION}" ]; then
