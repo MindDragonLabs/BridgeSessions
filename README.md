@@ -23,6 +23,13 @@
 
 </div>
 
+### Product demo
+
+[![BridgeSessions product demo](docs/assets/demo-install-ai-mesh.gif)](docs/assets/demo-install-ai-mesh.mp4)
+
+*Install → mesh → AI CUA → media/vision → Bridge Panel (22s loop).*  
+Full quality: **[MP4 · 1080p](docs/assets/demo-install-ai-mesh.mp4)**
+
 ---
 
 ## The Problem
