@@ -1,220 +1,313 @@
+<div align="center">
+
+<img src="docs/assets/bridge-hero-banner.png" alt="BridgeSessions" width="100%">
+
 # BridgeSessions
 
-**Mesh terminal relay** — one C++23 binary that replaces the usual remote stack
-(**SSH + MOSH + SCP + tmux/Zellij + WinRM**) with a single secure mesh
-(`bs://` over TLS 1.2+, prefer 1.3). Built for humans **and** AI agents: durable PTYs,
-file transfer for media artifacts, Windows CUA peers, and **Bridge Panel** for long
-Markdown reviews.
+### One binary. Every machine. Zero SSH.
 
-> **Beta status:** `26.08.06-beta1` is a feature-complete beta. The canonical
-> shipping implementation is [`main.cpp`](main.cpp) + [`bs-protocol.h`](bs-protocol.h) +
-> [`bs-session.h`](bs-session.h); macOS capture backend: [`macos-capture.mm`](macos-capture.mm).
-> See [LEGACY_CODE.md](LEGACY_CODE.md) for the non-shipping modular experiment.
+[![Version](https://img.shields.io/badge/version-26.08.06--beta1-00d9ff?style=flat-square)](https://codeberg.org/Mind-Dragon/BridgeSessions/releases)
+[![License](https://img.shields.io/badge/license-BSL--1.1-6c7086?style=flat-square)](LICENSE)
+[![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20Windows%20%7C%20macOS-00d9ff?style=flat-square)](#install)
+[![Language](https://img.shields.io/badge/C%2B%2B-23-00599C?style=flat-square&logo=c%2B%2B&logoColor=white)](https://en.cppreference.com/)
+[![Tests](https://img.shields.io/badge/tests-363%20passing-brightgreen?style=flat-square)](tests/)
 
-- **Persistent sessions** — disconnect and reattach; the PTY keeps running (tmux's job, built in).
-- **Encrypted mesh** — ed25519 mutual TLS 1.2+ (prefer 1.3), forward secrecy (SSH's job, fleet-native).
-- **Files + media** — on-protocol transfer for logs, screenshots, and video (SCP + vision I/O). Pipelined for high-latency links (8-chunk batching, 4–8× throughput).
-- **Windows + Linux + macOS** — one mesh for shells and desktop automation (WinRM-class peers).
-- **CUA automation** — remote screen capture, mouse, keyboard, scroll (`bs cua …`).
-- **Run-script** — send and execute scripts remotely with auto-detected interpreter (`bs run-script`).
-- **Fuzzy peer resolution** — 4-tier matching: exact → suffix/prefix → Levenshtein (typo-tolerant).
-- **Bridge Panel** — agent-friendly Markdown surface (Edit / Save / Copy), not chat paste.
-- **One binary** — client, server, and `doctor` in `bridgesessions`.
+**Mesh terminal relay** — replaces SSH + MOSH + SCP + tmux + WinRM with a single encrypted mesh (`bs://` over TLS 1.3). Built for humans **and** AI agents.
 
-**Read the full story:** [docs/why-bridge-sessions.md](docs/why-bridge-sessions.md)
+[Install](#install) ·
+[Quickstart](#quickstart) ·
+[Features](#features) ·
+[Comparison](#vs-ssh--scp--winrm) ·
+[CUA](#computer-use-automation) ·
+[Docs](#documentation)
 
-![Bridge Panel](docs/assets/bridgepanel-read.png)
+</div>
 
-### Product demo
+---
 
-[![BridgeSessions product demo](docs/assets/demo-install-ai-mesh.gif)](docs/assets/demo-install-ai-mesh.mp4)
+## The Problem
 
-*HyperFrames storyboard (22s) — install → mesh → AI CUA → media/vision → Bridge Panel.*  
-Full quality: **[MP4 · 1080p · 2.7 MB](docs/assets/demo-install-ai-mesh.mp4)** · [file view with player](https://codeberg.org/Mind-Dragon/BridgeSessions/src/branch/main/docs/assets/demo-install-ai-mesh.mp4)
+Every remote machine task today chains together a pile of disconnected tools:
 
-> License: **Business Source License 1.1** (BSL-1.1). Production and commercial
-> use are permitted with one carve-out (you may not operate it as a hosted
-> remote-terminal service). Converts to **Apache-2.0** on **2030-07-16**. See
-> [LICENSE](LICENSE).
+```
+ssh server → tmux attach → work → detach → scp files back → winrm to Windows box → ...
+```
 
+Each tool has its own auth, escaping rules, failure modes, and security surface. AI agents struggle with all of them — `$_` escaping in PowerShell, SSH key management across containers, WinRM's broken Unicode handling, SCP's lack of progress reporting.
 
-## For AI agents (Hermes, Codex, Claude, OpenCode, Cursor, Grok, …)
+**BridgeSessions replaces all of it with one binary.**
 
-This repo ships multi-harness agent instructions:
+## Features
+
+### 🔐 Encrypted Mesh Network
+- **ed25519 mutual TLS 1.3** — every connection authenticated, encrypted, forward-secret
+- **Peer-to-peer mesh** — connect any machine to any machine, no central server
+- **TOFU key pinning** — first contact establishes trust, subsequent connections verify identity
+- **Zero passwords** — cryptographic identity, not credentials
+
+### 🖥️ Persistent Sessions
+- **Durable PTYs** — disconnect and reattach, the terminal keeps running
+- **Multi-attach** — multiple clients on the same session simultaneously
+- **Spectator mode** — watch without controlling (pair programming, demos)
+
+### 📁 Fast File Transfer
+- **Direct TLS path** — works even without daemon mesh connection
+- **Streaming SHA-256** — verified integrity, no full-file RAM buffering
+- **Pipeline depth 16** — 768KB/batch, 3× faster than v2.x
+- **Bidirectional** — `send` and `recv` work identically on Linux, Windows, macOS
+- **Progress reporting** — machine-parseable `PROGRESS` lines for agents
+
+### 🤖 Computer-Use Automation (CUA)
+- **Remote screen capture** — screenshot any peer over the mesh
+- **Input injection** — click, type, scroll on remote machines
+- **Agent-native** — designed for AI agents driving remote desktops
+- **Cross-platform** — Linux (xdotool), Windows (SendInput), macOS (CGEvent)
+
+```bash
+bs cua screen windows-peer        # → 1920x1080
+bs cua capture windows-peer -o shot.png
+bs cua click windows-peer --x 500 --y 300
+bs cua type windows-peer --text "Hello World"
+```
+
+### 📜 Script Library
+- **Content-addressed** — SHA256 cache, no re-transfer of unchanged scripts
+- **Fleet-wide** — push once, run on any peer
+- **Zero escaping** — base64-encoded, eliminates PowerShell/bash quoting hell
+
+```bash
+bs script add deploy.sh --name deploy
+bs script push deploy --peer linux-a
+bs script run deploy --peer linux-a -- --env prod
+```
+
+### 🔍 Smart Peer Resolution
+- **4-tier fuzzy matching** — exact → suffix → Levenshtein → suggestions
+- **Alias support** — `shadow` resolves to `windows-peer`
+- **"Did you mean...?"** — never leaves you guessing
+
+### 🛡️ Built for AI Agents
+- **SKILL.md + AGENTS.md** — multi-harness agent instructions (Hermes, Claude, Codex, Cursor, OpenCode)
+- **`run-script`** — base64-encoded execution, zero shell injection risk
+- **Rich error diagnostics** — per-reason guidance (`refused`, `timeout`, `tls_rejected`, `hello_rejected`)
+- **No-SSH-fallback contract** — the mesh IS the transport, no silent SSH/WinRM fallback
+- **Bridge Panel** — agent-friendly Markdown surface for long-form reviews
+
+---
+
+## Install
+
+### One-line install (Linux / macOS)
+
+```bash
+curl -fsSL https://codeberg.org/Mind-Dragon/BridgeSessions/raw/tag/26.08.06-beta1/scripts/install.sh | bash
+```
+
+### Windows (PowerShell)
+
+```powershell
+irm https://codeberg.org/Mind-Dragon/BridgeSessions/raw/tag/26.08.06-beta1/scripts/install.ps1 | iex
+```
+
+### Build from source
+
+```bash
+git clone https://codeberg.org/Mind-Dragon/BridgeSessions.git
+cd BridgeSessions
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build --parallel
+./build/bridgesessions --version   # → 26.08.06-beta1
+```
+
+<details>
+<summary>Build dependencies</summary>
+
+| Platform | Dependencies |
+|----------|-------------|
+| **Linux** | `cmake gcc openssl fmt spdlog zstd nlohmann-json catch2` |
+| **macOS** | `brew install cmake openssl@3 fmt spdlog zstd nlohmann-json` |
+| **Windows** | MinGW-w64 (`x86_64-w64-mingw32-g++`) + static OpenSSL/zstd/fmt/spdlog |
+
+</details>
+
+---
+
+## Quickstart
+
+```bash
+# 1. Generate a keypair (once per machine)
+bridgesessions keygen
+
+# 2. Start the daemon (background mesh service)
+bridgesessions --daemon --config ~/.bridgesessions/config
+
+# 3. From any other machine — connect, run, transfer
+bs health linux-a                    # → healthy (data-plane ok)
+bs shell linux-a --cmd 'uname -a'   # → Linux linux-a 6.8.0...
+bs file send linux-a ./app.tar.gz   # → OK sent app.tar.gz SHA256:...
+bs shell windows-peer --cmd 'hostname'  # → SHADOW-OLNM5J3N
+bs cua capture macos-peer -o screen.png    # → screenshot from Mac mini
+```
+
+<details>
+<summary>Configuration file (~/.bridgesessions/config)</summary>
+
+```ini
+node.name   my-laptop
+node.listen 0.0.0.0:19949
+seed linux-a 203.0.113.11:19949 pubkey=d25519fa9cadcd62...
+mesh.gossip_interval_secs 30
+mesh.startup_wait_secs 30
+receive_dir ~/.bridgesessions/received
+```
+
+</details>
+
+---
+
+## vs SSH + SCP + WinRM
+
+| Feature | SSH + SCP + tmux + WinRM | BridgeSessions |
+|---------|:------------------------:|:--------------:|
+| **One binary** | ❌ 4+ tools | ✅ `bridgesessions` |
+| **Cross-platform** | ❌ WinRM ≠ SSH ≠ MOSH | ✅ Same binary, same protocol |
+| **Persistent sessions** | Need tmux/Zellij | ✅ Built in |
+| **Encrypted file transfer** | SCP (no progress) | ✅ Streaming SHA-256 + progress |
+| **AI agent friendly** | ❌ Escaping hell | ✅ `run-script` + `bs script` |
+| **Remote desktop / CUA** | ❌ Separate VNC/RDP | ✅ `bs cua` built in |
+| **Mesh topology** | ❌ Point-to-point | ✅ Full mesh with gossip |
+| **Peer name resolution** | ❌ DNS or /etc/hosts | ✅ 4-tier fuzzy + aliases |
+| **Error diagnostics** | `Connection refused` | ✅ Per-reason guidance |
+| **Port forwarding** | ❌ Manual tunnels | ✅ Mesh routing |
+| **Session persistence on restart** | ❌ Lost | ✅ Save on shutdown |
+| **Self-hosting / no central server** | ❌ Need sshd | ✅ Daemon = server + client |
+| **License** | Various | BSL-1.1 → Apache-2.0 |
+
+### What BridgeSessions does NOT replace
+
+- **Interactive SSH login** for one-off admin tasks — BS is heavier to set up (keypair + config)
+- **SCP for tiny files** — overhead of TLS + mesh for a 1KB config edit
+- **SSH port forwarding** for database tunnels — BS mesh routes connections, not arbitrary TCP
+
+---
+
+## Computer-Use Automation
+
+```bash
+# Screen dimensions
+bs cua screen <peer>                    # → 1920x1080
+
+# Screenshot
+bs cua capture <peer> -o screenshot.png
+
+# Mouse
+bs cua click <peer> --x 100 --y 200     # left click
+bs cua move <peer> --x 500 --y 300      # move cursor
+bs cua scroll <peer> --direction down   # scroll wheel
+
+# Keyboard
+bs cua type <peer> --text "Hello World"
+bs cua key <peer> --code 40             # HID Enter key
+```
+
+**Platform support:**
+
+| Platform | Screen Capture | Input Injection | Setup |
+|----------|:--------------:|:---------------:|-------|
+| **Linux** | ✅ grim/import/scrot | ✅ xdotool | Install xdotool |
+| **Windows** | ✅ GDI (built-in) | ✅ SendInput via cua-helper | `bridgesessions --cua-helper` in user session |
+| **macOS** | ✅ ScreenCaptureKit | ✅ CGEvent via cua-helper | `bridgesessions --cua-helper` + Accessibility permission |
+
+---
+
+## Documentation
+
+| Document | What it covers |
+|----------|----------------|
+| [docs/cua.md](docs/cua.md) | CUA commands, platform setup, HID key codes, workflows |
+| [docs/QUICKSTART.md](docs/QUICKSTART.md) | Fast-start guide with examples |
+| [docs/configuration.md](docs/configuration.md) | Full config file reference |
+| [docs/protocol.md](docs/protocol.md) | The `bs://` wire protocol specification |
+| [docs/building.md](docs/building.md) | Compile on Linux / Windows / macOS |
+| [docs/bridge-panel.md](docs/bridge-panel.md) | Bridge Panel web surface |
+| [docs/ARCHITECTURE-DECISION-RECORD.md](docs/ARCHITECTURE-DECISION-RECORD.md) | Design decisions and component model |
+| [docs/ARCHITECTURE-RECOMMENDATIONS.md](docs/ARCHITECTURE-RECOMMENDATIONS.md) | Future roadmap and recommendations |
+
+---
+
+## For AI Agents
+
+BridgeSessions ships multi-harness agent instructions:
 
 | File | Role |
 |------|------|
 | [`AGENTS.md`](AGENTS.md) | Always-on project rules (AGENTS.md standard) |
 | [`CLAUDE.md`](CLAUDE.md) | Symlink → `AGENTS.md` for Claude Code |
-| [`skills/bridgesessions/SKILL.md`](skills/bridgesessions/SKILL.md) | Portable **Agent Skills** skill (YAML frontmatter + body) |
-| `.claude/skills/bridgesessions` | Symlink for Claude Code discovery |
-| `.opencode/skills/bridgesessions` | Symlink for OpenCode discovery |
-| `.agents/skills/bridgesessions` | Symlink for generic Agent Skills discovery |
+| [`skills/bridgesessions/SKILL.md`](skills/bridgesessions/SKILL.md) | Portable Agent Skills skill |
 
-**Load the skill** when operating `bs` mesh, Windows peers, large file transfer, or release hardening.
-Release security changes are summarized in [`CHANGELOG.md`](CHANGELOG.md) and
-the support/reporting policy lives in [`SECURITY.md`](SECURITY.md).
+**Load the skill** when operating `bs` mesh, Windows peers, large file transfer, CUA, or release hardening.
 
-Install/refresh harness links: `./scripts/install-agent-skill.sh`.
+---
 
+## Architecture
 
-## Install from binary
+```
+┌─────────────┐     TLS 1.3      ┌─────────────┐     TLS 1.3      ┌─────────────┐
+│  Mac (agent) │◄────────────────►│  Linux box  │◄────────────────►│  Windows PC │
+│  bs daemon   │     ed25519      │  bs daemon   │     ed25519      │  bs daemon  │
+│  bs CLI      │     mesh gossip  │  PTY sessions│     file transfer│  CUA helper │
+└─────────────┘                   └─────────────┘                   └─────────────┘
+       │                                                               │
+       │  TLS 1.3                                                      │ TLS 1.3
+       ▼                                                               ▼
+┌─────────────┐                                             ┌─────────────┐
+│  Mac mini   │◄─────────── mesh gossip ───────────────────►│  Docker box │
+│  bs daemon   │                                             │  bs daemon  │
+└─────────────┘                                             └─────────────┘
+```
 
-Current release: **`26.08.06-beta1`** (git tag `v26.08.06-beta1`).
-Platform binaries live under `dist/`; checksums and the SBOM are generated from
-the exact tag.
+- **One C++23 binary** — client, server, daemon, CUA helper, all in `bridgesessions`
+- **Source:** `bs-protocol.h` + `main.cpp` (~14K lines single header)
+- **Protocol:** `bs://` over TLS 1.3 with ed25519 mutual auth
+- **Default port:** 19949 (mesh), 19980 (local IPC), 19986 (CUA helper)
+
+---
+
+## Releases
 
 | Platform | Artifact |
 |----------|----------|
 | Linux x86_64 | `bridgesessions-linux-x86_64` |
 | Windows x86_64 | `bridgesessions-windows-x86_64.exe` |
 | macOS arm64 | `bridgesessions-macos-arm64` |
-| Source | `bridgesessions-26.08.06-beta1-source.tar.gz`, `bridgesessions-26.08.06-beta1-source.zip` |
+
+Current release: **`26.08.06-beta1`** on Codeberg.
 
 ```bash
-cd /path/to/downloaded-release-assets
+# Verify checksums
 sha256sum -c SHA256SUMS
-# Linux example
-install -m 0755 bridgesessions-linux-x86_64 ~/.local/bin/bridgesessions
-ln -sfn ~/.local/bin/bridgesessions ~/.local/bin/bs
-bridgesessions --version   # → 26.08.06-beta1
-bridgesessions keygen
 ```
 
-| Platform | Notes |
-|----------|--------|
-| Linux | Dynamic link to system OpenSSL/zstd/fmt/spdlog |
-| Windows | MinGW-static OpenSSL+zstd; place `.exe` on `PATH` |
-| macOS arm64 | Homebrew OpenSSL/fmt/spdlog dylibs; zstd linked statically (or rebuild) |
-
-Provenance and build notes: [docs/RELEASE-PROVENANCE.md](docs/RELEASE-PROVENANCE.md) ·  
-Release notes: [CHANGELOG.md](CHANGELOG.md) (26.08.06-beta1 entry)
-
-## Build from source
-
-```bash
-# Linux / macOS (needs OpenSSL, zstd, fmt, spdlog, CLI11, nlohmann-json)
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build --parallel
-./build/bridgesessions --version  # → 26.08.06-beta1
-```
-
-Or: `./build.sh` on Linux. Windows MinGW and macOS flags:
-[docs/building.md](docs/building.md). Release artifacts must pass
-`scripts/release-checksums.sh`.
-
-## Quickstart
-
-```bash
-# 1. Generate a keypair (once)
-bridgesessions keygen
-
-# 2. Point a node at a seed peer and run it
-bridgesessions --config ~/.bridgesessions/config
-```
-
-`~/.bridgesessions/config`:
-
-```ini
-node.name   my-laptop
-node.listen 192.0.2.10:19949
-seed peer-a <seed-peer-host>:19949 pubkey=<64-hex-ed25519-public-key>
-sessions.default_shell /bin/bash -l
-```
-
-```bash
-# 3. Attach from anywhere
-bridgesessions shell <server> --name hms
-# data-plane health (not IPC-only)
-bridgesessions health <peer>   # → healthy (data-plane ok)
-```
-
-See [docs/usage.md](docs/usage.md) for the full command reference and
-[docs/configuration.md](docs/configuration.md) for the config reference.
-
-## What's new in 26.08.06-beta1
-
-### CUA — Computer-Use Automation
-
-Remote desktop automation over the mesh. Seven subcommands — no VNC/RDP needed.
-
-```bash
-bs cua screen <peer>                          # get screen dimensions
-bs cua capture <peer> -o shot.png             # screenshot to file (or stdout)
-bs cua click <peer> --x 500 --y 300           # left/right/middle click
-bs cua move <peer> --x 500 --y 300            # move cursor
-bs cua type <peer> --text "hello world"       # type UTF-8 text
-bs cua key <peer> --code 40 --modifiers ctrl  # press HID key code with modifiers
-bs cua scroll <peer> --direction down --amount 5  # scroll mouse wheel
-```
-
-**Windows/macOS:** requires `--cua-helper` running in the user session (input
-injection + capture). See [docs/cua.md](docs/cua.md) for full setup.
-
-### Run-script — Remote Script Execution
-
-Send a local script to a peer and execute it with auto-detected interpreter
-(bash, PowerShell, Python). Script body is base64-encoded — no escaping issues.
-
-```bash
-bs run-script <peer> deploy.sh                # auto-detect interpreter from extension/shebang
-bs run-script <peer> script.py --interpreter python3
-echo 'Get-Process | Select -First 5' | bs run-script <peer> - --interpreter powershell
-```
-
-### Peer Resolution — 4-Tier Fuzzy Matching
-
-Peer names resolve through four tiers so you don't need exact matches:
-
-| Tier | Method | Example |
-|------|--------|---------|
-| 1 | Exact (case-insensitive) | `test-pc1` → `test-pc1` |
-| 2 | *(reserved for config aliases)* | — |
-| 3 | Hyphen-segment suffix/prefix | `shadow` → `windows-peer` |
-| 4 | Levenshtein ≤ 2 (typo-tolerant) | `shadwo` → `shadow` |
-
-Ambiguous matches return suggestions instead of guessing.
-
-### File Transfer — Pipelined + Direct TLS
-
-- **Pipelining:** 8-chunk (384 KB) batching per ack round-trip — 4–8× faster on
-  high-latency links.
-- **Direct TLS:** `file recv` and `capture-video` route over direct pinned TLS
-  to the target peer, not daemon IPC.
-
-## Documentation
-
-| Document | What it covers |
-|---|---|
-| **[docs/why-bridge-sessions.md](docs/why-bridge-sessions.md)** | Why it replaces SSH/MOSH/SCP/tmux/WinRM + AI workflows. |
-| [docs/design.md](docs/design.md) | Design, ADRs, component model. |
-| [docs/building.md](docs/building.md) | Compile on Linux / Windows / macOS. |
-| [docs/usage.md](docs/usage.md) | CLI reference and workflows. |
-| [docs/cua.md](docs/cua.md) | CUA commands: screen, capture, click, move, type, key, scroll. |
-| [docs/QUICKSTART.md](docs/QUICKSTART.md) | Quick reference for LLMs and humans. |
-| [docs/configuration.md](docs/configuration.md) | Config file reference. |
-| [docs/protocol.md](docs/protocol.md) | The `bs://` wire protocol. |
-| [docs/bridge-panel.md](docs/bridge-panel.md) | The Bridge Panel web surface. |
-| [docs/cua-signal-scenarios.md](docs/cua-signal-scenarios.md) | Ctrl-C and signal-forward/detach behavior. |
-| [docs/RELEASE-PROVENANCE.md](docs/RELEASE-PROVENANCE.md) | Release provenance and build matrix. |
-
-## Releases
-
-Release candidates are accepted only when:
-
-1. Embedded version equals [`VERSION`](VERSION)
-2. `sha256sum -c SHA256SUMS` passes in the downloaded release bundle
-3. The downloaded `SBOM-binaries.json` is valid CycloneDX 1.5
-
-**26.08.06-beta1** ships Linux x86_64, Windows x86_64, and macOS arm64 from this
-source. Prefer the annotated git tag `v26.08.06-beta1` over floating branch tips.
+---
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). Bug reports and pull requests are
-welcome.
+See [CONTRIBUTING.md](CONTRIBUTING.md). Bug reports and pull requests welcome.
 
 ## Security
 
-Found a vulnerability? Please follow the disclosure process in
-[SECURITY.md](SECURITY.md).
+Found a vulnerability? Follow the disclosure process in [SECURITY.md](SECURITY.md).
+
+## License
+
+**Business Source License 1.1** (BSL-1.1). Production and commercial use permitted with one carve-out (you may not operate it as a hosted remote-terminal service). Converts to **Apache-2.0** on **2030-07-16**. See [LICENSE](LICENSE).
+
+---
+
+<div align="center">
+
+**[⬆ Back to top](#bridgesessions)**
+
+Built by [Mind Dragon Labs](https://codeberg.org/Mind-Dragon) · Powered by C++23 + OpenSSL + ❤️
+
+</div>
