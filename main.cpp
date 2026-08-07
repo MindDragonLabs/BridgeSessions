@@ -700,13 +700,13 @@ int main(int argc, char** argv) {
             if (addr.empty() || addr == "0.0.0.0") addr = "127.0.0.1";
         }
         int port = cfg.listen_port > 0 ? cfg.listen_port : 19949;
-        std::cout << "Invite (valid 2h):  " << token << "\n";
+        std::cout << "Invite (valid 2h):  " << token << " --start\n";
         std::cout << "One-liner:\n";
-        std::cout << "  bridgesessions join " << addr << ":" << port << " " << token << "\n";
+        std::cout << "  bridgesessions join " << addr << ":" << port << " " << token << " --start\n";
         std::cout << "Or with curl install:\n";
-        std::cout << "  curl -fsSL https://codeberg.org/Mind-Dragon/BridgeSessions/raw/tag/v" << bs::mesh::kBridgeSessionsVersion << "/scripts/install.sh | bash -s -- join " << addr << ":" << port << " " << token << "\n";
+        std::cout << "  curl -fsSL https://codeberg.org/Mind-Dragon/BridgeSessions/raw/tag/" << bs::mesh::kBridgeSessionsVersion << "/scripts/install.sh | bash -s -- join " << addr << ":" << port << " " << token << " --start\n";
         std::cout << "Windows PowerShell:\n";
-        std::cout << "  irm https://codeberg.org/Mind-Dragon/BridgeSessions/raw/tag/v" << bs::mesh::kBridgeSessionsVersion << "/scripts/install.ps1 | iex\n  bridgesessions join " << addr << ":" << port << " " << token << "\n";
+        std::cout << "  irm https://codeberg.org/Mind-Dragon/BridgeSessions/raw/tag/" << bs::mesh::kBridgeSessionsVersion << "/scripts/install.ps1 | iex\n  bridgesessions join " << addr << ":" << port << " " << token << " --start\n";
         return 0;
     }
     if (join_cmd_app->parsed()) {
