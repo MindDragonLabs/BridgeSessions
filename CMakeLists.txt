@@ -71,6 +71,15 @@ endif()
 if(NOT BS_ENABLE_DHT)
     target_compile_definitions(bridgesessions PRIVATE BS_NO_DHT)
 endif()
+# ── Strip build-machine paths from release binaries ─────────────
+# __FILE__ and assert messages embed the compile-time source path.
+# -ffile-prefix-map rewrites them so dist/ binaries don't leak /home/<user>
+# or /Users/<user>. Applied to the main binary only (not tests).
+target_compile_options(bridgesessions PRIVATE
+    $<$<CXX_COMPILER_ID:GNU,Clang,AppleClang>:-ffile-prefix-map=${CMAKE_SOURCE_DIR}=.>
+    $<$<CXX_COMPILER_ID:GNU,Clang,AppleClang>:-ffile-prefix-map=/home/agent=.>
+    $<$<CXX_COMPILER_ID:GNU,Clang,AppleClang>:-ffile-prefix-map=/Users/jeffersonnunn=.>)
+
 target_link_libraries(bridgesessions
     OpenSSL::SSL OpenSSL::Crypto
     ${ZSTD_TARGET}

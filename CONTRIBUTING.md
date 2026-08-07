@@ -13,7 +13,10 @@ the goal is a low-friction, high-quality bar.
 ## Before you open a PR
 
 - **Build is green** with `./build.sh` (C++23).
-- **Tests pass.**
+- **Tests pass.** If you bumped `VERSION`, force a clean CMake reconfigure first:
+  `cmake -S . -B build && cmake --build build -j` — the Make generator does not
+  always detect `VERSION` changes, so `BS_VERSION` can stay stale and fail the
+  canonical-version test (`test_config #41`).
 - **Docs updated** if your change affects behavior, the CLI, or the protocol.
 - **No secrets, no hardcoded private paths, no internal notes.** Never commit
   `*.pem`, `authorized_keys`, or machine-specific `C:\` paths.

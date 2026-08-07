@@ -162,7 +162,7 @@ bs cua capture macos-peer -o screen.png    # → screenshot from Mac mini
 ```ini
 node.name   my-laptop
 node.listen 0.0.0.0:19949
-seed linux-a 203.0.113.11:19949 pubkey=d25519fa9cadcd62...
+seed example-peer <tailnet-ip>:19949 pubkey=<hex-pubkey>
 mesh.gossip_interval_secs 30
 mesh.startup_wait_secs 30
 receive_dir ~/.bridgesessions/received

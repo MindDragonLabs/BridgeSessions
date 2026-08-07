@@ -12,7 +12,7 @@ beyond the current P0-P3 fixes.
 **Risk:** MITM on first connect = permanent compromise.
 **Fix:** Add interactive confirmation prompt on first connect:
 ```
-First contact with "linux-a" at 203.0.113.11:19949
+First contact with "example-peer" at <tailnet-ip>:19949
 Fingerprint: d25519fa9cadcd62eecb73e5844d04...
 Trust this peer? [y/N]
 ```

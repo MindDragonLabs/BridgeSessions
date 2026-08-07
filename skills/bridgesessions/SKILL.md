@@ -112,11 +112,11 @@ All three are **portable static** (no runtime dylld/DLL deps beyond OS libs):
 
 | Platform | Built on | Method |
 |----------|----------|--------|
-| Linux x86_64 | linux-a via `ubuntu:22.04` container | static OpenSSL/zstd/fmt/spdlog + `-static-libstdc++ -static-libgcc`; glibc kept dynamic (DNS). Dockerfile `/tmp/bs-static/Dockerfile` (see `bridgesessions-static-build` skill). |
-| macOS arm64 | **macos-peer** (Apple clang 17) | native build, static deps into `~/local`, `cmake -DCMAKE_OSX_ARCHITECTURES=arm64`. Links only system `libc++`/`libSystem`. |
-| Windows x86_64 PE | **linux-a cross-compile** (`x86_64-w64-mingw32-g++`) | static deps into `~/bs-win`; compile `main.cpp` directly with `-static` plus the `CLI/CLI.hpp` shim. PE imports only OS DLLs. |
+| Linux x86_64 | Linux host via `ubuntu:22.04` container | static OpenSSL/zstd/fmt/spdlog + `-static-libstdc++ -static-libgcc`; glibc kept dynamic (DNS). Dockerfile `/tmp/bs-static/Dockerfile` (see `bridgesessions-static-build` skill). |
+| macOS arm64 | macOS host (Apple clang 17) | native build, static deps into `~/local`, `cmake -DCMAKE_OSX_ARCHITECTURES=arm64`. Links only system `libc++`/`libSystem`. |
+| Windows x86_64 PE | Linux cross-compile (`x86_64-w64-mingw32-g++`) | static deps into `~/bs-win`; compile `main.cpp` directly with `-static` plus the `CLI/CLI.hpp` shim. PE imports only OS DLLs. |
 
-- **windows-peer (Win11) has NO sshd** — ship the PE via **WinRM** (port 5985, NTLM, `shadow`/`Year25careful!` in linux-a `~/.ssh/config` note). Host a temp `python3 -m http.server` on linux-a's TS IP, then `curl.exe` it from a WinRM `run_ps`.
+- **Windows-only peers (no sshd)** — ship the PE via **WinRM** or `bs file send` from a mesh-connected host.
 - mac/win release binaries ARE committed to `dist/` (the `.gitignore` only ignores the dev `bridgesessions.exe` + `*.o`/`*.obj`). `SHA256SUMS`/`SBOM` stay gitignored (downloader regenerates).
 - Re-tag after changing `dist/`: `git tag -f v26.08.06-beta1 HEAD && git push --force codeberg main && git push --force codeberg v26.08.06-beta1`.
 
@@ -241,16 +241,10 @@ PROGRESS phase=recv file=x.bin chunks=a/b bytes=c/d pct=P rate_mibs=R eta_sec=E
   documented bootstrap scenarios (new peer install), not a co-equal option.
 - If `bs health <name>` returns `Peer not found`, run `bs peers list` and prompt
   the user. Do NOT silently fall back to SSH/WinRM.
-- Common user aliases (cross-reference `fleet-transport-bs` skill for full table):
+- Peer name aliases resolve via `bs peers list`. Use canonical names from that
+  output in scripts. Common ambiguities (e.g. "shadow" → which one?) should
+  prompt the user rather than guessing.
 
-| User types | Actual peer | Notes |
-|------------|-------------|-------|
-| shadow, shadow1 | `windows-peer` | Win11, bs-only (no SSH) |
-| shadow2 | `windows-peer2` | Win11, bs-only (no SSH) |
-| mini, mac | `macos-peer` | macOS |
-| linux- | ambiguous — ask: linux-a or linux-b? | |
-
-- `shadow` / `100.115.10.27` is RETIRED. Do not use it.
 - Require a pinned public key for every seed and direct command.
 - Keep private fleet names and VPN addresses out of public skills and examples.
 
@@ -260,7 +254,7 @@ PROGRESS phase=recv file=x.bin chunks=a/b bytes=c/d pct=P rate_mibs=R eta_sec=E
 |--------------------|---------|--------------|
 | `healthy (data-plane ok)` | Fully working | Proceed with `bs shell` / `bs file` |
 | `unhealthy` | TLS+Hello OK, data plane broken | Check OpenSSL version match. Do NOT retry more than twice. |
-| `refused` | TCP connect failed — daemon down | For SSH-capable hosts: restart daemon, then retry bs. For bs-only hosts (windows-peer): prompt user. |
+| `refused` | TCP connect failed — daemon down | For SSH-capable hosts: restart daemon, then retry bs. For bs-only hosts: prompt user. |
 | `tls_rejected` | TLS handshake failed — key mismatch | Peer's key changed (rotation/reinstall) or this is a different machine. Re-authorize: on the peer run `bs invite`, here run `bs accept <code>`. Or update `seed <name> <addr> pubkey=<new>` in config. |
 | `hello_rejected` | Connected at TCP+TLS but peer rejected Hello | Version incompatibility or stale key pin. Check `bs ctl logs` on the peer. |
 | `unknown peer` | No seed entry | Run `bs peers list`. Prompt user with available names. Do NOT guess. |
