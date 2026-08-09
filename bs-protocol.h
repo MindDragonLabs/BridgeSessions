@@ -1883,7 +1883,11 @@ struct AuthorizedKeys {
                    line.back() == '\r' || line.back() == '\n'))
                 line.pop_back();
             // Strip optional "pubkey " prefix (written by join handler)
-            if (line.starts_with("pubkey ")) line = line.substr(7);
+            // Also handle leading whitespace
+            while (!line.empty() && (line[0] == ' ' || line[0] == '\t')) line = line.substr(1);
+            if (line.starts_with("pubkey ") || line.starts_with("pubkey\t")) {
+                line = line.substr(7);
+            }
             if (!line.empty()) {
                 auto raw = hex_decode(line);
                 if (raw.size() == 32) keys.push_back(std::move(raw));
@@ -9383,8 +9387,26 @@ public:
         return reply;
     }
 
-    // 1. handle_inbound_session — messages from a remote peer
-    //    operating on OUR local sessions
+    // Close join window when all invites are claimed or expired.
+    // Called from the event loop tick to auto-close after invite expiry.
+    void maybe_close_join_window() {
+        if (!g_allow_join_connections.load(std::memory_order_relaxed)) return;
+        std::lock_guard lock(invite_mutex_);
+        auto now = std::chrono::steady_clock::now();
+        // Expire old invites (2h)
+        pending_invites_.erase(
+            std::remove_if(pending_invites_.begin(), pending_invites_.end(),
+                [now](auto& p) { return (now - p.created_at) > std::chrono::hours(2); }),
+            pending_invites_.end());
+        // Close window if no unclaimed invites remain
+        bool any_unclaimed = false;
+        for (const auto& p : pending_invites_) {
+            if (p.claimed_by.empty()) { any_unclaimed = true; break; }
+        }
+        if (!any_unclaimed) {
+            g_allow_join_connections.store(false, std::memory_order_relaxed);
+        }
+    }
     void handle_inbound_session(Conn& conn, Message& msg) {
         // JoinRequest — new node onboarding
         if (std::holds_alternative<JoinRequestMsg>(msg)) {
@@ -11972,6 +11994,7 @@ public:
             auto now = std::chrono::steady_clock::now();
             maybe_reload_config_seeds();
             maybe_prune_revoked_connections();
+            maybe_close_join_window();
             if (config_.idle_timeout_hours > 0 &&
                 now - last_session_prune_time_ >= std::chrono::minutes(1)) {
                 sessions_.prune_idle(std::chrono::hours(config_.idle_timeout_hours));
