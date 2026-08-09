@@ -743,15 +743,32 @@ int main(int argc, char** argv) {
         jr.token = join_token;
         write_frame(conn.ssl.get(), jr, bs::mesh::CONTROL_STREAM_ID);
 
+        // Set a 10s receive timeout so we don't block forever if the
+        // server's event loop is slow to process the JoinRequest.
+        {
+#ifdef _WIN32
+            DWORD timeout_ms = 10000;
+            setsockopt(conn.sfd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeout_ms, sizeof(timeout_ms));
+#else
+            timeval tv{10, 0};
+            setsockopt(conn.sfd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof(tv));
+#endif
+        }
+
         // Read JoinReply (skip Ping/Pong/Hello/Gossip noise from the event loop)
         bs::mesh::Message msg;
-        for (int retry = 0; retry < 10; ++retry) {
-            msg = bs::mesh::read_frame(conn.ssl.get());
+        for (int retry = 0; retry < 20; ++retry) {
+            try {
+                msg = bs::mesh::read_frame(conn.ssl.get());
+            } catch (const std::exception& e) {
+                std::cerr << "Failed to read JoinReply: " << e.what() << "\n";
+                return 1;
+            }
             if (std::holds_alternative<bs::mesh::JoinReplyMsg>(msg)) break;
-            // Discard non-JoinReply frames (server may send Ping, Hello, etc.)
+            std::cerr << "  (discarding non-JoinReply frame, index=" << msg.index() << ")\n";
         }
         if (!std::holds_alternative<bs::mesh::JoinReplyMsg>(msg)) {
-            std::cerr << "Unexpected reply from host\n";
+            std::cerr << "Unexpected reply from host (message type index=" << msg.index() << ")\n";
             return 1;
         }
         auto& jrep = std::get<bs::mesh::JoinReplyMsg>(msg);

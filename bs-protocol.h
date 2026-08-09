@@ -796,7 +796,7 @@ void serialize_msg(Serializer& s, const JoinReplyMsg& m) {
     if (m.ok) {
         s.str_prefixed(m.node_name); s.str_prefixed(m.seeds_csv);
         s.str_prefixed(m.host_pubkey); s.str_prefixed(m.host_addr);
-        s.str_prefixed(m.peer_pubkeys_json); // 2.0.20
+        s.str_prefixed_u16(m.peer_pubkeys_json); // 2.0.20 — u16-prefixed (was u8, exceeded 255B with >3 seeds)
     } else {
         s.str_prefixed(m.error);
     }
@@ -1591,7 +1591,7 @@ Message decode(std::span<const uint8_t> raw) {
         if (m.ok) {
             m.node_name = d.str_prefixed(); m.seeds_csv = d.str_prefixed();
             m.host_pubkey = d.str_prefixed(); m.host_addr = d.str_prefixed();
-            m.peer_pubkeys_json = d.str_prefixed(); // 2.0.20
+            m.peer_pubkeys_json = d.str_prefixed_u16(); // 2.0.20 — u16 (was u8, exceeded 255B)
         } else {
             m.error = d.str_prefixed();
         }
@@ -6315,6 +6315,7 @@ private:
             TlsHandshake,
             ReadHello,
             WriteHello,   // outbound: sent our Hello, waiting for reply
+            ReadJoinRequest, // server-side join window: read JoinRequest after Hello reply
             Done,
             Failed
         };
@@ -6331,6 +6332,7 @@ private:
         HelloMsg outbound_hello;          // client side: our Hello already built
         HelloMsg peer_hello;              // authenticated peer Hello retained across partial writes
         std::string peer_pk;              // cert pubkey once TLS completes
+        bool hello_written = false;       // join path: Hello reply written to peer
         bool want_read = true;
         bool want_write = false;
     };
@@ -7149,20 +7151,41 @@ private:
                             log_event("hello_identity_accept_join_window",
                                       hello.node_name + " pubkey=" + hello.pubkey_hex.substr(0, 16) + "...");
                         }
-                        // Send Hello reply (possibly non-blocking).
+                        // Send Hello reply. For join-window connections, write
+                        // the Hello here (so the client gets it immediately) but
+                        // transition to ReadJoinRequest (not promote) so the
+                        // connection stays in pending_handshakes_ (immune to prune).
                         ph.outbound_hello = build_hello();
-                        ph.state = PendingHandshake::State::WriteHello;
-                        ph.want_read = false;
-                        ph.want_write = true;
+                        bool join_window = g_allow_join_connections.load(std::memory_order_relaxed) &&
+                            !is_trusted_pubkey(ph.peer_pk);
                         int write_want = SSL_ERROR_WANT_WRITE;
-                        if (write_frame_nonblocking(ph.ssl.get(), ph.outbound_hello,
-                                                    CONTROL_STREAM_ID, ph.tx_buffer, &write_want)) {
+                        bool hello_written = write_frame_nonblocking(ph.ssl.get(), ph.outbound_hello,
+                                                    CONTROL_STREAM_ID, ph.tx_buffer, &write_want);
+                        if (hello_written) {
                             ph.tx_buffer.clear();
-                            promote_handshake_to_conn(ph, ph.peer_hello);
-                            to_erase.push_back(i);
+                            if (join_window) {
+                                // Hello sent; wait for JoinRequest in next state.
+                                ph.state = PendingHandshake::State::ReadJoinRequest;
+                                ph.hello_written = true;
+                                ph.want_read = true;
+                                ph.want_write = false;
+                            } else {
+                                promote_handshake_to_conn(ph, ph.peer_hello);
+                                to_erase.push_back(i);
+                            }
                         } else {
-                            ph.want_read = write_want == SSL_ERROR_WANT_READ;
-                            ph.want_write = write_want == SSL_ERROR_WANT_WRITE;
+                            // Partial write — stay in WriteHello for non-join,
+                            // or transition to ReadJoinRequest for join (which
+                            // will finish the write on the next iteration).
+                            if (join_window) {
+                                ph.state = PendingHandshake::State::ReadJoinRequest;
+                                ph.want_read = write_want == SSL_ERROR_WANT_READ;
+                                ph.want_write = write_want == SSL_ERROR_WANT_WRITE;
+                            } else {
+                                ph.state = PendingHandshake::State::WriteHello;
+                                ph.want_read = write_want == SSL_ERROR_WANT_READ;
+                                ph.want_write = write_want == SSL_ERROR_WANT_WRITE;
+                            }
                         }
                     } else {
                         auto v = verify_outbound_peer_identity(
@@ -7179,6 +7202,57 @@ private:
                         promote_handshake_to_conn(ph, hello);
                         to_erase.push_back(i);
                     }
+                    break;
+                }
+                case PendingHandshake::State::ReadJoinRequest: {
+                    // Server-side join window: write Hello reply, then read
+                    // JoinRequest inline so prune can't kill the connection.
+                    // Step 1: write Hello reply if not yet written.
+                    if (!ph.outbound_hello.pubkey_hex.empty() && ph.tx_buffer.empty() && !ph.hello_written) {
+                        ph.tx_buffer = encode(ph.outbound_hello, CONTROL_STREAM_ID);
+                        ph.hello_written = true;
+                    }
+                    if (!ph.tx_buffer.empty()) {
+                        int write_want = SSL_ERROR_WANT_WRITE;
+                        if (write_frame_nonblocking(ph.ssl.get(), ph.outbound_hello,
+                                                    CONTROL_STREAM_ID, ph.tx_buffer, &write_want)) {
+                            ph.tx_buffer.clear();
+                            ph.want_read = true;
+                            ph.want_write = false;
+                        } else {
+                            ph.want_read = write_want == SSL_ERROR_WANT_READ;
+                            ph.want_write = write_want == SSL_ERROR_WANT_WRITE;
+                            break;
+                        }
+                    }
+                    // Read JoinRequest
+                    int want = SSL_ERROR_WANT_READ;
+                    auto msg_opt = read_frame_nonblocking(ph.ssl.get(), ph.rx_buffer, &want);
+                    ph.want_read = want == SSL_ERROR_WANT_READ;
+                    ph.want_write = want == SSL_ERROR_WANT_WRITE;
+                    if (!msg_opt) break;
+                    if (std::holds_alternative<JoinRequestMsg>(*msg_opt)) {
+                        auto& jr = std::get<JoinRequestMsg>(*msg_opt);
+                        log_event("join_request_received", ph.peer_pk.substr(0, 16) + "...");
+                        JoinReplyMsg reply = process_join_request(jr, ph.peer_pk);
+                        bool reply_sent = false;
+                        try {
+                            write_frame(ph.ssl.get(), reply, CONTROL_STREAM_ID);
+                            reply_sent = true;
+                        } catch (const std::exception& e) {
+                            log_event("join_reply_write_failed", e.what());
+                        }
+                        if (reply.ok && reply_sent) {
+                            log_event("join_success", ph.peer_pk.substr(0, 16) + "...");
+                            promote_handshake_to_conn(ph, ph.peer_hello);
+                        } else if (reply.ok && !reply_sent) {
+                            log_event("join_promote_without_reply", ph.peer_pk.substr(0, 16) + "...");
+                        }
+                    } else {
+                        log_event("join_expected_join_request",
+                                  "got message type index=" + std::to_string(msg_opt->index()));
+                    }
+                    to_erase.push_back(i);
                     break;
                 }
                 case PendingHandshake::State::Done:
@@ -9184,80 +9258,64 @@ public:
     }
 #endif
 
-    // 1. handle_inbound_session — messages from a remote peer
-    //    operating on OUR local sessions
-    void handle_inbound_session(Conn& conn, Message& msg) {
-        // JoinRequest — new node onboarding
-        if (std::holds_alternative<JoinRequestMsg>(msg)) {
-            auto& jr = std::get<JoinRequestMsg>(msg);
-            JoinReplyMsg reply;
-            {
-                std::lock_guard lock(invite_mutex_);
-                auto now = std::chrono::steady_clock::now();
-                pending_invites_.erase(
-                    std::remove_if(pending_invites_.begin(), pending_invites_.end(),
-                        [now](auto& p) { return (now - p.created_at) > std::chrono::hours(2); }),
-                    pending_invites_.end());
-                auto it = std::find_if(pending_invites_.begin(), pending_invites_.end(),
-                    [&](auto& p) { return p.token == jr.token && p.claimed_by.empty(); });
-                if (it == pending_invites_.end()) {
-                    reply.ok = false;
-                    reply.error = "invalid or expired token";
-                } else {
-                    it->claimed_by = conn.peer_pubkey;
-                    reply.ok = true;
-                    reply.node_name = "node-" + jr.token.substr(0, 8);
-                    std::ostringstream seeds;
-                    for (size_t si = 0; si < config_.seeds.size(); ++si) {
-                        if (si) seeds << '|';
-                        seeds << config_.seeds[si].name << ':' << config_.seeds[si].addr;
-                    }
-                    reply.seeds_csv = seeds.str();
-                    reply.host_pubkey = our_pubkey_;
-                    reply.host_addr = config_.listen_addr + ":" + std::to_string(config_.listen_port);
-                    // 2.0.20: include all seed pubkeys so joiner trusts the full mesh
-                    std::ostringstream pkjson;
-                    pkjson << "[";
-                    for (size_t si = 0; si < config_.seeds.size(); ++si) {
-                        if (si) pkjson << ",";
-                        pkjson << "{\"name\":\"" << gossip_json_escape(config_.seeds[si].name)
-                                << "\",\"addr\":\"" << gossip_json_escape(config_.seeds[si].addr)
-                                << "\",\"pubkey_hex\":\"" << gossip_json_escape(config_.seeds[si].pubkey_hex)
-                                << "\"}";
-                    }
-                    pkjson << "]";
-                    reply.peer_pubkeys_json = pkjson.str();
+    // Extract join request processing into a reusable method.
+    // Used by both handle_inbound_session (promoted conn) and ReadJoinRequest (inline handshake).
+    JoinReplyMsg process_join_request(const JoinRequestMsg& jr, const std::string& peer_pubkey) {
+        JoinReplyMsg reply;
+        {
+            std::lock_guard lock(invite_mutex_);
+            auto now = std::chrono::steady_clock::now();
+            pending_invites_.erase(
+                std::remove_if(pending_invites_.begin(), pending_invites_.end(),
+                    [now](auto& p) { return (now - p.created_at) > std::chrono::hours(2); }),
+                pending_invites_.end());
+            auto it = std::find_if(pending_invites_.begin(), pending_invites_.end(),
+                [&](auto& p) { return p.token == jr.token && p.claimed_by.empty(); });
+            if (it == pending_invites_.end()) {
+                reply.ok = false;
+                reply.error = "invalid or expired token";
+            } else {
+                it->claimed_by = peer_pubkey;
+                reply.ok = true;
+                reply.node_name = "node-" + jr.token.substr(0, 8);
+                std::ostringstream seeds;
+                for (size_t si = 0; si < config_.seeds.size(); ++si) {
+                    if (si) seeds << '|';
+                    seeds << config_.seeds[si].name << ':' << config_.seeds[si].addr;
                 }
-                // Close join window only if all invites are claimed/expired.
-                // Leaving it open while unclaimed invites exist allows multiple
-                // joiners to connect during the same window.
-                bool any_unclaimed = false;
-                for (const auto& p : pending_invites_) {
-                    if (p.claimed_by.empty()) { any_unclaimed = true; break; }
+                reply.seeds_csv = seeds.str();
+                reply.host_pubkey = our_pubkey_;
+                reply.host_addr = config_.listen_addr + ":" + std::to_string(config_.listen_port);
+                std::ostringstream pkjson;
+                pkjson << "[";
+                for (size_t si = 0; si < config_.seeds.size(); ++si) {
+                    if (si) pkjson << ",";
+                    pkjson << "{\"name\":\"" << gossip_json_escape(config_.seeds[si].name)
+                            << "\",\"addr\":\"" << gossip_json_escape(config_.seeds[si].addr)
+                            << "\",\"pubkey_hex\":\"" << gossip_json_escape(config_.seeds[si].pubkey_hex)
+                            << "\"}";
                 }
-                if (!any_unclaimed) {
-                    g_allow_join_connections.store(false, std::memory_order_relaxed);
-                }
+                pkjson << "]";
+                reply.peer_pubkeys_json = pkjson.str();
             }
-            if (reply.ok && !conn.peer_pubkey.empty()) {
-                // Auto-authorize the joiner (skip if already present)
-                std::string auth_path = config_.authorized_keys_path;
-                std::string dir = auth_path;
-                auto slash = dir.rfind('/');
-                if (slash == std::string::npos) slash = dir.rfind('\\');
-                if (slash != std::string::npos) dir = dir.substr(0, slash);
-                if (!bs::mesh::ensure_private_directory(dir)) {
-                    reply.ok = false;
-                    reply.error = "host could not prepare authorized_keys dir";
-                } else {
+        }
+        if (reply.ok && !peer_pubkey.empty()) {
+            std::string auth_path = config_.authorized_keys_path;
+            std::string dir = auth_path;
+            auto slash = dir.rfind('/');
+            if (slash == std::string::npos) slash = dir.rfind('\\');
+            if (slash != std::string::npos) dir = dir.substr(0, slash);
+            if (!bs::mesh::ensure_private_directory(dir)) {
+                reply.ok = false;
+                reply.error = "host could not prepare authorized_keys dir";
+            } else {
                 bool already_authorized = false;
                 {
                     std::ifstream existing(auth_path);
                     std::string line;
                     while (std::getline(existing, line)) {
                         if (!line.empty() && line.back() == '\r') line.pop_back();
-                        if (line == "pubkey " + conn.peer_pubkey ||
-                            line == conn.peer_pubkey) {
+                        if (line == "pubkey " + peer_pubkey || line == peer_pubkey) {
                             already_authorized = true;
                             break;
                         }
@@ -9266,14 +9324,24 @@ public:
                 if (!already_authorized) {
                     std::ofstream af(auth_path, std::ios::app);
                     if (af.is_open()) {
-                        af << "pubkey " << conn.peer_pubkey << "\n";
+                        af << "pubkey " << peer_pubkey << "\n";
                     } else {
                         reply.ok = false;
                         reply.error = "host could not persist authorization";
                     }
                 }
-                }
             }
+        }
+        return reply;
+    }
+
+    // 1. handle_inbound_session — messages from a remote peer
+    //    operating on OUR local sessions
+    void handle_inbound_session(Conn& conn, Message& msg) {
+        // JoinRequest — new node onboarding
+        if (std::holds_alternative<JoinRequestMsg>(msg)) {
+            auto& jr = std::get<JoinRequestMsg>(msg);
+            JoinReplyMsg reply = process_join_request(jr, conn.peer_pubkey);
             try { write_frame(conn.ssl.get(), reply, CONTROL_STREAM_ID); } catch (...) {}
             return;
         }
