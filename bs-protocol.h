@@ -1926,6 +1926,12 @@ inline std::string verify_bytes_hex(const std::vector<uint8_t>& b) {
     return s;
 }
 
+// When true (set by `bs invite`), the server accepts TLS from unknown peers
+// so they can send a JoinRequest. The JoinRequest handler validates the invite
+// token and adds the peer to authorized_keys. Without this, the TLS handshake
+// blocks unknown peers before they can present their invite token.
+inline std::atomic<bool> g_allow_join_connections{false};
+
 // Server: verifies client's ed25519 raw public key against authorized_keys (R4.1: reloads per-accept)
 int server_cert_verify_cb(X509_STORE_CTX* ctx, void* arg) {
     auto* auth = static_cast<AuthorizedKeys*>(arg);
@@ -1939,6 +1945,14 @@ int server_cert_verify_cb(X509_STORE_CTX* ctx, void* arg) {
     std::string pk_hex = verify_bytes_hex(raw);
     if (auth->contains(raw)) {
         log_event("tls_verify_server", pk_hex + " result=accept");  // R1.1
+        X509_STORE_CTX_set_error(ctx, X509_V_OK);
+        return 1;
+    }
+    // Join window open: accept unknown peers so they can present an invite token.
+    // The JoinRequest handler validates the token; without a valid token the
+    // connection is dropped after the join exchange (no session is created).
+    if (g_allow_join_connections.load(std::memory_order_relaxed)) {
+        log_event("tls_verify_server", pk_hex + " result=accept (join window)");
         X509_STORE_CTX_set_error(ctx, X509_V_OK);
         return 1;
     }
@@ -9197,6 +9211,11 @@ public:
                     pkjson << "]";
                     reply.peer_pubkeys_json = pkjson.str();
                 }
+                // Close join window after a successful claim (security:
+                // don't leave TLS open for unknown peers longer than needed).
+                if (reply.ok) {
+                    g_allow_join_connections.store(false, std::memory_order_relaxed);
+                }
             }
             if (reply.ok && !conn.peer_pubkey.empty()) {
                 // Auto-authorize the joiner (skip if already present)
@@ -10768,6 +10787,10 @@ public:
                 pi.created_at = now;
                 response = pi.token + "\n";
                 pending_invites_.push_back(std::move(pi));
+                // Open the join window so unknown peers can TLS-connect to
+                // present their invite token. Closed after successful join
+                // or naturally expires when invites time out.
+                g_allow_join_connections.store(true, std::memory_order_relaxed);
             }
             else if (line == "SESSIONS") {
                 response = sessions_.summary() + "\n";
