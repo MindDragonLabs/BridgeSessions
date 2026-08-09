@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -eu
-# BridgeSessions one-line install (Linux / macOS)
+# BridgeSessions one-line install + upgrade (Linux / macOS)
 #
 #   curl -fsSL https://codeberg.org/Mind-Dragon/BridgeSessions/raw/tag/26.08.06-beta1/scripts/install.sh | bash
 #
@@ -9,12 +9,13 @@ set -eu
 #   curl ... | bash -s -- join <host-addr> <invite-code>
 #
 # On Windows (PowerShell):
-#   Invoke-WebRequest -Uri "https://codeberg.org/Mind-Dragon/BridgeSessions/raw/tag/26.08.06-beta1/dist/bridgesessions-windows-x86_64.exe" -OutFile "$env:LOCALAPPDATA\bridgesessions.exe"
+#   irm https://codeberg.org/Mind-Dragon/BridgeSessions/raw/tag/26.08.06-beta1/scripts/install.ps1 | iex
 
 TAG="${BRIDGESESSIONS_TAG:-26.08.06-beta1}"
 BASE="https://codeberg.org/Mind-Dragon/BridgeSessions/raw/tag/${TAG}/dist"
 INSTALL_DIR="${HOME}/.local/bin"
 VERSION_FILE="${INSTALL_DIR}/.bridgesessions-version"
+FORCE_UPDATE="${BRIDGESESSIONS_FORCE:-0}"
 
 os=$(uname -s)
 arch=$(uname -m)
@@ -60,12 +61,51 @@ validate_binary() {
   esac
 }
 
+# ── 1. Stop existing daemon before update ──────────────────────────
+stop_daemon() {
+  case "${os}" in
+    Darwin)
+      launchctl bootout "gui/$(id -u)/com.bridgesessions.mesh" 2>/dev/null || true
+      pkill -f "bridgesessions.*--config" 2>/dev/null || true
+      ;;
+    Linux)
+      systemctl --user stop bridgesessions.service 2>/dev/null || true
+      pkill -f "bridgesessions.*--config" 2>/dev/null || true
+      ;;
+  esac
+  sleep 1
+}
+
+start_daemon() {
+  case "${os}" in
+    Darwin)
+      launchctl bootstrap "gui/$(id -u)" "${HOME}/Library/LaunchAgents/com.bridgesessions.mesh.plist" 2>/dev/null || \
+        launchctl load -w "${HOME}/Library/LaunchAgents/com.bridgesessions.mesh.plist" 2>/dev/null || true
+      ;;
+    Linux)
+      systemctl --user daemon-reload 2>/dev/null || true
+      systemctl --user enable bridgesessions.service 2>/dev/null || true
+      systemctl --user start bridgesessions.service 2>/dev/null || true
+      ;;
+  esac
+}
+
 CURRENT=""
 [ -f "${VERSION_FILE}" ] && CURRENT="$(cat "${VERSION_FILE}")" || true
-if [ "${CURRENT}" = "${TAG}" ] && [ -x "${INSTALL_DIR}/${BIN_NAME}" ]; then
-  validate_binary "${INSTALL_DIR}/${BIN_NAME}"
-  echo "→ bridgesessions ${TAG} already installed."
-else
+
+# Determine if we need to download
+NEEDS_DOWNLOAD=0
+if [ "${FORCE_UPDATE}" = "1" ]; then
+  NEEDS_DOWNLOAD=1
+elif [ "${CURRENT}" != "${TAG}" ] || [ ! -x "${INSTALL_DIR}/${BIN_NAME}" ]; then
+  NEEDS_DOWNLOAD=1
+fi
+
+if [ "${NEEDS_DOWNLOAD}" = "1" ]; then
+  # Stop daemon before swapping binary (prevents "Text file busy")
+  echo "→ Stopping existing daemon..."
+  stop_daemon
+
   echo "→ Downloading bridgesessions ${TAG} for ${os}-${arch}..."
   TMP_BIN="${INSTALL_DIR}/.${BIN_NAME}.download.$$"
   trap 'rm -f "${TMP_BIN:-}"' EXIT INT TERM
@@ -100,9 +140,15 @@ else
     echo "ERROR: downloaded binary reports ${REPORTED_VERSION}; expected ${EXPECTED_VERSION}" >&2
     exit 1
   fi
+
+  # Atomic swap: mv over the old binary (handles "Text file busy" since daemon is stopped)
   mv -f "${TMP_BIN}" "${INSTALL_DIR}/${BIN_NAME}"
   echo "${TAG}" > "${VERSION_FILE}"
   trap - EXIT INT TERM
+  echo "→ Binary updated."
+else
+  validate_binary "${INSTALL_DIR}/${BIN_NAME}"
+  echo "→ bridgesessions ${TAG} already installed."
 fi
 
 "${INSTALL_DIR}/${BIN_NAME}" --version
@@ -112,10 +158,17 @@ if ! echo "${PATH}" | grep -q "${INSTALL_DIR}"; then
   echo "   (or restart your shell)"
 fi
 
-# ── App dirs + default config ──────────────────────────────────────
+# ── 2. App dirs + default config ───────────────────────────────────
 APP_HOME="${HOME}/.bridgesessions"
 RECEIVE_DIR="${APP_HOME}/received"
 mkdir -p "${APP_HOME}" "${RECEIVE_DIR}"
+
+# Clean received/ dir (prevents macOS daemon crash from binary files — known issue)
+RECEIVE_COUNT=$(find "${RECEIVE_DIR}" -type f 2>/dev/null | wc -l | tr -d ' ')
+if [ "${RECEIVE_COUNT}" -gt 50 ]; then
+  echo "→ Cleaning ${RECEIVE_COUNT} files from received/ (prevents daemon crash)..."
+  find "${RECEIVE_DIR}" -type f -delete 2>/dev/null || true
+fi
 
 CONFIG_PATH="${APP_HOME}/config"
 if [ ! -f "${CONFIG_PATH}" ]; then
@@ -130,7 +183,7 @@ EOF
   chmod 600 "${CONFIG_PATH}"
 fi
 
-# ── System service setup ───────────────────────────────────────────
+# ── 3. System service setup ────────────────────────────────────────
 BIN_ABS="${INSTALL_DIR}/${BIN_NAME}"
 case "${os}" in
   Darwin)
@@ -162,9 +215,17 @@ case "${os}" in
 </dict>
 </plist>
 EOF
-    launchctl bootstrap "gui/$(id -u)" "${PLIST_PATH}" 2>/dev/null || \
-      launchctl load -w "${PLIST_PATH}" 2>/dev/null || true
-    echo "→ launchd service installed (com.bridgesessions.mesh)."
+    # Always (re)start the daemon after install/update
+    echo "→ Restarting daemon..."
+    stop_daemon
+    start_daemon
+    sleep 2
+    if pgrep -f "bridgesessions.*--config" >/dev/null 2>&1; then
+      echo "→ Daemon running (PID $(pgrep -f 'bridgesessions.*--config' | head -1))."
+    else
+      echo "→ WARNING: Daemon not running. Start manually:"
+      echo "   ${BIN_ABS} --config ${CONFIG_PATH}"
+    fi
     ;;
   Linux)
     UNIT_DIR="${HOME}/.config/systemd/user"
@@ -184,23 +245,32 @@ RestartSec=3
 [Install]
 WantedBy=default.target
 EOF
-    systemctl --user daemon-reload 2>/dev/null || true
-    systemctl --user enable bridgesessions.service 2>/dev/null || true
-    systemctl --user start bridgesessions.service 2>/dev/null || true
-    echo "→ systemd service installed (bridgesessions.service)."
+    echo "→ Restarting daemon..."
+    start_daemon
+    sleep 2
+    if systemctl --user is-active bridgesessions.service >/dev/null 2>&1; then
+      echo "→ Daemon running."
+    else
+      echo "→ WARNING: Daemon not running. Start manually:"
+      echo "   systemctl --user start bridgesessions"
+    fi
     ;;
 esac
 
-# ── CUA helper instructions ────────────────────────────────────────
+# ── 4. CUA helper instructions ─────────────────────────────────────
 echo ""
 echo "→ CUA helper (desktop automation):"
 echo "   For screen capture + input injection on desktop sessions, run:"
 echo "   ${BIN_ABS} --cua-helper &"
 echo ""
 
-# ── Join mode ──────────────────────────────────────────────────────
+# ── 5. Join mode ───────────────────────────────────────────────────
 if [ $# -ge 2 ] && [ "$1" = "join" ]; then
   shift
+  # Ensure old daemon is stopped before join (prevents conflicts)
+  echo "→ Stopping existing daemon before join..."
+  stop_daemon
+  sleep 1
   echo "→ Joining mesh: bridgesessions join $@ --start"
   exec "${INSTALL_DIR}/${BIN_NAME}" join "$@" --start
 fi

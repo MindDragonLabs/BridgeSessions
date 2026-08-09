@@ -12,24 +12,25 @@ $VERSION_FILE = "$INSTALL_DIR\.bridgesessions-version"
 $CONFIG_DIR = "$env:USERPROFILE\.bridgesessions"
 $CONFIG_PATH = "$CONFIG_DIR\config"
 
-# -- 1. DETECT RUNNING DAEMON ------------------------------------------------
+# -- 1. DETECT AND KILL ALL RUNNING DAEMONS (including Session 0) ------------
 $wasRunning = $false
-$existingPid = $null
 try {
-    $proc = Get-Process -Name bridgesessions -ErrorAction SilentlyContinue
-    if ($proc) {
+    # Get-CimInstance finds processes across ALL sessions (Session 0 phantoms
+    # are invisible to Get-Process from WinRM but hold IPC port 19980).
+    $procs = Get-CimInstance Win32_Process -Filter "Name like '%bridgesessions%'" -ErrorAction SilentlyContinue
+    if ($procs) {
         $wasRunning = $true
-        $existingPid = $proc.Id
-        Write-Host "→ bridgesessions daemon running (PID $existingPid) — will restart after upgrade."
+        foreach ($p in $procs) {
+            Write-Host "→ Killing bridgesessions PID $($p.ProcessId) (Session $($p.SessionId))..."
+            try { Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue } catch {}
+        }
+        Start-Sleep -Seconds 2
     }
 } catch {}
 
-# -- 2. STOP DAEMON ----------------------------------------------------------
-if ($wasRunning) {
-    Write-Host "→ Stopping daemon..."
-    try { taskkill /f /im bridgesessions.exe 2>$null } catch {}
-    Start-Sleep -Seconds 2
-}
+# Also kill via taskkill as fallback
+try { taskkill /f /im bridgesessions.exe 2>$null } catch {}
+Start-Sleep -Seconds 1
 
 # -- 3. DOWNLOAD + INSTALL ---------------------------------------------------
 New-Item -ItemType Directory -Force -Path $INSTALL_DIR | Out-Null
@@ -55,10 +56,18 @@ if ($needsDownload) {
 $ver = & $BIN_PATH --version 2>&1
 Write-Host "→ Version: $ver"
 
-# -- 5. APP DIRS + DEFAULT CONFIG --------------------------------------------
+# -- 5. APP DIRS + DEFAULT CONFIG + CLEANUP -----------------------------------
 $RECEIVE_DIR = "$CONFIG_DIR\received"
 New-Item -ItemType Directory -Force -Path $CONFIG_DIR | Out-Null
 New-Item -ItemType Directory -Force -Path $RECEIVE_DIR | Out-Null
+
+# Clean received/ dir if it has too many files (prevents daemon crash from
+# binary files triggering JSON parse errors — known macOS/Windows issue)
+$receiveFiles = Get-ChildItem -Path $RECEIVE_DIR -File -ErrorAction SilentlyContinue
+if ($receiveFiles.Count -gt 50) {
+    Write-Host "→ Cleaning $($receiveFiles.Count) files from received/ (prevents daemon crash)..."
+    Remove-Item -Path "$RECEIVE_DIR\*" -Force -ErrorAction SilentlyContinue
+}
 
 if (-not (Test-Path $CONFIG_PATH)) {
     Write-Host "→ Creating default config at $CONFIG_PATH..."
@@ -120,22 +129,21 @@ if ($cuaTask) {
 }
 Write-Host "→ CUA helper scheduled task installed (BridgeSessions-CuaHelper)."
 
-# -- 9. RESTART DAEMON (if it was running) ------------------------------------
-if ($wasRunning) {
-    Write-Host "→ Restarting daemon..."
-    Start-ScheduledTask -TaskName "BridgeSessions" -ErrorAction SilentlyContinue
-    Start-Sleep -Seconds 2
-    try {
-        $newProc = Get-Process -Name bridgesessions -ErrorAction SilentlyContinue
-        if ($newProc) {
-            Write-Host "→ Daemon restarted (PID $($newProc.Id))."
-        } else {
-            Write-Host "→ WARNING: Daemon did not start. Run manually:"
-            Write-Host "   $BIN_PATH --config $CONFIG_PATH"
-        }
-    } catch {
-        Write-Host "→ Starting daemon silently..."
+# -- 9. ALWAYS START DAEMON ----------------------------------------------------
+Write-Host "→ Starting daemon..."
+Start-ScheduledTask -TaskName "BridgeSessions" -ErrorAction SilentlyContinue
+Start-Sleep -Seconds 2
+try {
+    $newProcs = Get-CimInstance Win32_Process -Filter "Name like '%bridgesessions%'" -ErrorAction SilentlyContinue
+    $daemonProc = $newProcs | Where-Object { $_.CommandLine -like "*--config*" -and $_.CommandLine -notlike "*--cua-helper*" } | Select-Object -First 1
+    if ($daemonProc) {
+        Write-Host "→ Daemon running (PID $($daemonProc.ProcessId))."
+    } else {
+        Write-Host "→ WARNING: Daemon did not start. Run manually:"
+        Write-Host "   $BIN_PATH --config `"$CONFIG_PATH`""
     }
+} catch {
+    Write-Host "→ WARNING: Could not verify daemon status."
 }
 
 Write-Host "→ Done."
