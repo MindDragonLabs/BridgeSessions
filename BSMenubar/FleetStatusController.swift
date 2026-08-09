@@ -20,6 +20,9 @@ final class FleetStatusController: NSObject {
     private(set) var isPolling = false
     private var lastError: String?
 
+    // Dedicated serial queue for polling — prevents blocking the timer
+    private let pollQueue = DispatchQueue(label: "com.minddragon.bridgesessions.fleet-poll", qos: .utility)
+
     // bs binary path discovery
     private let bsBinaryPath: String = {
         let candidates = [
@@ -49,9 +52,9 @@ final class FleetStatusController: NSObject {
     func startPolling() {
         guard !isPolling else { return }
         isPolling = true
-        pollNow()
-        let queue = DispatchQueue.global(qos: .utility)
-        let timer = DispatchSource.makeTimerSource(queue: queue)
+        // Initial poll on background queue (not main thread)
+        pollQueue.async { [weak self] in self?.pollNow() }
+        let timer = DispatchSource.makeTimerSource(queue: pollQueue)
         timer.schedule(deadline: .now() + 5, repeating: 5)
         timer.setEventHandler { [weak self] in self?.pollNow() }
         timer.resume()
@@ -79,7 +82,21 @@ final class FleetStatusController: NSObject {
             DispatchQueue.main.async { self.updateError("Cannot launch bridgesessions: \(error.localizedDescription)") }
             return
         }
+
+        // Drain stderr on a background thread to prevent pipe buffer deadlock
+        DispatchQueue.global(qos: .utility).async {
+            _ = errPipe.fileHandleForReading.readDataToEndOfFile()
+        }
+
+        // 10s timeout — kill the process if it hangs
+        let timeoutQueue = DispatchQueue.global(qos: .utility)
+        let timeoutWork = DispatchWorkItem {
+            if task.isRunning { task.terminate() }
+        }
+        timeoutQueue.asyncAfter(deadline: .now() + 10, execute: timeoutWork)
+
         task.waitUntilExit()
+        timeoutWork.cancel()
 
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
         let output = String(data: data, encoding: .utf8) ?? ""

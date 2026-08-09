@@ -133,8 +133,9 @@ final class SettingsController {
                 """
             alert.alertStyle = screenOK && axOK ? .informational : .warning
             alert.addButton(withTitle: "OK")
-            // accessory view so the alert can show on the accessory app
-            alert.beginSheetModal(for: NSApp.mainWindow ?? NSWindow()) { _ in }
+            // Use runModal for accessory apps (no main window for sheet attachment)
+            NSApp.activate(ignoringOtherApps: true)
+            alert.runModal()
         }
     }
 }

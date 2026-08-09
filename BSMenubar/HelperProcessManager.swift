@@ -35,10 +35,11 @@ final class HelperProcessManager {
         p.executableURL = URL(fileURLWithPath: bsBinaryPath)
         p.arguments = ["--cua-helper"]
 
-        // Pipe stderr/stdout so the child doesn't inherit our stdout
-        let pipe = Pipe()
-        p.standardOutput = pipe
-        p.standardError = pipe
+        // Redirect stdout/stderr to /dev/null to prevent pipe buffer deadlock
+        // (undrained pipe fills at 64KB and blocks the helper)
+        let devNull = FileHandle(forWritingAtPath: "/dev/null") ?? FileHandle.standardOutput
+        p.standardOutput = devNull
+        p.standardError = devNull
 
         p.terminationHandler = { [weak self] proc in
             NSLog("[BSMenubar] cua-helper exited (status=%d)", proc.terminationStatus)
