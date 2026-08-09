@@ -6751,6 +6751,12 @@ private:
     }
 
     void prune_revoked_connections() {
+        // Skip pruning when join window is open — joining peers are not yet
+        // in authorized_keys. The JoinRequest handler adds them on success.
+        if (g_allow_join_connections.load(std::memory_order_relaxed)) {
+            log_event("prune_skip_join_window", "g_allow_join_connections=true");
+            return;
+        }
         authorized_keys_.reload();
         for (auto& c : conns_) {
             if (c.sock_fd == INVALID_SOCKET || c.peer_pubkey.empty() ||
@@ -7126,11 +7132,22 @@ private:
                         auto identity = verify_inbound_peer_identity(
                             config_, ph.peer_pk, hello.pubkey_hex, hello.node_name);
                         if (!identity.ok) {
-                            log_event("hello_identity_rejected",
-                                      hello.node_name + " reason=" + identity.reason);
-                            ph.state = PendingHandshake::State::Failed;
-                            to_erase.push_back(i);
-                            break;
+                            // Join window: allow unknown peers through Hello
+                            // verification so they can send a JoinRequest with
+                            // a valid invite token. The TLS cert verify
+                            // callback already accepted them (g_allow_join_connections).
+                            // The JoinRequest handler validates the token and
+                            // adds them to authorized_keys; without a valid
+                            // token the connection is dropped after join.
+                            if (!g_allow_join_connections.load(std::memory_order_relaxed)) {
+                                log_event("hello_identity_rejected",
+                                          hello.node_name + " reason=" + identity.reason);
+                                ph.state = PendingHandshake::State::Failed;
+                                to_erase.push_back(i);
+                                break;
+                            }
+                            log_event("hello_identity_accept_join_window",
+                                      hello.node_name + " pubkey=" + hello.pubkey_hex.substr(0, 16) + "...");
                         }
                         // Send Hello reply (possibly non-blocking).
                         ph.outbound_hello = build_hello();
@@ -9211,9 +9228,14 @@ public:
                     pkjson << "]";
                     reply.peer_pubkeys_json = pkjson.str();
                 }
-                // Close join window after a successful claim (security:
-                // don't leave TLS open for unknown peers longer than needed).
-                if (reply.ok) {
+                // Close join window only if all invites are claimed/expired.
+                // Leaving it open while unclaimed invites exist allows multiple
+                // joiners to connect during the same window.
+                bool any_unclaimed = false;
+                for (const auto& p : pending_invites_) {
+                    if (p.claimed_by.empty()) { any_unclaimed = true; break; }
+                }
+                if (!any_unclaimed) {
                     g_allow_join_connections.store(false, std::memory_order_relaxed);
                 }
             }

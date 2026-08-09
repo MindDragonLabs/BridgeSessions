@@ -743,8 +743,13 @@ int main(int argc, char** argv) {
         jr.token = join_token;
         write_frame(conn.ssl.get(), jr, bs::mesh::CONTROL_STREAM_ID);
 
-        // Read JoinReply
-        bs::mesh::Message msg = bs::mesh::read_frame(conn.ssl.get());
+        // Read JoinReply (skip Ping/Pong/Hello/Gossip noise from the event loop)
+        bs::mesh::Message msg;
+        for (int retry = 0; retry < 10; ++retry) {
+            msg = bs::mesh::read_frame(conn.ssl.get());
+            if (std::holds_alternative<bs::mesh::JoinReplyMsg>(msg)) break;
+            // Discard non-JoinReply frames (server may send Ping, Hello, etc.)
+        }
         if (!std::holds_alternative<bs::mesh::JoinReplyMsg>(msg)) {
             std::cerr << "Unexpected reply from host\n";
             return 1;
