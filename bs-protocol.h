@@ -10458,6 +10458,16 @@ public:
     [[nodiscard]] size_t pending_handshake_count_for_test() const {
         return pending_handshakes_.size();
     }
+    static constexpr size_t kMaxPendingHandshakes_for_test() {
+        return kMaxPendingHandshakes;
+    }
+    bool start_outbound_handshake_for_test(const PeerEntry& peer) {
+        return start_outbound_handshake(peer);
+    }
+    [[nodiscard]] long next_backoff_ms_for_test(int attempt) const {
+        return next_backoff_ms(attempt);
+    }
+    void advance_handshakes_for_test() { advance_handshakes(); }
     [[nodiscard]] size_t worker_queue_depth_for_test() const {
         return worker_pool_ ? worker_pool_->pending_count() : 0;
     }
