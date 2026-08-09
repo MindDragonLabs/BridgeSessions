@@ -3104,8 +3104,33 @@ inline void close_socket(int fd) {
     resp.error = "windows CUA input requires cua-helper (run: bridgesessions --cua-helper in user session)";
     return resp;
 #elif defined(__APPLE__)
+    // macOS: route through cua-helper (runs in user session for desktop access).
+    // The helper uses CGEvent for input injection and ScreenCaptureKit for capture.
+    {
+        auto helper_resp = cua_helper_rpc(req, app_home);
+        if (helper_resp.status == 0) return helper_resp;
+        // Fall through to in-process fallback
+    }
+    // In-process fallback: screen info only (no input injection without helper)
+    if (req.action == 0) {
+        // Screen dimensions via system_profiler (no framework dependency needed)
+        FILE* p = popen("system_profiler SPDisplaysDataType 2>/dev/null | grep Resolution | head -1", "r");
+        if (p) {
+            char buf[256];
+            if (fgets(buf, sizeof(buf), p)) {
+                int w = 0, h = 0;
+                if (sscanf(buf, " Resolution: %d x %d", &w, &h) == 2 || w == 0) {
+                    char* x = strstr(buf, " x ");
+                    if (x) { w = atoi(buf + 13); h = atoi(x + 3); }
+                }
+                if (w > 0 && h > 0) { resp.screen_w = w; resp.screen_h = h; resp.status = 0; }
+            }
+            pclose(p);
+        }
+        if (resp.status == 0) return resp;
+    }
     resp.status = 1;
-    resp.error = "macos CGEvent not yet deployed (P5c)";
+    resp.error = "macos CUA input requires cua-helper (run: bridgesessions --cua-helper in user session)";
     return resp;
 #else
     // Linux: dispatch via xdotool (ubiquitous on X11 desktops).
