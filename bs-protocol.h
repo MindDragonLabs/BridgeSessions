@@ -6501,7 +6501,13 @@ private:
             hints.ai_socktype = SOCK_STREAM;
             int gai_rc = getaddrinfo(host.c_str(), nullptr, &hints, &res);
             if (gai_rc != 0 || !res) {
+#ifdef _WIN32
+                // MinGW with -municode maps gai_strerror to the wide-char version.
+                // Use gai_strerrorA explicitly for ANSI output.
+                std::string err = gai_rc != 0 ? gai_strerrorA(gai_rc) : "no results";
+#else
                 std::string err = gai_rc != 0 ? gai_strerror(gai_rc) : "no results";
+#endif
                 throw std::runtime_error("DNS resolution failed for '" + host + "': " + err);
             }
             sa.sin_addr = reinterpret_cast<struct sockaddr_in*>(res->ai_addr)->sin_addr;
