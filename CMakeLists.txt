@@ -131,6 +131,12 @@ foreach(TEST_SRC ${TEST_SOURCES})
     if(WIN32)
         target_link_libraries(${TEST_NAME} ws2_32.lib)
     endif()
+    if(APPLE)
+        target_link_libraries(${TEST_NAME}
+            "-framework CoreGraphics"
+            "-framework ScreenCaptureKit"
+            "-framework Foundation")
+    endif()
     if(TEST_NAME STREQUAL "test_mesh" OR
        TEST_NAME STREQUAL "test_mesh_responsiveness")
         catch_discover_tests(${TEST_NAME}

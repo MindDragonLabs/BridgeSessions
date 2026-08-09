@@ -21,8 +21,10 @@
 #include <nlohmann/json.hpp>
 
 #if defined(__APPLE__)
-#include <ApplicationServices/ApplicationServices.h>
+#include <CoreGraphics/CoreGraphics.h>
+#include <CoreGraphics/CGEvent.h>
 #include <unistd.h>
+extern "C" int bs_macos_capture_png(const char*, unsigned, char*, size_t);
 #endif
 
 namespace bs::mesh {
@@ -260,26 +262,27 @@ inline CuaResponseMsg cua_helper_execute(const CuaRequestMsg& req) {
             resp.status = 0;
             return resp;
         }
-        case 6: {  // capture — screencapture CLI (user session + Screen Recording perm)
-            std::string tmp = "/tmp/bs-cua-helper-" + std::to_string(getpid()) + ".png";
-            ::unlink(tmp.c_str());
-            std::string cmd = "screencapture -x '" + tmp + "' 2>/dev/null";
-            int rc = std::system(cmd.c_str());
-            if (rc != 0 || !std::filesystem::exists(tmp)) {
+        case 6: {  // capture — ScreenCaptureKit via bs_macos_capture_png
+            char tmp[] = "/tmp/bs-cua-helper-XXXXXX.png";
+            int fd = mkstemps(tmp, 4);
+            if (fd >= 0) close(fd);
+            char err[1024] = {};
+            if (!bs_macos_capture_png(tmp, 0, err, sizeof(err))) {
                 resp.status = 1;
-                resp.error = "screencapture failed — grant Screen Recording to the helper (TCC)";
+                resp.error = std::string("capture failed — grant Screen Recording to the helper (TCC): ") + err;
+                ::unlink(tmp);
                 return resp;
             }
             std::ifstream cap(tmp, std::ios::binary | std::ios::ate);
-            if (!cap) { resp.status = 1; resp.error = "open capture failed"; return resp; }
+            if (!cap) { resp.status = 1; resp.error = "open capture failed"; ::unlink(tmp); return resp; }
             auto sz = cap.tellg();
             if (sz <= 0 || (size_t)sz > MAX_IMAGE_BYTES) {
                 resp.status = 1; resp.error = "capture empty/oversize";
-                ::unlink(tmp.c_str()); return resp;
+                ::unlink(tmp); return resp;
             }
             resp.data.resize((size_t)sz);
             cap.seekg(0); cap.read((char*)resp.data.data(), sz);
-            ::unlink(tmp.c_str());
+            ::unlink(tmp);
             resp.format = 1; resp.status = 0;
             auto r = CGDisplayBounds(CGMainDisplayID());
             resp.screen_w = (int16_t)r.size.width;

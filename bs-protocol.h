@@ -2988,8 +2988,8 @@ inline void close_socket(int fd) {
     j["hid_key"] = req.hid_key;
     j["modifiers"] = req.modifiers;
     j["text"] = req.text;
-    j["token"] = token;
-    std::string line = j.dump() + "\n";
+    // Token as space-prefix: helper expects "TOKEN {json}\n"
+    std::string line = token + " " + j.dump() + "\n";
     if (send(sfd, line.data(), (int)line.size(), 0) <= 0) {
         close_socket(sfd);
         resp.error = "cua-helper send failed";
@@ -3037,6 +3037,19 @@ inline void close_socket(int fd) {
     }
     return resp;
 }
+
+// Forward declarations for macOS CUA (definitions in macos-capture.mm)
+#ifdef __APPLE__
+#include <CoreGraphics/CoreGraphics.h>
+#ifdef BS_TESTING
+inline int bs_macos_capture_png(const char*, unsigned, char* error, size_t capacity) {
+    if (error && capacity) std::snprintf(error, capacity, "ScreenCaptureKit test stub");
+    return 0;
+}
+#else
+extern "C" int bs_macos_capture_png(const char*, unsigned, char*, size_t);
+#endif
+#endif
 
 [[nodiscard]] CuaResponseMsg cua_execute(const CuaRequestMsg& req, const std::string& app_home = "") {
     CuaResponseMsg resp;
@@ -3111,23 +3124,40 @@ inline void close_socket(int fd) {
         if (helper_resp.status == 0) return helper_resp;
         // Fall through to in-process fallback
     }
-    // In-process fallback: screen info only (no input injection without helper)
+    // In-process fallback (daemon running in user session)
     if (req.action == 0) {
-        // Screen dimensions via system_profiler (no framework dependency needed)
-        FILE* p = popen("system_profiler SPDisplaysDataType 2>/dev/null | grep Resolution | head -1", "r");
-        if (p) {
-            char buf[256];
-            if (fgets(buf, sizeof(buf), p)) {
-                int w = 0, h = 0;
-                if (sscanf(buf, " Resolution: %d x %d", &w, &h) == 2 || w == 0) {
-                    char* x = strstr(buf, " x ");
-                    if (x) { w = atoi(buf + 13); h = atoi(x + 3); }
-                }
-                if (w > 0 && h > 0) { resp.screen_w = w; resp.screen_h = h; resp.status = 0; }
+        // Screen dimensions via CoreGraphics (no subprocess needed)
+        auto r = CGDisplayBounds(CGMainDisplayID());
+        resp.screen_w = (int16_t)r.size.width;
+        resp.screen_h = (int16_t)r.size.height;
+        resp.status = 0;
+        return resp;
+    }
+    if (req.action == 6) {
+        // Capture via ScreenCaptureKit (macos-capture.mm)
+        char tmp[] = "/tmp/bs-cua-XXXXXX.png";
+        int fd = mkstemps(tmp, 4);
+        if (fd >= 0) close(fd);
+        char err[1024] = {};
+        if (bs_macos_capture_png(tmp, 0, err, sizeof(err))) {
+            std::ifstream cap(tmp, std::ios::binary | std::ios::ate);
+            auto sz = cap.tellg();
+            if (sz > 0 && (size_t)sz <= MAX_IMAGE_BYTES) {
+                resp.data.resize((size_t)sz);
+                cap.seekg(0);
+                cap.read((char*)resp.data.data(), sz);
+                resp.format = 1; resp.status = 0;
+                auto r = CGDisplayBounds(CGMainDisplayID());
+                resp.screen_w = (int16_t)r.size.width;
+                resp.screen_h = (int16_t)r.size.height;
             }
-            pclose(p);
         }
-        if (resp.status == 0) return resp;
+        ::unlink(tmp);
+        if (resp.status != 0) {
+            resp.status = 1;
+            resp.error = std::string("macOS capture failed: ") + err;
+        }
+        return resp;
     }
     resp.status = 1;
     resp.error = "macos CUA input requires cua-helper (run: bridgesessions --cua-helper in user session)";
@@ -3254,16 +3284,7 @@ inline void close_socket(int fd) {
 }
 
 // ── 2.0.12: Video capture via ffmpeg ─────────────────────────────
-#ifdef __APPLE__
-#ifdef BS_TESTING
-inline int bs_macos_capture_png(const char*, unsigned, char* error, size_t capacity) {
-    if (error && capacity) std::snprintf(error, capacity, "ScreenCaptureKit test stub");
-    return 0;
-}
-#else
-extern "C" int bs_macos_capture_png(const char*, unsigned, char*, size_t);
-#endif
-#endif
+// (bs_macos_capture_png forward declaration moved to top of file near cua_execute)
 [[nodiscard]] CuaVideoCaptureResultMsg video_capture_execute(const CuaVideoCaptureMsg& req) {
     CuaVideoCaptureResultMsg result;
     result.request_id = req.request_id;
