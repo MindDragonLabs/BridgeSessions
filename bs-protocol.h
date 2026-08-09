@@ -1882,6 +1882,8 @@ struct AuthorizedKeys {
             while (!line.empty() && (line.back() == ' ' || line.back() == '\t' ||
                    line.back() == '\r' || line.back() == '\n'))
                 line.pop_back();
+            // Strip optional "pubkey " prefix (written by join handler)
+            if (line.starts_with("pubkey ")) line = line.substr(7);
             if (!line.empty()) {
                 auto raw = hex_decode(line);
                 if (raw.size() == 32) keys.push_back(std::move(raw));
