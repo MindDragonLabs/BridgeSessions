@@ -176,9 +176,38 @@ fi
 
 "${INSTALL_DIR}/${BIN_NAME}" --version
 
+# ── 1c. Ensure INSTALL_DIR is on PATH (macOS/Linux) ────────────────
+# A fresh Mac won't have ~/.local/bin on PATH — bs would be 'command not found'
+# after install. Append an export line to the user's shell rc automatically.
 if ! echo "${PATH}" | grep -q "${INSTALL_DIR}"; then
-  echo "→ Add to PATH: export PATH=\"${INSTALL_DIR}:\$PATH\""
-  echo "   (or restart your shell)"
+  # Pick the login shell's rc file: macOS zsh → .zshrc, Linux bash → .bashrc,
+  # fall back to .profile if neither exists yet.
+  RC_FILE=""
+  if [ -n "${ZSH_VERSION}" ] || [ "$(basename "$SHELL" 2>/dev/null)" = "zsh" ]; then
+    RC_FILE="${HOME}/.zshrc"
+  elif [ "$(basename "$SHELL" 2>/dev/null)" = "bash" ]; then
+    RC_FILE="${HOME}/.bashrc"
+  fi
+  if [ -z "${RC_FILE}" ]; then
+    [ -f "${HOME}/.zshrc" ] && RC_FILE="${HOME}/.zshrc"
+    [ -z "${RC_FILE}" ] && [ -f "${HOME}/.bashrc" ] && RC_FILE="${HOME}/.bashrc"
+    [ -z "${RC_FILE}" ] && RC_FILE="${HOME}/.profile"
+  fi
+
+  if ! grep -q "export PATH=\"${INSTALL_DIR}:\$PATH\"" "${RC_FILE}" 2>/dev/null; then
+    # Don't append if the file already has a .local/bin line in any form
+    if ! grep -q '\.local/bin' "${RC_FILE}" 2>/dev/null; then
+      {
+        echo ""
+        echo "# BridgeSessions CLI on PATH"
+        echo "export PATH=\"${INSTALL_DIR}:\$PATH\""
+      } >> "${RC_FILE}"
+      echo "→ Added '${INSTALL_DIR}' to PATH in ${RC_FILE}"
+    fi
+  fi
+  echo "→ Restart your shell (or run: source ${RC_FILE}) to use 'bs'"
+else
+  echo "→ PATH OK: ${INSTALL_DIR} is on PATH"
 fi
 
 # ── 2. App dirs + default config ───────────────────────────────────

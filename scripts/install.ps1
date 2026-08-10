@@ -56,6 +56,14 @@ if ($needsDownload) {
 $ver = & $BIN_PATH --version 2>&1
 Write-Host "→ Version: $ver"
 
+# ── 4b. Ensure INSTALL_DIR is on PATH (fresh Windows won't have it) ──
+$userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+if ($userPath -notlike "*$INSTALL_DIR*") {
+    [Environment]::SetEnvironmentVariable("Path", "$INSTALL_DIR;$userPath", "User")
+    $env:Path = "$INSTALL_DIR;$env:Path"
+    Write-Host "→ Added $INSTALL_DIR to user PATH (new terminals will find 'bridgesessions')"
+}
+
 # -- 5. APP DIRS + DEFAULT CONFIG + CLEANUP -----------------------------------
 $RECEIVE_DIR = "$CONFIG_DIR\received"
 New-Item -ItemType Directory -Force -Path $CONFIG_DIR | Out-Null
