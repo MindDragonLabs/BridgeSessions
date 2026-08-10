@@ -69,11 +69,20 @@ stop_daemon() {
       pkill -f "bridgesessions.*--config" 2>/dev/null || true
       ;;
     Linux)
+      # Stop systemd service FIRST to prevent auto-restart from re-locking the binary
       systemctl --user stop bridgesessions.service 2>/dev/null || true
+      # Mask temporarily to prevent respawn during swap
+      systemctl --user disable bridgesessions.service 2>/dev/null || true
       pkill -f "bridgesessions.*--config" 2>/dev/null || true
       ;;
   esac
   sleep 1
+  # Verify daemon is actually stopped
+  if pgrep -f "bridgesessions.*--config" >/dev/null 2>&1; then
+    # Force kill if still running
+    pkill -9 -f "bridgesessions.*--config" 2>/dev/null || true
+    sleep 1
+  fi
 }
 
 start_daemon() {
@@ -86,6 +95,12 @@ start_daemon() {
       systemctl --user daemon-reload 2>/dev/null || true
       systemctl --user enable bridgesessions.service 2>/dev/null || true
       systemctl --user start bridgesessions.service 2>/dev/null || true
+      # Fallback: if systemd not available, start manually
+      if ! systemctl --user is-active bridgesessions.service >/dev/null 2>&1; then
+        if ! pgrep -f "bridgesessions.*--config" >/dev/null 2>&1; then
+          nohup "${BIN_ABS}" --config "${CONFIG_PATH}" >/dev/null 2>&1 &
+        fi
+      fi
       ;;
   esac
 }
@@ -141,8 +156,16 @@ if [ "${NEEDS_DOWNLOAD}" = "1" ]; then
     exit 1
   fi
 
-  # Atomic swap: mv over the old binary (handles "Text file busy" since daemon is stopped)
+  # Atomic swap: rename old binary out of the way, then install new one.
+  # This avoids "Text file busy" (ETXTBSY) on Linux when the daemon
+  # process is still holding the file open during shutdown.
+  if [ -f "${INSTALL_DIR}/${BIN_NAME}" ]; then
+    mv -f "${INSTALL_DIR}/${BIN_NAME}" "${INSTALL_DIR}/${BIN_NAME}.old" 2>/dev/null || true
+  fi
   mv -f "${TMP_BIN}" "${INSTALL_DIR}/${BIN_NAME}"
+  chmod +x "${INSTALL_DIR}/${BIN_NAME}"
+  # Clean up old binary after successful swap
+  rm -f "${INSTALL_DIR}/${BIN_NAME}.old" 2>/dev/null || true
   echo "${TAG}" > "${VERSION_FILE}"
   trap - EXIT INT TERM
   echo "→ Binary updated."
