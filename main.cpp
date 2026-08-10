@@ -964,6 +964,19 @@ int main(int argc, char** argv) {
         // Self-update: download latest (or specified) release from GitHub,
         // verify SHA256, atomic swap, restart daemon.
         std::string tag = upgrade_tag.empty() ? "latest" : upgrade_tag;
+        // Validate tag to prevent shell/URL injection (W4-P1): only allow
+        // alnum, dots, dashes, underscores. A tag with ' or ; or $ breaks
+        // out of the single-quoted curl/system commands below.
+        if (tag != "latest") {
+            for (char c : tag) {
+                bool ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+                          (c >= '0' && c <= '9') || c == '.' || c == '-' || c == '_';
+                if (!ok) {
+                    std::cerr << "upgrade: invalid tag '" << tag << "' — only [A-Za-z0-9._-] allowed\n";
+                    return 1;
+                }
+            }
+        }
 
         // If --all, upgrade every healthy peer via mesh shell
         if (upgrade_all) {
@@ -975,10 +988,12 @@ int main(int argc, char** argv) {
             }
             try {
                 auto peers = nlohmann::json::parse(fleet_json_raw);
+                // FLEET IPC returns an OBJECT keyed by peer name:
+                //   {"peername": {"addr":..., "version":..., "status":...}}
+                // Iterate items() to get key (name) + value (peer info).
                 std::cout << "Upgrading " << peers.size() << " peers...\n";
-                for (const auto& peer : peers) {
-                    std::string name = peer.value("name", "");
-                    std::string status = peer.value("status", "");
+                for (auto& [name, info] : peers.items()) {
+                    std::string status = info.value("status", "");
                     if (status.find("healthy") == std::string::npos) {
                         std::cout << "  " << name << ": skipped (not healthy)\n";
                         continue;

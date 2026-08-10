@@ -8844,6 +8844,20 @@ private:
         for (auto& c : conns_) { if (is_live_mesh_transport_for(c, peer_name)) { target = &c; break; } }
         if (!target) return "ERROR no conn to " + peer_name;
 
+        // Acquire exec_busy guard before touching target->ssl — same pattern as
+        // daemon_file_recv_wait (line 8684). Without it, broadcast_ping/gossip/
+        // check_conn_read can race this blocking TLS exchange on the event loop.
+        if (target->exec_busy->exchange(true)) return "ERROR peer busy with another transfer, retry";
+        target->exec_completed->store(false);
+        struct BusyGuard {
+            std::shared_ptr<std::atomic<bool>> busy;
+            std::shared_ptr<std::atomic<bool>> completed;
+            ~BusyGuard() {
+                if (completed) completed->store(true);
+                if (busy) busy->store(false);
+            }
+        } busy_guard{target->exec_busy, target->exec_completed};
+
         FileRequestMsg req; req.path = remote_path;
         try { write_frame(target->ssl.get(), req, CONTROL_STREAM_ID); }
         catch (const std::exception& e) { return "ERROR send request: " + std::string(e.what()); }
