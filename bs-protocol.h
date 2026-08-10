@@ -540,8 +540,8 @@ using Message = std::variant<
 // flags bit 0 = compressed (zstd), bit 1 = control frame
 
 constexpr uint16_t CONTROL_STREAM_ID = 0;
-constexpr size_t   FRAME_HEADER_SIZE  = 6;
-constexpr uint16_t MAX_FRAME_SIZE     = 65535;
+constexpr size_t   FRAME_HEADER_SIZE  = 8;   // stream_id(u16) + type(u8) + flags(u8) + length(u32)
+constexpr uint32_t MAX_FRAME_SIZE     = 4 * 1024 * 1024;  // 4MB — supports CUA screenshots
 constexpr uint16_t COMPRESSION_THRESHOLD = 256;
 constexpr size_t    MAX_IMAGE_BYTES    = 50ull * 1024ull * 1024ull;
 
@@ -1297,7 +1297,7 @@ std::vector<uint8_t> encode(const Message& msg, uint16_t stream_id) {
     write_u16(frame.data(), stream_id);
     frame[2] = static_cast<uint8_t>(message_type(msg));
     frame[3] = flags;
-    write_u16(frame.data() + 4, static_cast<uint16_t>(payload.size()));
+    write_u32be(frame.data() + 4, static_cast<uint32_t>(payload.size()));
     std::copy(payload.begin(), payload.end(), frame.begin() + FRAME_HEADER_SIZE);
 
     return frame;
@@ -1308,7 +1308,7 @@ Message decode(std::span<const uint8_t> raw) {
 
     uint8_t  type_byte = raw[2];
     uint8_t  flags     = raw[3];
-    uint16_t length    = read_u16(raw.data() + 4);
+    uint32_t length    = read_u32be(raw.data() + 4);
 
     if (raw.size() < FRAME_HEADER_SIZE + length) throw std::runtime_error("frame truncated");
 
@@ -2251,7 +2251,7 @@ Message read_frame(SSL* ssl) {
         total += n;
     }
 
-    uint16_t length = read_u16(header + 4);
+    uint32_t length = read_u32be(header + 4);
 
     if (length > MAX_FRAME_SIZE)
         throw std::runtime_error("frame payload exceeds MAX_FRAME_SIZE");
@@ -3029,9 +3029,9 @@ inline void close_socket(int fd) {
         resp.screen_w = r.value("screen_w", 0);
         resp.screen_h = r.value("screen_h", 0);
         resp.format = r.value("format", 0);
-        if (r.contains("data") && r["data"].is_string()) {
-            // Base64 decode inline (helper sends base64-encoded image data)
-            std::string b64 = r["data"].get<std::string>();
+        if (r.contains("data_b64") && r["data_b64"].is_string()) {
+            // Base64 decode inline (helper sends base64-encoded image data as "data_b64")
+            std::string b64 = r["data_b64"].get<std::string>();
             static const std::string b64chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
             int val = 0, valb = -8;
             for (char c : b64) {

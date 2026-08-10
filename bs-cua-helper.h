@@ -263,7 +263,7 @@ inline CuaResponseMsg cua_helper_execute(const CuaRequestMsg& req) {
             resp.status = 0;
             return resp;
         }
-        case 6: {  // capture — ScreenCaptureKit via bs_macos_capture_png
+        case 6: {  // capture — ScreenCaptureKit → JPEG (downscaled to fit frame limit)
             char tmp[] = "/tmp/bs-cua-helper-XXXXXX.png";
             int fd = mkstemps(tmp, 4);
             if (fd >= 0) close(fd);
@@ -274,16 +274,27 @@ inline CuaResponseMsg cua_helper_execute(const CuaRequestMsg& req) {
                 ::unlink(tmp);
                 return resp;
             }
-            std::ifstream cap(tmp, std::ios::binary | std::ios::ate);
-            if (!cap) { resp.status = 1; resp.error = "open capture failed"; ::unlink(tmp); return resp; }
+            // Convert PNG to JPEG, downscale to 1280px max, quality 70%.
+            // PNG screenshots are 2-4MB; JPEG at these settings ≈ 30-50KB
+            // which fits within the 65535-byte mesh frame limit.
+            char jpg[] = "/tmp/bs-cua-helper-XXXXXX.jpg";
+            int jfd = mkstemps(jpg, 4);
+            if (jfd >= 0) close(jfd);
+            std::string cmd = "/usr/bin/sips -s format jpeg -s formatOptions 40 -Z 800 '";
+            cmd += tmp; cmd += "' --out '"; cmd += jpg; cmd += "' 2>/dev/null";
+            int rc = std::system(cmd.c_str());
+            ::unlink(tmp);
+            if (rc != 0) { ::unlink(jpg); resp.status = 1; resp.error = "JPEG conversion failed"; return resp; }
+            std::ifstream cap(jpg, std::ios::binary | std::ios::ate);
+            if (!cap) { resp.status = 1; resp.error = "open JPEG failed"; ::unlink(jpg); return resp; }
             auto sz = cap.tellg();
             if (sz <= 0 || (size_t)sz > MAX_IMAGE_BYTES) {
                 resp.status = 1; resp.error = "capture empty/oversize";
-                ::unlink(tmp); return resp;
+                ::unlink(jpg); return resp;
             }
             resp.data.resize((size_t)sz);
             cap.seekg(0); cap.read((char*)resp.data.data(), sz);
-            ::unlink(tmp);
+            ::unlink(jpg);
             resp.format = 1; resp.status = 0;
             auto r = CGDisplayBounds(CGMainDisplayID());
             resp.screen_w = (int16_t)r.size.width;
