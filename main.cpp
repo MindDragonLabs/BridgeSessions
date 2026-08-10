@@ -985,16 +985,23 @@ int main(int argc, char** argv) {
                     }
                     if (name.empty()) continue;
                     std::cout << "  " << name << ": sending upgrade command...";
-                    // Send 'upgrade' command via mesh shell
+                    // Send 'upgrade' command via mesh shell. NOTE: the remote
+                    // upgrade stops the remote daemon (systemctl stop), so the
+                    // SHELL response may never return. Treat as fire-and-forget:
+                    // send with a short timeout, report dispatched-not-confirmed.
                     std::string cmd = "bridgesessions upgrade";
                     if (!upgrade_tag.empty()) cmd += " --tag " + upgrade_tag;
                     std::string result = daemon_simple_ipc(
-                        ("SHELL " + name + " default " + cmd).c_str(), 30000, home_dir);
-                    if (result.find("26.08.") != std::string::npos ||
-                        result.find("upgraded") != std::string::npos) {
+                        ("SHELL " + name + " default " + cmd).c_str(), 8000, home_dir);
+                    if (result.find("Already up to date") != std::string::npos) {
+                        std::cout << " already current\n";
+                    } else if (result.find("upgraded") != std::string::npos) {
                         std::cout << " OK\n";
+                    } else if (result.empty() || result.rfind("ERROR", 0) == 0) {
+                        // Daemon likely stopped mid-command — upgrade dispatched.
+                        std::cout << " dispatched (daemon restarting)\n";
                     } else {
-                        std::cout << " FAILED\n";
+                        std::cout << " FAILED (" << result.substr(0, 60) << ")\n";
                     }
                 }
                 std::cout << "Fleet upgrade initiated.\n";
@@ -1048,7 +1055,8 @@ int main(int argc, char** argv) {
         // Download to temp file
         std::string tmp_path = "/tmp/bs-upgrade-" + std::to_string(getpid());
 #ifdef _WIN32
-        tmp_path = std::string(std::getenv("TEMP")) + "\\bs-upgrade-" + std::to_string(_getpid());
+        const char* tmp_env = std::getenv("TEMP");
+        tmp_path = std::string(tmp_env ? tmp_env : "C:\\Windows\\Temp") + "\\bs-upgrade-" + std::to_string(_getpid());
 #endif
 
         // Use curl to download
@@ -1061,6 +1069,32 @@ int main(int argc, char** argv) {
 
         // Make executable before version check
         chmod(tmp_path.c_str(), 0755);
+
+        // Verify SHA256 against published SHA256SUMS (if fetch succeeds).
+        // A tampered or corrupted download must not be swapped in.
+        {
+            std::string sums_path = "/tmp/bs-upgrade-sums-" + std::to_string(getpid());
+            std::string sums_cmd = "curl -fL -s -o '" + sums_path + "' '" + sums_url + "' 2>/dev/null";
+            if (std::system(sums_cmd.c_str()) == 0) {
+                // Compare: shasum -a 256 <binary> vs the line for binary_name in sums
+                std::string check_cmd =
+                    "grep '" + binary_name + "' '" + sums_path +
+                    "' | awk '{print $1}' | while read h; do "
+                    "  actual=$(shasum -a 256 '" + tmp_path + "' | awk '{print $1}'); "
+                    "  [ \"$h\" = \"$actual\" ] && exit 0; exit 1; done";
+                int verify_rc = std::system(check_cmd.c_str());
+                ::unlink(sums_path.c_str());
+                if (verify_rc != 0) {
+                    std::cerr << "upgrade: SHA256 verification FAILED — download tampered or corrupt\n";
+                    ::unlink(tmp_path.c_str());
+                    return 1;
+                }
+                std::cout << "→ SHA256 verified\n";
+            } else {
+                std::cout << "→ SHA256SUMS unavailable, skipping hash check\n";
+                ::unlink(sums_path.c_str());
+            }
+        }
 
         // Verify the binary runs and check version
         std::string verify_cmd = "'" + tmp_path + "' --version 2>/dev/null";
@@ -1114,8 +1148,16 @@ int main(int argc, char** argv) {
 #elif defined(_WIN32)
         std::system("schtasks /end /tn BridgeSessions 2>nul");
 #endif
-        // Kill any remaining processes
-        std::system("pkill -9 -f bridgesessions 2>/dev/null");
+        // Kill daemon processes (NOT the CLI itself — exclude own PID).
+        // 'pkill -9 -f bridgesessions' would match the running upgrade CLI's
+        // own command line and SIGKILL it mid-swap. Use a precise kill of the
+        // daemon binary only.
+        std::string kill_cmd = "pkill -9 -f 'bridgesessions --config' 2>/dev/null";
+#ifdef __APPLE__
+        kill_cmd = "pkill -9 -f 'bridgesessions --config' 2>/dev/null; "
+                   "pkill -9 -f 'BridgeSessions.app' 2>/dev/null";
+#endif
+        std::system(kill_cmd.c_str());
         sleep(2);
 
         // Atomic swap: rename old, move new
