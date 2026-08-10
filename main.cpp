@@ -2,6 +2,7 @@
 // Extracted from bridgesessions.cpp (R3 structural refactor, 2026-07-23)
 #include "bs-protocol.h"
 #include "bs-cua-helper.h"
+#include "bs-logging.h"
 
 // ────────────────────────────────────────────────────────────────────
 // 2. MAIN — CLI + daemon (guarded for test builds)
@@ -525,7 +526,15 @@ int main(int argc, char** argv) {
         fs::create_directories(paths.state, ec);
     }
 
+    // Initialize structured operational logging.
+    // foreground = !daemon_flag (console output only when not daemonized)
+    bs::log::init(home_dir, !daemon_flag);
+
     // Dispatch
+    auto op_log = bs::log::get("main");
+    op_log->info("BridgeSessions v{} starting", bs::mesh::kBridgeSessionsVersion);
+    op_log->debug("app_home={}, config={}, daemon={}, cua_helper={}",
+                  home_dir, config_path, daemon_flag, cua_helper_flag);
     if (!quick_peer.empty()) {
         bs::mesh::MeshConfig cfg = bs::mesh::load_config(config_path);
         if (!bs::mesh::import_ssh_alias_peer(cfg, quick_peer)) {
@@ -1223,11 +1232,15 @@ int main(int argc, char** argv) {
     }
     // CUA helper mode: run in user session for screen capture + input injection
     if (cua_helper_flag) {
+        bs::log::get("cua-helper")->info("CUA helper starting (app_home={})", home_dir);
         return bs::mesh::run_cua_helper(home_dir);
     }
 
     // Default: daemon mode
+    bs::log::get("daemon")->info("Daemon mode: loading config from {}", config_path);
     bs::mesh::MeshConfig cfg = bs::mesh::load_config(config_path);
+    bs::log::get("daemon")->info("Config loaded: listen={}:{}, {} seed peers",
+        cfg.listen_addr, cfg.listen_port, cfg.seeds.size());
     bs::mesh::bootstrap_identity(home_dir);
 #ifdef _WIN32
     if (daemon_flag) {

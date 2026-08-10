@@ -19,6 +19,7 @@
 #include <cstring>
 #include <iostream>
 #include <nlohmann/json.hpp>
+#include "bs-logging.h"
 
 #if defined(__APPLE__)
 #include <CoreGraphics/CoreGraphics.h>
@@ -339,6 +340,7 @@ inline int run_cua_helper(const std::string& app_home_in) {
     }
     std::cout << "cua-helper: listening on 127.0.0.1:" << kCuaHelperPort
               << " (token " << cua_helper_token_path(app_home) << ")\n" << std::flush;
+    bs::log::get("cua-helper")->info("Listening on 127.0.0.1:{}", kCuaHelperPort);
 
     for (;;) {
         SOCKET cfd = accept(lfd, nullptr, nullptr);
