@@ -1305,12 +1305,20 @@ std::vector<uint8_t> encode(const Message& msg, uint16_t stream_id) {
     if (payload.size() > MAX_FRAME_SIZE)
         throw std::runtime_error("encoded payload exceeds MAX_FRAME_SIZE");
 
-    std::vector<uint8_t> frame(FRAME_HEADER_SIZE + payload.size());
+    // Use u16 header format when payload fits (backward compat with old peers).
+    // Use u32 header format only for large payloads (>64KB, e.g. screenshots).
+    bool large_payload = payload.size() > 65535;
+    size_t hdr_size = large_payload ? FRAME_HEADER_SIZE : 6;
+    std::vector<uint8_t> frame(hdr_size + payload.size());
     write_u16(frame.data(), stream_id);
     frame[2] = static_cast<uint8_t>(message_type(msg));
     frame[3] = flags;
-    write_u32be(frame.data() + 4, static_cast<uint32_t>(payload.size()));
-    std::copy(payload.begin(), payload.end(), frame.begin() + FRAME_HEADER_SIZE);
+    if (large_payload) {
+        write_u32be(frame.data() + 4, static_cast<uint32_t>(payload.size()));
+    } else {
+        write_u16(frame.data() + 4, static_cast<uint16_t>(payload.size()));
+    }
+    std::copy(payload.begin(), payload.end(), frame.begin() + hdr_size);
 
     return frame;
 }
@@ -1320,11 +1328,16 @@ Message decode(std::span<const uint8_t> raw) {
 
     uint8_t  type_byte = raw[2];
     uint8_t  flags     = raw[3];
-    uint32_t length    = read_u32be(raw.data() + 4);
+    // Backward compat: detect old u16 vs new u32 frame format
+    uint32_t u32_len = read_u32be(raw.data() + 4);
+    uint16_t u16_len = read_u16(raw.data() + 4);
+    bool old_format = (u32_len > 4 * 1024 * 1024 && u16_len <= 65535);
+    uint32_t length = old_format ? u16_len : u32_len;
+    size_t hdr_size = old_format ? 6 : FRAME_HEADER_SIZE;
 
-    if (raw.size() < FRAME_HEADER_SIZE + length) throw std::runtime_error("frame truncated");
+    if (raw.size() < hdr_size + length) throw std::runtime_error("frame truncated");
 
-    auto payload = raw.subspan(FRAME_HEADER_SIZE, length);
+    auto payload = raw.subspan(hdr_size, length);
 
     // Decompress if needed
     std::vector<uint8_t> decompressed;
@@ -2251,46 +2264,81 @@ inline bool ssl_want_retry(SSL* ssl, int ret, int& budget) {
 
 Message read_frame(SSL* ssl) {
     int want_budget = 400;  // 400 x 25 ms = 10 s worst-case mid-frame stall
-    // Read header
+    // Read header — read 6 bytes first (min header size for backward compat)
     uint8_t header[FRAME_HEADER_SIZE];
     size_t total = 0;
-    while (total < FRAME_HEADER_SIZE) {
+    // Read first 6 bytes (old format header)
+    while (total < 6) {
         size_t n = 0;
         clear_stale_ssl_errors_before_io();
-        int ret = SSL_read_ex(ssl, header + total, FRAME_HEADER_SIZE - total, &n);
+        int ret = SSL_read_ex(ssl, header + total, 6 - total, &n);
         if (ret <= 0 && ssl_want_retry(ssl, ret, want_budget)) continue;
         ssl_check(ret, ssl, "SSL_read header");
         total += n;
     }
+    // Check if this is old format (u16) or new format (u32)
+    uint16_t u16_check = read_u16(header + 4);
+    uint32_t u32_check = read_u32be(header + 4);
+    bool old_format = (u32_check > 4 * 1024 * 1024 && u16_check <= 65535);
+    if (!old_format) {
+        // New format — read 2 more header bytes
+        while (total < FRAME_HEADER_SIZE) {
+            size_t n = 0;
+            clear_stale_ssl_errors_before_io();
+            int ret = SSL_read_ex(ssl, header + total, FRAME_HEADER_SIZE - total, &n);
+            if (ret <= 0 && ssl_want_retry(ssl, ret, want_budget)) continue;
+            ssl_check(ret, ssl, "SSL_read header");
+            total += n;
+        }
+    }
 
-    uint32_t length = read_u32be(header + 4);
+    // Use values from header detection above
+    uint32_t length = old_format ? u16_check : u32_check;
+    size_t hdr_size = old_format ? 6 : FRAME_HEADER_SIZE;
 
     if (length > MAX_FRAME_SIZE)
         throw std::runtime_error("frame payload exceeds MAX_FRAME_SIZE");
 
-    // Read payload
-    std::vector<uint8_t> raw(FRAME_HEADER_SIZE + length);
-    std::memcpy(raw.data(), header, FRAME_HEADER_SIZE);
+    // Read payload. For old format, 2 payload bytes are already in the header buffer.
+    size_t already_read = FRAME_HEADER_SIZE - hdr_size; // bytes of payload already in header
+    std::vector<uint8_t> raw(hdr_size + length);
+    std::memcpy(raw.data(), header, FRAME_HEADER_SIZE); // copy all 8 bytes
 
-    if (length > 0) {
-        total = 0;
+    if (length > already_read) {
+        total = already_read;
+        size_t remaining = length - already_read;
         while (total < length) {
             size_t n = 0;
             clear_stale_ssl_errors_before_io();
-            int ret = SSL_read_ex(ssl, raw.data() + FRAME_HEADER_SIZE + total, length - total, &n);
+            int ret = SSL_read_ex(ssl, raw.data() + hdr_size + total, remaining - (total - already_read), &n);
             if (ret <= 0 && ssl_want_retry(ssl, ret, want_budget)) continue;
             ssl_check(ret, ssl, "SSL_read payload");
             total += n;
         }
     }
+    raw.resize(hdr_size + length); // trim to exact frame size
 
     return decode(raw);
+}
+
+// Detect frame length with backward compatibility:
+// New format (v26.08.10+): u32 at offset 4 (8-byte header)
+// Old format (pre-v26.08.10): u16 at offset 4 (6-byte header)
+// Heuristic: if u32 value > 1MB and u16 value < 64KB, it's old format.
+inline uint32_t detect_frame_length(const uint8_t* data, size_t available) {
+    uint32_t u32_len = read_u32be(data + 4);
+    uint16_t u16_len = read_u16(data + 4);
+    // If u32 looks valid (reasonable size), use it
+    if (u32_len <= 4 * 1024 * 1024) return u32_len;
+    // Otherwise it's likely old u16 format — u16_len is the real length,
+    // and bytes 6-7 are start of payload (not part of length)
+    return u16_len;
 }
 
 [[nodiscard]] inline bool buffered_bytes_hold_complete_frame(
     std::span<const uint8_t> bytes) {
     if (bytes.size() < FRAME_HEADER_SIZE) return false;
-    const uint32_t length = read_u32be(bytes.data() + 4);
+    const uint32_t length = detect_frame_length(bytes.data(), bytes.size());
     if (length > MAX_FRAME_SIZE) return true;  // let decode surface the protocol error
     return bytes.size() >= FRAME_HEADER_SIZE + length;
 }
@@ -2301,7 +2349,7 @@ Message read_frame(SSL* ssl) {
     size_t consumed = 0;
     while (buffered.size() - consumed >= FRAME_HEADER_SIZE) {
         const uint8_t* start = buffered.data() + consumed;
-        const uint32_t length = read_u32be(start + 4);
+        const uint32_t length = detect_frame_length(start, buffered.size() - consumed);
         if (length > MAX_FRAME_SIZE)
             throw std::runtime_error("frame payload exceeds MAX_FRAME_SIZE");
         const size_t frame_size = FRAME_HEADER_SIZE + length;
@@ -2323,7 +2371,7 @@ Message read_frame(SSL* ssl) {
         peeked < header.size()) return false;
     return buffered_bytes_hold_complete_frame(
         std::span<const uint8_t>(header.data(), header.size())) ||
-        pending >= static_cast<int>(FRAME_HEADER_SIZE + read_u32be(header.data() + 4));
+        pending >= static_cast<int>(FRAME_HEADER_SIZE + detect_frame_length(header.data(), header.size()));
 }
 
 void write_frame(SSL* ssl, const Message& msg, uint16_t stream_id) {
