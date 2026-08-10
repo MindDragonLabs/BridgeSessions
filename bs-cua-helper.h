@@ -266,7 +266,12 @@ inline CuaResponseMsg cua_helper_execute(const CuaRequestMsg& req) {
         case 6: {  // capture — ScreenCaptureKit → JPEG (downscaled to fit frame limit)
             char tmp[] = "/tmp/bs-cua-helper-XXXXXX.png";
             int fd = mkstemps(tmp, 4);
-            if (fd >= 0) close(fd);
+            if (fd < 0) {
+                resp.status = 1;
+                resp.error = "capture failed: mkstemps failed — cannot create temp file";
+                return resp;
+            }
+            close(fd);
             char err[1024] = {};
             if (!bs_macos_capture_png(tmp, 0, err, sizeof(err))) {
                 resp.status = 1;
@@ -279,12 +284,23 @@ inline CuaResponseMsg cua_helper_execute(const CuaRequestMsg& req) {
             // which fits within the 65535-byte mesh frame limit.
             char jpg[] = "/tmp/bs-cua-helper-XXXXXX.jpg";
             int jfd = mkstemps(jpg, 4);
-            if (jfd >= 0) close(jfd);
+            if (jfd < 0) {
+                ::unlink(tmp);
+                resp.status = 1;
+                resp.error = "capture failed: mkstemps failed — cannot create JPEG temp file";
+                return resp;
+            }
+            close(jfd);
             std::string cmd = "/usr/bin/sips -s format jpeg -s formatOptions 40 -Z 800 '";
             cmd += tmp; cmd += "' --out '"; cmd += jpg; cmd += "' 2>/dev/null";
             int rc = std::system(cmd.c_str());
             ::unlink(tmp);
-            if (rc != 0) { ::unlink(jpg); resp.status = 1; resp.error = "JPEG conversion failed"; return resp; }
+            if (rc != 0) {
+                ::unlink(jpg);
+                resp.status = 1;
+                resp.error = "JPEG conversion failed (sips rc=" + std::to_string(rc) + ")";
+                return resp;
+            }
             std::ifstream cap(jpg, std::ios::binary | std::ios::ate);
             if (!cap) { resp.status = 1; resp.error = "open JPEG failed"; ::unlink(jpg); return resp; }
             auto sz = cap.tellg();
@@ -295,7 +311,7 @@ inline CuaResponseMsg cua_helper_execute(const CuaRequestMsg& req) {
             resp.data.resize((size_t)sz);
             cap.seekg(0); cap.read((char*)resp.data.data(), sz);
             ::unlink(jpg);
-            resp.format = 1; resp.status = 0;
+            resp.format = 2; resp.status = 0;  // JPEG after sips conversion
             auto r = CGDisplayBounds(CGMainDisplayID());
             resp.screen_w = (int16_t)r.size.width;
             resp.screen_h = (int16_t)r.size.height;
@@ -359,19 +375,33 @@ inline int run_cua_helper(const std::string& app_home_in) {
         set_socket_timeouts(cfd, 60000);
         std::string line;
         char buf[65536];
-        while (line.size() < 4 * 1024 * 1024) {
+        while (line.size() < 256 * 1024) {  // 256KB cap — close oversized requests
             int n = recv(cfd, buf, sizeof(buf), 0);
             if (n <= 0) break;
             line.append(buf, (size_t)n);
             if (line.find('\n') != std::string::npos) break;
         }
         if (line.empty()) { CLOSESOCK(cfd); continue; }
+        if (line.find('\n') == std::string::npos) {
+            // No newline within cap — reject and close to prevent memory DoS
+            const char* deny = "{\"status\":1,\"error\":\"request too large\"}\n";
+            send(cfd, deny, (int)strlen(deny), 0);
+            CLOSESOCK(cfd); continue;
+        }
 
         // "TOKEN {json}\n"
         auto sp = line.find(' ');
         std::string got = sp == std::string::npos ? line : line.substr(0, sp);
         while (!got.empty() && (got.back() == '\r' || got.back() == '\n')) got.pop_back();
-        if (got != token || sp == std::string::npos) {
+        // Constant-time comparison to avoid timing side-channel on token
+        bool token_ok = (got.size() == token.size());
+        if (token_ok) {
+            volatile unsigned char acc = 0;
+            for (size_t i = 0; i < token.size(); ++i)
+                acc |= (unsigned char)(got[i] ^ token[i]);
+            token_ok = (acc == 0);
+        }
+        if (!token_ok || sp == std::string::npos) {
             const char* deny = "{\"status\":1,\"error\":\"auth\"}\n";
             send(cfd, deny, (int)strlen(deny), 0);
             CLOSESOCK(cfd); continue;
