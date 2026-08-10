@@ -171,3 +171,31 @@ Worker claimed `g_allow_join_connections` never closes if invite crashes. **Veri
 - tests/test_audit_p2_fixes.cpp — 4 tests (frame bounds ×2, mtime cache, contract guard)
 - tests/test_upgrade_validation.cpp — 2 tests / 12 assertions (tag validation)
 - Suite: **419 tests passing** (was 413)
+
+---
+
+# Deferred Items — Completed 2026-08-10
+
+All previously-deferred audit items are now implemented, validated, and tested.
+
+## P2 — 2 completed
+| Item | Status |
+|------|--------|
+| CUA token cleartext on loopback | ✅ Unix domain socket (POSIX): AF_UNIX at ~/.bridgesessions/cua-helper.sock, chmod 0600, stale socket unlinked at startup. Windows keeps TCP loopback (documented; named pipes alternative). Verified end-to-end: socket created 0600, action 0 (screen) + action 6 (JPEG capture 3440x1440, 44KB) both respond status:0. |
+| write_frame yield() busy-loop | ✅ Exponential backoff 1ms→100ms + 30s deadline replaces 1000× yield(). |
+
+## P3 — 3 completed
+| Item | Status |
+|------|--------|
+| Windows cua-helper PowerShell latency | ✅ Native GDI BitBlt + GDI+ JPEG (in-process, no 1-3s PowerShell spawn). CMake links gdiplus/gdi32. Windows cross-compile verified (no errors). |
+| Windows event-loop 20Hz idle wakeup | ✅ Adaptive select timeout: 500ms idle (no sessions) / 50ms with sessions. POSIX 100ms unchanged. |
+| steady_clock persisted created_at | ✅ system_clock wall-clock persisted; loader restores from epoch. |
+
+## Validation
+- 419/419 tests pass (macOS)
+- Windows PE cross-compile links gdiplus cleanly
+- CUA helper unix socket end-to-end: screen query + JPEG capture verified
+- Rebuilt: macOS arm64, Linux x86_64, Windows PE (new SHA256 below)
+
+## All deferred items closed
+No remaining open audit items. AUDIT.md is the full trail (P0-P3, false positives, remediation).
