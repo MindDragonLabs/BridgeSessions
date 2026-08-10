@@ -225,8 +225,8 @@ TEST_CASE("daemon IPC shell relay explicitly delegates to direct TLS",
 
 TEST_CASE("IPC protocol constants are correct", "[shell]") {
     // These constants are used by the SHELL IPC handler
-    REQUIRE(FRAME_HEADER_SIZE == 8);
-    REQUIRE(MAX_FRAME_SIZE == 4 * 1024 * 1024);
+    REQUIRE(FRAME_HEADER_SIZE == 6);
+    REQUIRE(MAX_FRAME_SIZE == 65535);
     REQUIRE(COMPRESSION_THRESHOLD == 256);
 }
 

@@ -261,8 +261,8 @@ TEST_CASE("v3 mesh: ServerInfoMsg without trailing summary decodes tolerantly (l
     size_t trailing_len = 2 + m.sessions_summary_json.size();
     REQUIRE(wire.size() > FRAME_HEADER_SIZE + trailing_len);
     std::vector<uint8_t> truncated(wire.begin(), wire.end() - static_cast<long>(trailing_len));
-    uint32_t new_payload_len = static_cast<uint32_t>(truncated.size() - FRAME_HEADER_SIZE);
-    write_u32be(truncated.data() + 4, new_payload_len);
+    uint16_t new_payload_len = static_cast<uint32_t>(truncated.size() - FRAME_HEADER_SIZE);
+    write_u16(truncated.data() + 4, new_payload_len);
 
     auto decoded = decode(truncated);
     REQUIRE(std::holds_alternative<ServerInfoMsg>(decoded));
