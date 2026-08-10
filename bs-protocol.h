@@ -2878,6 +2878,15 @@ inline void close_nonstdio_fds_before_exec() {
         // errors. Restore the normal disposition for the user's shell/process.
         ::signal(SIGPIPE, SIG_DFL);
         setenv("TERM", term.c_str(), 1);
+        // Mark this as a BridgeSessions shell session so user profiles can
+        // detect and skip interactive-only features (starship, tmux auto-attach,
+        // zellij, mouse tracking, etc.) that produce escape-sequence garbage.
+        setenv("BS_SESSION", "1", 1);
+        // Clear env vars that trigger interactive terminal features which
+        // corrupt BS shell sessions with escape-sequence noise.
+        unsetenv("FORCE_STARSHIP");
+        unsetenv("ZELLIJ_AUTO_ATTACH");
+        // Close inherited daemon FDs before exec.
         close_nonstdio_fds_before_exec();
         execl("/bin/sh", "sh", "-c", command.c_str(), nullptr);
         _exit(127);
@@ -12810,7 +12819,29 @@ public:
                     pending_input.clear();
                 }
 
+                // Double Ctrl-C disconnect state — persists across reads
+                auto last_ctrl_c_time = std::chrono::steady_clock::now();
+                int ctrl_c_streak = 0;
+                
                 auto forward_local_input = [&](std::string_view input) {
+                    // Double Ctrl-C (0x03) within 1s → disconnect.
+                    // Single Ctrl-C is forwarded to remote PTY as SIGINT.
+                    auto now = std::chrono::steady_clock::now();
+                    bool has_ctrl_c = (input.size() == 1 && input[0] == 0x03);
+                    
+                    if (has_ctrl_c) {
+                        if (ctrl_c_streak >= 1 && 
+                            (now - last_ctrl_c_time) < std::chrono::seconds(1)) {
+                            // Double Ctrl-C → disconnect
+                            std::cerr << "\r\n^C^C — disconnecting...\r\n";
+                            local_stop = true;
+                            return;
+                        }
+                        ctrl_c_streak++;
+                        last_ctrl_c_time = now;
+                    } else {
+                        ctrl_c_streak = 0;
+                    }
                     // Forward everything to the remote PTY — Ctrl-C (\x03)
                     // is a normal keystroke the remote child should receive as
                     // SIGINT.  Only disconnect is handled at the transport level
