@@ -2290,7 +2290,7 @@ Message read_frame(SSL* ssl) {
 [[nodiscard]] inline bool buffered_bytes_hold_complete_frame(
     std::span<const uint8_t> bytes) {
     if (bytes.size() < FRAME_HEADER_SIZE) return false;
-    const uint16_t length = read_u16(bytes.data() + 4);
+    const uint32_t length = read_u32be(bytes.data() + 4);
     if (length > MAX_FRAME_SIZE) return true;  // let decode surface the protocol error
     return bytes.size() >= FRAME_HEADER_SIZE + length;
 }
@@ -2301,7 +2301,7 @@ Message read_frame(SSL* ssl) {
     size_t consumed = 0;
     while (buffered.size() - consumed >= FRAME_HEADER_SIZE) {
         const uint8_t* start = buffered.data() + consumed;
-        const uint16_t length = read_u16(start + 4);
+        const uint32_t length = read_u32be(start + 4);
         if (length > MAX_FRAME_SIZE)
             throw std::runtime_error("frame payload exceeds MAX_FRAME_SIZE");
         const size_t frame_size = FRAME_HEADER_SIZE + length;
@@ -2323,7 +2323,7 @@ Message read_frame(SSL* ssl) {
         peeked < header.size()) return false;
     return buffered_bytes_hold_complete_frame(
         std::span<const uint8_t>(header.data(), header.size())) ||
-        pending >= static_cast<int>(FRAME_HEADER_SIZE + read_u16(header.data() + 4));
+        pending >= static_cast<int>(FRAME_HEADER_SIZE + read_u32be(header.data() + 4));
 }
 
 void write_frame(SSL* ssl, const Message& msg, uint16_t stream_id) {
