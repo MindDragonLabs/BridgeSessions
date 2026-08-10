@@ -1,0 +1,1996 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="One binary. Every machine. Zero SSH. Mesh terminal relay over TLS 1.3.">
+      
+      
+      
+        <link rel="canonical" href="https://minddragonlabs.github.io/BridgeSessions/why-bridge-sessions/">
+      
+      
+        <link rel="prev" href="../design/">
+      
+      
+        <link rel="next" href="../ARCHITECTURE-DECISION-RECORD/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Why BridgeSessions - BridgeSessions</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="cyan" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#why-bridgesessions" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="BridgeSessions" class="md-header__button md-logo" aria-label="BridgeSessions" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            BridgeSessions
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Why BridgeSessions
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="cyan" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="cyan" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/MindDragonLabs/BridgeSessions" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    MindDragonLabs/BridgeSessions
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href=".." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../QUICKSTART/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Quickstart
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../building/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Install & Build
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../usage/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Usage
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../configuration/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Configuration
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../protocol/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Protocol
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../cua/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  CUA (Computer Use)
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../bridge-panel/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Bridge Panel
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../design/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Design
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    <li class="md-tabs__item md-tabs__item--active">
+      <a href="./" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Why BridgeSessions
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../ARCHITECTURE-DECISION-RECORD/" class="md-tabs__link">
+          
+  
+  
+  Architecture
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../RELEASE-PROVENANCE/" class="md-tabs__link">
+          
+  
+  
+  Releases
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="BridgeSessions" class="md-nav__button md-logo" aria-label="BridgeSessions" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    BridgeSessions
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/MindDragonLabs/BridgeSessions" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    MindDragonLabs/BridgeSessions
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../QUICKSTART/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quickstart
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../building/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Install & Build
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../usage/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Usage
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../protocol/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Protocol
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cua/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CUA (Computer Use)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../bridge-panel/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Bridge Panel
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../design/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Design
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Why BridgeSessions
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Why BridgeSessions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#the-old-stack-and-what-each-piece-did" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The old stack (and what each piece did)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#feature-mapping-what-you-get-instead" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Feature mapping: what you get instead
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Feature mapping: what you get instead">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-ssh-encrypted-remote-shell-without-the-session-death-tax" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. SSH → encrypted remote shell, without the “session death” tax
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-mosh-roaming-friendly-low-latency-feel" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. MOSH → roaming-friendly, low-latency feel
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-scp-first-class-file-transfer-on-the-same-mesh" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. SCP → first-class file transfer on the same mesh
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#4-tmux-zellij-the-multiplexer-is-the-server" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. tmux / Zellij → the multiplexer is the server
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#5-winrm-windows-desktop-automation-one-mesh-that-includes-windows" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. WinRM / Windows desktop automation → one mesh that includes Windows
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#secure-mesh-not-a-pile-of-one-off-tunnels" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Secure mesh (not a pile of one-off tunnels)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ai-friendly-by-design" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        AI-friendly by design
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="AI-friendly by design">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#persistent-agent-shells" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Persistent agent shells
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#media-through-file-transfer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Media through file transfer
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#screenshots-video-for-vision-analysis" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Screenshots &amp; video for vision analysis
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#files-as-first-class-agent-io" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Files as first-class agent I/O
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bridge-panel-long-form-communication-with-your-agent" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Bridge Panel — long-form communication with your agent
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Bridge Panel — long-form communication with your agent">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#bridge-panel-read-view" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Bridge Panel — read view
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bridge-panel-edit-view" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Bridge Panel — edit view
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#end-to-end-story-install-windows-cua-video-vision" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        End-to-end story: install → Windows CUA → video → vision
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="End-to-end story: install → Windows CUA → video → vision">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#commands-that-map-to-that-story" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Commands that map to that story
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#comparison-snapshot" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Comparison snapshot
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-bridgesessions-is-not" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What BridgeSessions is not
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#see-also" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        See also
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_11" >
+        
+          
+          <label class="md-nav__link" for="__nav_11" id="__nav_11_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_11_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_11">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Architecture
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ARCHITECTURE-DECISION-RECORD/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Decision Record
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ARCHITECTURE-RECOMMENDATIONS/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Recommendations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_12" >
+        
+          
+          <label class="md-nav__link" for="__nav_12" id="__nav_12_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Releases
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_12_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_12">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Releases
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../RELEASE-PROVENANCE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Provenance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#the-old-stack-and-what-each-piece-did" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The old stack (and what each piece did)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#feature-mapping-what-you-get-instead" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Feature mapping: what you get instead
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Feature mapping: what you get instead">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-ssh-encrypted-remote-shell-without-the-session-death-tax" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. SSH → encrypted remote shell, without the “session death” tax
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-mosh-roaming-friendly-low-latency-feel" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. MOSH → roaming-friendly, low-latency feel
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-scp-first-class-file-transfer-on-the-same-mesh" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. SCP → first-class file transfer on the same mesh
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#4-tmux-zellij-the-multiplexer-is-the-server" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. tmux / Zellij → the multiplexer is the server
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#5-winrm-windows-desktop-automation-one-mesh-that-includes-windows" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. WinRM / Windows desktop automation → one mesh that includes Windows
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#secure-mesh-not-a-pile-of-one-off-tunnels" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Secure mesh (not a pile of one-off tunnels)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ai-friendly-by-design" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        AI-friendly by design
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="AI-friendly by design">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#persistent-agent-shells" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Persistent agent shells
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#media-through-file-transfer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Media through file transfer
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#screenshots-video-for-vision-analysis" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Screenshots &amp; video for vision analysis
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#files-as-first-class-agent-io" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Files as first-class agent I/O
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bridge-panel-long-form-communication-with-your-agent" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Bridge Panel — long-form communication with your agent
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Bridge Panel — long-form communication with your agent">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#bridge-panel-read-view" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Bridge Panel — read view
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bridge-panel-edit-view" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Bridge Panel — edit view
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#end-to-end-story-install-windows-cua-video-vision" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        End-to-end story: install → Windows CUA → video → vision
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="End-to-end story: install → Windows CUA → video → vision">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#commands-that-map-to-that-story" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Commands that map to that story
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#comparison-snapshot" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Comparison snapshot
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-bridgesessions-is-not" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What BridgeSessions is not
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#see-also" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        See also
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+    <a href="https://github.com/MindDragonLabs/BridgeSessions/edit/main/docs/why-bridge-sessions.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="why-bridgesessions">Why BridgeSessions<a class="headerlink" href="#why-bridgesessions" title="Permanent link">&para;</a></h1>
+<p>BridgeSessions is a <strong>secure mesh terminal system</strong> that replaces the usual
+stack of remote-work tools with one binary, one protocol (<code>bs://</code>), and one
+session model. It is built for humans <em>and</em> AI agents: long-lived shells,
+file transfer for image/video artifacts, Windows automation, and a
+document surface (Bridge Panel) for reviewing Markdown with your agent.</p>
+<blockquote>
+<p>One mesh. Persistent PTYs. Mutual TLS. AI-friendly media and files.</p>
+</blockquote>
+<hr />
+<h2 id="the-old-stack-and-what-each-piece-did">The old stack (and what each piece did)<a class="headerlink" href="#the-old-stack-and-what-each-piece-did" title="Permanent link">&para;</a></h2>
+<p>Before BridgeSessions, a serious remote workflow usually meant bolting several
+tools together:</p>
+<table>
+<thead>
+<tr>
+<th>Tool</th>
+<th>What it was good at</th>
+<th>Pain it left behind</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>SSH</strong></td>
+<td>Encrypted remote shell, port forwards, keys</td>
+<td>Drop a connection → lose the shell. No native session multiplexer. Latency feels “chatty” over WAN.</td>
+</tr>
+<tr>
+<td><strong>MOSH</strong></td>
+<td>Predictive local echo + UDP roaming when Wi‑Fi blips</td>
+<td>Still a shell transport only; no file protocol, no multi-session server, limited ecosystem.</td>
+</tr>
+<tr>
+<td><strong>SCP / SFTP</strong></td>
+<td>Copy files over the SSH channel</td>
+<td>Separate mental model and ACL story from your interactive session.</td>
+</tr>
+<tr>
+<td><strong>tmux / Zellij</strong></td>
+<td>Keep shells alive when you disconnect</td>
+<td>Lives <em>on</em> the remote host; you still need SSH/MOSH just to reach it. Nested multiplexers with agents are painful.</td>
+</tr>
+<tr>
+<td><strong>WinRM / RDP</strong></td>
+<td>Windows remote automation and desktops</td>
+<td>Different stack than Linux SSH; hard to unify in one agent workflow.</td>
+</tr>
+</tbody>
+</table>
+<p>BridgeSessions <strong>absorbs the job of each</strong> into a single design:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>  [ laptop / agent ]  ── bs:// over TLS 1.2+ (prefer 1.3) ──►  [ peer mesh ]
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>                              │
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>              ┌───────────────┼────────────────┐
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>              ▼               ▼                ▼
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>         live shell      file + image      Bridge Panel
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>         (PTY kept)      + video path      (Markdown surface)
+</code></pre></div>
+<hr />
+<h2 id="feature-mapping-what-you-get-instead">Feature mapping: what you get instead<a class="headerlink" href="#feature-mapping-what-you-get-instead" title="Permanent link">&para;</a></h2>
+<h3 id="1-ssh-encrypted-remote-shell-without-the-session-death-tax">1. SSH → encrypted remote shell, without the “session death” tax<a class="headerlink" href="#1-ssh-encrypted-remote-shell-without-the-session-death-tax" title="Permanent link">&para;</a></h3>
+<p><strong>SSH</strong> gives you a secure pipe into a remote machine. When the pipe dies, the
+remote process usually dies with it (unless you stacked tmux underneath).</p>
+<p><strong>BridgeSessions</strong> keeps the <strong>PTY on the server</strong>. Clients attach and detach.
+Network blips reconnect with backoff; your agent or human reattaches to the
+<em>same</em> named session. Identity is <strong>ed25519 mutual TLS</strong> (TOFU / authorized
+keys), not a bag of OpenSSH server configs per host.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>bridgesessions<span class="w"> </span>shell<span class="w"> </span>&lt;peer&gt;<span class="w"> </span>--name<span class="w"> </span>hms
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="c1"># later, from another client:</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>bridgesessions<span class="w"> </span>shell<span class="w"> </span>&lt;peer&gt;<span class="w"> </span>--name<span class="w"> </span>hms<span class="w">   </span><span class="c1"># same session, same scrollback</span>
+</code></pre></div>
+<h3 id="2-mosh-roaming-friendly-low-latency-feel">2. MOSH → roaming-friendly, low-latency feel<a class="headerlink" href="#2-mosh-roaming-friendly-low-latency-feel" title="Permanent link">&para;</a></h3>
+<p><strong>MOSH</strong> predicted keystrokes and survived IP changes over UDP.</p>
+<p>BridgeSessions is TLS/TCP for v1 (firewall-friendly, one port), with:</p>
+<ul>
+<li><code>TCP_NODELAY</code> for keystroke latency  </li>
+<li>keepalive Ping/Pong  </li>
+<li>automatic reconnect + reattach  </li>
+<li>(roadmap) QUIC transport without changing the app protocol  </li>
+</ul>
+<p>You keep the “session survives the network” <em>experience</em>, without a second
+protocol stack beside SSH.</p>
+<h3 id="3-scp-first-class-file-transfer-on-the-same-mesh">3. SCP → first-class file transfer on the same mesh<a class="headerlink" href="#3-scp-first-class-file-transfer-on-the-same-mesh" title="Permanent link">&para;</a></h3>
+<p><strong>SCP</strong> was “another command over SSH.”</p>
+<p>BridgeSessions speaks <strong>file transfer on <code>bs://</code></strong> (meta / chunk / ack /
+request messages), so the same authenticated peer that runs your shell can
+push or pull artifacts:</p>
+<ul>
+<li>configs, logs, build outputs  </li>
+<li>screenshots and videos for an agent  </li>
+<li>documents destined for Bridge Panel  </li>
+</ul>
+<p>No separate credential ceremony for “now copy a file.”</p>
+<h3 id="4-tmux-zellij-the-multiplexer-is-the-server">4. tmux / Zellij → the multiplexer <em>is</em> the server<a class="headerlink" href="#4-tmux-zellij-the-multiplexer-is-the-server" title="Permanent link">&para;</a></h3>
+<p><strong>tmux/Zellij</strong> solved persistence by multiplexing <em>inside</em> the remote host.
+That means:</p>
+<ul>
+<li>you still need a transport to reach them  </li>
+<li>agents often end up nested: SSH → tmux → agent TUI  </li>
+</ul>
+<p>BridgeSessions <strong>is</strong> the multiplexer:</p>
+<ul>
+<li>named sessions with auto-spawn commands  </li>
+<li>scrollback buffer (zstd compressed) replayed on reattach  </li>
+<li>detach never kills the PTY  </li>
+<li>multi-client identity namespaces (sessions keyed by client pubkey)  </li>
+</ul>
+<p>You do <strong>not</strong> start Zellij <em>inside</em> BridgeSessions for basic persistence —
+the mesh session <em>is</em> that layer.</p>
+<h3 id="5-winrm-windows-desktop-automation-one-mesh-that-includes-windows">5. WinRM / Windows desktop automation → one mesh that includes Windows<a class="headerlink" href="#5-winrm-windows-desktop-automation-one-mesh-that-includes-windows" title="Permanent link">&para;</a></h3>
+<p><strong>WinRM</strong> is the classic Windows remote-exec channel; RDP is the interactive
+desktop. Agents that need <strong>CUA (computer-use / UI automation)</strong> on Windows
+historically lived on a different planet from Linux SSH workflows.</p>
+<p>BridgeSessions peers include <strong>Windows nodes</strong> in the same mesh:</p>
+<ul>
+<li>shell / exec paths for Windows peers  </li>
+<li>file transfer for screenshots and recordings</li>
+<li>gameplay / desktop capture patterns for vision agents  </li>
+<li>one identity and config model across Linux, macOS, and Windows  </li>
+</ul>
+<p>An agent can drive a Windows desktop (CUA), capture a screenshot or video,
+ship it across the mesh, and analyze it on a Linux peer — without re-plumbing
+SSH + WinRM + SMB for each hop.</p>
+<hr />
+<h2 id="secure-mesh-not-a-pile-of-one-off-tunnels">Secure mesh (not a pile of one-off tunnels)<a class="headerlink" href="#secure-mesh-not-a-pile-of-one-off-tunnels" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Property</th>
+<th>BridgeSessions</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Transport</td>
+<td>TLS 1.2+ (prefer 1.3) over TCP (port <strong>19949</strong> by default)</td>
+</tr>
+<tr>
+<td>Auth</td>
+<td>ed25519 mutual TLS + authorized_keys</td>
+</tr>
+<tr>
+<td>Forward secrecy</td>
+<td>X25519</td>
+</tr>
+<tr>
+<td>Compression</td>
+<td>zstd per-frame on large payloads</td>
+</tr>
+<tr>
+<td>Topology</td>
+<td>multi-peer mesh with seed peers</td>
+</tr>
+<tr>
+<td>Session security</td>
+<td>sessions namespaced by client public key</td>
+</tr>
+</tbody>
+</table>
+<p>No CA bureaucracy for a personal/fleet mesh. Pin keys, authorize peers, ship.</p>
+<hr />
+<h2 id="ai-friendly-by-design">AI-friendly by design<a class="headerlink" href="#ai-friendly-by-design" title="Permanent link">&para;</a></h2>
+<p>Agents are not “just another human typing.” They need <strong>durable sessions</strong>,
+<strong>structured artifacts</strong>, and <strong>media</strong>:</p>
+<h3 id="persistent-agent-shells">Persistent agent shells<a class="headerlink" href="#persistent-agent-shells" title="Permanent link">&para;</a></h3>
+<p>An agent TUI (<code>hermes --tui</code>, coding agents, long jobs) lives in a named
+session. If the agent process or network restarts, reattach — do not restart
+the world.</p>
+<h3 id="media-through-file-transfer">Media through file transfer<a class="headerlink" href="#media-through-file-transfer" title="Permanent link">&para;</a></h3>
+<p>Image message IDs are reserved, but 2.0.6-alpha2 does not implement large-image
+fragmentation or receiver rendering. Send PNG/JPEG/GIF/video artifacts through
+the bounded file-transfer protocol, then render or analyze them locally.</p>
+<h3 id="screenshots-video-for-vision-analysis">Screenshots &amp; video for vision analysis<a class="headerlink" href="#screenshots-video-for-vision-analysis" title="Permanent link">&para;</a></h3>
+<p>Typical AI loop:</p>
+<ol>
+<li>Windows peer captures a screenshot or MP4 (desktop / game / UI).  </li>
+<li>File transfer carries the artifact across the mesh.</li>
+<li>Linux/macOS agent loads the artifact and runs <strong>vision analysis</strong>.  </li>
+<li>Agent writes findings as Markdown into Bridge Panel for human review.</li>
+</ol>
+<h3 id="files-as-first-class-agent-io">Files as first-class agent I/O<a class="headerlink" href="#files-as-first-class-agent-io" title="Permanent link">&para;</a></h3>
+<p>Logs, patches, datasets, and recordings move as mesh file transfers — not as
+base64 pasted into chat.</p>
+<h3 id="bridge-panel-long-form-communication-with-your-agent">Bridge Panel — long-form communication with your agent<a class="headerlink" href="#bridge-panel-long-form-communication-with-your-agent" title="Permanent link">&para;</a></h3>
+<p>Chat UIs are bad at <strong>long specs</strong>, <strong>multi-file reviews</strong>, and <strong>iterative
+Markdown</strong>. Bridge Panel is a small web surface on the mesh:</p>
+<ul>
+<li>Session tree: <code>session → type → file</code>  </li>
+<li>Breadcrumb + outlined tools: <strong>Edit / Save / Cancel / Copy</strong>  </li>
+<li>Rendered Markdown for reading; raw source for copy/edit  </li>
+<li>Publish from CLI: <code>bridgesessions pane publish note.md</code>  </li>
+</ul>
+<p>Humans review agent output as documents. Agents treat the panel as a
+<strong>shared notebook</strong>, not a scrolling chat.</p>
+<h4 id="bridge-panel-read-view">Bridge Panel — read view<a class="headerlink" href="#bridge-panel-read-view" title="Permanent link">&para;</a></h4>
+<p><img alt="Bridge Panel read view" src="../assets/bridgepanel-read.png" /></p>
+<p><em>Sidebar sessions, breadcrumb, Edit/Copy tools, rendered Markdown.</em></p>
+<h4 id="bridge-panel-edit-view">Bridge Panel — edit view<a class="headerlink" href="#bridge-panel-edit-view" title="Permanent link">&para;</a></h4>
+<p><img alt="Bridge Panel edit view" src="../assets/bridgepanel-edit.png" /></p>
+<p><em>Inline Markdown editor with Save / Cancel for collaborative agent docs.</em></p>
+<hr />
+<h2 id="end-to-end-story-install-windows-cua-video-vision">End-to-end story: install → Windows CUA → video → vision<a class="headerlink" href="#end-to-end-story-install-windows-cua-video-vision" title="Permanent link">&para;</a></h2>
+<p>This is the workflow BridgeSessions is built to make <em>one</em> path:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>  [ You / orchestrator ]
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>           │
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>           │  1. Install bridgesessions on laptop + peers
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>           ▼
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>  [ Mesh peers: Linux · macOS · Windows ]
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>           │
+<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>           │  2. Agent attaches to Linux session (durable PTY)
+<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>           │  3. Agent (or CUA runner) drives Windows UI
+<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a>           │  4. Capture screenshot / video on Windows
+<a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a>           │  5. Transfer media across bs://
+<a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a>           │  6. Vision model analyzes frames on AI host
+<a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a>           │  7. Write report.md → Bridge Panel for review
+<a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a>           ▼
+<a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a>  [ Bridge Panel: human + agent shared Markdown ]
+</code></pre></div>
+<h3 id="commands-that-map-to-that-story">Commands that map to that story<a class="headerlink" href="#commands-that-map-to-that-story" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="c1"># Install / version</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>bridgesessions<span class="w"> </span>--version
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>bridgesessions<span class="w"> </span>keygen
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="c1"># Durable Linux agent session</span>
+<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>bridgesessions<span class="w"> </span>shell<span class="w"> </span>linux-peer<span class="w"> </span>--name<span class="w"> </span>agent<span class="w"> </span>--cmd<span class="w"> </span><span class="s2">&quot;hermes --tui&quot;</span>
+<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a>
+<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a><span class="c1"># Publish a long instruction or report for review</span>
+<a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a>bridgesessions<span class="w"> </span>pane<span class="w"> </span>publish<span class="w"> </span>./report.md<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a><span class="w">  </span>--session<span class="w"> </span>default<span class="w"> </span>--type<span class="w"> </span>documents<span class="w"> </span>--title<span class="w"> </span><span class="s2">&quot;Vision report&quot;</span>
+<a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a>
+<a id="__codelineno-3-12" name="__codelineno-3-12" href="#__codelineno-3-12"></a><span class="c1"># File / media movement lives on the same mesh as the shell</span>
+<a id="__codelineno-3-13" name="__codelineno-3-13" href="#__codelineno-3-13"></a><span class="c1"># (the file protocol carries media; image IDs remain reserved in 2.0.6-alpha2)</span>
+</code></pre></div>
+<hr />
+<h2 id="comparison-snapshot">Comparison snapshot<a class="headerlink" href="#comparison-snapshot" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Capability</th>
+<th>SSH+tmux+scp</th>
+<th>MOSH</th>
+<th>WinRM</th>
+<th><strong>BridgeSessions</strong></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Encrypted remote shell</td>
+<td>✅</td>
+<td>✅</td>
+<td>partial</td>
+<td>✅</td>
+</tr>
+<tr>
+<td>Session survives disconnect</td>
+<td>only with tmux</td>
+<td>process yes / limited</td>
+<td>no</td>
+<td>✅ built-in</td>
+</tr>
+<tr>
+<td>Multi-session server</td>
+<td>external</td>
+<td>no</td>
+<td>no</td>
+<td>✅</td>
+</tr>
+<tr>
+<td>File transfer</td>
+<td>scp/sftp</td>
+<td>no</td>
+<td>limited</td>
+<td>✅ on-protocol</td>
+</tr>
+<tr>
+<td>Images / video friendly</td>
+<td>ad hoc</td>
+<td>no</td>
+<td>ad hoc</td>
+<td>✅</td>
+</tr>
+<tr>
+<td>Windows + Linux one mesh</td>
+<td>no</td>
+<td>no</td>
+<td>Windows-centric</td>
+<td>✅</td>
+</tr>
+<tr>
+<td>Agent document surface</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>✅ Bridge Panel</td>
+</tr>
+<tr>
+<td>Single binary ops model</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>✅</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="what-bridgesessions-is-not">What BridgeSessions is <em>not</em><a class="headerlink" href="#what-bridgesessions-is-not" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Not a full desktop OS replacement for RDP in every GUI scenario (though
+  Windows peers + capture cover agent CUA loops).  </li>
+<li>Not “SSH config compatible” as a transport — SSH host aliases may be reused
+  for <strong>discovery only</strong> (hostname), never as the wire protocol.  </li>
+<li>Not a public multi-tenant SaaS remote-desktop product (see BSL Additional
+  Use Grant in <a href="../LICENSE">LICENSE</a>).</li>
+</ul>
+<hr />
+<h2 id="see-also">See also<a class="headerlink" href="#see-also" title="Permanent link">&para;</a></h2>
+<ul>
+<li><a href="../design/">Architecture / design</a>  </li>
+<li><a href="../protocol/">Protocol (<code>bs://</code>)</a>  </li>
+<li><a href="../bridge-panel/">Bridge Panel</a>  </li>
+<li><a href="../usage/">Usage</a>  </li>
+<li><a href="../building/">Building</a>  </li>
+</ul>
+<p>Demo media (HyperFrames product trailer) lives under
+<a href="assets/"><code>assets/</code></a>: <code>demo-install-ai-mesh.gif</code> (README embed) and
+<code>demo-install-ai-mesh.mp4</code> (1080p full quality).</p>
+
+
+
+
+
+
+
+  
+    
+  
+  
+    
+  
+
+
+  <aside class="md-source-file">
+    
+      
+  <span class="md-source-file__fact">
+    <span class="md-icon" title="Last update">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
+    </span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 19, 2026 12:51:36 UTC">July 19, 2026</span>
+  </span>
+
+    
+    
+      
+  <span class="md-source-file__fact">
+    <span class="md-icon" title="Created">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M14.47 15.08 11 13V7h1.5v5.25l3.08 1.83c-.41.28-.79.62-1.11 1m-1.39 4.84c-.36.05-.71.08-1.08.08-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8c0 .37-.03.72-.08 1.08.69.1 1.33.32 1.92.64.1-.56.16-1.13.16-1.72 0-5.5-4.5-10-10-10S2 6.5 2 12s4.47 10 10 10c.59 0 1.16-.06 1.72-.16-.32-.59-.54-1.23-.64-1.92M18 15v3h-3v2h3v3h2v-3h3v-2h-3v-3z"/></svg>
+    </span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 16, 2026 14:19:26 UTC">July 16, 2026</span>
+  </span>
+
+    
+    
+    
+  </aside>
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.tabs", "navigation.sections", "navigation.expand", "search.suggest", "search.highlight", "content.code.copy", "content.action.edit"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

@@ -1,0 +1,2317 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="One binary. Every machine. Zero SSH. Mesh terminal relay over TLS 1.3.">
+      
+      
+      
+        <link rel="canonical" href="https://minddragonlabs.github.io/BridgeSessions/CUA-RCA-2026-08-09/">
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>BridgeSessions macOS CUA — Deep RCA + Install/Activate/Menubar Design - BridgeSessions</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="cyan" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#bridgesessions-macos-cua-deep-rca-installactivatemenubar-design" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="BridgeSessions" class="md-header__button md-logo" aria-label="BridgeSessions" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            BridgeSessions
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              BridgeSessions macOS CUA — Deep RCA + Install/Activate/Menubar Design
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="cyan" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="cyan" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/MindDragonLabs/BridgeSessions" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    MindDragonLabs/BridgeSessions
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href=".." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../QUICKSTART/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Quickstart
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../building/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Install & Build
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../usage/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Usage
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../configuration/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Configuration
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../protocol/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Protocol
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../cua/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  CUA (Computer Use)
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../bridge-panel/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Bridge Panel
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../design/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Design
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../why-bridge-sessions/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Why BridgeSessions
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../ARCHITECTURE-DECISION-RECORD/" class="md-tabs__link">
+          
+  
+  
+  Architecture
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../RELEASE-PROVENANCE/" class="md-tabs__link">
+          
+  
+  
+  Releases
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="BridgeSessions" class="md-nav__button md-logo" aria-label="BridgeSessions" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    BridgeSessions
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/MindDragonLabs/BridgeSessions" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    MindDragonLabs/BridgeSessions
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../QUICKSTART/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quickstart
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../building/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Install & Build
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../usage/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Usage
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../protocol/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Protocol
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cua/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CUA (Computer Use)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../bridge-panel/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Bridge Panel
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../design/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Design
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../why-bridge-sessions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Why BridgeSessions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_11" >
+        
+          
+          <label class="md-nav__link" for="__nav_11" id="__nav_11_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_11_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_11">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Architecture
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ARCHITECTURE-DECISION-RECORD/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Decision Record
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ARCHITECTURE-RECOMMENDATIONS/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Recommendations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_12" >
+        
+          
+          <label class="md-nav__link" for="__nav_12" id="__nav_12_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Releases
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_12_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_12">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Releases
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../RELEASE-PROVENANCE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Provenance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#executive-summary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Executive Summary
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#layer-1-wire-protocol-mismatch-bug-code" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Layer 1: Wire Protocol Mismatch (BUG — code)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Layer 1: Wire Protocol Mismatch (BUG — code)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-happens" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What happens
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#proof" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Proof
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fix" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fix
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#layer-2-sourcebinary-divergence-bug-source-control" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Layer 2: Source/Binary Divergence (BUG — source control)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Layer 2: Source/Binary Divergence (BUG — source control)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-happens_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What happens
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-macos-helper-code-does-exist-in-source" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The macOS helper code DOES exist in source
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fix_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fix
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#also-screen-vs-capture-inconsistency" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Also: screen vs capture inconsistency
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#layer-3-tcc-permission-persistence-bug-signingidentity" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Layer 3: TCC Permission Persistence (BUG — signing/identity)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Layer 3: TCC Permission Persistence (BUG — signing/identity)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-happens_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What happens
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fix_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fix
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#layer-4-no-menubar-helper-gap-ux" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Layer 4: No Menubar Helper (GAP — UX)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Layer 4: No Menubar Helper (GAP — UX)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#current-state" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Current state
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-the-user-wants" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What the user wants
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#proposed-design-bridgesessions-menubar-helper-app" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Proposed Design: BridgeSessions Menubar Helper (.app)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Proposed Design: BridgeSessions Menubar Helper (.app)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#architecture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Architecture
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#why-swift-and-not-cobjc" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why Swift and not C++/ObjC++
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#file-structure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        File structure
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#menu-structure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Menu structure
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fleet-status-polling" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fleet status polling
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#autolaunch-at-login" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Autolaunch at login
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#permissions-check" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Permissions check
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#helper-process-manager" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Helper process manager
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#install-workflow-revised" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Install Workflow (revised)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Install Workflow (revised)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#step-1-install-one-time" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 1: Install (one-time)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-2-activate-double-click" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 2: Activate (double-click)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-3-settings" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 3: Settings
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#additional-fixes-needed-beyond-the-users-request" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Additional Fixes Needed (beyond the user's request)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Additional Fixes Needed (beyond the user&#39;s request)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#fix-5-bs-cua-screen-should-propagate-errors" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fix 5: bs cua screen should propagate errors
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fix-6-binary-source-divergence-must-be-resolved" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fix 6: Binary source divergence must be resolved
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fix-7-tcc-reset-re-grant-after-binary-update" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fix 7: TCC reset + re-grant after binary update
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fix-8-launchd-plist-should-not-start-the-helper" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fix 8: launchd plist should not start the helper
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fix-9-capture-should-use-screencapturekit-not-screencapture-cli" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fix 9: Capture should use ScreenCaptureKit, not screencapture CLI
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fix-10-token-rotation-race-condition" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fix 10: Token rotation race condition
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#implementation-priority" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Implementation Priority
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#build-deploy-plan" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Build + Deploy Plan
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Build + Deploy Plan">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#phase-1-code-fixes-on-linux-a-the-source-host" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 1: Code fixes (on FECv3, the source host)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-2-macos-menubar-app-on-macbook-where-xcodeswift-is-available" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 2: macOS menubar app (on macbook, where Xcode/Swift is available)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-3-deploy-to-fleet" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 3: Deploy to fleet
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-4-verify-end-to-end" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 4: Verify end-to-end
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#appendix-a-current-binary-hash-inventory" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Appendix A: Current binary hash inventory
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#appendix-b-wire-protocol-proof" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Appendix B: Wire protocol proof
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#appendix-c-tcc-database-state-macos-peer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Appendix C: TCC database state (macos-peer)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#appendix-d-installsh-macos-section-current-line-194199" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Appendix D: install.sh macOS section (current, line 194–199)
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+    <a href="https://github.com/MindDragonLabs/BridgeSessions/edit/main/docs/CUA-RCA-2026-08-09.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="bridgesessions-macos-cua-deep-rca-installactivatemenubar-design">BridgeSessions macOS CUA — Deep RCA + Install/Activate/Menubar Design<a class="headerlink" href="#bridgesessions-macos-cua-deep-rca-installactivatemenubar-design" title="Permanent link">&para;</a></h1>
+<p><strong>Date:</strong> 2026-08-09<br />
+<strong>Author:</strong> Hermes Agent (FECv3)<br />
+<strong>Scope:</strong> Full root-cause analysis of <code>bs cua</code> failures on macOS, binary/source divergence, TCC permission persistence, and design for a proper install → activate → menubar helper workflow.</p>
+<hr />
+<h2 id="executive-summary">Executive Summary<a class="headerlink" href="#executive-summary" title="Permanent link">&para;</a></h2>
+<p>macOS CUA is broken by <strong>six compounding defects</strong> spanning three layers (wire protocol, source control, and OS permissions). The helper code works mechanically — we proved it by manually sending the correct wire format — but the daemon never successfully calls it due to a protocol mismatch that exists only in the running binary, not in source. Meanwhile, TCC permissions silently vanish because the binary is adhoc-signed with no stable identity. The fix requires: (1) aligning the wire protocol, (2) committing the macOS helper dispatch code to source, (3) shipping a proper <code>.app</code> bundle with stable signing, and (4) a menubar helper for user-facing install/activate/status.</p>
+<hr />
+<h2 id="layer-1-wire-protocol-mismatch-bug-code">Layer 1: Wire Protocol Mismatch (BUG — code)<a class="headerlink" href="#layer-1-wire-protocol-mismatch-bug-code" title="Permanent link">&para;</a></h2>
+<h3 id="what-happens">What happens<a class="headerlink" href="#what-happens" title="Permanent link">&para;</a></h3>
+<p>The daemon's <code>cua_helper_rpc()</code> (bs-protocol.h:2980–2990) sends the auth token <strong>inside the JSON body</strong>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>{&quot;action&quot;:6,&quot;x&quot;:0,&quot;y&quot;:0,&quot;button&quot;:0,&quot;hid_key&quot;:0,&quot;modifiers&quot;:0,&quot;text&quot;:&quot;&quot;,&quot;token&quot;:&quot;2b1bdb77...&quot;}\n
+</code></pre></div>
+<p>The helper's server loop (bs-cua-helper.h:354–358) expects the token as a <strong>space-separated prefix</strong>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>2b1bdb77... {&quot;action&quot;:6,&quot;x&quot;:0,&quot;y&quot;:0}\n
+</code></pre></div>
+<p>The helper reads the first space-delimited token, compares it to the real token, and gets <code>{"action":6,...</code> instead of the hex token → returns <code>{"status":1,"error":"auth"}</code>.</p>
+<h3 id="proof">Proof<a class="headerlink" href="#proof" title="Permanent link">&para;</a></h3>
+<p>Manual test with the correct (prefix) format:
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="nv">TOKEN</span><span class="o">=</span><span class="k">$(</span>cat<span class="w"> </span>~/.bridgesessions/cua-helper-token<span class="k">)</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="nb">printf</span><span class="w"> </span><span class="s1">&#39;%s {&quot;action&quot;:6}\n&#39;</span><span class="w"> </span><span class="s2">&quot;</span><span class="nv">$TOKEN</span><span class="s2">&quot;</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>nc<span class="w"> </span>-w<span class="w"> </span><span class="m">5</span><span class="w"> </span><span class="m">127</span>.0.0.1<span class="w"> </span><span class="m">19986</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="c1"># → {&quot;error&quot;:&quot;screencapture failed — grant Screen Recording to the helper (TCC)&quot;,&quot;format&quot;:0,&quot;screen_h&quot;:0,&quot;screen_w&quot;:0,&quot;status&quot;:1}</span>
+</code></pre></div></p>
+<p>The helper <strong>accepted the auth</strong> and tried to capture — it just failed on TCC (Layer 3). With the JSON-embedded format the daemon uses:
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="nb">echo</span><span class="w"> </span><span class="s1">&#39;{&quot;action&quot;:6,&quot;token&quot;:&quot;2b1bdb77...&quot;}&#39;</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>nc<span class="w"> </span>-w<span class="w"> </span><span class="m">5</span><span class="w"> </span><span class="m">127</span>.0.0.1<span class="w"> </span><span class="m">19986</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="c1"># → {&quot;status&quot;:1,&quot;error&quot;:&quot;auth&quot;}</span>
+</code></pre></div></p>
+<h3 id="fix">Fix<a class="headerlink" href="#fix" title="Permanent link">&para;</a></h3>
+<p><strong>Option A (minimal):</strong> Change <code>cua_helper_rpc()</code> to send <code>TOKEN {json}\n</code>:
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="c1">// bs-protocol.h, cua_helper_rpc(), replace lines 2980–2990:</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="n">nlohmann</span><span class="o">::</span><span class="n">json</span><span class="w"> </span><span class="n">j</span><span class="p">;</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="n">j</span><span class="p">[</span><span class="s">&quot;action&quot;</span><span class="p">]</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="n">req</span><span class="p">.</span><span class="n">action</span><span class="p">;</span>
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="n">j</span><span class="p">[</span><span class="s">&quot;x&quot;</span><span class="p">]</span><span class="w">       </span><span class="o">=</span><span class="w"> </span><span class="n">req</span><span class="p">.</span><span class="n">x</span><span class="p">;</span>
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="n">j</span><span class="p">[</span><span class="s">&quot;y&quot;</span><span class="p">]</span><span class="w">       </span><span class="o">=</span><span class="w"> </span><span class="n">req</span><span class="p">.</span><span class="n">y</span><span class="p">;</span>
+<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="n">j</span><span class="p">[</span><span class="s">&quot;button&quot;</span><span class="p">]</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="n">req</span><span class="p">.</span><span class="n">button</span><span class="p">;</span>
+<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="n">j</span><span class="p">[</span><span class="s">&quot;hid_key&quot;</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">req</span><span class="p">.</span><span class="n">hid_key</span><span class="p">;</span>
+<a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a><span class="n">j</span><span class="p">[</span><span class="s">&quot;modifiers&quot;</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">req</span><span class="p">.</span><span class="n">modifiers</span><span class="p">;</span>
+<a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a><span class="n">j</span><span class="p">[</span><span class="s">&quot;text&quot;</span><span class="p">]</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="n">req</span><span class="p">.</span><span class="n">text</span><span class="p">;</span>
+<a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a><span class="c1">// Token as space-prefix, NOT inside JSON (helper expects &quot;TOKEN {json}\n&quot;)</span>
+<a id="__codelineno-4-11" name="__codelineno-4-11" href="#__codelineno-4-11"></a><span class="n">std</span><span class="o">::</span><span class="n">string</span><span class="w"> </span><span class="n">line</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">token</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="s">&quot; &quot;</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">j</span><span class="p">.</span><span class="n">dump</span><span class="p">()</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="s">&quot;</span><span class="se">\n</span><span class="s">&quot;</span><span class="p">;</span>
+</code></pre></div></p>
+<p><strong>Option B (alternative):</strong> Change the helper to accept token inside JSON. Less preferred — the prefix format is simpler and avoids leaking the token into parseable JSON.</p>
+<p><strong>Recommendation: Option A.</strong> The helper's format is already correct; the daemon side is the one that diverged.</p>
+<hr />
+<h2 id="layer-2-sourcebinary-divergence-bug-source-control">Layer 2: Source/Binary Divergence (BUG — source control)<a class="headerlink" href="#layer-2-sourcebinary-divergence-bug-source-control" title="Permanent link">&para;</a></h2>
+<h3 id="what-happens_1">What happens<a class="headerlink" href="#what-happens_1" title="Permanent link">&para;</a></h3>
+<p>The main branch source (<code>bs-protocol.h:3104–3107</code>) has a <strong>stub</strong> for macOS:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="cp">#elif defined(__APPLE__)</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">    </span><span class="n">resp</span><span class="p">.</span><span class="n">status</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">1</span><span class="p">;</span>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">    </span><span class="n">resp</span><span class="p">.</span><span class="n">error</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&quot;macos CGEvent not yet deployed (P5c)&quot;</span><span class="p">;</span>
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="n">resp</span><span class="p">;</span>
+</code></pre></div>
+<p>This stub <strong>never calls <code>cua_helper_rpc()</code></strong>. But the binary running on macos-peer (<code>9a8b229c</code>, 2,337,280 bytes, dynamic Mach-O) <strong>does</strong> call the helper — we proved this with <code>strings</code>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>$ strings ~/.local/bin/bridgesessions | grep -i &quot;cua-helper&quot;
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>macos CUA input requires cua-helper (run: bridgesessions --cua-helper in user session)
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>--cua-helper
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a>/cua-helper-token
+<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>no cua-helper token
+<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a>empty cua-helper token
+<a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a>cua-helper not running (connect failed)
+<a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a>cua-helper send failed
+<a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a>cua-helper no response
+</code></pre></div>
+<p>The string <code>"macos CUA input requires cua-helper"</code> <strong>does not exist in any branch</strong> of the source repo (checked: <code>main</code>, <code>release/2.0.19-alpha7</code>, <code>audit/public-2.0.5-alpha2</code>). The macos-peer binary was built from <strong>uncommitted/lost source</strong> that implemented the macOS helper dispatch but was never committed.</p>
+<h3 id="the-macos-helper-code-does-exist-in-source">The macOS helper code DOES exist in source<a class="headerlink" href="#the-macos-helper-code-does-exist-in-source" title="Permanent link">&para;</a></h3>
+<p>The actual helper implementation (<code>cua_helper_execute()</code> in <code>bs-cua-helper.h:170–293</code>) is complete and correct for macOS:
+- Action 0: <code>CGDisplayBounds</code> screen info ✓
+- Action 1: <code>CGEventCreateKeyboardEvent</code> key press ✓
+- Action 2: <code>CGEventKeyboardSetUnicodeString</code> text entry ✓
+- Action 3: <code>CGEventCreateMouseEvent</code> mouse move ✓
+- Action 4: mouse button down/up ✓
+- Action 5: <code>CGEventCreateScrollWheelEvent</code> wheel ✓
+- Action 6: <code>screencapture -x</code> CLI capture ✓</p>
+<p>The problem is that <code>cua_execute()</code> (the daemon-side dispatcher) <strong>never calls</strong> <code>cua_helper_rpc()</code> on macOS — it hits the stub and returns immediately. The Windows path (lines 3094–3103) correctly tries the helper first:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="c1">// Windows path (CORRECT — tries helper first):</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="k">auto</span><span class="w"> </span><span class="n">helper_resp</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">cua_helper_rpc</span><span class="p">(</span><span class="n">req</span><span class="p">,</span><span class="w"> </span><span class="n">app_home</span><span class="p">);</span>
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">helper_resp</span><span class="p">.</span><span class="n">status</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="mi">0</span><span class="p">)</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="n">helper_resp</span><span class="p">;</span>
+<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="c1">// fall through to fallback...</span>
+</code></pre></div>
+<h3 id="fix_1">Fix<a class="headerlink" href="#fix_1" title="Permanent link">&para;</a></h3>
+<p>Replace the macOS stub in <code>cua_execute()</code> with the same helper-first pattern used by Windows:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="cp">#elif defined(__APPLE__)</span>
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="w">    </span><span class="c1">// macOS: try the cua-helper first (runs in user session for desktop access)</span>
+<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="w">    </span><span class="p">{</span>
+<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="w">        </span><span class="k">auto</span><span class="w"> </span><span class="n">helper_resp</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">cua_helper_rpc</span><span class="p">(</span><span class="n">req</span><span class="p">,</span><span class="w"> </span><span class="n">app_home</span><span class="p">);</span>
+<a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">helper_resp</span><span class="p">.</span><span class="n">status</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="mi">0</span><span class="p">)</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="n">helper_resp</span><span class="p">;</span>
+<a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a><span class="w">        </span><span class="c1">// Fall through to in-process fallback if helper not running</span>
+<a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a><span class="w">    </span><span class="p">}</span>
+<a id="__codelineno-8-8" name="__codelineno-8-8" href="#__codelineno-8-8"></a><span class="w">    </span><span class="c1">// In-process fallback: ScreenCaptureKit for capture, CGEvent for input</span>
+<a id="__codelineno-8-9" name="__codelineno-8-9" href="#__codelineno-8-9"></a><span class="w">    </span><span class="c1">// (only works if daemon itself runs in the user session)</span>
+<a id="__codelineno-8-10" name="__codelineno-8-10" href="#__codelineno-8-10"></a><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">req</span><span class="p">.</span><span class="n">action</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="mi">6</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-8-11" name="__codelineno-8-11" href="#__codelineno-8-11"></a><span class="w">        </span><span class="c1">// Use bs_macos_capture_png (macos-capture.mm / ScreenCaptureKit)</span>
+<a id="__codelineno-8-12" name="__codelineno-8-12" href="#__codelineno-8-12"></a><span class="w">        </span><span class="kt">char</span><span class="w"> </span><span class="n">tmp</span><span class="p">[]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&quot;/tmp/bs-cua-XXXXXX.png&quot;</span><span class="p">;</span>
+<a id="__codelineno-8-13" name="__codelineno-8-13" href="#__codelineno-8-13"></a><span class="w">        </span><span class="kt">int</span><span class="w"> </span><span class="n">fd</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">mkstemps</span><span class="p">(</span><span class="n">tmp</span><span class="p">,</span><span class="w"> </span><span class="mi">4</span><span class="p">);</span>
+<a id="__codelineno-8-14" name="__codelineno-8-14" href="#__codelineno-8-14"></a><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">fd</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="mi">0</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">close</span><span class="p">(</span><span class="n">fd</span><span class="p">);</span><span class="w"> </span><span class="p">}</span>
+<a id="__codelineno-8-15" name="__codelineno-8-15" href="#__codelineno-8-15"></a><span class="w">        </span><span class="kt">char</span><span class="w"> </span><span class="n">err</span><span class="p">[</span><span class="mi">1024</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{};</span>
+<a id="__codelineno-8-16" name="__codelineno-8-16" href="#__codelineno-8-16"></a><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">bs_macos_capture_png</span><span class="p">(</span><span class="n">tmp</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="n">err</span><span class="p">,</span><span class="w"> </span><span class="k">sizeof</span><span class="p">(</span><span class="n">err</span><span class="p">)))</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-8-17" name="__codelineno-8-17" href="#__codelineno-8-17"></a><span class="w">            </span><span class="n">std</span><span class="o">::</span><span class="n">ifstream</span><span class="w"> </span><span class="nf">cap</span><span class="p">(</span><span class="n">tmp</span><span class="p">,</span><span class="w"> </span><span class="n">std</span><span class="o">::</span><span class="n">ios</span><span class="o">::</span><span class="n">binary</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="n">std</span><span class="o">::</span><span class="n">ios</span><span class="o">::</span><span class="n">ate</span><span class="p">);</span>
+<a id="__codelineno-8-18" name="__codelineno-8-18" href="#__codelineno-8-18"></a><span class="w">            </span><span class="k">auto</span><span class="w"> </span><span class="n">sz</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">cap</span><span class="p">.</span><span class="n">tellg</span><span class="p">();</span>
+<a id="__codelineno-8-19" name="__codelineno-8-19" href="#__codelineno-8-19"></a><span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">sz</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="mi">0</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="p">(</span><span class="kt">size_t</span><span class="p">)</span><span class="n">sz</span><span class="w"> </span><span class="o">&lt;=</span><span class="w"> </span><span class="n">MAX_IMAGE_BYTES</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-8-20" name="__codelineno-8-20" href="#__codelineno-8-20"></a><span class="w">                </span><span class="n">resp</span><span class="p">.</span><span class="n">data</span><span class="p">.</span><span class="n">resize</span><span class="p">((</span><span class="kt">size_t</span><span class="p">)</span><span class="n">sz</span><span class="p">);</span>
+<a id="__codelineno-8-21" name="__codelineno-8-21" href="#__codelineno-8-21"></a><span class="w">                </span><span class="n">cap</span><span class="p">.</span><span class="n">seekg</span><span class="p">(</span><span class="mi">0</span><span class="p">);</span>
+<a id="__codelineno-8-22" name="__codelineno-8-22" href="#__codelineno-8-22"></a><span class="w">                </span><span class="n">cap</span><span class="p">.</span><span class="n">read</span><span class="p">((</span><span class="kt">char</span><span class="o">*</span><span class="p">)</span><span class="n">resp</span><span class="p">.</span><span class="n">data</span><span class="p">.</span><span class="n">data</span><span class="p">(),</span><span class="w"> </span><span class="n">sz</span><span class="p">);</span>
+<a id="__codelineno-8-23" name="__codelineno-8-23" href="#__codelineno-8-23"></a><span class="w">                </span><span class="n">resp</span><span class="p">.</span><span class="n">format</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">1</span><span class="p">;</span><span class="w"> </span><span class="n">resp</span><span class="p">.</span><span class="n">status</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span>
+<a id="__codelineno-8-24" name="__codelineno-8-24" href="#__codelineno-8-24"></a><span class="w">                </span><span class="k">auto</span><span class="w"> </span><span class="n">r</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">CGDisplayBounds</span><span class="p">(</span><span class="n">CGMainDisplayID</span><span class="p">());</span>
+<a id="__codelineno-8-25" name="__codelineno-8-25" href="#__codelineno-8-25"></a><span class="w">                </span><span class="n">resp</span><span class="p">.</span><span class="n">screen_w</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="kt">int16_t</span><span class="p">)</span><span class="n">r</span><span class="p">.</span><span class="n">size</span><span class="p">.</span><span class="n">width</span><span class="p">;</span>
+<a id="__codelineno-8-26" name="__codelineno-8-26" href="#__codelineno-8-26"></a><span class="w">                </span><span class="n">resp</span><span class="p">.</span><span class="n">screen_h</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="kt">int16_t</span><span class="p">)</span><span class="n">r</span><span class="p">.</span><span class="n">size</span><span class="p">.</span><span class="n">height</span><span class="p">;</span>
+<a id="__codelineno-8-27" name="__codelineno-8-27" href="#__codelineno-8-27"></a><span class="w">            </span><span class="p">}</span>
+<a id="__codelineno-8-28" name="__codelineno-8-28" href="#__codelineno-8-28"></a><span class="w">        </span><span class="p">}</span>
+<a id="__codelineno-8-29" name="__codelineno-8-29" href="#__codelineno-8-29"></a><span class="w">        </span><span class="o">::</span><span class="n">unlink</span><span class="p">(</span><span class="n">tmp</span><span class="p">);</span>
+<a id="__codelineno-8-30" name="__codelineno-8-30" href="#__codelineno-8-30"></a><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">resp</span><span class="p">.</span><span class="n">status</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="mi">0</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-8-31" name="__codelineno-8-31" href="#__codelineno-8-31"></a><span class="w">            </span><span class="n">resp</span><span class="p">.</span><span class="n">status</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">1</span><span class="p">;</span>
+<a id="__codelineno-8-32" name="__codelineno-8-32" href="#__codelineno-8-32"></a><span class="w">            </span><span class="n">resp</span><span class="p">.</span><span class="n">error</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">std</span><span class="o">::</span><span class="n">string</span><span class="p">(</span><span class="s">&quot;macOS capture failed: &quot;</span><span class="p">)</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">err</span><span class="p">;</span>
+<a id="__codelineno-8-33" name="__codelineno-8-33" href="#__codelineno-8-33"></a><span class="w">        </span><span class="p">}</span>
+<a id="__codelineno-8-34" name="__codelineno-8-34" href="#__codelineno-8-34"></a><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">resp</span><span class="p">;</span>
+<a id="__codelineno-8-35" name="__codelineno-8-35" href="#__codelineno-8-35"></a><span class="w">    </span><span class="p">}</span>
+<a id="__codelineno-8-36" name="__codelineno-8-36" href="#__codelineno-8-36"></a><span class="w">    </span><span class="c1">// For non-capture actions without helper, return error</span>
+<a id="__codelineno-8-37" name="__codelineno-8-37" href="#__codelineno-8-37"></a><span class="w">    </span><span class="n">resp</span><span class="p">.</span><span class="n">status</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">1</span><span class="p">;</span>
+<a id="__codelineno-8-38" name="__codelineno-8-38" href="#__codelineno-8-38"></a><span class="w">    </span><span class="n">resp</span><span class="p">.</span><span class="n">error</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&quot;macOS CUA input requires cua-helper (run: bridgesessions --cua-helper in user session)&quot;</span><span class="p">;</span>
+<a id="__codelineno-8-39" name="__codelineno-8-39" href="#__codelineno-8-39"></a><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="n">resp</span><span class="p">;</span>
+</code></pre></div>
+<h3 id="also-screen-vs-capture-inconsistency">Also: <code>screen</code> vs <code>capture</code> inconsistency<a class="headerlink" href="#also-screen-vs-capture-inconsistency" title="Permanent link">&para;</a></h3>
+<p><code>bs cua screen macos-peer</code> returns <code>0x0</code> with exit 0 (appears to succeed with empty dimensions). This is because action=0 (screen_info) hits the macOS stub, returns <code>status=1, error="macos CGEvent not yet deployed"</code>, but the client-side code for <code>screen</code> interprets <code>status=1</code> as "return 0x0" instead of propagating the error. <code>capture</code> correctly surfaces the error string.</p>
+<p><strong>Fix:</strong> Client-side <code>cua screen</code> should check <code>status</code> and print the error if non-zero, same as <code>capture</code> does.</p>
+<hr />
+<h2 id="layer-3-tcc-permission-persistence-bug-signingidentity">Layer 3: TCC Permission Persistence (BUG — signing/identity)<a class="headerlink" href="#layer-3-tcc-permission-persistence-bug-signingidentity" title="Permanent link">&para;</a></h2>
+<h3 id="what-happens_2">What happens<a class="headerlink" href="#what-happens_2" title="Permanent link">&para;</a></h3>
+<p>The TCC database on macos-peer has <strong>zero entries</strong> for Screen Recording or Accessibility:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="k">SELECT</span><span class="w"> </span><span class="n">service</span><span class="p">,</span><span class="w"> </span><span class="n">client</span><span class="p">,</span><span class="w"> </span><span class="n">auth_value</span><span class="w"> </span><span class="k">FROM</span><span class="w"> </span><span class="k">access</span><span class="w"> </span>
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="k">WHERE</span><span class="w"> </span><span class="n">service</span><span class="w"> </span><span class="k">IN</span><span class="w"> </span><span class="p">(</span><span class="s1">&#39;kTCCServiceScreenCapture&#39;</span><span class="p">,</span><span class="s1">&#39;kTCCServiceAccessibility&#39;</span><span class="p">);</span>
+<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="c1">-- (empty result set)</span>
+</code></pre></div>
+<p>The user says "I granted permissions many times." The grants are not persisting because:</p>
+<ol>
+<li>
+<p><strong>The binary is adhoc-signed</strong> — <code>codesign -dv</code> shows <code>flags=0x20002(adhoc,linker-signed)</code>. macOS TCC tracks permissions by the binary's code signature identity (CDHash). An adhoc signature has no stable identity — every rebuild produces a different CDHash.</p>
+</li>
+<li>
+<p><strong>Binary replacement invalidates grants</strong> — When the binary at <code>~/.local/bin/bridgesessions</code> is replaced (e.g., during a fleet deploy), the CDHash changes. macOS silently invalidates the old TCC grant. The user grants permission, then the next deploy wipes it.</p>
+</li>
+<li>
+<p><strong>No stable bundle identifier</strong> — The Info.plist has <code>com.minddragon.bridgesessions</code> but the adhoc signature uses <code>Identifier=bridgesessions</code> (no bundle ID). TCC needs a stable bundle ID to persist grants across binary updates.</p>
+</li>
+<li>
+<p><strong>The helper runs as a separate process</strong> — <code>bridgesessions --cua-helper</code> is the same binary file. macOS may prompt separately for the helper process vs the daemon process, creating confusion about which one needs the grant.</p>
+</li>
+</ol>
+<h3 id="fix_2">Fix<a class="headerlink" href="#fix_2" title="Permanent link">&para;</a></h3>
+<p><strong>Short-term:</strong> Create a proper <code>.app</code> bundle with:
+- A stable <code>CFBundleIdentifier</code> (e.g., <code>com.minddragon.bridgesessions</code>)
+- Adhoc-signed but with a <strong>stable signing identity</strong> (same CDHash every build — use <code>codesign -s -</code> with a fixed provisioning profile, or self-sign with a local certificate)
+- The helper launched from within the <code>.app</code> bundle so macOS sees a consistent path + identity</p>
+<p><strong>Long-term:</strong> Developer ID certificate + notarization. The repo already has <code>scripts/sign-macos.sh</code> and <code>scripts/notarize-macos.sh</code> — they just need a real Developer ID certificate.</p>
+<p><strong>TCC grant script (for setup):</strong>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="c1"># Grant Screen Recording + Accessibility to the .app bundle</span>
+<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>sudo<span class="w"> </span>tccutil<span class="w"> </span>reset<span class="w"> </span>ScreenCapture<span class="w"> </span>com.minddragon.bridgesessions
+<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a>sudo<span class="w"> </span>tccutil<span class="w"> </span>reset<span class="w"> </span>Accessibility<span class="w"> </span>com.minddragon.bridgesessions
+<a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="c1"># Then open System Settings → Privacy &amp; Security → Screen Recording</span>
+<a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a><span class="c1"># Add BridgeSessions.app (or the terminal that launched it)</span>
+</code></pre></div></p>
+<p><strong>Alternative: tccutil + AppleScript</strong> (requires user interaction once):
+<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>open<span class="w"> </span><span class="s2">&quot;x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture&quot;</span>
+</code></pre></div></p>
+<hr />
+<h2 id="layer-4-no-menubar-helper-gap-ux">Layer 4: No Menubar Helper (GAP — UX)<a class="headerlink" href="#layer-4-no-menubar-helper-gap-ux" title="Permanent link">&para;</a></h2>
+<h3 id="current-state">Current state<a class="headerlink" href="#current-state" title="Permanent link">&para;</a></h3>
+<p>The cua-helper is a raw CLI process: <code>bridgesessions --cua-helper &amp;</code>. There is:
+- No <code>.app</code> bundle to double-click
+- No menubar icon
+- No status indicator
+- No way to check if the helper is running without <code>ps aux | grep cua-helper</code>
+- The launchd plist runs the <strong>daemon only</strong>, not the helper
+- The install script (line 194–199) just prints: "run: ${BIN_ABS} --cua-helper &amp;"</p>
+<h3 id="what-the-user-wants">What the user wants<a class="headerlink" href="#what-the-user-wants" title="Permanent link">&para;</a></h3>
+<ol>
+<li><strong>Install</strong> — proper installer</li>
+<li><strong>Activate</strong> — double-clickable app to launch a menubar helper</li>
+<li>2a. Menubar "B" icon</li>
+<li>2b. Menu: Status, Settings, Quit</li>
+<li>2c. Status → popup table with all fleet peers, realtime, closeable</li>
+<li>2d. Settings → autolaunch at login (default on), click to check permissions</li>
+</ol>
+<hr />
+<h2 id="proposed-design-bridgesessions-menubar-helper-app">Proposed Design: BridgeSessions Menubar Helper (.app)<a class="headerlink" href="#proposed-design-bridgesessions-menubar-helper-app" title="Permanent link">&para;</a></h2>
+<h3 id="architecture">Architecture<a class="headerlink" href="#architecture" title="Permanent link">&para;</a></h3>
+<p>A <strong>separate Swift menubar app</strong> (<code>BSMenubar.app</code>) that:</p>
+<ol>
+<li><strong>Manages the cua-helper lifecycle</strong> — launches <code>bridgesessions --cua-helper</code> as a child process, restarts on crash</li>
+<li><strong>Shows a "B" status item</strong> in the system menubar (NSStatusItem + NSMenu)</li>
+<li><strong>Polls fleet status</strong> — runs <code>bridgesessions fleet</code> every 5s, parses output, displays in a popover/table view</li>
+<li><strong>Settings panel</strong> — autolaunch toggle (writes a LaunchAgent), permissions check button (opens System Settings)</li>
+</ol>
+<h3 id="why-swift-and-not-cobjc">Why Swift and not C++/ObjC++<a class="headerlink" href="#why-swift-and-not-cobjc" title="Permanent link">&para;</a></h3>
+<ul>
+<li>NSStatusItem, NSMenu, NSTableView, NSPopover are all AppKit — Swift is the natural fit</li>
+<li>The menubar app is a <strong>thin shell</strong> — it doesn't implement mesh protocol, just calls the <code>bridgesessions</code> CLI</li>
+<li>Keeps the C++ binary focused on the mesh daemon; the Swift app handles only UX</li>
+<li>Can be developed/built on macOS only (Xcode or <code>swiftc</code> CLI)</li>
+</ul>
+<h3 id="file-structure">File structure<a class="headerlink" href="#file-structure" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>BSMenubar/
+<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a>├── BSMenubarApp.swift          # main entry, NSApplication delegate
+<a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a>├── StatusItemController.swift  # menubar &quot;B&quot; icon + menu
+<a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a>├── FleetStatusController.swift # polls `bs fleet`, manages popover table
+<a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a>├── SettingsController.swift    # autolaunch toggle, permissions check
+<a id="__codelineno-12-6" name="__codelineno-12-6" href="#__codelineno-12-6"></a>├── HelperProcessManager.swift  # launches/monitors `bridgesessions --cua-helper`
+<a id="__codelineno-12-7" name="__codelineno-12-7" href="#__codelineno-12-7"></a>├── Assets.xcassets/
+<a id="__codelineno-12-8" name="__codelineno-12-8" href="#__codelineno-12-8"></a>│   └── AppIcon.appiconset/     # &quot;B&quot; icon (menubar + about)
+<a id="__codelineno-12-9" name="__codelineno-12-9" href="#__codelineno-12-9"></a>├── Info.plist
+<a id="__codelineno-12-10" name="__codelineno-12-10" href="#__codelineno-12-10"></a>└── BSMenubar.entitlements
+</code></pre></div>
+<h3 id="menu-structure">Menu structure<a class="headerlink" href="#menu-structure" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>[B]  ← menubar icon (template image, 16x16)
+<a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a>├── Status
+<a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a>│   └── → Fleet Status popup (NSTableView in NSPopover)
+<a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a>│       ┌──────────────────────────────────────┐
+<a id="__codelineno-13-5" name="__codelineno-13-5" href="#__codelineno-13-5"></a>│       │ Peer          Version      Status    │
+<a id="__codelineno-13-6" name="__codelineno-13-6" href="#__codelineno-13-6"></a>│       │ ───────────────────────────────────── │
+<a id="__codelineno-13-7" name="__codelineno-13-7" href="#__codelineno-13-7"></a>│       │ linux-a         26.08.06-b1   ● online  │
+<a id="__codelineno-13-8" name="__codelineno-13-8" href="#__codelineno-13-8"></a>│       │ macos-peer       26.08.06-b1   ● online  │
+<a id="__codelineno-13-9" name="__codelineno-13-9" href="#__codelineno-13-9"></a>│       │ macbook       26.08.06-b1   ● online  │
+<a id="__codelineno-13-10" name="__codelineno-13-10" href="#__codelineno-13-10"></a>│       │ linux-d          26.08.06-b1   ● online  │
+<a id="__codelineno-13-11" name="__codelineno-13-11" href="#__codelineno-13-11"></a>│       │ linux-c        26.08.06-b1   ● online  │
+<a id="__codelineno-13-12" name="__codelineno-13-12" href="#__codelineno-13-12"></a>│       │ linux-db  26.08.06-b1   ● online  │
+<a id="__codelineno-13-13" name="__codelineno-13-13" href="#__codelineno-13-13"></a>│       │ linux-b         26.08.06-b1   ● online  │
+<a id="__codelineno-13-14" name="__codelineno-13-14" href="#__codelineno-13-14"></a>│       │ shadow        0.0.0-dev     ○ offline  │
+<a id="__codelineno-13-15" name="__codelineno-13-15" href="#__codelineno-13-15"></a>│       │                        [Close]         │
+<a id="__codelineno-13-16" name="__codelineno-13-16" href="#__codelineno-13-16"></a>│       └──────────────────────────────────────┘
+<a id="__codelineno-13-17" name="__codelineno-13-17" href="#__codelineno-13-17"></a>├── ────────────
+<a id="__codelineno-13-18" name="__codelineno-13-18" href="#__codelineno-13-18"></a>├── Settings
+<a id="__codelineno-13-19" name="__codelineno-13-19" href="#__codelineno-13-19"></a>│   ├── ✓ Launch at Login
+<a id="__codelineno-13-20" name="__codelineno-13-20" href="#__codelineno-13-20"></a>│   ├── Check Permissions...    → opens System Settings → Privacy
+<a id="__codelineno-13-21" name="__codelineno-13-21" href="#__codelineno-13-21"></a>│   └── Restart Helper          → kills + relaunches cua-helper
+<a id="__codelineno-13-22" name="__codelineno-13-22" href="#__codelineno-13-22"></a>├── ────────────
+<a id="__codelineno-13-23" name="__codelineno-13-23" href="#__codelineno-13-23"></a>└── Quit BridgeSessions Helper
+</code></pre></div>
+<h3 id="fleet-status-polling">Fleet status polling<a class="headerlink" href="#fleet-status-polling" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="c1">// FleetStatusController.swift</span>
+<a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a><span class="c1">// Polls `bridgesessions fleet` every 5 seconds</span>
+<a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a><span class="c1">// Parses output into [FleetPeer] array</span>
+<a id="__codelineno-14-4" name="__codelineno-14-4" href="#__codelineno-14-4"></a><span class="c1">// Displays in NSTableView inside NSPopover</span>
+<a id="__codelineno-14-5" name="__codelineno-14-5" href="#__codelineno-14-5"></a>
+<a id="__codelineno-14-6" name="__codelineno-14-6" href="#__codelineno-14-6"></a><span class="kd">struct</span><span class="w"> </span><span class="nc">FleetPeer</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-14-7" name="__codelineno-14-7" href="#__codelineno-14-7"></a><span class="w">    </span><span class="kd">let</span><span class="w"> </span><span class="nv">name</span><span class="p">:</span><span class="w"> </span><span class="nb">String</span>
+<a id="__codelineno-14-8" name="__codelineno-14-8" href="#__codelineno-14-8"></a><span class="w">    </span><span class="kd">let</span><span class="w"> </span><span class="nv">version</span><span class="p">:</span><span class="w"> </span><span class="nb">String</span>
+<a id="__codelineno-14-9" name="__codelineno-14-9" href="#__codelineno-14-9"></a><span class="w">    </span><span class="kd">let</span><span class="w"> </span><span class="nv">address</span><span class="p">:</span><span class="w"> </span><span class="nb">String</span>
+<a id="__codelineno-14-10" name="__codelineno-14-10" href="#__codelineno-14-10"></a><span class="w">    </span><span class="kd">let</span><span class="w"> </span><span class="nv">isOnline</span><span class="p">:</span><span class="w"> </span><span class="nb">Bool</span>
+<a id="__codelineno-14-11" name="__codelineno-14-11" href="#__codelineno-14-11"></a><span class="w">    </span><span class="kd">let</span><span class="w"> </span><span class="nv">isSelf</span><span class="p">:</span><span class="w"> </span><span class="nb">Bool</span>
+<a id="__codelineno-14-12" name="__codelineno-14-12" href="#__codelineno-14-12"></a><span class="p">}</span>
+<a id="__codelineno-14-13" name="__codelineno-14-13" href="#__codelineno-14-13"></a>
+<a id="__codelineno-14-14" name="__codelineno-14-14" href="#__codelineno-14-14"></a><span class="kd">func</span><span class="w"> </span><span class="nf">pollFleet</span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-14-15" name="__codelineno-14-15" href="#__codelineno-14-15"></a><span class="w">    </span><span class="kd">let</span><span class="w"> </span><span class="nv">task</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nb">Process</span><span class="p">()</span>
+<a id="__codelineno-14-16" name="__codelineno-14-16" href="#__codelineno-14-16"></a><span class="w">    </span><span class="n">task</span><span class="p">.</span><span class="n">executableURL</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="n">URL</span><span class="p">(</span><span class="n">fileURLWithPath</span><span class="p">:</span><span class="w"> </span><span class="n">bsBinaryPath</span><span class="p">)</span>
+<a id="__codelineno-14-17" name="__codelineno-14-17" href="#__codelineno-14-17"></a><span class="w">    </span><span class="n">task</span><span class="p">.</span><span class="n">arguments</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="p">[</span><span class="s">&quot;fleet&quot;</span><span class="p">]</span>
+<a id="__codelineno-14-18" name="__codelineno-14-18" href="#__codelineno-14-18"></a><span class="w">    </span><span class="kd">let</span><span class="w"> </span><span class="nv">pipe</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="n">Pipe</span><span class="p">()</span>
+<a id="__codelineno-14-19" name="__codelineno-14-19" href="#__codelineno-14-19"></a><span class="w">    </span><span class="n">task</span><span class="p">.</span><span class="n">standardOutput</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="n">pipe</span>
+<a id="__codelineno-14-20" name="__codelineno-14-20" href="#__codelineno-14-20"></a><span class="w">    </span><span class="k">try</span><span class="p">?</span><span class="w"> </span><span class="n">task</span><span class="p">.</span><span class="n">run</span><span class="p">()</span>
+<a id="__codelineno-14-21" name="__codelineno-14-21" href="#__codelineno-14-21"></a><span class="w">    </span><span class="n">task</span><span class="p">.</span><span class="n">waitUntilExit</span><span class="p">()</span>
+<a id="__codelineno-14-22" name="__codelineno-14-22" href="#__codelineno-14-22"></a><span class="w">    </span><span class="c1">// Parse pipe output → [FleetPeer]</span>
+<a id="__codelineno-14-23" name="__codelineno-14-23" href="#__codelineno-14-23"></a><span class="w">    </span><span class="c1">// Update table on main thread</span>
+<a id="__codelineno-14-24" name="__codelineno-14-24" href="#__codelineno-14-24"></a><span class="w">    </span><span class="n">DispatchQueue</span><span class="p">.</span><span class="n">main</span><span class="p">.</span><span class="k">async</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="kc">self</span><span class="p">.</span><span class="n">updateTable</span><span class="p">(</span><span class="n">peers</span><span class="p">)</span><span class="w"> </span><span class="p">}</span>
+<a id="__codelineno-14-25" name="__codelineno-14-25" href="#__codelineno-14-25"></a><span class="p">}</span>
+</code></pre></div>
+<h3 id="autolaunch-at-login">Autolaunch at login<a class="headerlink" href="#autolaunch-at-login" title="Permanent link">&para;</a></h3>
+<p>Two mechanisms:
+1. <strong>LaunchAgent</strong> (preferred): <code>~/Library/LaunchAgents/com.minddragon.bridgesessions.menubar.plist</code> with <code>RunAtLoad=true</code>
+2. <strong>SMAppService</strong> (macOS 13+): <code>SMAppService.mainApp.register()</code> — the modern API</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="c1">// SettingsController.swift</span>
+<a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a><span class="kd">func</span><span class="w"> </span><span class="nf">toggleAutolaunch</span><span class="p">(</span><span class="kc">_</span><span class="w"> </span><span class="n">enabled</span><span class="p">:</span><span class="w"> </span><span class="nb">Bool</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="n">enabled</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-15-4" name="__codelineno-15-4" href="#__codelineno-15-4"></a><span class="w">        </span><span class="c1">// Write LaunchAgent plist</span>
+<a id="__codelineno-15-5" name="__codelineno-15-5" href="#__codelineno-15-5"></a><span class="w">        </span><span class="kd">let</span><span class="w"> </span><span class="nv">plist</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="s">&quot;&quot;&quot;</span>
+<a id="__codelineno-15-6" name="__codelineno-15-6" href="#__codelineno-15-6"></a><span class="s">        &lt;?xml version=</span><span class="err">&quot;</span><span class="s">1.0</span><span class="err">&quot;</span><span class="s"> encoding=</span><span class="err">&quot;</span><span class="s">UTF-8</span><span class="err">&quot;</span><span class="s">?&gt;</span>
+<a id="__codelineno-15-7" name="__codelineno-15-7" href="#__codelineno-15-7"></a><span class="s">        &lt;plist version=</span><span class="err">&quot;</span><span class="s">1.0</span><span class="err">&quot;</span><span class="s">&gt;</span>
+<a id="__codelineno-15-8" name="__codelineno-15-8" href="#__codelineno-15-8"></a><span class="s">        &lt;dict&gt;</span>
+<a id="__codelineno-15-9" name="__codelineno-15-9" href="#__codelineno-15-9"></a><span class="s">          &lt;key&gt;Label&lt;/key&gt;</span>
+<a id="__codelineno-15-10" name="__codelineno-15-10" href="#__codelineno-15-10"></a><span class="s">          &lt;string&gt;com.minddragon.bridgesessions.menubar&lt;/string&gt;</span>
+<a id="__codelineno-15-11" name="__codelineno-15-11" href="#__codelineno-15-11"></a><span class="s">          &lt;key&gt;ProgramArguments&lt;/key&gt;</span>
+<a id="__codelineno-15-12" name="__codelineno-15-12" href="#__codelineno-15-12"></a><span class="s">          &lt;array&gt;</span>
+<a id="__codelineno-15-13" name="__codelineno-15-13" href="#__codelineno-15-13"></a><span class="s">            &lt;string&gt;</span><span class="si">\(</span><span class="n">appPath</span><span class="si">)</span><span class="s">&lt;/string&gt;</span>
+<a id="__codelineno-15-14" name="__codelineno-15-14" href="#__codelineno-15-14"></a><span class="s">          &lt;/array&gt;</span>
+<a id="__codelineno-15-15" name="__codelineno-15-15" href="#__codelineno-15-15"></a><span class="s">          &lt;key&gt;RunAtLoad&lt;/key&gt;</span>
+<a id="__codelineno-15-16" name="__codelineno-15-16" href="#__codelineno-15-16"></a><span class="s">          &lt;true/&gt;</span>
+<a id="__codelineno-15-17" name="__codelineno-15-17" href="#__codelineno-15-17"></a><span class="s">          &lt;key&gt;KeepAlive&lt;/key&gt;</span>
+<a id="__codelineno-15-18" name="__codelineno-15-18" href="#__codelineno-15-18"></a><span class="s">          &lt;false/&gt;</span>
+<a id="__codelineno-15-19" name="__codelineno-15-19" href="#__codelineno-15-19"></a><span class="s">        &lt;/dict&gt;</span>
+<a id="__codelineno-15-20" name="__codelineno-15-20" href="#__codelineno-15-20"></a><span class="s">        &lt;/plist&gt;</span>
+<a id="__codelineno-15-21" name="__codelineno-15-21" href="#__codelineno-15-21"></a><span class="s">        &quot;&quot;&quot;</span>
+<a id="__codelineno-15-22" name="__codelineno-15-22" href="#__codelineno-15-22"></a><span class="w">        </span><span class="k">try</span><span class="p">?</span><span class="w"> </span><span class="n">plist</span><span class="p">.</span><span class="n">write</span><span class="p">(</span><span class="n">toFile</span><span class="p">:</span><span class="w"> </span><span class="n">launchAgentPath</span><span class="p">,</span><span class="w"> </span><span class="n">atomically</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span><span class="w"> </span><span class="n">encoding</span><span class="p">:</span><span class="w"> </span><span class="p">.</span><span class="n">utf8</span><span class="p">)</span>
+<a id="__codelineno-15-23" name="__codelineno-15-23" href="#__codelineno-15-23"></a><span class="w">        </span><span class="nb">Process</span><span class="p">.</span><span class="n">launchedProcess</span><span class="p">(</span><span class="n">launchctl</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s">&quot;load&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">launchAgentPath</span><span class="p">])</span>
+<a id="__codelineno-15-24" name="__codelineno-15-24" href="#__codelineno-15-24"></a><span class="w">    </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-15-25" name="__codelineno-15-25" href="#__codelineno-15-25"></a><span class="w">        </span><span class="k">try</span><span class="p">?</span><span class="w"> </span><span class="n">FileManager</span><span class="p">.</span><span class="k">default</span><span class="p">.</span><span class="n">removeItem</span><span class="p">(</span><span class="n">atPath</span><span class="p">:</span><span class="w"> </span><span class="n">launchAgentPath</span><span class="p">)</span>
+<a id="__codelineno-15-26" name="__codelineno-15-26" href="#__codelineno-15-26"></a><span class="w">        </span><span class="nb">Process</span><span class="p">.</span><span class="n">launchedProcess</span><span class="p">(</span><span class="n">launchctl</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s">&quot;unload&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">launchAgentPath</span><span class="p">])</span>
+<a id="__codelineno-15-27" name="__codelineno-15-27" href="#__codelineno-15-27"></a><span class="w">    </span><span class="p">}</span>
+<a id="__codelineno-15-28" name="__codelineno-15-28" href="#__codelineno-15-28"></a><span class="p">}</span>
+</code></pre></div>
+<h3 id="permissions-check">Permissions check<a class="headerlink" href="#permissions-check" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="kd">func</span><span class="w"> </span><span class="nf">checkPermissions</span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a><span class="w">    </span><span class="c1">// Check if Screen Recording is granted by attempting a capture</span>
+<a id="__codelineno-16-3" name="__codelineno-16-3" href="#__codelineno-16-3"></a><span class="w">    </span><span class="kd">let</span><span class="w"> </span><span class="nv">task</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nb">Process</span><span class="p">()</span>
+<a id="__codelineno-16-4" name="__codelineno-16-4" href="#__codelineno-16-4"></a><span class="w">    </span><span class="n">task</span><span class="p">.</span><span class="n">executableURL</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="n">URL</span><span class="p">(</span><span class="n">fileURLWithPath</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;/usr/sbin/screencapture&quot;</span><span class="p">)</span>
+<a id="__codelineno-16-5" name="__codelineno-16-5" href="#__codelineno-16-5"></a><span class="w">    </span><span class="n">task</span><span class="p">.</span><span class="n">arguments</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="p">[</span><span class="s">&quot;-x&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;/tmp/bs-perm-check.png&quot;</span><span class="p">]</span>
+<a id="__codelineno-16-6" name="__codelineno-16-6" href="#__codelineno-16-6"></a><span class="w">    </span><span class="k">try</span><span class="p">?</span><span class="w"> </span><span class="n">task</span><span class="p">.</span><span class="n">run</span><span class="p">()</span>
+<a id="__codelineno-16-7" name="__codelineno-16-7" href="#__codelineno-16-7"></a><span class="w">    </span><span class="n">task</span><span class="p">.</span><span class="n">waitUntilExit</span><span class="p">()</span>
+<a id="__codelineno-16-8" name="__codelineno-16-8" href="#__codelineno-16-8"></a>
+<a id="__codelineno-16-9" name="__codelineno-16-9" href="#__codelineno-16-9"></a><span class="w">    </span><span class="kd">let</span><span class="w"> </span><span class="nv">img</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="n">NSImage</span><span class="p">(</span><span class="n">contentsOfFile</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;/tmp/bs-perm-check.png&quot;</span><span class="p">)</span>
+<a id="__codelineno-16-10" name="__codelineno-16-10" href="#__codelineno-16-10"></a><span class="w">    </span><span class="kd">let</span><span class="w"> </span><span class="nv">hasPermission</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="n">img</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">nil</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="n">img</span><span class="p">!.</span><span class="n">size</span><span class="p">.</span><span class="n">width</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="mi">1</span>
+<a id="__codelineno-16-11" name="__codelineno-16-11" href="#__codelineno-16-11"></a>
+<a id="__codelineno-16-12" name="__codelineno-16-12" href="#__codelineno-16-12"></a><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="o">!</span><span class="n">hasPermission</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-16-13" name="__codelineno-16-13" href="#__codelineno-16-13"></a><span class="w">        </span><span class="c1">// Open System Settings to the Screen Recording pane</span>
+<a id="__codelineno-16-14" name="__codelineno-16-14" href="#__codelineno-16-14"></a><span class="w">        </span><span class="n">NSWorkspace</span><span class="p">.</span><span class="n">shared</span><span class="p">.</span><span class="n">open</span><span class="p">(</span><span class="n">URL</span><span class="p">(</span><span class="n">string</span><span class="p">:</span><span class="w"> </span>
+<a id="__codelineno-16-15" name="__codelineno-16-15" href="#__codelineno-16-15"></a><span class="w">            </span><span class="s">&quot;x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture&quot;</span><span class="p">)</span><span class="o">!</span><span class="p">)</span>
+<a id="__codelineno-16-16" name="__codelineno-16-16" href="#__codelineno-16-16"></a><span class="w">    </span><span class="p">}</span>
+<a id="__codelineno-16-17" name="__codelineno-16-17" href="#__codelineno-16-17"></a>
+<a id="__codelineno-16-18" name="__codelineno-16-18" href="#__codelineno-16-18"></a><span class="w">    </span><span class="c1">// Also check Accessibility (for CGEvent input injection)</span>
+<a id="__codelineno-16-19" name="__codelineno-16-19" href="#__codelineno-16-19"></a><span class="w">    </span><span class="kd">let</span><span class="w"> </span><span class="nv">trusted</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="n">AXIsProcessTrusted</span><span class="p">()</span>
+<a id="__codelineno-16-20" name="__codelineno-16-20" href="#__codelineno-16-20"></a><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="o">!</span><span class="n">trusted</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-16-21" name="__codelineno-16-21" href="#__codelineno-16-21"></a><span class="w">        </span><span class="c1">// Prompt for Accessibility</span>
+<a id="__codelineno-16-22" name="__codelineno-16-22" href="#__codelineno-16-22"></a><span class="w">        </span><span class="kd">let</span><span class="w"> </span><span class="nv">options</span><span class="p">:</span><span class="w"> </span><span class="bp">NSDictionary</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="p">[</span><span class="n">kAXTrustedCheckOptionPrompt</span><span class="p">.</span><span class="n">takeRetainedValue</span><span class="p">():</span><span class="w"> </span><span class="kc">true</span><span class="p">]</span>
+<a id="__codelineno-16-23" name="__codelineno-16-23" href="#__codelineno-16-23"></a><span class="w">        </span><span class="n">AXIsProcessTrustedWithOptions</span><span class="p">(</span><span class="n">options</span><span class="p">)</span>
+<a id="__codelineno-16-24" name="__codelineno-16-24" href="#__codelineno-16-24"></a><span class="w">    </span><span class="p">}</span>
+<a id="__codelineno-16-25" name="__codelineno-16-25" href="#__codelineno-16-25"></a><span class="p">}</span>
+</code></pre></div>
+<h3 id="helper-process-manager">Helper process manager<a class="headerlink" href="#helper-process-manager" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="c1">// HelperProcessManager.swift</span>
+<a id="__codelineno-17-2" name="__codelineno-17-2" href="#__codelineno-17-2"></a><span class="kd">class</span><span class="w"> </span><span class="nc">HelperProcessManager</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-17-3" name="__codelineno-17-3" href="#__codelineno-17-3"></a><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">var</span><span class="w"> </span><span class="nv">helperProcess</span><span class="p">:</span><span class="w"> </span><span class="nb">Process</span><span class="p">?</span>
+<a id="__codelineno-17-4" name="__codelineno-17-4" href="#__codelineno-17-4"></a>
+<a id="__codelineno-17-5" name="__codelineno-17-5" href="#__codelineno-17-5"></a><span class="w">    </span><span class="kd">func</span><span class="w"> </span><span class="nf">start</span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-17-6" name="__codelineno-17-6" href="#__codelineno-17-6"></a><span class="w">        </span><span class="k">guard</span><span class="w"> </span><span class="n">helperProcess</span><span class="w"> </span><span class="p">==</span><span class="w"> </span><span class="kc">nil</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="p">}</span>
+<a id="__codelineno-17-7" name="__codelineno-17-7" href="#__codelineno-17-7"></a><span class="w">        </span><span class="kd">let</span><span class="w"> </span><span class="nv">p</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nb">Process</span><span class="p">()</span>
+<a id="__codelineno-17-8" name="__codelineno-17-8" href="#__codelineno-17-8"></a><span class="w">        </span><span class="n">p</span><span class="p">.</span><span class="n">executableURL</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="n">URL</span><span class="p">(</span><span class="n">fileURLWithPath</span><span class="p">:</span><span class="w"> </span><span class="n">bsBinaryPath</span><span class="p">)</span>
+<a id="__codelineno-17-9" name="__codelineno-17-9" href="#__codelineno-17-9"></a><span class="w">        </span><span class="n">p</span><span class="p">.</span><span class="n">arguments</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="p">[</span><span class="s">&quot;--cua-helper&quot;</span><span class="p">]</span>
+<a id="__codelineno-17-10" name="__codelineno-17-10" href="#__codelineno-17-10"></a><span class="w">        </span><span class="n">p</span><span class="p">.</span><span class="n">terminationHandler</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="p">[</span><span class="kr">weak</span><span class="w"> </span><span class="kc">self</span><span class="p">]</span><span class="w"> </span><span class="kc">_</span><span class="w"> </span><span class="k">in</span>
+<a id="__codelineno-17-11" name="__codelineno-17-11" href="#__codelineno-17-11"></a><span class="w">            </span><span class="c1">// Auto-restart after 3s if crashed</span>
+<a id="__codelineno-17-12" name="__codelineno-17-12" href="#__codelineno-17-12"></a><span class="w">            </span><span class="n">DispatchQueue</span><span class="p">.</span><span class="n">main</span><span class="p">.</span><span class="n">asyncAfter</span><span class="p">(</span><span class="n">deadline</span><span class="p">:</span><span class="w"> </span><span class="p">.</span><span class="n">now</span><span class="p">()</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">3</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-17-13" name="__codelineno-17-13" href="#__codelineno-17-13"></a><span class="w">                </span><span class="kc">self</span><span class="p">?.</span><span class="n">helperProcess</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="kc">nil</span>
+<a id="__codelineno-17-14" name="__codelineno-17-14" href="#__codelineno-17-14"></a><span class="w">                </span><span class="kc">self</span><span class="p">?.</span><span class="n">start</span><span class="p">()</span>
+<a id="__codelineno-17-15" name="__codelineno-17-15" href="#__codelineno-17-15"></a><span class="w">            </span><span class="p">}</span>
+<a id="__codelineno-17-16" name="__codelineno-17-16" href="#__codelineno-17-16"></a><span class="w">        </span><span class="p">}</span>
+<a id="__codelineno-17-17" name="__codelineno-17-17" href="#__codelineno-17-17"></a><span class="w">        </span><span class="k">try</span><span class="p">?</span><span class="w"> </span><span class="n">p</span><span class="p">.</span><span class="n">run</span><span class="p">()</span>
+<a id="__codelineno-17-18" name="__codelineno-17-18" href="#__codelineno-17-18"></a><span class="w">        </span><span class="n">helperProcess</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="n">p</span>
+<a id="__codelineno-17-19" name="__codelineno-17-19" href="#__codelineno-17-19"></a><span class="w">    </span><span class="p">}</span>
+<a id="__codelineno-17-20" name="__codelineno-17-20" href="#__codelineno-17-20"></a>
+<a id="__codelineno-17-21" name="__codelineno-17-21" href="#__codelineno-17-21"></a><span class="w">    </span><span class="kd">func</span><span class="w"> </span><span class="nf">stop</span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-17-22" name="__codelineno-17-22" href="#__codelineno-17-22"></a><span class="w">        </span><span class="n">helperProcess</span><span class="p">?.</span><span class="n">terminate</span><span class="p">()</span>
+<a id="__codelineno-17-23" name="__codelineno-17-23" href="#__codelineno-17-23"></a><span class="w">        </span><span class="n">helperProcess</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="kc">nil</span>
+<a id="__codelineno-17-24" name="__codelineno-17-24" href="#__codelineno-17-24"></a><span class="w">    </span><span class="p">}</span>
+<a id="__codelineno-17-25" name="__codelineno-17-25" href="#__codelineno-17-25"></a>
+<a id="__codelineno-17-26" name="__codelineno-17-26" href="#__codelineno-17-26"></a><span class="w">    </span><span class="kd">var</span><span class="w"> </span><span class="nv">isRunning</span><span class="p">:</span><span class="w"> </span><span class="nb">Bool</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-17-27" name="__codelineno-17-27" href="#__codelineno-17-27"></a><span class="w">        </span><span class="n">helperProcess</span><span class="p">?.</span><span class="n">isRunning</span><span class="w"> </span><span class="p">??</span><span class="w"> </span><span class="kc">false</span>
+<a id="__codelineno-17-28" name="__codelineno-17-28" href="#__codelineno-17-28"></a><span class="w">    </span><span class="p">}</span>
+<a id="__codelineno-17-29" name="__codelineno-17-29" href="#__codelineno-17-29"></a><span class="p">}</span>
+</code></pre></div>
+<hr />
+<h2 id="install-workflow-revised">Install Workflow (revised)<a class="headerlink" href="#install-workflow-revised" title="Permanent link">&para;</a></h2>
+<h3 id="step-1-install-one-time">Step 1: Install (one-time)<a class="headerlink" href="#step-1-install-one-time" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="c1"># On macOS host:</span>
+<a id="__codelineno-18-2" name="__codelineno-18-2" href="#__codelineno-18-2"></a>curl<span class="w"> </span>-sL<span class="w"> </span>https://bridgesessions.dev/install.sh<span class="w"> </span><span class="p">|</span><span class="w"> </span>bash
+<a id="__codelineno-18-3" name="__codelineno-18-3" href="#__codelineno-18-3"></a><span class="c1"># OR from source:</span>
+<a id="__codelineno-18-4" name="__codelineno-18-4" href="#__codelineno-18-4"></a><span class="nb">cd</span><span class="w"> </span>~/bridgesessions<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>./install.sh
+</code></pre></div>
+<p>What <code>install.sh</code> does on macOS (revised):
+1. Copies binary to <code>~/.local/bin/bridgesessions</code>
+2. Creates <code>~/.bridgesessions/config</code> (if missing)
+3. Installs launchd daemon: <code>~/Library/LaunchAgents/com.bridgesessions.mesh.plist</code>
+4. Loads the daemon: <code>launchctl bootstrap gui/$(id -u) ...</code>
+5. <strong>NEW:</strong> Copies <code>BSMenubar.app</code> to <code>/Applications/</code>
+6. <strong>NEW:</strong> Offers to launch the menubar helper immediately
+7. <strong>NEW:</strong> Opens System Settings → Screen Recording for the user to grant permission</p>
+<h3 id="step-2-activate-double-click">Step 2: Activate (double-click)<a class="headerlink" href="#step-2-activate-double-click" title="Permanent link">&para;</a></h3>
+<p>User double-clicks <strong>BSMenubar.app</strong> in <code>/Applications/</code>:
+1. App launches, "B" icon appears in menubar
+2. App starts the cua-helper child process
+3. App starts fleet status polling
+4. If Screen Recording permission is missing, shows a notification: "Click to grant Screen Recording permission"</p>
+<h3 id="step-3-settings">Step 3: Settings<a class="headerlink" href="#step-3-settings" title="Permanent link">&para;</a></h3>
+<p>User clicks [B] → Settings:
+- <strong>Launch at Login</strong> checkbox (default: ✓)
+- <strong>Check Permissions</strong> button → opens System Settings if missing
+- <strong>Restart Helper</strong> button → kills and relaunches the cua-helper</p>
+<hr />
+<h2 id="additional-fixes-needed-beyond-the-users-request">Additional Fixes Needed (beyond the user's request)<a class="headerlink" href="#additional-fixes-needed-beyond-the-users-request" title="Permanent link">&para;</a></h2>
+<h3 id="fix-5-bs-cua-screen-should-propagate-errors">Fix 5: <code>bs cua screen</code> should propagate errors<a class="headerlink" href="#fix-5-bs-cua-screen-should-propagate-errors" title="Permanent link">&para;</a></h3>
+<p><strong>Current:</strong> <code>bs cua screen macos-peer</code> returns <code>0x0</code> with exit 0 when the helper fails — misleading.
+<strong>Fix:</strong> Check <code>resp.status</code> in the screen_info client path and print the error string if non-zero.</p>
+<h3 id="fix-6-binary-source-divergence-must-be-resolved">Fix 6: Binary source divergence must be resolved<a class="headerlink" href="#fix-6-binary-source-divergence-must-be-resolved" title="Permanent link">&para;</a></h3>
+<p>The macos-peer binary (<code>9a8b229c</code>) was built from source that doesn't exist in the repo. The macOS helper dispatch code was implemented but <strong>never committed</strong>. This is a source-control failure.</p>
+<p><strong>Action:</strong> Commit the macOS helper dispatch code (the fix from Layer 2) to <code>main</code>. Rebuild all macOS binaries from committed source. Replace all fleet macOS binaries with the rebuilt version.</p>
+<h3 id="fix-7-tcc-reset-re-grant-after-binary-update">Fix 7: TCC reset + re-grant after binary update<a class="headerlink" href="#fix-7-tcc-reset-re-grant-after-binary-update" title="Permanent link">&para;</a></h3>
+<p>Every time the binary is replaced, TCC grants are invalidated (adhoc signing). After deploying a new binary:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="c1"># Reset TCC for the old identity</span>
+<a id="__codelineno-19-2" name="__codelineno-19-2" href="#__codelineno-19-2"></a>tccutil<span class="w"> </span>reset<span class="w"> </span>ScreenCapture<span class="w"> </span>bridgesessions
+<a id="__codelineno-19-3" name="__codelineno-19-3" href="#__codelineno-19-3"></a>tccutil<span class="w"> </span>reset<span class="w"> </span>Accessibility<span class="w"> </span>bridgesessions
+<a id="__codelineno-19-4" name="__codelineno-19-4" href="#__codelineno-19-4"></a><span class="c1"># User must re-grant via System Settings</span>
+<a id="__codelineno-19-5" name="__codelineno-19-5" href="#__codelineno-19-5"></a>open<span class="w"> </span><span class="s2">&quot;x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture&quot;</span>
+</code></pre></div>
+<p><strong>Long-term fix:</strong> Use a Developer ID certificate for stable signing. The repo has <code>scripts/sign-macos.sh</code> ready — it just needs a real certificate.</p>
+<h3 id="fix-8-launchd-plist-should-not-start-the-helper">Fix 8: launchd plist should not start the helper<a class="headerlink" href="#fix-8-launchd-plist-should-not-start-the-helper" title="Permanent link">&para;</a></h3>
+<p>The current <code>com.bridgesessions.mesh.plist</code> runs the <strong>daemon</strong> only. This is correct — the helper must run in the user GUI session, not under launchd (which may run in a different session context). The menubar app handles helper lifecycle.</p>
+<p>But: the plist should be updated to use <code>$HOME</code>-relative paths or <code>~</code> expansion, not hardcoded <code>/Users/jeffersonnunn/...</code> paths. The <code>install.sh</code> already does this correctly (line 150: <code>${BIN_ABS}</code>), but the committed <code>com.bridgesessions.mesh.plist</code> has hardcoded paths.</p>
+<h3 id="fix-9-capture-should-use-screencapturekit-not-screencapture-cli">Fix 9: Capture should use ScreenCaptureKit, not <code>screencapture</code> CLI<a class="headerlink" href="#fix-9-capture-should-use-screencapturekit-not-screencapture-cli" title="Permanent link">&para;</a></h3>
+<p>The helper's macOS capture path (action 6, bs-cua-helper.h:263–287) shells out to <code>screencapture -x</code>. This works but:
+- Requires Screen Recording permission for <code>screencapture</code> (or the calling process)
+- Is slower than native ScreenCaptureKit
+- Doesn't work in headless/screen-locked states</p>
+<p>The <code>macos-capture.mm</code> file already implements <code>bs_macos_capture_png()</code> using ScreenCaptureKit directly. The helper should call this instead of shelling out:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a><span class="c1">// bs-cua-helper.h, case 6, replace screencapture CLI with:</span>
+<a id="__codelineno-20-2" name="__codelineno-20-2" href="#__codelineno-20-2"></a><span class="k">case</span><span class="w"> </span><span class="mi">6</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">  </span><span class="c1">// capture — ScreenCaptureKit (native, faster)</span>
+<a id="__codelineno-20-3" name="__codelineno-20-3" href="#__codelineno-20-3"></a><span class="w">    </span><span class="kt">char</span><span class="w"> </span><span class="n">tmp</span><span class="p">[]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&quot;/tmp/bs-cua-helper-XXXXXX.png&quot;</span><span class="p">;</span>
+<a id="__codelineno-20-4" name="__codelineno-20-4" href="#__codelineno-20-4"></a><span class="w">    </span><span class="kt">int</span><span class="w"> </span><span class="n">fd</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">mkstemps</span><span class="p">(</span><span class="n">tmp</span><span class="p">,</span><span class="w"> </span><span class="mi">4</span><span class="p">);</span>
+<a id="__codelineno-20-5" name="__codelineno-20-5" href="#__codelineno-20-5"></a><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">fd</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="mi">0</span><span class="p">)</span><span class="w"> </span><span class="n">close</span><span class="p">(</span><span class="n">fd</span><span class="p">);</span>
+<a id="__codelineno-20-6" name="__codelineno-20-6" href="#__codelineno-20-6"></a><span class="w">    </span><span class="kt">char</span><span class="w"> </span><span class="n">err</span><span class="p">[</span><span class="mi">1024</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{};</span>
+<a id="__codelineno-20-7" name="__codelineno-20-7" href="#__codelineno-20-7"></a><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">bs_macos_capture_png</span><span class="p">(</span><span class="n">tmp</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="n">err</span><span class="p">,</span><span class="w"> </span><span class="k">sizeof</span><span class="p">(</span><span class="n">err</span><span class="p">)))</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-20-8" name="__codelineno-20-8" href="#__codelineno-20-8"></a><span class="w">        </span><span class="n">std</span><span class="o">::</span><span class="n">ifstream</span><span class="w"> </span><span class="nf">cap</span><span class="p">(</span><span class="n">tmp</span><span class="p">,</span><span class="w"> </span><span class="n">std</span><span class="o">::</span><span class="n">ios</span><span class="o">::</span><span class="n">binary</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="n">std</span><span class="o">::</span><span class="n">ios</span><span class="o">::</span><span class="n">ate</span><span class="p">);</span>
+<a id="__codelineno-20-9" name="__codelineno-20-9" href="#__codelineno-20-9"></a><span class="w">        </span><span class="k">auto</span><span class="w"> </span><span class="n">sz</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">cap</span><span class="p">.</span><span class="n">tellg</span><span class="p">();</span>
+<a id="__codelineno-20-10" name="__codelineno-20-10" href="#__codelineno-20-10"></a><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">sz</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="mi">0</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="p">(</span><span class="kt">size_t</span><span class="p">)</span><span class="n">sz</span><span class="w"> </span><span class="o">&lt;=</span><span class="w"> </span><span class="n">MAX_IMAGE_BYTES</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-20-11" name="__codelineno-20-11" href="#__codelineno-20-11"></a><span class="w">            </span><span class="n">resp</span><span class="p">.</span><span class="n">data</span><span class="p">.</span><span class="n">resize</span><span class="p">((</span><span class="kt">size_t</span><span class="p">)</span><span class="n">sz</span><span class="p">);</span>
+<a id="__codelineno-20-12" name="__codelineno-20-12" href="#__codelineno-20-12"></a><span class="w">            </span><span class="n">cap</span><span class="p">.</span><span class="n">seekg</span><span class="p">(</span><span class="mi">0</span><span class="p">);</span>
+<a id="__codelineno-20-13" name="__codelineno-20-13" href="#__codelineno-20-13"></a><span class="w">            </span><span class="n">cap</span><span class="p">.</span><span class="n">read</span><span class="p">((</span><span class="kt">char</span><span class="o">*</span><span class="p">)</span><span class="n">resp</span><span class="p">.</span><span class="n">data</span><span class="p">.</span><span class="n">data</span><span class="p">(),</span><span class="w"> </span><span class="n">sz</span><span class="p">);</span>
+<a id="__codelineno-20-14" name="__codelineno-20-14" href="#__codelineno-20-14"></a><span class="w">            </span><span class="o">::</span><span class="n">unlink</span><span class="p">(</span><span class="n">tmp</span><span class="p">);</span>
+<a id="__codelineno-20-15" name="__codelineno-20-15" href="#__codelineno-20-15"></a><span class="w">            </span><span class="n">resp</span><span class="p">.</span><span class="n">format</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">1</span><span class="p">;</span><span class="w"> </span><span class="n">resp</span><span class="p">.</span><span class="n">status</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span>
+<a id="__codelineno-20-16" name="__codelineno-20-16" href="#__codelineno-20-16"></a><span class="w">            </span><span class="k">auto</span><span class="w"> </span><span class="n">r</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">CGDisplayBounds</span><span class="p">(</span><span class="n">CGMainDisplayID</span><span class="p">());</span>
+<a id="__codelineno-20-17" name="__codelineno-20-17" href="#__codelineno-20-17"></a><span class="w">            </span><span class="n">resp</span><span class="p">.</span><span class="n">screen_w</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="kt">int16_t</span><span class="p">)</span><span class="n">r</span><span class="p">.</span><span class="n">size</span><span class="p">.</span><span class="n">width</span><span class="p">;</span>
+<a id="__codelineno-20-18" name="__codelineno-20-18" href="#__codelineno-20-18"></a><span class="w">            </span><span class="n">resp</span><span class="p">.</span><span class="n">screen_h</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="kt">int16_t</span><span class="p">)</span><span class="n">r</span><span class="p">.</span><span class="n">size</span><span class="p">.</span><span class="n">height</span><span class="p">;</span>
+<a id="__codelineno-20-19" name="__codelineno-20-19" href="#__codelineno-20-19"></a><span class="w">            </span><span class="k">return</span><span class="w"> </span><span class="n">resp</span><span class="p">;</span>
+<a id="__codelineno-20-20" name="__codelineno-20-20" href="#__codelineno-20-20"></a><span class="w">        </span><span class="p">}</span>
+<a id="__codelineno-20-21" name="__codelineno-20-21" href="#__codelineno-20-21"></a><span class="w">    </span><span class="p">}</span>
+<a id="__codelineno-20-22" name="__codelineno-20-22" href="#__codelineno-20-22"></a><span class="w">    </span><span class="o">::</span><span class="n">unlink</span><span class="p">(</span><span class="n">tmp</span><span class="p">);</span>
+<a id="__codelineno-20-23" name="__codelineno-20-23" href="#__codelineno-20-23"></a><span class="w">    </span><span class="n">resp</span><span class="p">.</span><span class="n">status</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">1</span><span class="p">;</span>
+<a id="__codelineno-20-24" name="__codelineno-20-24" href="#__codelineno-20-24"></a><span class="w">    </span><span class="n">resp</span><span class="p">.</span><span class="n">error</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">std</span><span class="o">::</span><span class="n">string</span><span class="p">(</span><span class="s">&quot;ScreenCaptureKit failed: &quot;</span><span class="p">)</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">err</span><span class="p">;</span>
+<a id="__codelineno-20-25" name="__codelineno-20-25" href="#__codelineno-20-25"></a><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="n">resp</span><span class="p">;</span>
+<a id="__codelineno-20-26" name="__codelineno-20-26" href="#__codelineno-20-26"></a><span class="p">}</span>
+</code></pre></div>
+<p><strong>Note:</strong> <code>bs_macos_capture_png</code> is defined in <code>macos-capture.mm</code> and linked into the binary (CMakeLists.txt:57). The helper code in <code>bs-cua-helper.h</code> is included by <code>main.cpp</code>, so the function is available at link time. Need to add <code>extern "C" int bs_macos_capture_png(...)</code> declaration in the helper header.</p>
+<h3 id="fix-10-token-rotation-race-condition">Fix 10: Token rotation race condition<a class="headerlink" href="#fix-10-token-rotation-race-condition" title="Permanent link">&para;</a></h3>
+<p>The helper generates a fresh token on each start (bs-cua-helper.h:308–320). If the helper restarts while the daemon has a cached token, the daemon will fail auth until it re-reads the token file. The current code reads the token per-RPC (line 2953–2958), so this is not a live bug — but it's worth documenting that the helper must NOT restart without the daemon knowing.</p>
+<p>The menubar app's auto-restart (HelperProcessManager) will cause a brief auth failure window (~1s) during helper restart. The daemon will fall back to in-process (which fails on macOS), then succeed once the helper is back. This is acceptable.</p>
+<hr />
+<h2 id="implementation-priority">Implementation Priority<a class="headerlink" href="#implementation-priority" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Priority</th>
+<th>Fix</th>
+<th>Effort</th>
+<th>Impact</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>P0</td>
+<td>Fix 1: Wire protocol (token prefix)</td>
+<td>2 lines</td>
+<td>Unblocks all macOS CUA</td>
+</tr>
+<tr>
+<td>P0</td>
+<td>Fix 2: macOS cua_execute dispatch</td>
+<td>20 lines</td>
+<td>Unblocks all macOS CUA</td>
+</tr>
+<tr>
+<td>P0</td>
+<td>Fix 6: Commit macOS code to source</td>
+<td>commit</td>
+<td>Prevents future divergence</td>
+</tr>
+<tr>
+<td>P1</td>
+<td>Fix 3: Stable signing identity</td>
+<td>medium</td>
+<td>TCC persistence</td>
+</tr>
+<tr>
+<td>P1</td>
+<td>Menubar app (2a–2d)</td>
+<td>large</td>
+<td>User-facing install/activate</td>
+</tr>
+<tr>
+<td>P2</td>
+<td>Fix 5: screen error propagation</td>
+<td>5 lines</td>
+<td>Better DX</td>
+</tr>
+<tr>
+<td>P2</td>
+<td>Fix 9: ScreenCaptureKit in helper</td>
+<td>15 lines</td>
+<td>Performance/reliability</td>
+</tr>
+<tr>
+<td>P3</td>
+<td>Fix 7: tccutil reset script</td>
+<td>small</td>
+<td>Post-deploy automation</td>
+</tr>
+<tr>
+<td>P3</td>
+<td>Fix 8: launchd plist paths</td>
+<td>small</td>
+<td>Portability</td>
+</tr>
+<tr>
+<td>P3</td>
+<td>Fix 10: token race doc</td>
+<td>docs</td>
+<td>Future-proofing</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="build-deploy-plan">Build + Deploy Plan<a class="headerlink" href="#build-deploy-plan" title="Permanent link">&para;</a></h2>
+<h3 id="phase-1-code-fixes-on-linux-a-the-source-host">Phase 1: Code fixes (on FECv3, the source host)<a class="headerlink" href="#phase-1-code-fixes-on-linux-a-the-source-host" title="Permanent link">&para;</a></h3>
+<ol>
+<li>Patch <code>bs-protocol.h</code>:</li>
+<li>Fix <code>cua_helper_rpc()</code> wire format (token prefix)</li>
+<li>Replace macOS stub in <code>cua_execute()</code> with helper-first dispatch</li>
+<li>Patch <code>bs-cua-helper.h</code>:</li>
+<li>Use <code>bs_macos_capture_png()</code> instead of <code>screencapture</code> CLI</li>
+<li>Commit to <code>main</code></li>
+<li>Rebuild all platform binaries</li>
+<li>Update <code>dist/SHA256SUMS</code> + <code>SBOM-binaries.json</code></li>
+</ol>
+<h3 id="phase-2-macos-menubar-app-on-macbook-where-xcodeswift-is-available">Phase 2: macOS menubar app (on macbook, where Xcode/Swift is available)<a class="headerlink" href="#phase-2-macos-menubar-app-on-macbook-where-xcodeswift-is-available" title="Permanent link">&para;</a></h3>
+<ol>
+<li>Create <code>BSMenubar/</code> Swift project</li>
+<li>Implement: StatusItemController, FleetStatusController, SettingsController, HelperProcessManager</li>
+<li>Build <code>BSMenubar.app</code> (release config, adhoc-signed with stable bundle ID)</li>
+<li>Test on macbook: double-click → menubar icon → fleet status → settings</li>
+</ol>
+<h3 id="phase-3-deploy-to-fleet">Phase 3: Deploy to fleet<a class="headerlink" href="#phase-3-deploy-to-fleet" title="Permanent link">&para;</a></h3>
+<ol>
+<li>Deploy fixed binary to macos-peer, macbook (scp + swap)</li>
+<li>Copy <code>BSMenubar.app</code> to <code>/Applications/</code> on both</li>
+<li>Launch menubar app</li>
+<li>Grant TCC permissions (one-time, manual in System Settings)</li>
+<li>Verify: <code>bs cua capture macos-peer -o /tmp/test.png</code> produces a real screenshot</li>
+</ol>
+<h3 id="phase-4-verify-end-to-end">Phase 4: Verify end-to-end<a class="headerlink" href="#phase-4-verify-end-to-end" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a><span class="c1"># From FECv3:</span>
+<a id="__codelineno-21-2" name="__codelineno-21-2" href="#__codelineno-21-2"></a>bs<span class="w"> </span>cua<span class="w"> </span>screen<span class="w"> </span>macos-peer<span class="w">       </span><span class="c1"># → real dimensions (e.g., 2560x1080)</span>
+<a id="__codelineno-21-3" name="__codelineno-21-3" href="#__codelineno-21-3"></a>bs<span class="w"> </span>cua<span class="w"> </span>capture<span class="w"> </span>macos-peer<span class="w"> </span>-o<span class="w"> </span>/tmp/macos-peer.png<span class="w">  </span><span class="c1"># → real PNG file</span>
+<a id="__codelineno-21-4" name="__codelineno-21-4" href="#__codelineno-21-4"></a>bs<span class="w"> </span>cua<span class="w"> </span>click<span class="w"> </span>macos-peer<span class="w"> </span>--x<span class="w"> </span><span class="m">100</span><span class="w"> </span>--y<span class="w"> </span><span class="m">100</span><span class="w">        </span><span class="c1"># → real mouse click</span>
+<a id="__codelineno-21-5" name="__codelineno-21-5" href="#__codelineno-21-5"></a>bs<span class="w"> </span>cua<span class="w"> </span><span class="nb">type</span><span class="w"> </span>macos-peer<span class="w"> </span>--text<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w">          </span><span class="c1"># → real keyboard input</span>
+</code></pre></div>
+<hr />
+<h2 id="appendix-a-current-binary-hash-inventory">Appendix A: Current binary hash inventory<a class="headerlink" href="#appendix-a-current-binary-hash-inventory" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Host</th>
+<th>Path</th>
+<th>SHA256</th>
+<th>Type</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>FECv3</td>
+<td><code>~/.local/bin/bridgesessions</code></td>
+<td><code>d3381364...</code></td>
+<td>dynamic Linux</td>
+<td>Old, needs swap to static</td>
+</tr>
+<tr>
+<td>FECv3</td>
+<td><code>build-static/bridgesessions</code></td>
+<td><code>6b12a64c...</code></td>
+<td>static Linux</td>
+<td>Latest, deployed to linux-c/linux-d/linux-db</td>
+</tr>
+<tr>
+<td>FECv3</td>
+<td><code>dist/bridgesessions-macos-arm64</code></td>
+<td><code>da4fa0be...</code></td>
+<td>static macOS</td>
+<td>Not deployed anywhere</td>
+</tr>
+<tr>
+<td>macos-peer</td>
+<td><code>~/.local/bin/bridgesessions</code></td>
+<td><code>9a8b229c...</code></td>
+<td>dynamic macOS</td>
+<td><strong>Built from lost source</strong> — has helper code not in repo</td>
+</tr>
+<tr>
+<td>macos-peer</td>
+<td><code>~/bridgesessions/build/bridgesessions</code></td>
+<td><code>a60b9de5...</code></td>
+<td>dynamic macOS</td>
+<td>Build dir, not installed</td>
+</tr>
+<tr>
+<td>macos-peer</td>
+<td><code>~/.bridgesessions/received/bridgesessions-macos-arm64</code></td>
+<td><code>0db44ca6...</code></td>
+<td>?</td>
+<td>Received via bs file send, not our build</td>
+</tr>
+<tr>
+<td>macbook</td>
+<td><code>~/.local/bin/bridgesessions</code></td>
+<td><code>a5c8603f...</code></td>
+<td>dynamic macOS</td>
+<td>Different from macos-peer</td>
+</tr>
+<tr>
+<td>macbook</td>
+<td><code>~/bridgesessions/dist/bridgesessions-macos-arm64</code></td>
+<td><code>100afede...</code></td>
+<td>?</td>
+<td>Different from FECv3 dist</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Key takeaway:</strong> Every macOS binary on every host is different. None match the source tree. The source tree's macOS CUA dispatch is a stub. This is a mess.</p>
+<h2 id="appendix-b-wire-protocol-proof">Appendix B: Wire protocol proof<a class="headerlink" href="#appendix-b-wire-protocol-proof" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a># Helper expects: &quot;TOKEN {json}\n&quot;
+<a id="__codelineno-22-2" name="__codelineno-22-2" href="#__codelineno-22-2"></a># Source: bs-cua-helper.h:354-358
+<a id="__codelineno-22-3" name="__codelineno-22-3" href="#__codelineno-22-3"></a>auto sp = line.find(&#39; &#39;);
+<a id="__codelineno-22-4" name="__codelineno-22-4" href="#__codelineno-22-4"></a>std::string got = sp == std::string::npos ? line : line.substr(0, sp);
+<a id="__codelineno-22-5" name="__codelineno-22-5" href="#__codelineno-22-5"></a>if (got != token || sp == std::string::npos) {
+<a id="__codelineno-22-6" name="__codelineno-22-6" href="#__codelineno-22-6"></a>    // → {&quot;status&quot;:1,&quot;error&quot;:&quot;auth&quot;}
+<a id="__codelineno-22-7" name="__codelineno-22-7" href="#__codelineno-22-7"></a>}
+<a id="__codelineno-22-8" name="__codelineno-22-8" href="#__codelineno-22-8"></a>
+<a id="__codelineno-22-9" name="__codelineno-22-9" href="#__codelineno-22-9"></a># Daemon sends: &#39;{&quot;action&quot;:6,...,&quot;token&quot;:&quot;TOKEN&quot;}\n&#39;
+<a id="__codelineno-22-10" name="__codelineno-22-10" href="#__codelineno-22-10"></a># Source: bs-protocol.h:2980-2990
+<a id="__codelineno-22-11" name="__codelineno-22-11" href="#__codelineno-22-11"></a>j[&quot;token&quot;] = token;
+<a id="__codelineno-22-12" name="__codelineno-22-12" href="#__codelineno-22-12"></a>std::string line = j.dump() + &quot;\n&quot;;
+<a id="__codelineno-22-13" name="__codelineno-22-13" href="#__codelineno-22-13"></a>
+<a id="__codelineno-22-14" name="__codelineno-22-14" href="#__codelineno-22-14"></a># Result: helper gets &#39;{&#39; as the &quot;token&quot; prefix → auth failure
+</code></pre></div>
+<h2 id="appendix-c-tcc-database-state-macos-peer">Appendix C: TCC database state (macos-peer)<a class="headerlink" href="#appendix-c-tcc-database-state-macos-peer" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a>$ sqlite3 ~/Library/Application\ Support/com.apple.TCC/TCC.db \
+<a id="__codelineno-23-2" name="__codelineno-23-2" href="#__codelineno-23-2"></a>    &quot;SELECT service, client, auth_value FROM access WHERE service IN 
+<a id="__codelineno-23-3" name="__codelineno-23-3" href="#__codelineno-23-3"></a>     (&#39;kTCCServiceScreenCapture&#39;,&#39;kTCCServiceAccessibility&#39;)&quot;
+<a id="__codelineno-23-4" name="__codelineno-23-4" href="#__codelineno-23-4"></a>(empty — 0 rows)
+<a id="__codelineno-23-5" name="__codelineno-23-5" href="#__codelineno-23-5"></a>
+<a id="__codelineno-23-6" name="__codelineno-23-6" href="#__codelineno-23-6"></a>$ codesign -dv ~/.local/bin/bridgesessions
+<a id="__codelineno-23-7" name="__codelineno-23-7" href="#__codelineno-23-7"></a>Identifier=bridgesessions
+<a id="__codelineno-23-8" name="__codelineno-23-8" href="#__codelineno-23-8"></a>flags=0x20002(adhoc,linker-signed)
+</code></pre></div>
+<p>TCC is empty because adhoc signing provides no stable identity. Every binary replacement invalidates prior grants.</p>
+<h2 id="appendix-d-installsh-macos-section-current-line-194199">Appendix D: install.sh macOS section (current, line 194–199)<a class="headerlink" href="#appendix-d-installsh-macos-section-current-line-194199" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a><span class="c1"># ── CUA helper instructions ────────────────────────────────────────</span>
+<a id="__codelineno-24-2" name="__codelineno-24-2" href="#__codelineno-24-2"></a><span class="nb">echo</span><span class="w"> </span><span class="s2">&quot;&quot;</span>
+<a id="__codelineno-24-3" name="__codelineno-24-3" href="#__codelineno-24-3"></a><span class="nb">echo</span><span class="w"> </span><span class="s2">&quot;→ CUA helper (desktop automation):&quot;</span>
+<a id="__codelineno-24-4" name="__codelineno-24-4" href="#__codelineno-24-4"></a><span class="nb">echo</span><span class="w"> </span><span class="s2">&quot;   For screen capture + input injection on desktop sessions, run:&quot;</span>
+<a id="__codelineno-24-5" name="__codelineno-24-5" href="#__codelineno-24-5"></a><span class="nb">echo</span><span class="w"> </span><span class="s2">&quot;   </span><span class="si">${</span><span class="nv">BIN_ABS</span><span class="si">}</span><span class="s2"> --cua-helper &amp;&quot;</span>
+<a id="__codelineno-24-6" name="__codelineno-24-6" href="#__codelineno-24-6"></a><span class="nb">echo</span><span class="w"> </span><span class="s2">&quot;&quot;</span>
+</code></pre></div>
+<p>This is inadequate — it prints instructions and exits. No menubar app, no TCC setup, no helper lifecycle management.</p>
+
+
+
+
+
+
+
+  
+    
+  
+  
+    
+  
+
+
+  <aside class="md-source-file">
+    
+      
+  <span class="md-source-file__fact">
+    <span class="md-icon" title="Last update">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
+    </span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 9, 2026 20:19:06 UTC">August 9, 2026</span>
+  </span>
+
+    
+    
+      
+  <span class="md-source-file__fact">
+    <span class="md-icon" title="Created">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M14.47 15.08 11 13V7h1.5v5.25l3.08 1.83c-.41.28-.79.62-1.11 1m-1.39 4.84c-.36.05-.71.08-1.08.08-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8c0 .37-.03.72-.08 1.08.69.1 1.33.32 1.92.64.1-.56.16-1.13.16-1.72 0-5.5-4.5-10-10-10S2 6.5 2 12s4.47 10 10 10c.59 0 1.16-.06 1.72-.16-.32-.59-.54-1.23-.64-1.92M18 15v3h-3v2h3v3h2v-3h3v-2h-3v-3z"/></svg>
+    </span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 9, 2026 20:19:06 UTC">August 9, 2026</span>
+  </span>
+
+    
+    
+    
+  </aside>
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.tabs", "navigation.sections", "navigation.expand", "search.suggest", "search.highlight", "content.code.copy", "content.action.edit"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>
