@@ -112,3 +112,62 @@ Worker claimed `g_allow_join_connections` never closes if invite crashes. **Veri
 - F4: code re-read confirmed missing exec_busy vs sibling function's correct pattern.
 - W1-P0: downgraded via code re-read — auto-expiry exists in event loop.
 - All fixes re-verified: 413/413 tests pass, build clean, injection tag rejected, valid tag + SHA256 works.
+
+---
+
+# P2/P3 Remediation — 2026-08-10 (follow-up)
+
+## Fixed (this wave)
+
+### P2 — 15 fixed
+| Finding | Status |
+|---------|--------|
+| FileChunkMsg decode unbounded alloc | ✅ MAX_FRAME_SIZE bound |
+| CuaResponseMsg decode unbounded alloc | ✅ MAX_IMAGE_BYTES bound |
+| daemon_edit_up missing exec_busy | ✅ guard added |
+| daemon_vfolder_sync missing exec_busy | ✅ guard added |
+| video_capture macOS frames_dir leak (~450MB) | ✅ removed on success |
+| resolve_duplicates recursion | ✅ iterative while-loop |
+| backoff max_ms ignores config | ✅ set from reconnect_backoff_max_secs |
+| rand() jitter predictable | ✅ seeded mt19937 rng_ (both seeds + discovered) |
+| DHT find_closest byte order inverted | ✅ 0..31 (matches xor_leading_zeros) |
+| AuthorizedKeys per-accept disk reload | ✅ mtime-cached |
+| install_spawned_runtime double-free | ✅ construct-before-destroy |
+| UPnP port mapping leak | ✅ deleted in cleanup |
+| OSC52 base64 O(n·64) | ✅ 256-byte lookup table |
+| cua_helper_rpc base64 O(n·64) | ✅ 256-byte lookup table |
+| TransferTelemetryRing O(n) erase | ✅ std::deque |
+| daemon_edit_dl rename uncaught crash | ✅ error_code + return |
+| upgrade SHA256 optional | ✅ mandatory |
+| upgrade rollback no daemon restart | ✅ restarts daemon |
+| upgrade cp unchecked | ✅ checked + rollback |
+| upgrade hardcoded Developer ID | ✅ BS_DEV_ID env |
+
+### P3 — 8 fixed
+| Finding | Status |
+|---------|--------|
+| CUA_VIDEO_CAPTURE_B64 stoi crash | ✅ validated before stoi |
+| wait_for_completion dead ternary ×2 | ✅ collapsed |
+| doc drift (22 vs 41 types) ×2 | ✅ corrected |
+| config unknown keys silent | ✅ logged once |
+| log timestamps steady_clock only | ✅ added wall-clock 'wall' ISO |
+| daemon_simple_ipc 4KB truncation | ✅ 1MB growable buffer |
+| detach(name,pubkey) Windows signal gap | ✅ GenerateConsoleCtrlEvent/TerminateProcess |
+| vfolder names with dots | ✅ rfind split from right |
+
+## False positives verified (no fix needed)
+- **detach_all/detach(name) return false**: correct contract (false = no attachments remain / not found); callers don't need to distinguish.
+- **ClipboardMsg newline format**: hash is always 64 hex chars, newline separator is unambiguous.
+- **join window P0 (W1)**: auto-expiry exists (maybe_close_join_window in event loop, 2h expiry).
+- **upgrade --all SHELL**: documented as fire-and-forget by design (daemon stops mid-command).
+
+## Accepted / deferred
+- **P2 cleartext CUA token on loopback**: would require unix-socket transport (large change); loopback + token auth is the accepted local model. Constant-time comparison added in cua-helper.
+- **P2 TLS 1.3 pin**: blocked on Windows PE OpenSSL rebuild (≥3.6). TODO documented at bs-protocol.h:2184.
+- **P3 Windows event loop 20Hz idle**: deliberate for ConPTY polling; tuning tradeoff.
+- **P3 cua-helper PowerShell latency**: Windows capture perf, needs native GDI rewrite.
+
+## Test harness updates
+- tests/test_audit_p2_fixes.cpp — 4 tests (frame bounds ×2, mtime cache, contract guard)
+- tests/test_upgrade_validation.cpp — 2 tests / 12 assertions (tag validation)
+- Suite: **419 tests passing** (was 413)
