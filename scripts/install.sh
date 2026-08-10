@@ -164,6 +164,11 @@ if [ "${NEEDS_DOWNLOAD}" = "1" ]; then
   fi
   mv -f "${TMP_BIN}" "${INSTALL_DIR}/${BIN_NAME}"
   chmod +x "${INSTALL_DIR}/${BIN_NAME}"
+
+  # Create 'bs' symlink for CLI shorthand (was only created in the .app branch,
+  # so bare-binary installs ended up with 'bs: command not found').
+  ln -sf "${INSTALL_DIR}/${BIN_NAME}" "${INSTALL_DIR}/bs"
+
   # Clean up old binary after successful swap
   rm -f "${INSTALL_DIR}/${BIN_NAME}.old" 2>/dev/null || true
   echo "${TAG}" > "${VERSION_FILE}"
