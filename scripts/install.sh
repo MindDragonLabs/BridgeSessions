@@ -250,74 +250,124 @@ EOF
       echo "   ${BIN_ABS} --config ${CONFIG_PATH}"
     fi
 
-    # ── 3a. CUA helper launchd agent (macOS) ─────────────────────
-    # The CUA helper needs to run in the user GUI session (not under
-    # the daemon's launchd context) for Screen Recording + input injection.
-    CUA_PLIST="${PLIST_DIR}/com.bridgesessions.cua-helper.plist"
-    cat > "${CUA_PLIST}" <<EOF
+    # ── 3c. Proper .app bundle with Developer ID signing (macOS TCC fix) ──
+    # TCC tracks permissions by code signature. Adhoc signing produces a new
+    # CDHash on every rebuild, silently invalidating Screen Recording and
+    # Accessibility grants. A Developer ID-signed .app bundle gives TCC a
+    # stable identity (TeamIdentifier + CFBundleIdentifier) that persists.
+    APP_BUNDLE="/Applications/BridgeSessions.app"
+    APP_BIN="${APP_BUNDLE}/Contents/MacOS/bridgesessions"
+
+    # Check if we have a pre-signed .app bundle in dist/
+    REPO_APP="$(cd "$(dirname "$0")/.." && pwd)/dist/BridgeSessions.app"
+    if [ ! -d "${REPO_APP}" ]; then
+      REPO_APP="$(cd "$(dirname "$0")" && pwd)/../dist/BridgeSessions.app"
+    fi
+
+    if [ -d "${REPO_APP}" ]; then
+      echo "→ Installing BridgeSessions.app (Developer ID signed) to /Applications/..."
+
+      # Purge ALL old TCC entries for bridgesessions (ad hoc identities)
+      tccutil reset ScreenCapture bridgesessions 2>/dev/null || true
+      tccutil reset Accessibility bridgesessions 2>/dev/null || true
+      tccutil reset ScreenCapture com.minddragon.bridgesessions 2>/dev/null || true
+      tccutil reset Accessibility com.minddragon.bridgesessions 2>/dev/null || true
+
+      # Stop daemons before swap
+      launchctl bootout "gui/$(id -u)/com.bridgesessions.mesh" 2>/dev/null || true
+      launchctl bootout "gui/$(id -u)/com.bridgesessions.cua-helper" 2>/dev/null || true
+      pkill -9 -f bridgesessions 2>/dev/null || true
+      sleep 1
+
+      # Install the .app bundle
+      rm -rf "${APP_BUNDLE}"
+      cp -R "${REPO_APP}" /Applications/
+
+      # Symlink for CLI compatibility (~/.local/bin/bridgesessions → .app binary)
+      ln -sf "${APP_BIN}" "${BIN_ABS}"
+
+      # Update launchd plists to use .app bundle binary
+      cat > "${PLIST_DIR}/com.bridgesessions.mesh.plist" << EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>Label</key>
-  <string>com.bridgesessions.cua-helper</string>
+  <key>Label</key><string>com.bridgesessions.mesh</string>
   <key>ProgramArguments</key>
-  <array>
-    <string>${BIN_ABS}</string>
-    <string>--config</string>
-    <string>${CONFIG_PATH}</string>
-    <string>--cua-helper</string>
-  </array>
-  <key>RunAtLoad</key>
-  <true/>
-  <key>KeepAlive</key>
-  <true/>
-  <key>StandardOutPath</key>
-  <string>${APP_HOME}/cua-helper.log</string>
-  <key>StandardErrorPath</key>
-  <string>${APP_HOME}/cua-helper.err</string>
+  <array><string>${APP_BIN}</string><string>--config</string><string>${CONFIG_PATH}</string></array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardOutPath</key><string>${APP_HOME}/daemon.log</string>
+  <key>StandardErrorPath</key><string>${APP_HOME}/daemon.err</string>
 </dict>
 </plist>
 EOF
-    launchctl bootstrap "gui/$(id -u)" "${CUA_PLIST}" 2>/dev/null || \
-      launchctl load -w "${CUA_PLIST}" 2>/dev/null || true
-    echo "→ CUA helper launchd agent installed."
 
-    # ── 3b. BSMenubar.app install (macOS) ────────────────────────
-    APP_DIR="/Applications"
-    MENUBAR_APP="${APP_DIR}/BSMenubar.app"
-    # Check if we have a bundled app to deploy (from repo's dist/)
-    REPO_APP="$(cd "$(dirname "$0")/.." && pwd)/dist/BSMenubar.app"
-    if [ ! -d "${REPO_APP}" ]; then
-      REPO_APP="$(cd "$(dirname "$0")" && pwd)/../dist/BSMenubar.app"
-    fi
-    if [ -d "${REPO_APP}" ]; then
-      echo "→ Installing BSMenubar.app to ${APP_DIR}/..."
-      rm -rf "${MENUBAR_APP}" 2>/dev/null
-      cp -R "${REPO_APP}" "${APP_DIR}/"
-      codesign --force --sign - "${MENUBAR_APP}" 2>/dev/null || true
-      echo "→ BSMenubar.app installed."
+      # CUA helper plist (runs in user session for GUI access)
+      cat > "${PLIST_DIR}/com.bridgesessions.cua-helper.plist" << EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.bridgesessions.cua-helper</string>
+  <key>ProgramArguments</key>
+  <array><string>${APP_BIN}</string><string>--config</string><string>${CONFIG_PATH}</string><string>--cua-helper</string></array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardOutPath</key><string>${APP_HOME}/cua-helper.log</string>
+  <key>StandardErrorPath</key><string>${APP_HOME}/cua-helper.err</string>
+</dict>
+</plist>
+EOF
 
-      # Launch if not already running
-      if ! pgrep -f "BSMenubar" >/dev/null 2>&1; then
-        open "${MENUBAR_APP}" 2>/dev/null && echo "→ BSMenubar.app launched."
-      else
-        echo "→ BSMenubar.app already running."
-      fi
+      # Load both services
+      launchctl bootstrap "gui/$(id -u)" "${PLIST_DIR}/com.bridgesessions.mesh.plist" 2>/dev/null || \
+        launchctl load -w "${PLIST_DIR}/com.bridgesessions.mesh.plist" 2>/dev/null || true
+      launchctl bootstrap "gui/$(id -u)" "${PLIST_DIR}/com.bridgesessions.cua-helper.plist" 2>/dev/null || \
+        launchctl load -w "${PLIST_DIR}/com.bridgesessions.cua-helper.plist" 2>/dev/null || true
+      sleep 2
+
+      echo "→ BridgeSessions.app installed (Developer ID: QL5MD8FKPL)"
+      echo "→ Daemons restarted from .app bundle"
+
+      # Open System Settings for TCC permission grant
+      open "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture" 2>/dev/null
+      echo ""
+      echo "⚠️  ACTION REQUIRED — Grant permissions on this Mac's screen:"
+      echo "   1. System Settings → Privacy & Security → Screen Recording"
+      echo "      → Find 'BridgeSessions' → Toggle ON"
+      echo "   2. System Settings → Privacy & Security → Accessibility"
+      echo "      → Find 'BridgeSessions' → Toggle ON"
+      echo "   3. Restart: launchctl kickstart -k gui/\$(id -u)/com.bridgesessions.cua-helper"
+      echo ""
+      echo "   (Developer ID signing ensures permissions persist across updates)"
     else
-      echo "→ NOTE: BSMenubar.app not found in dist/ — skipping menubar install."
-      echo "  The CUA helper is running via launchd. For a menubar UI,"
-      echo "  build BSMenubar.app separately."
+      echo "→ NOTE: BridgeSessions.app not found — using bare binary (TCC may not persist)"
+      # Fallback: create cua-helper plist pointing at bare binary
+      CUA_PLIST="${PLIST_DIR}/com.bridgesessions.cua-helper.plist"
+      cat > "${CUA_PLIST}" << EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.bridgesessions.cua-helper</string>
+  <key>ProgramArguments</key>
+  <array><string>${BIN_ABS}</string><string>--config</string><string>${CONFIG_PATH}</string><string>--cua-helper</string></array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardOutPath</key><string>${APP_HOME}/cua-helper.log</string>
+  <key>StandardErrorPath</key><string>${APP_HOME}/cua-helper.err</string>
+</dict>
+</plist>
+EOF
+      launchctl bootstrap "gui/$(id -u)" "${CUA_PLIST}" 2>/dev/null || \
+        launchctl load -w "${CUA_PLIST}" 2>/dev/null || true
+      echo "→ CUA helper launchd agent installed (bare binary fallback)."
+      tccutil reset ScreenCapture bridgesessions 2>/dev/null || true
+      tccutil reset Accessibility bridgesessions 2>/dev/null || true
+      open "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture" 2>/dev/null
+      echo "→ Grant Screen Recording + Accessibility permissions in System Settings"
     fi
-
-    # ── 3c. TCC Permissions guidance (macOS) ─────────────────────
-    # Reset TCC for the new binary identity (adhoc signing changes CDHash)
-    tccutil reset ScreenCapture com.bridgesessions.mesh 2>/dev/null || true
-    tccutil reset Accessibility com.bridgesessions.mesh 2>/dev/null || true
-    echo "→ TIP: Grant Screen Recording + Accessibility permissions:"
-    echo "  System Settings → Privacy & Security → Screen Recording → Add bridgesessions"
-    echo "  System Settings → Privacy & Security → Accessibility → Add bridgesessions"
-    echo "  (Or open BSMenubar.app → Settings → Check Permissions)"
     ;;
   Linux)
     UNIT_DIR="${HOME}/.config/systemd/user"
