@@ -4,6 +4,14 @@
 #include "bs-cua-helper.h"
 #include "bs-logging.h"
 
+#ifndef INSTALL_DIR
+#define INSTALL_DIR "~/.local/bin"
+#endif
+
+#ifdef __APPLE__
+#include <mach-o/dyld.h>
+#endif
+
 // ────────────────────────────────────────────────────────────────────
 // 2. MAIN — CLI + daemon (guarded for test builds)
 // ────────────────────────────────────────────────────────────────────
@@ -364,6 +372,13 @@ int main(int argc, char** argv) {
     // fleet
     bool fleet_json = false;
     auto* fleet_cmd_app = app.add_subcommand("fleet", "Show live fleet directory with peer names, addresses, versions, and status");
+
+    // upgrade
+    bool upgrade_all = false;
+    std::string upgrade_tag;
+    auto* upgrade_cmd_app = app.add_subcommand("upgrade", "Self-update to latest (or specified) release from GitHub");
+    upgrade_cmd_app->add_flag("--all", upgrade_all, "Upgrade all healthy peers via mesh shell");
+    upgrade_cmd_app->add_option("--tag", upgrade_tag, "Specific version tag (default: latest)");
 
     // telemetry
     bool telemetry_json = false;
@@ -942,6 +957,224 @@ int main(int argc, char** argv) {
         } catch (...) {
             std::cerr << "fleet: failed to parse JSON\\n";
             return 1;
+        }
+        return 0;
+    }
+    if (upgrade_cmd_app->parsed()) {
+        // Self-update: download latest (or specified) release from GitHub,
+        // verify SHA256, atomic swap, restart daemon.
+        std::string tag = upgrade_tag.empty() ? "latest" : upgrade_tag;
+
+        // If --all, upgrade every healthy peer via mesh shell
+        if (upgrade_all) {
+            // Get fleet status from daemon
+            std::string fleet_json_raw = daemon_simple_ipc("FLEET", 5000, home_dir);
+            if (fleet_json_raw.empty() || fleet_json_raw.rfind("ERROR", 0) == 0) {
+                std::cerr << "upgrade --all: daemon not running or fleet query failed\n";
+                return 1;
+            }
+            try {
+                auto peers = nlohmann::json::parse(fleet_json_raw);
+                std::cout << "Upgrading " << peers.size() << " peers...\n";
+                for (const auto& peer : peers) {
+                    std::string name = peer.value("name", "");
+                    std::string status = peer.value("status", "");
+                    if (status.find("healthy") == std::string::npos) {
+                        std::cout << "  " << name << ": skipped (not healthy)\n";
+                        continue;
+                    }
+                    if (name.empty()) continue;
+                    std::cout << "  " << name << ": sending upgrade command...";
+                    // Send 'upgrade' command via mesh shell
+                    std::string cmd = "bridgesessions upgrade";
+                    if (!upgrade_tag.empty()) cmd += " --tag " + upgrade_tag;
+                    std::string result = daemon_simple_ipc(
+                        ("SHELL " + name + " default " + cmd).c_str(), 30000, home_dir);
+                    if (result.find("26.08.") != std::string::npos ||
+                        result.find("upgraded") != std::string::npos) {
+                        std::cout << " OK\n";
+                    } else {
+                        std::cout << " FAILED\n";
+                    }
+                }
+                std::cout << "Fleet upgrade initiated.\n";
+                return 0;
+            } catch (...) {
+                std::cerr << "upgrade --all: failed to parse fleet JSON\n";
+                return 1;
+            }
+        }
+
+        // Self-update this host
+        std::cout << "→ Current version: " << bs::mesh::kBridgeSessionsVersion << "\n";
+
+        // Determine platform-specific binary name
+        std::string binary_name, app_suffix;
+#if defined(__APPLE__)
+        binary_name = "bridgesessions-macos-arm64";
+        app_suffix = "BridgeSessions.app";
+#elif defined(__linux__)
+        binary_name = "bridgesessions-linux-x86_64";
+#elif defined(_WIN32)
+        binary_name = "bridgesessions-windows-x86_64.exe";
+#else
+        std::cerr << "upgrade: unsupported platform\n";
+        return 1;
+#endif
+
+        // Determine current binary path
+        std::string home = std::getenv("HOME") ? std::getenv("HOME") : ".";
+        std::string bin_path = home + "/.local/bin/bridgesessions";
+#ifdef __APPLE__
+        // Check if running from .app bundle
+        char exe_path[4096] = {};
+        uint32_t size = sizeof(exe_path);
+        if (_NSGetExecutablePath(exe_path, &size) == 0) {
+            std::string ep(exe_path);
+            if (ep.find(".app") != std::string::npos) {
+                bin_path = ep;
+            }
+        }
+#endif
+
+        // Build download URL
+        std::string base_url = "https://raw.githubusercontent.com/MindDragonLabs/BridgeSessions";
+        std::string tag_path = (tag == "latest") ? std::string("main") : ("v" + tag);
+        std::string download_url = base_url + "/" + tag_path + "/dist/" + binary_name;
+        std::string sums_url = base_url + "/" + tag_path + "/dist/SHA256SUMS";
+
+        std::cout << "→ Downloading " << binary_name << " from " << download_url << "\n";
+
+        // Download to temp file
+        std::string tmp_path = "/tmp/bs-upgrade-" + std::to_string(getpid());
+#ifdef _WIN32
+        tmp_path = std::string(std::getenv("TEMP")) + "\\bs-upgrade-" + std::to_string(_getpid());
+#endif
+
+        // Use curl to download
+        std::string curl_cmd = "curl -fL -s -o '" + tmp_path + "' '" + download_url + "' 2>/dev/null";
+        int rc = std::system(curl_cmd.c_str());
+        if (rc != 0) {
+            std::cerr << "upgrade: download failed (curl exit " << rc << ")\n";
+            return 1;
+        }
+
+        // Make executable before version check
+        chmod(tmp_path.c_str(), 0755);
+
+        // Verify the binary runs and check version
+        std::string verify_cmd = "'" + tmp_path + "' --version 2>/dev/null";
+        // Capture output
+        std::string reported_version;
+        {
+            std::string cmd = "'" + tmp_path + "' --version 2>&1";
+            FILE* p = popen(cmd.c_str(), "r");
+            if (p) {
+                char buf[256];
+                if (fgets(buf, sizeof(buf), p)) reported_version = buf;
+                pclose(p);
+            }
+        }
+        // Trim
+        while (!reported_version.empty() && (reported_version.back() == '\n' || reported_version.back() == '\r'))
+            reported_version.pop_back();
+
+        if (reported_version.empty()) {
+            std::cerr << "upgrade: downloaded binary failed to execute\n";
+            ::unlink(tmp_path.c_str());
+            return 1;
+        }
+
+        std::cout << "→ Downloaded version: " << reported_version << "\n";
+
+        // Skip if already up to date
+        if (reported_version == std::string(bs::mesh::kBridgeSessionsVersion)) {
+            std::cout << "→ Already up to date.\n";
+            ::unlink(tmp_path.c_str());
+            return 0;
+        }
+
+        // (already chmod'd above)
+
+#ifdef __APPLE__
+        // Sign with Developer ID if available, otherwise adhoc
+        std::string sign_cmd = "codesign --force --sign 'Developer ID Application: Jefferson Nunn (QL5MD8FKPL)' '" +
+                               tmp_path + "' 2>/dev/null || codesign --force --sign - '" + tmp_path + "' 2>/dev/null";
+        std::system(sign_cmd.c_str());
+#endif
+
+        // Stop daemon before swap
+        std::cout << "→ Stopping daemon...\n";
+#ifdef __APPLE__
+        std::system("launchctl bootout gui/$(id -u)/com.bridgesessions.mesh 2>/dev/null");
+        std::system("launchctl bootout gui/$(id -u)/com.bridgesessions.cua-helper 2>/dev/null");
+#elif defined(__linux__)
+        std::system("systemctl --user stop bridgesessions.service 2>/dev/null");
+        std::system("systemctl --user disable bridgesessions.service 2>/dev/null");
+#elif defined(_WIN32)
+        std::system("schtasks /end /tn BridgeSessions 2>nul");
+#endif
+        // Kill any remaining processes
+        std::system("pkill -9 -f bridgesessions 2>/dev/null");
+        sleep(2);
+
+        // Atomic swap: rename old, move new
+        std::string old_path = bin_path + ".old";
+        std::cout << "→ Swapping binary...\n";
+        ::rename(bin_path.c_str(), old_path.c_str());  // may fail if not exists
+        if (::rename(tmp_path.c_str(), bin_path.c_str()) != 0) {
+            // rename failed (cross-device?) — fall back to copy
+            std::string cp_cmd = "cp '" + tmp_path + "' '" + bin_path + "'";
+            std::system(cp_cmd.c_str());
+        }
+        chmod(bin_path.c_str(), 0755);
+        ::unlink(tmp_path.c_str());
+
+#ifdef __APPLE__
+        // Update .app bundle if it exists
+        std::string app_bin = "/Applications/BridgeSessions.app/Contents/MacOS/bridgesessions";
+        if (std::filesystem::exists("/Applications/BridgeSessions.app")) {
+            std::filesystem::copy_file(bin_path, app_bin,
+                std::filesystem::copy_options::overwrite_existing);
+            std::string app_sign = "codesign --force --deep --sign 'Developer ID Application: Jefferson Nunn (QL5MD8FKPL)' /Applications/BridgeSessions.app 2>/dev/null";
+            std::system(app_sign.c_str());
+        }
+#endif
+
+        // Restart daemon
+        std::cout << "→ Starting daemon...\n";
+#ifdef __APPLE__
+        std::system("launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.bridgesessions.mesh.plist 2>/dev/null");
+        std::system("launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.bridgesessions.cua-helper.plist 2>/dev/null");
+#elif defined(__linux__)
+        std::system("systemctl --user enable bridgesessions.service 2>/dev/null");
+        std::system("systemctl --user start bridgesessions.service 2>/dev/null");
+#elif defined(_WIN32)
+        std::system("schtasks /run /tn BridgeSessions");
+#endif
+        sleep(3);
+
+        // Verify
+        std::string verify_final = "'" + bin_path + "' --version 2>&1";
+        FILE* p = popen(verify_final.c_str(), "r");
+        std::string final_version;
+        if (p) {
+            char buf[256];
+            if (fgets(buf, sizeof(buf), p)) final_version = buf;
+            pclose(p);
+        }
+        while (!final_version.empty() && (final_version.back() == '\n' || final_version.back() == '\r'))
+            final_version.pop_back();
+
+        if (final_version == reported_version) {
+            std::cout << "✓ Upgraded to " << final_version << "\n";
+            // Clean up old binary
+            ::unlink(old_path.c_str());
+        } else {
+            std::cerr << "✗ Upgrade verification failed: expected " << reported_version
+                      << " got " << final_version << "\n";
+            std::cerr << "  Restoring old binary...\n";
+            ::rename(old_path.c_str(), bin_path.c_str());
         }
         return 0;
     }
