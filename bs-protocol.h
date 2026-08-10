@@ -3814,7 +3814,10 @@ void write_peer_line(std::ostream& os, const std::string& prefix, const PeerEntr
         // ── vfolder.<name>.<key> (P5) ────────────────────────
         else if (key_str.rfind("vfolder.", 0) == 0) {
             auto rest = key_str.substr(8);  // "vfolder." = 8 chars
-            auto dot = rest.find('.');
+            // P3 audit fix: split from the RIGHT so vfolder names containing
+            // dots (e.g. 'vfolder.my.app.local_path') parse correctly.
+            // The key is the segment after the last dot.
+            auto dot = rest.rfind('.');
             if (dot != std::string::npos) {
                 std::string vname = std::string(rest.substr(0, dot));
                 std::string vkey = std::string(rest.substr(dot + 1));
@@ -9055,7 +9058,13 @@ private:
                 }
             }
         }
-        fs::rename(part_path, local_path);
+        std::error_code rename_ec;
+        fs::rename(part_path, local_path, rename_ec);
+        if (rename_ec) {
+            // P2 audit fix: rename across filesystems / permission failure
+            // used to throw an uncaught filesystem_error, crashing the daemon.
+            return "ERROR rename to " + local_path + ": " + rename_ec.message();
+        }
         log_event("edit_dl_complete", filename + " -> " + local_path);
         return "OK " + local_path + " " + checksum;
     }
