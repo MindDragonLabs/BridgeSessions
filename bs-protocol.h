@@ -39,6 +39,7 @@
 #include <string_view>
 #include <variant>
 #include <vector>
+#include <deque>
 #include <cstring>
 #include <algorithm>
 #include <span>
@@ -1091,13 +1092,14 @@ struct TransferTelemetryEntry {
 
 struct TransferTelemetryRing {
     static constexpr size_t kMaxEntries = 256;
-    std::vector<TransferTelemetryEntry> entries;
+    // P2 audit fix: deque gives O(1) front removal (vector::erase(begin) was O(n)).
+    std::deque<TransferTelemetryEntry> entries;
     mutable std::mutex mutex;
 
     void append(TransferTelemetryEntry e) {
         std::lock_guard lock(mutex);
         if (entries.size() >= kMaxEntries)
-            entries.erase(entries.begin());
+            entries.pop_front();
         entries.push_back(std::move(e));
     }
 
@@ -2532,8 +2534,16 @@ inline std::optional<std::string> decode_osc52_body(std::string_view body) {
     if (b64.empty()) return std::nullopt;  // empty clipboard = clear
 
     // Base64 decode (hand-rolled to avoid OpenSSL dependency for this)
+    // P2 audit fix: 256-byte reverse lookup table instead of strchr (O(n*64)).
     static const char kTable[] =
         "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    static int8_t kRev[256] = {};
+    static bool kRevInit = false;
+    if (!kRevInit) {
+        for (int i = 0; i < 256; ++i) kRev[i] = -1;
+        for (size_t i = 0; i < 64; ++i) kRev[(uint8_t)kTable[i]] = (int8_t)i;
+        kRevInit = true;
+    }
 
     std::string result;
     result.reserve(b64.size() * 3 / 4);
@@ -2541,9 +2551,9 @@ inline std::optional<std::string> decode_osc52_body(std::string_view body) {
     int acc = 0, bits = 0;
     for (char c : b64) {
         if (c == '=') break;
-        const char* p = std::strchr(kTable, c);
-        if (!p) continue;  // skip whitespace / invalid chars
-        acc = (acc << 6) | (int)(p - kTable);
+        int8_t v = kRev[(uint8_t)c];
+        if (v < 0) continue;  // skip whitespace / invalid chars
+        acc = (acc << 6) | v;
         bits += 6;
         if (bits >= 8) {
             bits -= 8;
@@ -3073,14 +3083,23 @@ inline void close_socket(int fd) {
         resp.format = r.value("format", 0);
         if (r.contains("data_b64") && r["data_b64"].is_string()) {
             // Base64 decode inline (helper sends base64-encoded image data as "data_b64")
+            // P2 audit fix: 256-byte reverse lookup table instead of find() (O(n*64))
+            // for large screenshots (up to 50MB).
             std::string b64 = r["data_b64"].get<std::string>();
             static const std::string b64chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+            static int8_t kRev[256] = {};
+            static bool kRevInit = false;
+            if (!kRevInit) {
+                for (int i = 0; i < 256; ++i) kRev[i] = -1;
+                for (size_t i = 0; i < b64chars.size(); ++i) kRev[(uint8_t)b64chars[i]] = (int8_t)i;
+                kRevInit = true;
+            }
             int val = 0, valb = -8;
             for (char c : b64) {
                 if (c == '=') break;
-                auto pos = b64chars.find(c);
-                if (pos == std::string::npos) continue;
-                val = (val << 6) | (int)pos;
+                int8_t v = kRev[(uint8_t)c];
+                if (v < 0) continue;
+                val = (val << 6) | v;
                 valb += 6;
                 if (valb >= 0) {
                     resp.data.push_back((uint8_t)((val >> valb) & 0xFF));
