@@ -2181,6 +2181,10 @@ SslCtxPtr create_node_tls(const NodeTlsConfig& cfg, TlsMode mode,
     // across macOS/Linux/Windows Tailscale paths with self-signed Ed25519 certs
     // (fleet RCA). Product docs: TLS 1.2 minimum, TLS 1.3 preferred — not 1.3-only.
     SSL_CTX_set_min_proto_version(ctx.get(), TLS1_2_VERSION);
+    // P2 audit note (2026-08-10): TLS 1.3 is disabled because the static Windows
+    // PE links OpenSSL 3.3.2 while Linux/macOS link 3.6.x — TLS 1.3 data-plane
+    // breaks between them (fleet RCA 2026-08-05). TODO: once the Windows PE is
+    // rebuilt against OpenSSL >= 3.6, remove this max pin to re-enable TLS 1.3.
     SSL_CTX_set_max_proto_version(ctx.get(), TLS1_2_VERSION);  // force 1.2: OpenSSL 3.3.2 vs 3.6.3 TLS1.3 data-plane breaks
 
     // Load own certificate + key
@@ -5121,7 +5125,10 @@ public:
             if (!s->detach_signal.empty()) {
                 int sig = resolve_detach_signal(s->detach_signal);
                 if (sig >= 0 && s->child_pid) {
-#ifndef _WIN32
+#ifdef _WIN32
+                    if (sig == 0) GenerateConsoleCtrlEvent(CTRL_C_EVENT, GetProcessId(s->child_pid));
+                    else TerminateProcess(s->child_pid, 1);
+#else
                     ::kill(s->child_pid, sig);
 #endif
                 }
