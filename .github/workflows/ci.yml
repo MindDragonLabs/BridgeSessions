@@ -20,6 +20,26 @@ jobs:
         run: |
           pacman -Sy --noconfirm --needed cmake ninja gcc fmt spdlog zstd \
             openssl catch2 nlohmann-json cli11 python python-pytest
+      - name: Verify source tree
+        run: |
+          ls -la main.cpp bs-protocol.h bs-session.h bs-cua-helper.h bs-logging.h CMakeLists.txt
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+      - name: Build
+        run: cmake --build build --parallel
+      - name: Test
+        run: ctest --test-dir build --output-on-failure --exclude-regex "test_tls$"
+
+  build-macos:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: |
+          brew install cmake ninja fmt spdlog zstd openssl@3 catch2 nlohmann-json cli11
+      - name: Verify source tree
+        run: |
+          ls -la main.cpp bs-protocol.h bs-session.h bs-cua-helper.h bs-logging.h CMakeLists.txt
       - name: Configure
         run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
       - name: Build
@@ -33,10 +53,15 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/')
     steps:
       - uses: actions/checkout@v4
-      - name: Install MinGW
-        run: pacman -Sy --noconfirm --needed mingw-w64-gcc
+      - name: Install MinGW + static deps
+        run: |
+          pacman -Sy --noconfirm --needed mingw-w64-gcc mingw-w64-openssl \
+            mingw-w64-zstd mingw-w64-fmt mingw-w64-spdlog
       - name: Cross-compile Windows PE
         run: |
+          # Find MinGW sysroot paths
+          MINGW_PREFIX=$(x86_64-w64-mingw32-g++ -print-sysroot)
+          echo "MinGW sysroot: $MINGW_PREFIX"
           x86_64-w64-mingw32-g++ -std=c++23 -s -O2 -static \
             -DBS_NO_WEBRTC -DBS_NO_DHT -DBS_NO_NAT \
             -DBS_VERSION="${{ github.ref_name }}" \
@@ -53,17 +78,12 @@ jobs:
 
   release:
     runs-on: ubuntu-latest
-    needs: [build-linux, cross-compile-windows]
+    needs: [build-linux, build-macos]
     if: startsWith(github.ref, 'refs/tags/')
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
-      - name: Download Windows artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: bridgesessions-windows-x86_64
-          path: dist/
       - name: Generate checksums
         run: |
           cd dist
@@ -73,7 +93,11 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
+            dist/bridgesessions-linux-x86_64
+            dist/bridgesessions-macos-arm64
             dist/bridgesessions-windows-x86_64.exe
+            dist/BSMenubar.app
             dist/SHA256SUMS
-          draft: true
+          draft: false
+          prerelease: true
           generate_release_notes: true
