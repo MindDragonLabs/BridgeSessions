@@ -88,7 +88,7 @@ target_link_libraries(bridgesessions
     spdlog::spdlog
 )
 if(WIN32)
-    target_link_libraries(bridgesessions ws2_32.lib)
+    target_link_libraries(bridgesessions ws2_32.lib gdiplus.lib gdi32.lib)
 endif()
 
 add_test(NAME cli_quick_connect_help COMMAND bridgesessions --help)

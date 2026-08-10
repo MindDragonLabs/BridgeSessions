@@ -303,6 +303,7 @@ struct Session {
     RingBuffer<kDefaultRingBufferSize> scrollback;
 
     std::chrono::steady_clock::time_point created_at;
+    std::chrono::system_clock::time_point created_at_sys; // wall-clock for persistence
     std::chrono::steady_clock::time_point last_output_at;
     std::chrono::steady_clock::time_point last_attach_at;
 
@@ -346,6 +347,7 @@ static std::atomic<uint64_t> g_session_generation{0};
 
 Session::Session()
     : created_at(std::chrono::steady_clock::now())
+    , created_at_sys(std::chrono::system_clock::now())
     , last_output_at(created_at)
     , last_attach_at(created_at)
 {}
@@ -405,6 +407,7 @@ Session::Session(Session&& other) noexcept
     , state(other.state)
     , scrollback(std::move(other.scrollback))
     , created_at(other.created_at)
+    , created_at_sys(other.created_at_sys)
     , last_output_at(other.last_output_at)
     , last_attach_at(other.last_attach_at)
     , auto_restart(other.auto_restart)
@@ -441,6 +444,7 @@ Session& Session::operator=(Session&& other) noexcept {
         state = other.state;
         scrollback = std::move(other.scrollback);
         created_at = other.created_at;
+        created_at_sys = other.created_at_sys;
         last_output_at = other.last_output_at;
         last_attach_at = other.last_attach_at;
         auto_restart = other.auto_restart;

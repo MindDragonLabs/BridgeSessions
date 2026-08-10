@@ -16,6 +16,7 @@
 #include <sys/wait.h>
 #include <sys/termios.h>
 #include <sys/socket.h>
+#include <sys/un.h>    // AF_UNIX, sockaddr_un — CUA helper Unix socket (P2)
 #include <netinet/in.h>
 #include <netinet/tcp.h>  // TCP_NODELAY — critical for interactive shell performance
 #include <arpa/inet.h>
@@ -2382,6 +2383,11 @@ void write_frame(SSL* ssl, const Message& msg, uint16_t stream_id) {
     size_t total = 0;
     int retries = 0;
     const int max_retries = 1000;
+    // P2: exponential backoff instead of yield() busy-loop on stalled connections.
+    auto backoff = std::chrono::microseconds(1000);      // start 1ms
+    const auto max_backoff = std::chrono::microseconds(100000); // cap 100ms
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+
     while (total < frame.size() && retries < max_retries) {
         size_t n = 0;
         clear_stale_ssl_errors_before_io();
@@ -2395,14 +2401,17 @@ void write_frame(SSL* ssl, const Message& msg, uint16_t stream_id) {
         // v2.0.12c: retry on WANT_WRITE/WANT_READ — Windows/MinGW returns these
         // even on blocking sockets for large writes.
         if (err == SSL_ERROR_WANT_WRITE || err == SSL_ERROR_WANT_READ) {
+            // P2: bounded by 30s deadline — fail instead of looping forever.
+            if (std::chrono::steady_clock::now() >= deadline) break;
             ++retries;
-            std::this_thread::yield();
+            std::this_thread::sleep_for(backoff);
+            backoff = std::min(backoff * 2, max_backoff);
             continue;
         }
         ssl_check(ret, ssl, "SSL_write");
     }
     if (total < frame.size()) {
-        throw std::runtime_error("SSL_write failed after retries");
+        throw std::runtime_error("SSL_write failed after retries/deadline");
     }
 }
 
@@ -3014,9 +3023,14 @@ inline void close_nonstdio_fds_before_exec() {
 #endif // _WIN32
 
 // CUA helper constants and helpers (used by bs-cua-helper.h)
-inline constexpr uint16_t kCuaHelperPort = 19986;
+inline constexpr uint16_t kCuaHelperPort = 19986; // Windows-only (POSIX uses Unix socket)
 [[nodiscard]] inline std::string cua_helper_token_path(const std::string& app_home) {
     return (std::filesystem::path(app_home) / "cua-helper-token").string();
+}
+
+// P2: Unix domain socket path for CUA helper (POSIX). Windows keeps TCP loopback.
+[[nodiscard]] inline std::string cua_helper_socket_path(const std::string& app_home) {
+    return (std::filesystem::path(app_home) / "cua-helper.sock").string();
 }
 
 // Cross-platform socket close helper for cua_helper_rpc
@@ -3043,6 +3057,9 @@ inline void close_socket(int fd) {
     while (!token.empty() && (token.back() == '\n' || token.back() == '\r')) token.pop_back();
     if (token.empty()) { resp.error = "empty cua-helper token"; return resp; }
 
+    // P2 security: POSIX uses Unix domain socket (filesystem perms protect token).
+    // Windows: TCP loopback (named pipes are the alternative but need separate code path).
+#ifdef _WIN32
     int sfd = (int)socket(AF_INET, SOCK_STREAM, 0);
     if (sfd < 0) { resp.error = "socket failed"; return resp; }
     sockaddr_in sa{};
@@ -3054,6 +3071,24 @@ inline void close_socket(int fd) {
         resp.error = "cua-helper not running (connect failed)";
         return resp;
     }
+#else
+    std::string sock_path = cua_helper_socket_path(app_home);
+    int sfd = (int)socket(AF_UNIX, SOCK_STREAM, 0);
+    if (sfd < 0) { resp.error = "socket failed"; return resp; }
+    sockaddr_un su{};
+    su.sun_family = AF_UNIX;
+    if (sock_path.size() >= sizeof(su.sun_path)) {
+        close_socket(sfd);
+        resp.error = "cua-helper socket path too long";
+        return resp;
+    }
+    std::strncpy(su.sun_path, sock_path.c_str(), sizeof(su.sun_path) - 1);
+    if (connect(sfd, (sockaddr*)&su, sizeof(su)) < 0) {
+        close_socket(sfd);
+        resp.error = "cua-helper not running (connect failed)";
+        return resp;
+    }
+#endif
     // P2: set 10s recv timeout so recv loop can't hang forever
 #ifdef _WIN32
     DWORD rcv_timeout_ms = 10000;
@@ -5202,6 +5237,11 @@ public:
     }
 
     // ── List ────────────────────────────────────────────────────
+    bool empty() const {
+        std::shared_lock lock(mutex_);
+        return sessions_.empty();
+    }
+
     std::vector<SessionInfo> list() const {
         std::shared_lock lock(mutex_);
         std::vector<SessionInfo> result;
@@ -5394,6 +5434,15 @@ public:
             s->command = m.command;
             s->state = SessionState::Recoverable;
             s->created_at = std::chrono::steady_clock::now();
+            s->created_at_sys = std::chrono::system_clock::now();
+            // Restore original wall-clock from persisted data if available
+            if (!m.created_at.empty()) {
+                try {
+                    auto epoch_secs = std::stoll(m.created_at);
+                    s->created_at_sys = std::chrono::system_clock::from_time_t(
+                        static_cast<time_t>(epoch_secs));
+                } catch (...) {}  // fallback to now() set above
+            }
             s->last_output_at = s->created_at;
             s->last_attach_at = s->created_at;
             sessions_[m.name] = std::move(s);
@@ -5414,7 +5463,7 @@ public:
                 m.state = session_state_str(s->state);
                 m.created_at = std::to_string(
                     std::chrono::duration_cast<std::chrono::seconds>(
-                        s->created_at.time_since_epoch()).count());
+                        s->created_at_sys.time_since_epoch()).count());
                 metas.push_back(m);
             }
         }
@@ -12191,9 +12240,11 @@ public:
             }
 
             // 2. select(): POSIX PTYs wake this set immediately. Windows pipe
-            // handles cannot participate in select(), so poll ConPTY at 20 Hz.
+            // handles cannot participate in select(), so poll ConPTY.
+            // Adaptive: 500ms when idle (no sessions), 50ms when sessions exist
+            // for ConPTY responsiveness.
 #ifdef _WIN32
-            timeval tv{0, 50'000};
+            timeval tv{0, sessions_.empty() ? 500'000 : 50'000};
 #else
             timeval tv{0, 100'000};
 #endif

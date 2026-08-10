@@ -21,6 +21,11 @@
 #include <nlohmann/json.hpp>
 #include "bs-logging.h"
 
+#ifndef _WIN32
+#include <sys/un.h>    // AF_UNIX, sockaddr_un — CUA helper Unix socket (P2)
+#include <sys/stat.h>   // chmod
+#endif
+
 #if defined(__APPLE__)
 #include <CoreGraphics/CoreGraphics.h>
 #include <CoreGraphics/CGEvent.h>
@@ -33,6 +38,11 @@ namespace bs::mesh {
 // ── platform backends (run in the USER session) ─────────────────
 
 #ifdef _WIN32
+
+#include <gdiplus.h>
+#include <objidl.h>
+// GDI+ linkage: gdiplus.lib — ensure build system links it
+#pragma comment(lib, "gdiplus.lib")
 
 // Minimal HID usage → Win32 VK table for control keys. Letters/digits are
 // computed (HID 0x04..0x1D = A..Z, 0x1E..0x27 = 1..9,0). Text entry never
@@ -125,43 +135,122 @@ inline CuaResponseMsg cua_helper_execute(const CuaRequestMsg& req) {
             resp.status = 0;
             return resp;
         }
-        case 6: {  // capture — GDI via PowerShell (user session → real pixels).
-            char tmpl[MAX_PATH], tmpdir[MAX_PATH];
-            GetTempPathA(sizeof(tmpdir), tmpdir);
-            GetTempFileNameA(tmpdir, "bsh", 0, tmpl);
-            std::string tmp_path = std::string(tmpl) + ".png";
-            ::unlink(tmpl);
-            std::string ps =
-                "powershell -NoProfile -Command \""
-                "Add-Type -AssemblyName System.Drawing,System.Windows.Forms;"
-                "$b=[System.Drawing.Rectangle]::FromLTRB("
-                "[System.Windows.Forms.SystemInformation]::VirtualScreen.Left,"
-                "[System.Windows.Forms.SystemInformation]::VirtualScreen.Top,"
-                "[System.Windows.Forms.SystemInformation]::VirtualScreen.Right,"
-                "[System.Windows.Forms.SystemInformation]::VirtualScreen.Bottom);"
-                "$img=New-Object System.Drawing.Bitmap($b.Width,$b.Height);"
-                "$g=[System.Drawing.Graphics]::FromImage($img);"
-                "$g.CopyFromScreen($b.Location,[System.Drawing.Point]::Empty,$b.Size);"
-                "$g.Dispose();$img.Save('" + tmp_path + "',[System.Drawing.Imaging.ImageFormat]::Png);"
-                "$img.Dispose()\" 2>nul";
-            int rc = std::system(ps.c_str());
-            if (rc != 0 || !std::filesystem::exists(tmp_path)) {
-                resp.status = 1; resp.error = "helper capture failed (PowerShell GDI)";
+        case 6: {  // capture — native GDI BitBlt + GDI+ JPEG (user session → real pixels).
+            // 2.0.20: replaced PowerShell Add-Type (1-3s latency) with in-process GDI.
+            int vw = GetSystemMetrics(SM_CXVIRTUALSCREEN);
+            int vh = GetSystemMetrics(SM_CYVIRTUALSCREEN);
+            int vx = GetSystemMetrics(SM_XVIRTUALSCREEN);
+            int vy = GetSystemMetrics(SM_YVIRTUALSCREEN);
+            if (vw <= 0 || vh <= 0) {
+                resp.status = 1; resp.error = "capture: invalid screen metrics";
                 return resp;
             }
-            std::ifstream cap(tmp_path, std::ios::binary | std::ios::ate);
-            if (!cap) { resp.status = 1; resp.error = "open capture failed"; return resp; }
-            auto sz = cap.tellg();
-            if (sz <= 0 || (size_t)sz > MAX_IMAGE_BYTES) {
-                resp.status = 1; resp.error = "capture empty/oversize";
-                ::unlink(tmp_path.c_str()); return resp;
+            HDC screen_dc = GetDC(NULL);
+            if (!screen_dc) { resp.status = 1; resp.error = "GetDC failed"; return resp; }
+            HDC mem_dc = CreateCompatibleDC(screen_dc);
+            HBITMAP bmp = CreateCompatibleBitmap(screen_dc, vw, vh);
+            if (!mem_dc || !bmp) {
+                if (mem_dc) DeleteDC(mem_dc);
+                if (bmp) DeleteObject(bmp);
+                ReleaseDC(NULL, screen_dc);
+                resp.status = 1; resp.error = "capture: CreateCompatible failed";
+                return resp;
             }
-            resp.data.resize((size_t)sz);
-            cap.seekg(0); cap.read((char*)resp.data.data(), sz);
-            ::unlink(tmp_path.c_str());
-            resp.format = 1; resp.status = 0;
-            resp.screen_w = (int16_t)GetSystemMetrics(SM_CXVIRTUALSCREEN);
-            resp.screen_h = (int16_t)GetSystemMetrics(SM_CYVIRTUALSCREEN);
+            HBITMAP old = (HBITMAP)SelectObject(mem_dc, bmp);
+            BitBlt(mem_dc, 0, 0, vw, vh, screen_dc, vx, vy, SRCCOPY);
+            // Extract raw pixels via GetDIBits
+            BITMAPINFOHEADER bih{};
+            bih.biSize = sizeof(BITMAPINFOHEADER);
+            bih.biWidth = vw;
+            bih.biHeight = -vh;  // top-down
+            bih.biPlanes = 1;
+            bih.biBitCount = 32;
+            bih.biCompression = BI_RGB;
+            std::vector<uint8_t> pixels((size_t)vw * vh * 4);
+            int rows = GetDIBits(mem_dc, bmp, 0, vh, pixels.data(),
+                                 (BITMAPINFO*)&bih, DIB_RGB_COLORS);
+            SelectObject(mem_dc, old);
+            DeleteObject(bmp);
+            DeleteDC(mem_dc);
+            ReleaseDC(NULL, screen_dc);
+            if (rows <= 0) {
+                resp.status = 1; resp.error = "capture: GetDIBits failed";
+                return resp;
+            }
+            // Encode as JPEG via GDI+
+            ULONG gdiplus_token = 0;
+            Gdiplus::GdiplusStartupInput gdiplus_input;
+            if (Gdiplus::GdiplusStartup(&gdiplus_token, &gdiplus_input, NULL) != Gdiplus::Ok) {
+                resp.status = 1; resp.error = "capture: GDI+ init failed";
+                return resp;
+            }
+            Gdiplus::Bitmap bitmap(vw, vh, (size_t)vw * 4, PixelFormat32bppRGB, pixels.data());
+            // quality 70 — ~30-50KB per screenshot, fits mesh frame limit
+            CLSID jpg_clsid;
+            UINT num = 0, size = 0;
+            Gdiplus::GetImageEncodersSize(&num, &size);
+            bool got_encoder = false;
+            if (size > 0) {
+                std::vector<uint8_t> enc_buf(size);
+                auto* encoders = reinterpret_cast<Gdiplus::ImageCodecInfo*>(enc_buf.data());
+                if (Gdiplus::GetImageEncoders(num, size, encoders) == Gdiplus::Ok) {
+                    for (UINT i = 0; i < num; ++i) {
+                        if (encoders[i].FormatID == Gdiplus::ImageFormatJPEG) {
+                            jpg_clsid = encoders[i].Clsid;
+                            got_encoder = true;
+                            break;
+                        }
+                    }
+                }
+            }
+            if (!got_encoder) {
+                Gdiplus::GdiplusShutdown(gdiplus_token);
+                resp.status = 1; resp.error = "capture: JPEG encoder not found";
+                return resp;
+            }
+            IStream* stream = nullptr;
+            if (CreateStreamOnHGlobal(NULL, TRUE, &stream) != S_OK || !stream) {
+                Gdiplus::GdiplusShutdown(gdiplus_token);
+                resp.status = 1; resp.error = "capture: CreateStream failed";
+                return resp;
+            }
+            Gdiplus::EncoderParameters params;
+            params.Count = 1;
+            params.Parameter[0].Guid = Gdiplus::EncoderQuality;
+            params.Parameter[0].Type = Gdiplus::EncoderParameterValueTypeLong;
+            ULONG quality = 70;
+            params.Parameter[0].Value = &quality;
+            auto save_status = bitmap.Save(stream, &jpg_clsid, &params);
+            if (save_status != Gdiplus::Ok) {
+                stream->Release();
+                Gdiplus::GdiplusShutdown(gdiplus_token);
+                resp.status = 1; resp.error = "capture: GdipSaveImageToStream failed";
+                return resp;
+            }
+            LARGE seek_pos{};
+            ULARGE large_pos{};
+            stream->Seek(seek_pos, STREAM_SEEK_SET, &large_pos);
+            STATSTG stat{};
+            stream->Stat(&stat, STATFLAG_NONAME);
+            size_t jpeg_size = (size_t)stat.cbSize.QuadPart;
+            if (jpeg_size == 0 || jpeg_size > MAX_IMAGE_BYTES) {
+                stream->Release();
+                Gdiplus::GdiplusShutdown(gdiplus_token);
+                resp.status = 1; resp.error = "capture: JPEG empty/oversize";
+                return resp;
+            }
+            resp.data.resize(jpeg_size);
+            ULONG bytes_read = 0;
+            stream->Read(resp.data.data(), (ULONG)jpeg_size, &bytes_read);
+            stream->Release();
+            Gdiplus::GdiplusShutdown(gdiplus_token);
+            if (bytes_read != jpeg_size) {
+                resp.status = 1; resp.error = "capture: JPEG stream read short";
+                return resp;
+            }
+            resp.format = 2; resp.status = 0;  // JPEG
+            resp.screen_w = (int16_t)vw;
+            resp.screen_h = (int16_t)vh;
             return resp;
         }
         default:
@@ -353,6 +442,10 @@ inline int run_cua_helper(const std::string& app_home_in) {
 #ifdef _WIN32
     WSADATA wsa; WSAStartup(MAKEWORD(2, 2), &wsa);
 #endif
+    // P2 security: POSIX uses a Unix domain socket (filesystem perms protect the
+    // token from loopback sniffing). Windows keeps TCP loopback (named pipes are
+    // the alternative but need a separate code path).
+#ifdef _WIN32
     SOCKET lfd = socket(AF_INET, SOCK_STREAM, 0);
     if (lfd == INVALID_SOCKET) { std::cerr << "cua-helper: socket failed\n"; return 1; }
     int one = 1;
@@ -368,6 +461,31 @@ inline int run_cua_helper(const std::string& app_home_in) {
     std::cout << "cua-helper: listening on 127.0.0.1:" << kCuaHelperPort
               << " (token " << cua_helper_token_path(app_home) << ")\n" << std::flush;
     bs::log::get("cua-helper")->info("Listening on 127.0.0.1:{}", kCuaHelperPort);
+#else
+    const std::string sock_path = cua_helper_socket_path(app_home);
+    // Remove a stale socket left by a previously killed helper — a live socket
+    // file from a dead process would otherwise block bind().
+    ::unlink(sock_path.c_str());
+    SOCKET lfd = socket(AF_UNIX, SOCK_STREAM, 0);
+    if (lfd == INVALID_SOCKET) { std::cerr << "cua-helper: unix socket failed\n"; return 1; }
+    sockaddr_un su{};
+    su.sun_family = AF_UNIX;
+    if (sock_path.size() >= sizeof(su.sun_path)) {
+        std::cerr << "cua-helper: socket path too long\n";
+        CLOSESOCK(lfd); return 1;
+    }
+    std::strncpy(su.sun_path, sock_path.c_str(), sizeof(su.sun_path) - 1);
+    if (bind(lfd, (sockaddr*)&su, sizeof(su)) == SOCKET_ERROR || listen(lfd, 4) == SOCKET_ERROR) {
+        std::cerr << "cua-helper: bind/listen " << sock_path << " failed\n";
+        CLOSESOCK(lfd); return 1;
+    }
+    // Restrict the socket file to the owner — the token is now protected by
+    // filesystem permissions instead of loopback anonymity.
+    ::chmod(sock_path.c_str(), 0600);
+    std::cout << "cua-helper: listening on " << sock_path
+              << " (token " << cua_helper_token_path(app_home) << ")\n" << std::flush;
+    bs::log::get("cua-helper")->info("Listening on {}", sock_path);
+#endif
 
     for (;;) {
         SOCKET cfd = accept(lfd, nullptr, nullptr);
