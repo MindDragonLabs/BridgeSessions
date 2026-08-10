@@ -146,4 +146,89 @@ try {
     Write-Host "→ WARNING: Could not verify daemon status."
 }
 
-Write-Host "→ Done."
+Write-Host "→ Daemon started."
+
+# -- 10. INSTALL TRAY APP -----------------------------------------------------
+$TRAY_SCRIPT_SRC = "$PSScriptRoot\bs_tray.ps1"
+$TRAY_SCRIPT_DST = "$INSTALL_DIR\bs_tray.ps1"
+
+if (Test-Path $TRAY_SCRIPT_SRC) {
+    Write-Host "→ Installing tray app to $INSTALL_DIR..."
+    Copy-Item -Path $TRAY_SCRIPT_SRC -Destination $TRAY_SCRIPT_DST -Force
+
+    # Create startup shortcut (shell:startup)
+    $startupDir = [Environment]::GetFolderPath("Startup")
+    $shortcutPath = "$startupDir\BridgeSessions Tray.lnk"
+    try {
+        $shell = New-Object -ComObject WScript.Shell
+        $shortcut = $shell.CreateShortcut($shortcutPath)
+        $shortcut.TargetPath = "powershell.exe"
+        $shortcut.Arguments = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$TRAY_SCRIPT_DST`""
+        $shortcut.WorkingDirectory = $INSTALL_DIR
+        $shortcut.IconLocation = "$BIN_PATH,0"
+        $shortcut.Description = "BridgeSessions System Tray"
+        $shortcut.WindowStyle = 7  # Minimized
+        $shortcut.Save()
+        Write-Host "→ Startup shortcut created: $shortcutPath"
+    } catch {
+        Write-Host "→ WARNING: Could not create startup shortcut: $($_.Exception.Message)"
+    }
+} else {
+    Write-Host "→ WARNING: bs_tray.ps1 not found at $TRAY_SCRIPT_SRC. Skipping tray install."
+}
+
+# -- 11. LAUNCH TRAY APP ------------------------------------------------------
+if (Test-Path $TRAY_SCRIPT_DST) {
+    Write-Host "→ Launching tray app..."
+    try {
+        Start-Process -FilePath "powershell.exe" `
+            -ArgumentList "-NoProfile", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-File", "`"$TRAY_SCRIPT_DST`"" `
+            -WindowStyle Hidden
+        Write-Host "→ Tray app launched."
+    } catch {
+        Write-Host "→ WARNING: Could not launch tray app: $($_.Exception.Message)"
+    }
+}
+
+# -- 12. SCREEN RECORDING PERMISSION PROMPT (Windows Security) -----------------
+# CUA helper needs Screen Recording permission on Windows 11. Open Settings to
+# the "Allow screen recording" page so the user can grant it manually.
+try {
+    $osVer = [System.Environment]::OSVersion.Version
+    if ($osVer.Major -ge 10) {
+        Write-Host "→ Opening Windows Security for Screen Recording permission..."
+        Write-Host "   If prompted, allow bridgesessions.exe to capture screen."
+
+        # Open Settings > Privacy > Screen Recording (Windows 10/11)
+        Start-Process "ms-settings:privacy-capability" -ErrorAction SilentlyContinue
+
+        # Also show a helpful dialog
+        Add-Type -AssemblyName System.Windows.Forms
+        $msgResult = [System.Windows.Forms.MessageBox]::Show(
+            "BridgeSessions needs Screen Recording permission for CUA automation.`n`n" +
+            "If the Settings window opened, find 'bridgesessions' and enable it.`n`n" +
+            "Click OK when done (or Cancel to skip).",
+            "BridgeSessions — Permission Required",
+            [System.Windows.Forms.MessageBoxButtons]::OKCancel,
+            [System.Windows.Forms.MessageBoxIcon]::Information)
+
+        if ($msgResult -eq [System.Windows.Forms.DialogResult]::OK) {
+            Write-Host "→ User acknowledged permission prompt."
+        }
+    }
+} catch {
+    Write-Host "→ Could not open permission prompt: $($_.Exception.Message)"
+}
+
+Write-Host ""
+Write-Host "============================================"
+Write-Host " BridgeSessions $TAG installed successfully!"
+Write-Host "============================================"
+Write-Host ""
+Write-Host " Tray app: Right-click the 'B' icon in the"
+Write-Host " system tray for fleet status and controls."
+Write-Host ""
+Write-Host " Daemon:  Scheduled task 'BridgeSessions' (auto-starts)"
+Write-Host " CUA:     Scheduled task 'BridgeSessions-CuaHelper' (at logon)"
+Write-Host " Tray:    Startup shortcut (at logon)"
+Write-Host ""
