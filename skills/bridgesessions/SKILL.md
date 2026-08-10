@@ -16,7 +16,7 @@ metadata:
   harnesses: "hermes,codex,claude-code,opencode,cursor,grok,copilot"
   related: "docs/RELEASE-PROVENANCE.md"
   release: "26.08.10-beta2"
-  forge: "codeberg.org/Mind-Dragon/BridgeSessions"
+  forge: "github.com/MindDragonLabs/BridgeSessions"
 ---
 
 # BridgeSessions — Agent Skill
@@ -82,7 +82,7 @@ Portable skill for **Hermes**, **OpenAI Codex**, **Claude Code**, **OpenCode**,
 |------|--------|
 | Tag | `v26.08.10-beta2` (commit locally; public tag/push require operator approval) |
 | Branch | `main` |
-| Repo | https://codeberg.org/Mind-Dragon/BridgeSessions |
+| Repo | https://github.com/MindDragonLabs/BridgeSessions |
 | Artifacts | Linux x86_64, Windows x86_64 PE, macOS arm64 (`dist/`) |
 | Tests | Linux 336/336 + macOS 335/335 CTest; release pytest 31/31; ASan/UBSan regression 22/22 |
 | Notes | `docs/RELEASE-NOTES-26.08.10-beta2.md` · provenance `docs/RELEASE-PROVENANCE.md` |
@@ -90,18 +90,18 @@ Portable skill for **Hermes**, **OpenAI Codex**, **Claude Code**, **OpenCode**,
 ### Download (raw from tag — preferred)
 
 ```text
-https://codeberg.org/Mind-Dragon/BridgeSessions/raw/tag/v26.08.10-beta2/dist/bridgesessions-linux-x86_64
-https://codeberg.org/Mind-Dragon/BridgeSessions/raw/tag/v26.08.10-beta2/dist/bridgesessions-windows-x86_64.exe
-https://codeberg.org/Mind-Dragon/BridgeSessions/raw/tag/v26.08.10-beta2/dist/bridgesessions-macos-arm64
-https://codeberg.org/Mind-Dragon/BridgeSessions/raw/tag/v26.08.10-beta2/dist/bridgesessions-26.08.10-beta2-source.tar.gz
-https://codeberg.org/Mind-Dragon/BridgeSessions/raw/tag/v26.08.10-beta2/dist/SHA256SUMS
+https://github.com/MindDragonLabs/BridgeSessions/raw/main/dist/bridgesessions-linux-x86_64
+https://github.com/MindDragonLabs/BridgeSessions/raw/main/dist/bridgesessions-windows-x86_64.exe
+https://github.com/MindDragonLabs/BridgeSessions/raw/main/dist/bridgesessions-macos-arm64
+https://github.com/MindDragonLabs/BridgeSessions/raw/main/dist/bridgesessions-26.08.10-beta2-source.tar.gz
+https://github.com/MindDragonLabs/BridgeSessions/raw/main/dist/SHA256SUMS
 ```
 
-Tree: https://codeberg.org/Mind-Dragon/BridgeSessions/src/tag/v26.08.10-beta2/dist
+Tree: https://github.com/MindDragonLabs/BridgeSessions/src/tag/v26.08.10-beta2/dist
 
 ```bash
 curl -fL -o bridgesessions \
-  https://codeberg.org/Mind-Dragon/BridgeSessions/raw/tag/v26.08.10-beta2/dist/bridgesessions-linux-x86_64
+  https://github.com/MindDragonLabs/BridgeSessions/raw/main/dist/bridgesessions-linux-x86_64
 chmod +x bridgesessions
 ./bridgesessions --version   # → 26.08.10-beta2
 ```
@@ -118,7 +118,7 @@ All three are **portable static** (no runtime dylld/DLL deps beyond OS libs):
 
 - **Windows-only peers (no sshd)** — ship the PE via **WinRM** or `bs file send` from a mesh-connected host.
 - mac/win release binaries ARE committed to `dist/` (the `.gitignore` only ignores the dev `bridgesessions.exe` + `*.o`/`*.obj`). `SHA256SUMS`/`SBOM` stay gitignored (downloader regenerates).
-- Re-tag after changing `dist/`: `git tag -f v26.08.10-beta2 HEAD && git push --force codeberg main && git push --force codeberg v26.08.10-beta2`.
+- Re-tag after changing `dist/`: `git tag -f v26.08.10-beta2 HEAD && git push --force origin main && git push --force origin v26.08.10-beta2`.
 
 ### Publish to Codeberg (SSH only)
 
@@ -130,8 +130,8 @@ export GIT_SSH_COMMAND='ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes -o BatchM
 # Or permanent: Host codeberg.org → IdentityFile ~/.ssh/id_ed25519 in ~/.ssh/config
 
 cd /path/to/BridgeSessions   # often ~/bridgesessions
-git push codeberg main
-git push codeberg v26.08.10-beta2
+git push origin main
+git push origin v26.08.10-beta2
 ```
 
 Probe: `ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes -T git@codeberg.org`  
@@ -351,7 +351,7 @@ bs health <peer>                      # healthy (data-plane ok)
 bs shell <peer> --cmd "…"             # real stdout, correct host
 bs file send <peer> /tmp/big.bin --wait   # PROGRESS then OK
 # Public tag contains the reviewed platform binaries:
-curl -fsI https://codeberg.org/Mind-Dragon/BridgeSessions/raw/tag/v26.08.10-beta2/dist/bridgesessions-linux-x86_64
+curl -fsI https://github.com/MindDragonLabs/BridgeSessions/raw/main/dist/bridgesessions-linux-x86_64
 ```
 
 Subagent claims are not evidence — re-probe in this session.

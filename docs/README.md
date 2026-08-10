@@ -38,6 +38,6 @@ Windows — no SSH, no mosh, no tmux/zellij in the connection path.
 [![BridgeSessions product demo](assets/demo-install-ai-mesh.gif)](assets/demo-install-ai-mesh.mp4)
 
 Product demo — the old stack collapses into one mesh; Windows CUA + media transfer + vision path; Bridge Panel.  
-Full quality: **[MP4 · 1080p](assets/demo-install-ai-mesh.mp4)** · [file view with player](https://codeberg.org/Mind-Dragon/BridgeSessions/src/branch/main/docs/assets/demo-install-ai-mesh.mp4)
+Full quality: **[MP4 · 1080p](assets/demo-install-ai-mesh.mp4)** · [file view with player](https://github.com/MindDragonLabs/BridgeSessions/blob/main/docs/assets/demo-install-ai-mesh.mp4)
 
 See the [README](../README.md) for a 60-second start.

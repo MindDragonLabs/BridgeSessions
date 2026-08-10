@@ -8,10 +8,10 @@
 
 ```bash
 # Linux / macOS
-curl -fsSL https://codeberg.org/Mind-Dragon/BridgeSessions/raw/tag/v26.08.10-beta2/scripts/install.sh | bash
+curl -fsSL https://github.com/MindDragonLabs/BridgeSessions/raw/main/scripts/install.sh | bash
 
 # Windows PowerShell
-irm https://codeberg.org/Mind-Dragon/BridgeSessions/raw/tag/v26.08.10-beta2/scripts/install.ps1 | iex
+irm https://github.com/MindDragonLabs/BridgeSessions/raw/main/scripts/install.ps1 | iex
 ```
 
 ---

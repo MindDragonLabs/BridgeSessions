@@ -6,7 +6,7 @@
 
 ### One binary. Every machine. Zero SSH.
 
-[![Version](https://img.shields.io/badge/version-26.08.10--beta2-00d9ff?style=flat-square)](https://codeberg.org/Mind-Dragon/BridgeSessions/releases)
+[![Version](https://img.shields.io/badge/version-26.08.10--beta2-00d9ff?style=flat-square)](https://github.com/MindDragonLabs/BridgeSessions/releases)
 [![License](https://img.shields.io/badge/license-BSL--1.1-6c7086?style=flat-square)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20Windows%20%7C%20macOS-00d9ff?style=flat-square)](#install)
 [![Language](https://img.shields.io/badge/C%2B%2B-23-00599C?style=flat-square&logo=c%2B%2B&logoColor=white)](https://en.cppreference.com/)
@@ -107,19 +107,19 @@ bs script run deploy --peer linux-a -- --env prod
 ### One-line install (Linux / macOS)
 
 ```bash
-curl -fsSL https://codeberg.org/Mind-Dragon/BridgeSessions/raw/tag/26.08.10-beta2/scripts/install.sh | bash
+curl -fsSL https://github.com/MindDragonLabs/BridgeSessions/raw/main/scripts/install.sh | bash
 ```
 
 ### Windows (PowerShell)
 
 ```powershell
-irm https://codeberg.org/Mind-Dragon/BridgeSessions/raw/tag/26.08.10-beta2/scripts/install.ps1 | iex
+irm https://github.com/MindDragonLabs/BridgeSessions/raw/main/scripts/install.ps1 | iex
 ```
 
 ### Build from source
 
 ```bash
-git clone https://codeberg.org/Mind-Dragon/BridgeSessions.git
+git clone https://github.com/MindDragonLabs/BridgeSessions.git
 cd BridgeSessions
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --parallel
@@ -288,7 +288,7 @@ BridgeSessions ships multi-harness agent instructions:
 | Windows x86_64 | `bridgesessions-windows-x86_64.exe` |
 | macOS arm64 | `bridgesessions-macos-arm64` |
 
-Current release: **`26.08.10-beta2`** on Codeberg.
+Current release: **`26.08.10-beta2`** on [GitHub Releases](https://github.com/MindDragonLabs/BridgeSessions/releases).
 
 ```bash
 # Verify checksums
@@ -315,6 +315,6 @@ Found a vulnerability? Follow the disclosure process in [SECURITY.md](SECURITY.m
 
 **[⬆ Back to top](#bridgesessions)**
 
-Built by [Mind Dragon Labs](https://codeberg.org/Mind-Dragon) · Powered by C++23 + OpenSSL + ❤️
+Built by [Mind Dragon Labs](https://github.com/MindDragonLabs) · Powered by C++23 + OpenSSL + ❤️
 
 </div>

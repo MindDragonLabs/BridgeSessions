@@ -1,0 +1,66 @@
+site_name: BridgeSessions
+site_description: One binary. Every machine. Zero SSH. Mesh terminal relay over TLS 1.3.
+site_url: https://minddragonlabs.github.io/BridgeSessions
+repo_url: https://github.com/MindDragonLabs/BridgeSessions
+repo_name: MindDragonLabs/BridgeSessions
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  palette:
+    - scheme: slate
+      primary: cyan
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+    - scheme: default
+      primary: cyan
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.action.edit
+  icon:
+    repo: fontawesome/brands/github
+
+nav:
+  - Home: index.md
+  - Quickstart: QUICKSTART.md
+  - Install & Build: building.md
+  - Usage: usage.md
+  - Configuration: configuration.md
+  - Protocol: protocol.md
+  - CUA (Computer Use): cua.md
+  - Bridge Panel: bridge-panel.md
+  - Design: design.md
+  - Why BridgeSessions: why-bridge-sessions.md
+  - Architecture:
+      - Decision Record: ARCHITECTURE-DECISION-RECORD.md
+      - Recommendations: ARCHITECTURE-RECOMMENDATIONS.md
+  - Releases:
+      - Provenance: RELEASE-PROVENANCE.md
+
+markdown_extensions:
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - admonition
+  - pymdownx.details
+  - attr_list
+  - md_in_html
+  - toc:
+      permalink: true
+
+plugins:
+  - search
+  - git-revision-date-localized:
+      enable_creation_date: true
+      enable_git_follow: false

@@ -1,0 +1,33 @@
+# Deploy MkDocs Material to GitHub Pages
+# Builds docs from docs/ and publishes to gh-pages branch
+
+name: Deploy Docs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - 'mkdocs.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install MkDocs Material
+        run: pip install mkdocs-material mkdocs-git-revision-date-localized-plugin
+
+      - name: Build and deploy
+        run: mkdocs gh-deploy --force
