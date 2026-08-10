@@ -526,15 +526,17 @@ int main(int argc, char** argv) {
         fs::create_directories(paths.state, ec);
     }
 
-    // Initialize structured operational logging.
-    // foreground = !daemon_flag (console output only when not daemonized)
-    bs::log::init(home_dir, !daemon_flag);
-
-    // Dispatch
-    auto op_log = bs::log::get("main");
-    op_log->info("BridgeSessions v{} starting", bs::mesh::kBridgeSessionsVersion);
-    op_log->debug("app_home={}, config={}, daemon={}, cua_helper={}",
-                  home_dir, config_path, daemon_flag, cua_helper_flag);
+    // Initialize structured operational logging only for daemon/cua-helper modes.
+    // One-shot CLI commands (shell, health, file transfer) should NOT produce
+    // startup logging noise — they write their own output to stdout/stderr.
+    const bool is_long_running = daemon_flag || cua_helper_flag;
+    if (is_long_running) {
+        bs::log::init(home_dir, !daemon_flag);
+        auto op_log = bs::log::get("main");
+        op_log->info("BridgeSessions v{} starting", bs::mesh::kBridgeSessionsVersion);
+        op_log->debug("app_home={}, config={}, daemon={}, cua_helper={}",
+                      home_dir, config_path, daemon_flag, cua_helper_flag);
+    }
     if (!quick_peer.empty()) {
         bs::mesh::MeshConfig cfg = bs::mesh::load_config(config_path);
         if (!bs::mesh::import_ssh_alias_peer(cfg, quick_peer)) {
