@@ -117,6 +117,20 @@ namespace bs::mesh {
 inline constexpr std::string_view kBridgeSessionsVersion = BS_VERSION;
 
 
+// ── Upgrade tag validation (shared with tests) ────────────────────
+// W4-P1 guard: only [A-Za-z0-9._-] allowed so a malicious --tag cannot
+// break out of single-quoted curl/system commands in the upgrade path.
+inline bool bs_upgrade_tag_valid(const std::string& tag) {
+    if (tag == "latest") return true;
+    if (tag.empty()) return false;
+    for (char c : tag) {
+        bool ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+                  (c >= '0' && c <= '9') || c == '.' || c == '-' || c == '_';
+        if (!ok) return false;
+    }
+    return true;
+}
+
 // ── Message Type Enum ─────────────────────────────────────────────
 // Original types + mesh types (41 total as of v26.08.10 — see variant below)
 

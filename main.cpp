@@ -12,11 +12,12 @@
 #include <mach-o/dyld.h>
 #endif
 
+// Tag validation is defined in bs-protocol.h (shared with tests).
+
+#ifndef BS_TESTING
 // ────────────────────────────────────────────────────────────────────
 // 2. MAIN — CLI + daemon (guarded for test builds)
 // ────────────────────────────────────────────────────────────────────
-
-#ifndef BS_TESTING
 
 #include <CLI/CLI.hpp>
 #include <cstdlib>
@@ -93,16 +94,23 @@ static std::string daemon_simple_ipc(const std::string& cmd, int wait_ms,
     if (connect(sfd, (sockaddr*)&sa, sizeof(sa)) == SOCKET_ERROR) { CLOSESOCK(sfd); return ""; }
     std::string full = token + " " + cmd + "\n";
     send(sfd, full.data(), (int)full.size(), 0);
-    char buf[4096] = {}; int total = 0;
-    while (total < (int)sizeof(buf) - 1) {
-        int n = recv(sfd, buf + total, (int)sizeof(buf) - 1 - total, 0);
-        if (n > 0) { total += n; buf[total] = '\0'; if (strchr(buf, '\n')) break; }
-        else break;
+    // Accumulate into std::string — large FLEET/SESSIONS/TELEMETRY responses
+    // can exceed the old 4096-byte fixed buffer. Cap at 1 MB to avoid abuse.
+    std::string acc;
+    constexpr size_t kMaxIpcResponse = 1 << 20; // 1 MB
+    char chunk[4096];
+    while (acc.size() < kMaxIpcResponse) {
+        int n = recv(sfd, chunk, (int)sizeof(chunk), 0);
+        if (n > 0) {
+            acc.append(chunk, (size_t)n);
+            if (acc.find('\n') != std::string::npos) break;
+        } else {
+            break;
+        }
     }
     CLOSESOCK(sfd);
-    std::string line(buf);
-    while (!line.empty() && (line.back() == '\r' || line.back() == '\n')) line.pop_back();
-    return line;
+    while (!acc.empty() && (acc.back() == '\r' || acc.back() == '\n')) acc.pop_back();
+    return acc;
 }
 
 // ── authorize: register a hex-encoded ed25519 public key ──────────
@@ -962,20 +970,14 @@ int main(int argc, char** argv) {
     }
     if (upgrade_cmd_app->parsed()) {
         // Self-update: download latest (or specified) release from GitHub,
-        // verify SHA256, atomic swap, restart daemon.
+        // verify SHA256 (mandatory), atomic swap, restart daemon.
         std::string tag = upgrade_tag.empty() ? "latest" : upgrade_tag;
         // Validate tag to prevent shell/URL injection (W4-P1): only allow
         // alnum, dots, dashes, underscores. A tag with ' or ; or $ breaks
         // out of the single-quoted curl/system commands below.
-        if (tag != "latest") {
-            for (char c : tag) {
-                bool ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
-                          (c >= '0' && c <= '9') || c == '.' || c == '-' || c == '_';
-                if (!ok) {
-                    std::cerr << "upgrade: invalid tag '" << tag << "' — only [A-Za-z0-9._-] allowed\n";
-                    return 1;
-                }
-            }
+        if (!bs::mesh::bs_upgrade_tag_valid(tag)) {
+            std::cerr << "upgrade: invalid tag '" << tag << "' — only [A-Za-z0-9._-] allowed\n";
+            return 1;
         }
 
         // If --all, upgrade every healthy peer via mesh shell
@@ -1066,6 +1068,7 @@ int main(int argc, char** argv) {
         std::string sums_url = base_url + "/" + tag_path + "/dist/SHA256SUMS";
 
         std::cout << "→ Downloading " << binary_name << " from " << download_url << "\n";
+        bs::log::get("upgrade")->info("downloading {} from {}", binary_name, download_url);
 
         // Download to temp file
         std::string tmp_path = "/tmp/bs-upgrade-" + std::to_string(getpid());
@@ -1079,40 +1082,41 @@ int main(int argc, char** argv) {
         int rc = std::system(curl_cmd.c_str());
         if (rc != 0) {
             std::cerr << "upgrade: download failed (curl exit " << rc << ")\n";
+            bs::log::get("upgrade")->error("download failed (curl exit {})", rc);
             return 1;
         }
 
         // Make executable before version check
         chmod(tmp_path.c_str(), 0755);
 
-        // Verify SHA256 against published SHA256SUMS (if fetch succeeds).
-        // A tampered or corrupted download must not be swapped in.
+        // Verify SHA256 against published SHA256SUMS — MANDATORY.
+        // A tampered or corrupted download must never be swapped in.
         {
             std::string sums_path = "/tmp/bs-upgrade-sums-" + std::to_string(getpid());
             std::string sums_cmd = "curl -fL -s -o '" + sums_path + "' '" + sums_url + "' 2>/dev/null";
-            if (std::system(sums_cmd.c_str()) == 0) {
-                // Compare: shasum -a 256 <binary> vs the line for binary_name in sums
-                std::string check_cmd =
-                    "grep '" + binary_name + "' '" + sums_path +
-                    "' | awk '{print $1}' | while read h; do "
-                    "  actual=$(shasum -a 256 '" + tmp_path + "' | awk '{print $1}'); "
-                    "  [ \"$h\" = \"$actual\" ] && exit 0; exit 1; done";
-                int verify_rc = std::system(check_cmd.c_str());
-                ::unlink(sums_path.c_str());
-                if (verify_rc != 0) {
-                    std::cerr << "upgrade: SHA256 verification FAILED — download tampered or corrupt\n";
-                    ::unlink(tmp_path.c_str());
-                    return 1;
-                }
-                std::cout << "→ SHA256 verified\n";
-            } else {
-                std::cout << "→ SHA256SUMS unavailable, skipping hash check\n";
-                ::unlink(sums_path.c_str());
+            if (std::system(sums_cmd.c_str()) != 0) {
+                std::cerr << "upgrade: FAILED to download SHA256SUMS — aborting (hash verification is mandatory)\n";
+                ::unlink(tmp_path.c_str());
+                return 1;
             }
+            // Compare: shasum -a 256 <binary> vs the line for binary_name in sums
+            std::string check_cmd =
+                "grep '" + binary_name + "' '" + sums_path +
+                "' | awk '{print $1}' | while read h; do "
+                "  actual=$(shasum -a 256 '" + tmp_path + "' | awk '{print $1}'); "
+                "  [ \"$h\" = \"$actual\" ] && exit 0; exit 1; done";
+            int verify_rc = std::system(check_cmd.c_str());
+            ::unlink(sums_path.c_str());
+            if (verify_rc != 0) {
+                std::cerr << "upgrade: SHA256 verification FAILED — download tampered or corrupt\n";
+                ::unlink(tmp_path.c_str());
+                return 1;
+            }
+            std::cout << "→ SHA256 verified\n";
+            bs::log::get("upgrade")->info("SHA256 verified");
         }
 
         // Verify the binary runs and check version
-        std::string verify_cmd = "'" + tmp_path + "' --version 2>/dev/null";
         // Capture output
         std::string reported_version;
         {
@@ -1145,15 +1149,20 @@ int main(int argc, char** argv) {
 
         // (already chmod'd above)
 
+        // Developer ID — read from env BS_DEV_ID, fall back to hardcoded default
+        const char* env_dev_id = std::getenv("BS_DEV_ID");
+        std::string dev_id = env_dev_id ? env_dev_id : "Developer ID Application: Jefferson Nunn (QL5MD8FKPL)";
+
 #ifdef __APPLE__
         // Sign with Developer ID if available, otherwise adhoc
-        std::string sign_cmd = "codesign --force --sign 'Developer ID Application: Jefferson Nunn (QL5MD8FKPL)' '" +
+        std::string sign_cmd = "codesign --force --sign '" + dev_id + "' '" +
                                tmp_path + "' 2>/dev/null || codesign --force --sign - '" + tmp_path + "' 2>/dev/null";
         std::system(sign_cmd.c_str());
 #endif
 
         // Stop daemon before swap
         std::cout << "→ Stopping daemon...\n";
+        bs::log::get("upgrade")->info("stopping daemon");
 #ifdef __APPLE__
         std::system("launchctl bootout gui/$(id -u)/com.bridgesessions.mesh 2>/dev/null");
         std::system("launchctl bootout gui/$(id -u)/com.bridgesessions.cua-helper 2>/dev/null");
@@ -1178,11 +1187,18 @@ int main(int argc, char** argv) {
         // Atomic swap: rename old, move new
         std::string old_path = bin_path + ".old";
         std::cout << "→ Swapping binary...\n";
+        bs::log::get("upgrade")->info("swapping binary");
         ::rename(bin_path.c_str(), old_path.c_str());  // may fail if not exists
         if (::rename(tmp_path.c_str(), bin_path.c_str()) != 0) {
             // rename failed (cross-device?) — fall back to copy
             std::string cp_cmd = "cp '" + tmp_path + "' '" + bin_path + "'";
-            std::system(cp_cmd.c_str());
+            if (std::system(cp_cmd.c_str()) != 0) {
+                // cp failed — rollback old binary and abort
+                std::cerr << "upgrade: binary swap failed (cp fallback) — rolling back\n";
+                ::rename(old_path.c_str(), bin_path.c_str());
+                ::unlink(tmp_path.c_str());
+                return 1;
+            }
         }
         chmod(bin_path.c_str(), 0755);
         ::unlink(tmp_path.c_str());
@@ -1193,13 +1209,14 @@ int main(int argc, char** argv) {
         if (std::filesystem::exists("/Applications/BridgeSessions.app")) {
             std::filesystem::copy_file(bin_path, app_bin,
                 std::filesystem::copy_options::overwrite_existing);
-            std::string app_sign = "codesign --force --deep --sign 'Developer ID Application: Jefferson Nunn (QL5MD8FKPL)' /Applications/BridgeSessions.app 2>/dev/null";
+            std::string app_sign = "codesign --force --deep --sign '" + dev_id + "' /Applications/BridgeSessions.app 2>/dev/null";
             std::system(app_sign.c_str());
         }
 #endif
 
         // Restart daemon
         std::cout << "→ Starting daemon...\n";
+        bs::log::get("upgrade")->info("restarting daemon");
 #ifdef __APPLE__
         std::system("launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.bridgesessions.mesh.plist 2>/dev/null");
         std::system("launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.bridgesessions.cua-helper.plist 2>/dev/null");
@@ -1232,6 +1249,18 @@ int main(int argc, char** argv) {
                       << " got " << final_version << "\n";
             std::cerr << "  Restoring old binary...\n";
             ::rename(old_path.c_str(), bin_path.c_str());
+            // Restart daemon after rollback so system isn't left with daemon stopped
+            std::cerr << "  Restarting daemon...\n";
+#ifdef __APPLE__
+            std::system("launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.bridgesessions.mesh.plist 2>/dev/null");
+            std::system("launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.bridgesessions.cua-helper.plist 2>/dev/null");
+#elif defined(__linux__)
+            std::system("systemctl --user enable bridgesessions.service 2>/dev/null");
+            std::system("systemctl --user start bridgesessions.service 2>/dev/null");
+#elif defined(_WIN32)
+            std::system("schtasks /run /tn BridgeSessions");
+#endif
+            return 1;
         }
         return 0;
     }
