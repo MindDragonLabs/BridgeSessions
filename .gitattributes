@@ -27,7 +27,6 @@
 /diag*.sh export-ignore
 
 # Retained non-shipping modular experiment
-/main.cpp export-ignore
 /session_manager_test.cpp export-ignore
 /bs-client/** export-ignore
 /bs-server/** export-ignore
