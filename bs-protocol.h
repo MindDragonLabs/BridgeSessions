@@ -45,6 +45,7 @@
 #include <optional>
 #include <expected>
 #include <chrono>
+#include <random>
 #include <cstdio>
 #include <fstream>
 #include <sstream>
@@ -116,7 +117,7 @@ inline constexpr std::string_view kBridgeSessionsVersion = BS_VERSION;
 
 
 // ── Message Type Enum ─────────────────────────────────────────────
-// 20 original types + 2 new mesh types = 22 total
+// Original types + mesh types (41 total as of v26.08.10 — see variant below)
 
 enum class MessageType : uint8_t {
     Keystroke      = 0x01,  // client → server: raw key bytes
@@ -559,7 +560,7 @@ struct Frame {
 };
 
 // ── Type mapping (variant index → MessageType byte) ──────────
-// Must match the variant ordering exactly. 21 alternatives = 21 entries.
+// Must match the variant ordering exactly. 41 alternatives = 41 entries.
 
 namespace {
 constexpr MessageType index_to_type[] = {
@@ -1503,6 +1504,8 @@ Message decode(std::span<const uint8_t> raw) {
         m.chunk_index = d.u32be();
         m.total_chunks = d.u32be();
         uint32_t sz = d.u32be();
+        if (sz > MAX_FRAME_SIZE)
+            throw std::runtime_error("file chunk size exceeds MAX_FRAME_SIZE");
         if (sz > 0) m.data = d.bytes_size(sz);
         return m;
     }
@@ -1574,6 +1577,8 @@ Message decode(std::span<const uint8_t> raw) {
         m.error = d.str_prefixed();
         m.screen_w = d.u32be(); m.screen_h = d.u32be(); m.format = d.u8();
         uint32_t data_size = d.u32be();
+        if (data_size > MAX_IMAGE_BYTES)
+            throw std::runtime_error("CUA response data exceeds 50MB cap");
         if (data_size > 0) {
             m.data = d.bytes_size(data_size);
         }
@@ -1881,6 +1886,7 @@ bool write_private_text_file_impl(const std::string& path,
 struct AuthorizedKeys {
     std::vector<std::vector<uint8_t>> keys;
     std::string file_path;  // stored for R4.1 hot-reload
+    std::filesystem::file_time_type last_mtime_{};  // P2 audit fix: reload cache
 
     void load_from_file(const std::string& path) {
         file_path = path;
@@ -1908,8 +1914,18 @@ struct AuthorizedKeys {
         }
     }
 
-    // R4.1: reload from disk — called per-accept so revocations take effect immediately
-    void reload() { if (!file_path.empty()) load_from_file(file_path); }
+    // R4.1: reload from disk — called per-accept so revocations take effect
+    // immediately. P2 audit fix: only re-read when the file mtime changed
+    // (avoids disk I/O + TOCTOU on every accept under connection storms).
+    void reload() {
+        if (file_path.empty()) return;
+        std::error_code ec;
+        auto mtime = std::filesystem::last_write_time(file_path, ec);
+        if (ec) return;
+        if (mtime == last_mtime_) return;
+        last_mtime_ = mtime;
+        load_from_file(file_path);
+    }
 
     bool contains(const std::vector<uint8_t>& key) const {
         for (auto& k : keys) if (k == key) return true;
@@ -3415,6 +3431,12 @@ extern "C" int bs_macos_capture_png(const char*, unsigned, char*, size_t);
     result.file_path = tmp_path;
     result.duration_sec = req.duration_sec;
     result.format = 1; // mp4
+#ifdef __APPLE__
+    // P2 audit fix: frames_dir (~450MB of PNGs per capture) leaked on success.
+    // Remove the intermediate frame directory now that the mp4 is produced.
+    std::error_code cleanup_ec;
+    std::filesystem::remove_all(frames_dir, cleanup_ec);
+#endif
     return result;
 }
 
@@ -3867,7 +3889,15 @@ void write_peer_line(std::ostream& os, const std::string& prefix, const PeerEntr
             }
             cfg.discovered.push_back(std::move(p));
         }
-        // ── unknown keys silently ignored ───────────────────
+        // ── unknown keys: log a warning so config typos are not silent ──
+        else {
+            // P3 audit fix: surface typos (e.g. 'nodge.name') instead of
+            // silently ignoring them. log_event is forward-declared above.
+            static std::once_flag once;
+            std::call_once(once, [&]{
+                log_event("config_unknown_key", key_str);
+            });
+        }
     }
 
     return cfg;
@@ -4676,6 +4706,21 @@ inline void log_event(const std::string& event, const std::string& detail = "") 
     auto l = get_logger();
     nlohmann::json j;
     j["ts"] = std::to_string(std::chrono::steady_clock::now().time_since_epoch().count());
+    // P3 audit fix: also include wall-clock ISO time so logs correlate with
+    // system/peer logs across processes (steady_clock has no defined epoch).
+    {
+        auto now = std::chrono::system_clock::now();
+        auto tt = std::chrono::system_clock::to_time_t(now);
+        std::tm tm{};
+#ifdef _WIN32
+        gmtime_s(&tm, &tt);
+#else
+        gmtime_r(&tt, &tm);
+#endif
+        char tbuf[32]{};
+        std::strftime(tbuf, sizeof(tbuf), "%Y-%m-%dT%H:%M:%SZ", &tm);
+        j["wall"] = tbuf;
+    }
     j["event"] = event;
     if (!detail.empty()) j["detail"] = detail;
     l->info(j.dump());
@@ -4731,8 +4776,15 @@ class SessionRegistry {
         const int restart_failures = target.restart_failures;
         const auto restart_window_start = target.restart_window_start;
 
+        // P2 audit fix: the manual destructor + placement-new on a
+        // unique_ptr-owned object is a double-free hazard if the Session move
+        // constructor throws (the unique_ptr still owns a destructed object).
+        // Construct into a temporary first; only destroy the old object after
+        // the new one is fully built.
+        Session replacement(std::move(spawned));
+        // Now safe to destroy the old object and placement-new the replacement.
         target.~Session();
-        new (&target) Session(std::move(spawned));
+        new (&target) Session(std::move(replacement));
         target.peer_ids = std::move(peer_ids);
         target.scrollback = std::move(scrollback);
 #ifndef _WIN32
@@ -5983,8 +6035,10 @@ public:
             }
         }
         std::sort(all.begin(), all.end(), [&](const DhtPeer& a, const DhtPeer& b) {
-            // Sort by XOR distance from target
-            for (int i = 31; i >= 0; --i) {
+            // Sort by XOR distance from target.
+            // P2 audit fix: iterate i=0..31 (byte 0 = MSB, matches pubkey_to_node_id
+            // and xor_leading_zeros). Was iterating 31..0, inverting distance order.
+            for (int i = 0; i < 32; ++i) {
                 uint8_t da = a.node_id[i] ^ target[i];
                 uint8_t db = b.node_id[i] ^ target[i];
                 if (da != db) return da < db;
@@ -6030,6 +6084,7 @@ class UpnpNat {
     struct UPNPUrls urls_;
     struct IGDdatas data_;
     std::vector<char> devlist_buf_;
+    uint16_t mapped_port_ = 0;  // P2 audit fix: track for cleanup
 
 public:
     UpnpNat() {
@@ -6087,6 +6142,7 @@ public:
             lan_addr_.c_str(),
             "bridgesessions", "TCP", nullptr, "0");
 
+        if (ret == UPNPCOMMAND_SUCCESS) mapped_port_ = port;
         return ret == UPNPCOMMAND_SUCCESS;
     }
 
@@ -6095,8 +6151,15 @@ public:
 
     void cleanup() {
         if (urls_.controlURL) {
-            // Delete port mapping if we set one up
-            // (We don't track the port for cleanup in this simple version)
+            // P2 audit fix: delete the port mapping we set up (was leaked —
+            // mappings accumulated on the router across daemon restarts).
+            if (mapped_port_ != 0) {
+                std::string port_str = std::to_string(mapped_port_);
+                UPNP_DeletePortMapping(
+                    urls_.controlURL, data_.first.servicetype,
+                    port_str.c_str(), "TCP", nullptr);
+                mapped_port_ = 0;
+            }
             FreeUPNPUrls(&urls_);
         }
         initialized_ = false;
@@ -6401,6 +6464,8 @@ private:
         std::chrono::steady_clock::time_point next_attempt{};
     };
     std::unordered_map<std::string, Backoff> backoffs_;
+    // Seeded RNG for reconnect jitter (P2 audit fix — replaces global rand()).
+    std::mt19937 rng_{std::random_device{}()};
     std::unordered_map<std::string, std::chrono::steady_clock::time_point> accept_only_until_;
     static constexpr int kTieBreakAcceptWindowMs = 12000;
     static constexpr int kForcedReconnectDeadlineMs = 20000;
@@ -6981,6 +7046,11 @@ private:
     // connection that the smaller-pubkey node opened. No mid-handshake teardown,
     // no split — the loser is closed gracefully after the winner is established.
     void resolve_duplicates() {
+        // Iterative scan (P2 audit fix): originally recursed after each drop,
+        // which could stack-overflow under reconnect storms with many duplicates.
+        bool restarted = true;
+        while (restarted) {
+            restarted = false;
         for (size_t i = 0; i < conns_.size(); ++i) {
             if (conns_[i].sock_fd == INVALID_SOCKET) continue;
             for (size_t j = i + 1; j < conns_.size(); ++j) {
@@ -6996,10 +7066,13 @@ private:
                     const size_t relative_drop = duplicate_index_to_drop(i_matches, j_matches);
                     const size_t drop = relative_drop == 0 ? i : j;
                     if (!remove_conn(drop)) return;
-                    resolve_duplicates();
-                    return;
+                    // Restart scan from the top — the conns_ vector changed.
+                    restarted = true;
+                    break;
                 }
             }
+            if (restarted) break;
+        }
         }
     }
 
@@ -8956,6 +9029,20 @@ private:
         for (auto& c : conns_) { if (is_live_mesh_transport_for(c, peer_name)) { target = &c; break; } }
         if (!target) return "ERROR no conn to " + peer_name;
 
+        // Acquire exec_busy guard before touching target->ssl (same class as
+        // daemon_edit_dl / daemon_file_recv_wait). Prevents TLS record-stream
+        // corruption from concurrent event-loop access during the upload.
+        if (target->exec_busy->exchange(true)) return "ERROR peer busy with another transfer, retry";
+        target->exec_completed->store(false);
+        struct BusyGuard {
+            std::shared_ptr<std::atomic<bool>> busy;
+            std::shared_ptr<std::atomic<bool>> completed;
+            ~BusyGuard() {
+                if (completed) completed->store(true);
+                if (busy) busy->store(false);
+            }
+        } busy_guard{target->exec_busy, target->exec_completed};
+
         uint64_t filesize = static_cast<uint64_t>(fs::file_size(local_path));
         std::string filename = fs::path(local_path).filename().string();
         std::ifstream infile(local_path, std::ios::binary);
@@ -9033,6 +9120,20 @@ private:
             Conn* target = nullptr;
             for (auto& c : conns_) { if (is_live_mesh_transport_for(c, vf->remote_peer)) { target = &c; break; } }
             if (!target) return "ERROR no conn to " + vf->remote_peer;
+
+            // Acquire exec_busy guard once per sync — protects the SSL object
+            // from concurrent event-loop access across the multi-file transfer.
+            if (target->exec_busy->exchange(true)) return "ERROR peer busy with another transfer, retry";
+            target->exec_completed->store(false);
+            struct BusyGuard {
+                std::shared_ptr<std::atomic<bool>> busy;
+                std::shared_ptr<std::atomic<bool>> completed;
+                ~BusyGuard() {
+                    if (completed) completed->store(true);
+                    if (busy) busy->store(false);
+                }
+            } busy_guard{target->exec_busy, target->exec_completed};
+
             // Send FileMeta
             const size_t kChunkRawSize = 48 * 1024;
             size_t total = content.size();
@@ -10335,6 +10436,9 @@ private:
             if (should_defer_outbound_for(s, now)) continue;
 
             auto& bo = backoffs_[s.addr];
+            // P2 audit fix: initialize max_ms from config so the operator's
+            // reconnect_backoff_max_secs actually takes effect (was hardcoded 30s).
+            bo.max_ms = std::max(1000, config_.reconnect_backoff_max_secs * 1000);
             if (bo.attempt > 0 && now < bo.next_attempt) continue;
 
             // Attempt connect (non-blocking; handshake completes in event loop).
@@ -10343,8 +10447,10 @@ private:
                 backoffs_.erase(s.addr);
             } else {
                 bo.attempt++;
-                // P2: ±25% jitter to prevent thundering herd on reconnect
-                int jitter = bo.delay_ms * (rand() % 50 - 25) / 100;
+                // P2: ±25% jitter to prevent thundering herd on reconnect.
+                // Use a seeded RNG (not rand()) so timing is not predictable
+                // across daemon restarts.
+                int jitter = bo.delay_ms * (rng_() % 50 - 25) / 100;
                 bo.next_attempt = now + std::chrono::milliseconds(bo.delay_ms + jitter);
                 bo.delay_ms = std::min(std::max(bo.delay_ms * 2, 1000), bo.max_ms);
                 break; // one failed bounded dial per loop; keep accept/read responsive
@@ -10372,7 +10478,10 @@ private:
                     backoffs_.erase(d.addr);
                 } else {
                     bo.attempt++;
-                    bo.next_attempt = now + std::chrono::milliseconds(bo.delay_ms);
+                    // P2 audit fix: apply the same ±25% seeded jitter as seeds
+                    // (was missing — discovered peers reconnected in lockstep).
+                    int jitter = bo.delay_ms * (rng_() % 50 - 25) / 100;
+                    bo.next_attempt = now + std::chrono::milliseconds(bo.delay_ms + jitter);
                     bo.delay_ms = std::min(std::max(bo.delay_ms * 2, 1000), bo.max_ms);
                     break; // one failed bounded dial per loop; keep accept/read responsive
                 }
@@ -11426,7 +11535,16 @@ public:
                     std::string token;
                     std::vector<int> vals;
                     while (std::getline(ss, token, ':')) {
-                        vals.push_back(std::stoi(token));
+                        // P3 audit fix: std::stoi throws on non-numeric input —
+                        // malformed params crashed the daemon. Validate instead.
+                        if (token.empty() ||
+                            token.find_first_not_of("0123456789") != std::string::npos) {
+                            vals.clear();
+                            break;
+                        }
+                        try {
+                            vals.push_back(std::stoi(token));
+                        } catch (...) { vals.clear(); break; }
                     }
                     if (vals.size() < 4) {
                         response = "ERROR video capture: expected fps:duration:quality:maxw\n";
@@ -11567,9 +11685,7 @@ public:
         if (connect(sfd, (sockaddr*)&sa, sizeof(sa)) == SOCKET_ERROR) {
             CLOSESOCK(sfd); return "";
         }
-        std::string cmd = token + " " + (wait_for_completion
-            ? ("FILE_SEND_WAIT_B64 " + peer_name + " " + b64enc(path) + "\n")
-            : ("FILE_SEND_WAIT_B64 " + peer_name + " " + b64enc(path) + "\n"));
+        std::string cmd = token + " FILE_SEND_WAIT_B64 " + peer_name + " " + b64enc(path) + "\n";
         send(sfd, cmd.data(), (int)cmd.size(), 0);
         std::string pending;
         char buf[8192];
@@ -11710,9 +11826,7 @@ public:
         if (connect(sfd, (sockaddr*)&sa, sizeof(sa)) == SOCKET_ERROR) {
             CLOSESOCK(sfd); return "";
         }
-        std::string cmd = token + " " + (wait_for_completion
-            ? ("FILE_RECV_WAIT_B64 " + peer_name + " " + b64enc(path) + " " + b64enc(local_dest) + "\n")
-            : ("FILE_RECV_WAIT_B64 " + peer_name + " " + b64enc(path) + " " + b64enc(local_dest) + "\n"));
+        std::string cmd = token + " FILE_RECV_WAIT_B64 " + peer_name + " " + b64enc(path) + " " + b64enc(local_dest) + "\n";
         send(sfd, cmd.data(), (int)cmd.size(), 0);
         std::string acc;
         char buf[8192];
