@@ -65,11 +65,10 @@ static std::string make_test_home() {
     return home;
 }
 
-// Simulate the path resolution logic from file_request_on_transport (line ~7960)
+// Production helper under test (bs-protocol.h).
 static std::string resolve_relative_path(const std::string& receive_dir,
                                           const std::string& path) {
-    if (fs::path(path).is_absolute()) return path;
-    return (fs::path(receive_dir) / path).string();
+    return resolve_file_request_path(path, receive_dir);
 }
 
 // ── 1. Simple relative path resolves under receive_dir ─────────────────
@@ -88,21 +87,25 @@ TEST_CASE("file_path: simple relative path resolves under receive_dir",
 // the naive join produces received/received/file. This test documents the
 // current behavior so we can detect when it's fixed.
 
-TEST_CASE("file_path: received/ prefix path documents nesting behavior",
+TEST_CASE("file_path: received/ prefix does not double-nest",
           "[file_path][sanitization][nesting]") {
-    std::string recv_dir = "/home/user/.bridgesessions/received";
-    std::string path = "received/meshmon-probe-1k.bin";
-    std::string resolved = resolve_relative_path(recv_dir, path);
+    std::string home = make_test_home();
+    std::string recv_dir = home + "/received";
+    std::string real_file = recv_dir + "/meshmon-probe-1k.bin";
+    { std::ofstream f(real_file); f << "x"; }
 
-    // The CURRENT code produces double-nesting:
-    //   /home/user/.bridgesessions/received/received/meshmon-probe-1k.bin
-    // This test documents that behavior. When the fix lands (strip received/
-    // prefix), update this assertion.
-    INFO("resolved=" << resolved);
-    // The resolution should at minimum be deterministic.
-    REQUIRE_FALSE(resolved.empty());
-    // Verify the path has the receive_dir as prefix.
-    REQUIRE(resolved.find(recv_dir) == 0);
+    // Client mistakenly re-prefixes receive_dir components.
+    std::string resolved = resolve_relative_path(
+        recv_dir, "received/meshmon-probe-1k.bin");
+    REQUIRE(fs::exists(resolved));
+    REQUIRE(resolved == real_file);
+
+    std::string nested_style = resolve_relative_path(
+        recv_dir, ".bridgesessions/received/meshmon-probe-1k.bin");
+    REQUIRE(fs::exists(nested_style));
+    REQUIRE(nested_style == real_file);
+
+    fs::remove_all(home);
 }
 
 // ── 3. Absolute path is used as-is ─────────────────────────────────────
@@ -163,15 +166,10 @@ TEST_CASE("file_path: nested subdirectory path resolves correctly",
 
 // ── 6. Empty path edge case ────────────────────────────────────────────
 
-TEST_CASE("file_path: empty path resolves to receive_dir",
+TEST_CASE("file_path: empty path rejects",
           "[file_path][sanitization][empty]") {
     std::string recv_dir = "/home/user/.bridgesessions/received";
-    std::string path = "";
-    std::string resolved = resolve_relative_path(recv_dir, path);
-
-    // fs::path("/a/b") / "" = "/a/b/" — the receive dir itself.
-    REQUIRE_FALSE(resolved.empty());
-    REQUIRE(resolved.find(recv_dir) == 0);
+    REQUIRE(resolve_relative_path(recv_dir, "").empty());
 }
 
 // ── 7. Actual file_request_on_transport error path with temp dirs ──────
@@ -207,28 +205,19 @@ TEST_CASE("file_path: non-existent file returns error with resolved path info",
 // On the macbook, 926 meshmon-probe files were stored under
 // received/.bridgesessions/received/ due to path nesting.
 
-TEST_CASE("file_path: meshmon-probe nesting scenario is deterministic",
+TEST_CASE("file_path: meshmon-probe resolves basename under receive_dir",
           "[file_path][sanitization][meshmon]") {
     std::string home = make_test_home();
-    std::string recv_dir = home + "/received/.bridgesessions/received";
+    std::string recv_dir = home + "/received";
+    std::string real_file = recv_dir + "/meshmon-probe-1k.bin";
+    { std::ofstream f(real_file); f << std::string(1024, 'X'); }
 
-    // Create the double-nested file (as the incident produced).
-    fs::create_directories(recv_dir);
-    std::string nested_file = recv_dir + "/meshmon-probe-1k.bin";
-    { std::ofstream f(nested_file); f << std::string(1024, 'X'); }
-
-    // A file request for "meshmon-probe-1k.bin" would look in
-    // home + "/received/meshmon-probe-1k.bin" — which doesn't exist.
-    // The request for ".bridgesessions/received/meshmon-probe-1k.bin"
-    // would look in home + "/received/.bridgesessions/received/meshmon-probe-1k.bin"
-    // — which DOES exist.
-    std::string normal_resolve = resolve_relative_path(
-        home + "/received", "meshmon-probe-1k.bin");
-    std::string nested_resolve = resolve_relative_path(
-        home + "/received", ".bridgesessions/received/meshmon-probe-1k.bin");
-
-    REQUIRE_FALSE(fs::exists(normal_resolve));
-    REQUIRE(fs::exists(nested_resolve));
+    // Correct: basename-only request.
+    REQUIRE(resolve_relative_path(recv_dir, "meshmon-probe-1k.bin") == real_file);
+    // Mistaken nested relative still finds the same file.
+    REQUIRE(resolve_relative_path(
+                recv_dir, ".bridgesessions/received/meshmon-probe-1k.bin")
+            == real_file);
 
     fs::remove_all(home);
 }

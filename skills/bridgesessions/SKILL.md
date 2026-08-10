@@ -175,6 +175,18 @@ bs shell linux-peer --cmd "bash -lc 'hostname && df -h && uptime'"
 
 **Bad:** three separate `bs shell` calls for dependent steps.
 
+### One-shot shell notes (Hermes / agents)
+
+- Noninteractive `bs shell <peer> --cmd '…'` always uses **direct TLS** (daemon
+  IPC returns `ERROR direct TLS required` by design — avoids SSL races on mesh
+  conns). The line `Using direct TLS shell transport.` is expected, not a failure.
+- One-shots now auto-use an ephemeral session name when `-n` is omitted (no more
+  silent reattach to a live `default` shell that ignored `--cmd`). Health still
+  uses unique `health-*` names.
+- Overall wait is bounded (default 120s; `BS_SHELL_TIMEOUT_SEC=N`). Exit **124**
+  means the remote session never ended in time — check peer version and reaper.
+- Prefer `bs run-script` for multi-line / PowerShell-heavy work.
+
 ### run-script (eliminates escaping hell)
 
 For complex scripts — especially on Windows — use `bs run-script` instead of

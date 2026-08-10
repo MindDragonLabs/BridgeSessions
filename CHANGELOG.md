@@ -9,6 +9,29 @@ All notable public releases are documented here.
 > `26.08.05-beta1`. The scheme encodes year, month, day, and a per-day beta
 > counter — e.g. `26.08.10-beta2` is the second beta cut on 2026-08-10.
 
+## Unreleased
+
+### Stability (Hermes / agent one-shot shell hangs)
+- **`--cmd` no longer reattaches to a live named session and ignores the command.**
+  `attach_connection` force-respawns when `ClientOverride` is set (the
+  `default` interactive shell was the classic trap: health used unique
+  `health-*` names and worked; agents used `-n default` and hung forever).
+- **Ephemeral session names for noninteractive one-shots** when the CLI still
+  uses the default name `default` (`cmd-<pid>-<suffix>`). Concurrent Hermes
+  agents no longer share one PTY.
+- **Noninteractive shell overall deadline** (default 120s, override with
+  `BS_SHELL_TIMEOUT_SEC`) so hangs fail with exit 124 and a clear message
+  instead of spinning until the outer agent timeout.
+- **`process_noninteractive_response` handles `AttachAck` and `Scrollback`**
+  without treating them as session end.
+
+### File transfer
+- **`resolve_file_request_path`**: strip accidental `.bridgesessions/received/`
+  / `received/` prefixes so meshmon-style `file recv` paths do not double-nest
+  under `receive_dir` (error was `looked in …/received/.bridgesessions/received/…`).
+- Removed artificial 2 ms sleep per transfer batch (acks already pace the
+  pipeline).
+
 ## [26.08.10] — beta2 (2026-08-10)
 
 **Interactive typing lag fix — TCP_NODELAY and sub-millisecond event-loop polling.**

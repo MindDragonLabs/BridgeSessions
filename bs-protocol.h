@@ -4252,6 +4252,72 @@ struct OutboundPeerVerifyResult {
     return s;
 }
 
+// Resolve a remote FileRequest path to a local filesystem path.
+// Relative requests are tried under receive_dir; common client mistakes that
+// re-prefix `.bridgesessions/received/` or `received/` are stripped so
+// meshmon-style probes do not double-nest (see test_file_path_sanitization).
+[[nodiscard]] inline std::string resolve_file_request_path(
+        const std::string& path, const std::string& receive_dir) {
+    namespace fs = std::filesystem;
+    if (path.empty()) return {};
+
+    auto exists_file = [](const std::string& p) -> bool {
+        std::error_code ec;
+        return !p.empty() && fs::exists(p, ec) && !fs::is_directory(p, ec);
+    };
+
+    std::vector<std::string> candidates;
+    candidates.reserve(8);
+
+    const std::string expanded = expand_home(path);
+    candidates.push_back(expanded);
+
+    fs::path as_path(expanded);
+    if (!as_path.is_absolute()) {
+        // Basename-only under receive_dir (most common agent/meshmon form).
+        candidates.push_back((fs::path(receive_dir) / as_path.filename()).string());
+        // Full relative path under receive_dir.
+        candidates.push_back((fs::path(receive_dir) / as_path).string());
+
+        // Strip accidental receive-dir prefixes clients re-send.
+        auto strip_and_join = [&](std::string_view prefix) {
+            std::string rel = expanded;
+            // Accept either POSIX or Windows separators in the prefix match.
+            if (rel.size() >= prefix.size()) {
+                bool match = true;
+                for (size_t i = 0; i < prefix.size(); ++i) {
+                    char a = rel[i];
+                    char b = prefix[i];
+                    if (a == '\\') a = '/';
+                    if (b == '\\') b = '/';
+                    if (a != b) { match = false; break; }
+                }
+                if (match) {
+                    rel = rel.substr(prefix.size());
+                    while (!rel.empty() && (rel.front() == '/' || rel.front() == '\\'))
+                        rel.erase(rel.begin());
+                    if (!rel.empty())
+                        candidates.push_back((fs::path(receive_dir) / rel).string());
+                }
+            }
+        };
+        strip_and_join(".bridgesessions/received/");
+        strip_and_join("bridgesessions/received/");
+        strip_and_join("received/");
+        strip_and_join(".bridgesessions\\received\\");
+        strip_and_join("received\\");
+    }
+
+    for (const auto& c : candidates) {
+        if (exists_file(c)) return c;
+    }
+    // Fallback for error messages: keep the relative tree under receive_dir
+    // (basename-only is only preferred when that candidate actually exists).
+    if (!as_path.is_absolute())
+        return (fs::path(receive_dir) / as_path).string();
+    return expanded;
+}
+
 [[nodiscard]] bool path_is_inside_directory(const std::filesystem::path& candidate,
                                             const std::filesystem::path& root) {
     namespace fs = std::filesystem;
@@ -4937,8 +5003,17 @@ public:
         if (it != sessions_.end()) {
             s = it->second.get();
 
-            if (s->state == SessionState::Running || s->state == SessionState::Detached
-                || s->state == SessionState::Attached) {
+            // Client --cmd overrides must always spawn a new process. Reattaching
+            // to a live "default" interactive shell silently ignored --cmd and
+            // hung Hermes/agent one-shots (health OK via unique session names).
+            const bool live = s->state == SessionState::Running
+                           || s->state == SessionState::Detached
+                           || s->state == SessionState::Attached;
+            const bool force_respawn =
+                resolved.source == SessionCommandSource::ClientOverride
+                && !resolved.command.empty();
+
+            if (live && !force_respawn) {
                 s->state = SessionState::Attached;
                 s->last_attach_at = std::chrono::steady_clock::now();
                 if (!peer_pubkey.empty()
@@ -4946,9 +5021,13 @@ public:
                            == s->peer_ids.end())
                     s->peer_ids.push_back(peer_pubkey);
             } else {
-                // Died/Exited/Killed/Recoverable — recreate PTY in place.
-                log_event("session_resurrect_replace", name);
+                // Died/Exited/Killed/Recoverable — or ClientOverride force-respawn.
+                log_event(force_respawn && live ? "session_cmd_override_replace"
+                                                : "session_resurrect_replace",
+                          name + (force_respawn ? " cmd_override" : ""));
                 record_history_locked(*s, -1, session_state_str(s->state));
+                // Drop stale attachments: their PTYs are being replaced.
+                s->attachments.clear();
                 const std::string spawn_command = prepare_session_command(resolved);
                 auto session_result = create_session(name, spawn_command, cols, rows, term);
                 if (!session_result) return 0;
@@ -5969,6 +6048,32 @@ inline bool stdin_is_terminal() {
     // An explicit command is always finite, even when invoked from a PTY.
     // Only an empty command requests an attachable interactive shell.
     return command.empty();
+}
+
+// One-shot --cmd shells must not collide on the shared "default" session name.
+// Hermes/agents always use -n default (CLI default); unique names isolate each
+// invocation even before server-side force-respawn.
+[[nodiscard]] inline std::string make_ephemeral_cmd_session_name() {
+    const auto now = std::chrono::steady_clock::now().time_since_epoch().count();
+#ifdef _WIN32
+    const unsigned pid = static_cast<unsigned>(GetCurrentProcessId());
+#else
+    const unsigned pid = static_cast<unsigned>(::getpid());
+#endif
+    return "cmd-" + std::to_string(pid) + "-" + std::to_string(now & 0xffffff);
+}
+
+// Bound noninteractive shell waits so agents fail loud instead of spinning
+// until their outer timeout (Hermes 20s/60s/180s). Override with BS_SHELL_TIMEOUT_SEC.
+[[nodiscard]] inline int noninteractive_shell_timeout_sec() {
+    const char* env = std::getenv("BS_SHELL_TIMEOUT_SEC");
+    if (env && *env) {
+        try {
+            int v = std::stoi(env);
+            if (v >= 5 && v <= 7200) return v;
+        } catch (...) {}
+    }
+    return 120;  // default 2 minutes
 }
 
 // Health commands can report process exit before their final OutputMsg reaches
@@ -8258,11 +8363,8 @@ private:
                 }
             }
 
-            // ── Batch boundary: small breath + drain acks ──
-            // v2.0.20: one sleep per batch instead of per-chunk; pipeline of
-            // kTransferPipelineSize chunks reduces ack round-trips ~8x.
-            std::this_thread::sleep_for(std::chrono::milliseconds(2));
-
+            // ── Batch boundary: drain acks (no artificial sleep — acks pace us) ──
+            // Pipeline of kTransferPipelineSize chunks reduces ack round-trips ~8x.
             if (batch_end < total_chunks) {
                 ack = wait_ack(batch_end);
                 if (ack.rfind("ERROR", 0) == 0) return ack;
@@ -8333,12 +8435,10 @@ private:
             else std::cerr << line << "\n";
         };
 
-        // Resolve relative paths against receive_dir_ (daemon's file recv directory)
-        std::string resolved_path = path;
-        if (!fs::path(path).is_absolute()) {
-            resolved_path = (fs::path(receive_dir_) / path).string();
-        }
-        if (!fs::exists(resolved_path) || fs::is_directory(resolved_path)) {
+        // Resolve relative paths against receive_dir_ without double-nesting
+        // client-supplied `.bridgesessions/received/` / `received/` prefixes.
+        std::string resolved_path = resolve_file_request_path(path, receive_dir_);
+        if (resolved_path.empty() || !fs::exists(resolved_path) || fs::is_directory(resolved_path)) {
             log_event("file_request_error", "not found: " + resolved_path + " (receive_dir=" + receive_dir_ + ")");
             try { write_frame(ssl, FileAckMsg{0, 0, true, "file not found: " + path + " (looked in " + resolved_path + ")"}, CONTROL_STREAM_ID); } catch (...) {}
             return "ERROR file not found: " + path + " (looked in " + resolved_path + ", receive_dir=" + receive_dir_ + ")";
@@ -12903,6 +13003,14 @@ public:
             ? trusted_peer_pubkey(config_, resolved.name) : resolved.pubkey_hex;
         const bool non_interactive = !shell_command_uses_interactive_mode(cmd, stdin_is_terminal());
 
+        // Ephemeral session name for one-shots on the CLI default "default" so
+        // concurrent agents do not fight one shared PTY.
+        std::string effective_session = session_name;
+        if (non_interactive && !cmd.empty()
+            && (effective_session.empty() || effective_session == "default")) {
+            effective_session = make_ephemeral_cmd_session_name();
+        }
+
         if (non_interactive) {
             auto sc = connect_with_retry(addr, expected_pubkey);
             if (!sc.ssl || sc.sfd == INVALID_SOCKET) {
@@ -12913,9 +13021,12 @@ public:
             bool running = true;
             bool transport_error = false;
             bool saw_session_end = false;
+            const int shell_timeout_sec = noninteractive_shell_timeout_sec();
+            const auto shell_deadline =
+                std::chrono::steady_clock::now() + std::chrono::seconds(shell_timeout_sec);
             try {
                 AttachMsg am;
-                am.session_name = session_name;
+                am.session_name = effective_session;
                 am.cols = cols;
                 am.rows = rows;
                 am.term = term;
@@ -12923,10 +13034,27 @@ public:
                 am.signal_on_detach = signal_on_detach;
                 write_frame(sc.ssl.get(), am, CONTROL_STREAM_ID);
                 while (running) {
+                    const auto now = std::chrono::steady_clock::now();
+                    if (now >= shell_deadline) {
+                        std::cerr << "Shell timed out after " << shell_timeout_sec
+                                  << "s waiting for session end"
+                                  << " (session=" << effective_session
+                                  << ", peer=" << resolved.name << ")\n"
+                                  << "  → One-shots use an ephemeral session; if this persists,"
+                                  << " check peer version and PTY reaper health.\n";
+                        CLOSESOCK(sc.sfd);
+                        sc.sfd = INVALID_SOCKET;
+                        return 124;
+                    }
+                    int remain_ms = static_cast<int>(
+                        std::chrono::duration_cast<std::chrono::milliseconds>(
+                            shell_deadline - now).count());
+                    if (remain_ms < 1) remain_ms = 1;
+                    if (remain_ms > 5000) remain_ms = 5000;
                     fd_set read_fds;
                     FD_ZERO(&read_fds);
                     FD_SET((int)sc.sfd, &read_fds);
-                    timeval tv{5, 0};
+                    timeval tv{remain_ms / 1000, (remain_ms % 1000) * 1000};
 #ifdef _WIN32
                     int ready = select(0, &read_fds, nullptr, nullptr, &tv);
 #else
@@ -13207,6 +13335,12 @@ public:
             Message resp = read_frame(ssl);
             if (std::holds_alternative<OutputMsg>(resp)) {
                 std::cout << strip_ansi_escapes(std::get<OutputMsg>(resp).data) << std::flush;
+            } else if (std::holds_alternative<ScrollbackMsg>(resp)) {
+                // Reattach may push prior scrollback; strip and surface it so
+                // agents see context, but do not treat as session end.
+                std::cout << strip_ansi_escapes(std::get<ScrollbackMsg>(resp).data) << std::flush;
+            } else if (std::holds_alternative<AttachAckMsg>(resp)) {
+                // Handshake ack — keep waiting for Output/SessionDied.
             } else if (std::holds_alternative<SessionDiedMsg>(resp)) {
                 exit_code = std::get<SessionDiedMsg>(resp).exit_code;
                 if (session_ended) *session_ended = true;

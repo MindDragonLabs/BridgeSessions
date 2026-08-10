@@ -223,6 +223,62 @@ TEST_CASE("daemon IPC shell relay explicitly delegates to direct TLS",
         -1, "permission denied"));
 }
 
+TEST_CASE("ephemeral cmd session names are unique and non-default",
+          "[shell][oneshot]") {
+    auto a = make_ephemeral_cmd_session_name();
+    auto b = make_ephemeral_cmd_session_name();
+    REQUIRE_FALSE(a.empty());
+    REQUIRE_FALSE(b.empty());
+    REQUIRE(a != "default");
+    REQUIRE(a.rfind("cmd-", 0) == 0);
+    // Second call may share pid but must not collide on the counter/time suffix.
+    REQUIRE(a != b);
+    REQUIRE(noninteractive_shell_timeout_sec() >= 5);
+    REQUIRE(noninteractive_shell_timeout_sec() <= 7200);
+}
+
+TEST_CASE("ClientOverride force-respawns live default session",
+          "[shell][oneshot][attach]") {
+    auto cfg = make_shell_test_config("oneshot-node");
+    MeshController mc(cfg);
+
+#ifdef _WIN32
+    const std::string long_shell = "cmd.exe /Q";
+#else
+    const std::string long_shell = "sleep 60";
+#endif
+    // First attach creates a long-lived "default" session (no override).
+    auto* s = mc.sessions().attach(
+        "default",
+        ResolvedSessionCommand{long_shell, SessionCommandSource::ConfigDefault},
+        80, 24, "xterm-256color");
+    REQUIRE(s != nullptr);
+    REQUIRE(s->is_valid());
+    const uint64_t gen0 = s->generation;
+
+#ifdef _WIN32
+    const std::string oneshot = "cmd.exe /c echo oneshot-ok";
+#else
+    const std::string oneshot = "echo oneshot-ok";
+#endif
+    uint16_t ec = 0, er = 0;
+    uint32_t aid = mc.sessions().attach_connection(
+        "default",
+        ResolvedSessionCommand{oneshot, SessionCommandSource::ClientOverride},
+        80, 24, "xterm-256color", "", 0, false, ec, er);
+    REQUIRE(aid != 0);
+    auto* s2 = mc.sessions().get("default");
+    REQUIRE(s2 != nullptr);
+    REQUIRE(s2->is_valid());
+    // install_spawned_runtime assigns a new generation on respawn.
+    REQUIRE(s2->generation > gen0);
+    const bool cmd_looks_like_override =
+        s2->command.find("oneshot") != std::string::npos
+        || s2->command.find("echo") != std::string::npos
+        || s2->command.find("cmd.exe") != std::string::npos;
+    REQUIRE(cmd_looks_like_override);
+}
+
 TEST_CASE("IPC protocol constants are correct", "[shell]") {
     // These constants are used by the SHELL IPC handler
     REQUIRE(FRAME_HEADER_SIZE == 6);
