@@ -46,7 +46,7 @@ Git object and therefore change the exact-object source archive they describe.
 |----------|----------------|
 | Linux | `./binary --version`, full CTest, ASan suite |
 | Windows | MinGW x86_64 static PE build and executable-format/version validation |
-| macOS | Native Apple Silicon build + full CTest + live ScreenCaptureKit video capture; binary reports `2.0.19-alpha7` |
+| macOS | Native Apple Silicon build + full CTest + live ScreenCaptureKit video capture; binary reports `26.08.10-beta2` |
 
 ## Signing (recommended operator step)
 

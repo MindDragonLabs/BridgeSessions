@@ -28,7 +28,7 @@ bridgesessions sessions <server>
 
 ```bash
 bridgesessions doctor            # config + key presence checks
-bridgesessions --version         # → 2.0.6-alpha2
+bridgesessions --version         # → 26.08.10-beta2
 ```
 
 ## Keys
@@ -64,7 +64,7 @@ BridgePanel session so peers can read it in the web surface. See
 
 - A disconnected client never kills the session — reattach any time.
 - Keystrokes are sent with `TCP_NODELAY` for lowest latency.
-- Clipboard integration is Windows-only in 2.0.6-alpha2.
+- Clipboard integration is Windows-only in 26.08.10-beta2.
 - `image` and `anim` are local terminal previews; media transfer uses `file`.
-- Remote `edit` and `vfolder sync` fail closed in 2.0.6-alpha2 pending a dedicated
+- Remote `edit` and `vfolder sync` fail closed in 26.08.10-beta2 pending a dedicated
   transfer transport.

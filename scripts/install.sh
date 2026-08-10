@@ -2,17 +2,17 @@
 set -eu
 # BridgeSessions one-line install + upgrade (Linux / macOS)
 #
-#   curl -fsSL https://codeberg.org/Mind-Dragon/BridgeSessions/raw/tag/26.08.06-beta1/scripts/install.sh | bash
+#   curl -fsSL https://github.com/MindDragonLabs/BridgeSessions/releases/download/26.08.10-beta2/scripts/install.sh | bash
 #
 # Or join a mesh in one command:
 #
 #   curl ... | bash -s -- join <host-addr> <invite-code>
 #
 # On Windows (PowerShell):
-#   irm https://codeberg.org/Mind-Dragon/BridgeSessions/raw/tag/26.08.06-beta1/scripts/install.ps1 | iex
+#   irm https://github.com/MindDragonLabs/BridgeSessions/releases/download/26.08.10-beta2/scripts/install.ps1 | iex
 
-TAG="${BRIDGESESSIONS_TAG:-26.08.06-beta1}"
-BASE="https://codeberg.org/Mind-Dragon/BridgeSessions/raw/tag/${TAG}/dist"
+TAG="${BRIDGESESSIONS_TAG:-26.08.10-beta2}"
+BASE="https://raw.githubusercontent.com/MindDragonLabs/BridgeSessions/v${TAG}/dist"
 INSTALL_DIR="${HOME}/.local/bin"
 VERSION_FILE="${INSTALL_DIR}/.bridgesessions-version"
 FORCE_UPDATE="${BRIDGESESSIONS_FORCE:-0}"

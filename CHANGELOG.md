@@ -2,6 +2,136 @@
 
 All notable public releases are documented here.
 
+> **Version scheme change (2026-08-05):** The project moved from semantic
+> versioning (`2.0.x`) to **date-based versioning** (`YY.MM.DD-betaN`). This
+> better reflects the continuous-deployment release cadence. The last semver
+> release was `2.0.20-alpha10` (2026-08-01); the first date-based release is
+> `26.08.05-beta1`. The scheme encodes year, month, day, and a per-day beta
+> counter — e.g. `26.08.10-beta2` is the second beta cut on 2026-08-10.
+
+## [26.08.10] — beta2 (2026-08-10)
+
+**Interactive typing lag fix — TCP_NODELAY and sub-millisecond event-loop polling.**
+
+### Performance
+- **`TCP_NODELAY`** enabled on all mesh sockets: disables Nagle's algorithm so
+  keystroke-sized writes are sent immediately instead of being batched by the
+  kernel. Eliminates the 40 ms "first keystroke delay" on interactive sessions.
+- **`select()` poll interval reduced from 10 ms to 1 ms** — the main event loop
+  now wakes within 1 ms of a readable/writable socket instead of up to 10 ms,
+  cutting end-to-end interactive latency by ~9 ms on average.
+- Together these two changes make remote typing feel local-latency on LAN and
+  tolerable on WAN links.
+
+### Artifacts
+- All three platform binaries rebuilt (Linux x86_64, macOS arm64, Windows x86_64).
+
+## [26.08.09] — beta1 (2026-08-09)
+
+**macOS CUA routing fix, join protocol hardening, authorized_keys edge cases,
+BSMenubar.app, and install.sh launchd integration.**
+
+### macOS CUA fix
+- **CUA requests now route through `cua-helper`** instead of hitting a stub
+  handler. The `bs cua` subcommands (screen, capture, click, move, type, key,
+  scroll) were silently failing on macOS because the dispatch path called a
+  placeholder instead of the `bs-cua-helper` process. Fixed by wiring the
+  request path to spawn and communicate with the helper.
+- Swift audit fixes: async polling for capture results, `/dev/null` pipe
+  redirects for detached processes, `runModal` alert for TCC permission prompts.
+
+### Join protocol fixes
+- **`tls_rejected` on new node join:** the join/invite flow required a TLS
+  window to be open for the invite token exchange, but the window was not always
+  opened in time. Fixed with a 4-layer fix that opens the TLS window eagerly,
+  serializes the exchange, and retries on transient rejection.
+- **Join serialization:** `peer_pubkeys_json` field was u8-length-prefixed
+  (255-byte cap), truncating the mesh-wide pubkey list for meshes with many
+  peers. Widened to u16 (65 KB cap).
+- **Join window cleanup:** the join/invite window is now closed after the invite
+  token expires, preventing stale-window desync on rejoin attempts.
+
+### authorized_keys edge cases
+- `authorized_keys` loader now strips a `pubkey ` prefix that the join writer
+  was emitting, causing entries to be silently rejected on load.
+
+### BSMenubar.app
+- New macOS menu bar app (`BSMenubar.app`) for quick daemon status and peer
+  visibility from the system tray.
+
+### Install automation
+- `install.sh` now deploys a **launchd agent** for the macOS CUA helper, ensuring
+  the helper starts at login and restarts on crash. Includes TCC permission
+  guidance for ScreenCaptureKit accessibility.
+
+### Verification
+- 392 CTest cases passing (21 new regression tests + `bs-logging.h`
+  cross-platform logging harness).
+
+## [26.08.06] — beta1 (2026-08-06)
+
+**Public release with documentation, CI, and audit fixes.**
+
+### Documentation and public readiness
+- **README** rewritten with hero banner, feature comparison table, and product
+  demo video.
+- **SECURITY.md** and **CONTRIBUTING.md** added for public forge readiness.
+- Repository cleanup: removed 16 obsolete files, tidied repo root, scrubbed all
+  fleet names, credentials, and internal paths from the public tree.
+- GitHub CI pipeline, issue templates, checksum verification, and token docs.
+
+### Features (carried from 26.08.05)
+- **Delta gossip:** sender-side optimization reduces gossip message size by
+  sending only changed fields — wire format unchanged for backward compatibility.
+- **Content-addressed script library:** `bs run-script` scripts can now be
+  fetched from a content-addressed library (`sha256` → script body), enabling
+  script sharing without file transfer.
+- All audit P0/P1/P2 fixes from the fresh audit applied (select() recovery,
+  session persistence, peer dedup, UAF in `kill()`).
+
+### Fixes
+- Invite/join one-liner: tag prefix, `--start` flag, and install URL corrected.
+- `gethostbyname` → `getaddrinfo` (was never applied to main after refactor).
+- CUA `app_home` path bug (P0).
+
+### Verification
+- 392 CTest cases passing.
+
+## [26.08.05] — beta1 (2026-08-05)
+
+**Initial date-based release. First fleet-wide deployment under the new
+versioning scheme. CUA subcommands, run-script, peer resolution, and install
+automation.**
+
+### Features
+- **CUA subcommands** (`bs cua screen|capture|click|move|type|key|scroll`):
+  remote computer-use automation across all three platforms. Linux uses
+  xdotool; macOS and Windows use the `bs-cua-helper` backend. HID key codes are
+  USB usage IDs. All text entry uses POSIX-safe single-quote escaping.
+- **`run-script`** (`bs run-script <peer> <file>`): auto-detects interpreter
+  (bash/powershell/python) from extension or shebang. Script body is
+  base64-encoded — no escaping issues. Supports `--interpreter` override and
+  stdin (`-`).
+- **Peer resolution:** 4-tier fuzzy matching (exact → suffix/prefix → Levenshtein
+  ≤ 2). Ambiguous matches return suggestions instead of guessing.
+- **Install automation:** `install.sh` handles daemon lifecycle (kill, clean,
+  restart on update) and Linux/macOS CUA helper deployment.
+
+### Performance
+- File transfer pipeline depth increased from 8 to 16 chunks (768 KB per
+  ack round-trip), delivering ~3× throughput improvement on high-latency links.
+- Direct TLS file-receive fallback for peers behind NAT.
+
+### Fixes
+- File transfer pipeline: relative paths resolved against `receive_dir`,
+  `daemon_file_send` idle hang fixed, `direct_connect_file_recv` now calls the
+  correct wait-on-transport function.
+- Investigation fixes: Tailscale boot race, peer name collision, code signing
+  preparation for macOS.
+
+### Verification
+- Fleet deployment across Linux, macOS, and Windows nodes.
+
 ## [2.0.20] — alpha10 (2026-08-01)
 
 **Fleet directory, mesh-wide trust propagation, and remote version tracking.**

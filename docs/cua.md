@@ -1,4 +1,4 @@
-# CUA — Computer-Use Automation (BridgeSessions 26.08.06-beta1)
+# CUA — Computer-Use Automation (BridgeSessions 26.08.10-beta2)
 
 Remote desktop automation over the `bs://` mesh. Seven subcommands: screen query,
 screenshot capture, mouse click/move/scroll, text typing, and HID key press.

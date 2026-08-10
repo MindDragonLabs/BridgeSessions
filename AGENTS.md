@@ -19,7 +19,7 @@ Shipping release: **v26.08.06-beta1**. Probe live `--version`.
 7. Do not claim "production-secure SSH replacement" (public beta posture; see SECURITY.md / AUDIT).
 8. No secrets in git or chat. English-only operator-facing text unless the user asks otherwise.
 9. Verify claims with real command output in this session.
-10. **Public forge = Codeberg** (`Mind-Dragon/BridgeSessions`) via SSH deploy key. Binaries ship in git `dist/` (raw/tag URLs). Do **not** route this product through any other forge or require FORGEJO_TOKEN for binary delivery.
+10. **Primary forge = GitHub** (`MindDragonLabs/BridgeSessions`), mirrored to **Codeberg** (`Mind-Dragon/BridgeSessions`) via SSH deploy key. Binaries ship in git `dist/` and GitHub Releases. The `origin` git remote points to GitHub; `codeberg` remote is secondary mirror.
 11. **CUA automation** (`bs cua …`): 7 subcommands — `screen`, `capture`, `click`, `move`, `type`, `key`, `scroll`. Windows/macOS peers require `--cua-helper` running in the user session. Always capture a screenshot before clicking blind. HID key codes are USB usage IDs (see [docs/cua.md](docs/cua.md)). Use POSIX `sq()` quoting — no shell injection.
 12. **Run-script** (`bs run-script <peer> <file>`): auto-detects interpreter (bash/powershell/python) from extension/shebang; supports `--interpreter`. Script body is base64-encoded — no escaping issues. Use `-` for stdin. Prefer `run-script` over multi-line `shell --cmd` for complex remote scripts.
 13. **Peer resolution:** 4-tier fuzzy matching (exact → suffix/prefix → Levenshtein ≤ 2). Ambiguous matches return suggestions — do not guess. Use canonical resolved names from `bs peers list` in scripts. Tier-2 (config aliases) is reserved, not yet implemented.
