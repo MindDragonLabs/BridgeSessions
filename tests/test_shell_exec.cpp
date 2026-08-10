@@ -223,6 +223,28 @@ TEST_CASE("daemon IPC shell relay explicitly delegates to direct TLS",
         -1, "permission denied"));
 }
 
+TEST_CASE("prune_ephemeral_sessions removes finished health/cmd sessions",
+          "[shell][oneshot][reaper]") {
+    auto cfg = make_shell_test_config("reaper-node");
+    MeshController mc(cfg);
+#ifdef _WIN32
+    const std::string cmd = "cmd.exe /c echo hi";
+#else
+    const std::string cmd = "echo hi";
+#endif
+    auto* s = mc.sessions().attach(
+        "health-testnonce",
+        ResolvedSessionCommand{cmd, SessionCommandSource::ClientOverride},
+        80, 24, "xterm-256color");
+    REQUIRE(s != nullptr);
+    // Mark as finished detached so the reaper is allowed to drop it.
+    s->state = SessionState::Detached;
+    s->last_attach_at = std::chrono::steady_clock::now() - std::chrono::seconds(120);
+    s->last_output_at = s->last_attach_at;
+    mc.sessions().prune_ephemeral_sessions(std::chrono::seconds(30));
+    REQUIRE(mc.sessions().get("health-testnonce") == nullptr);
+}
+
 TEST_CASE("ephemeral cmd session names are unique and non-default",
           "[shell][oneshot]") {
     auto a = make_ephemeral_cmd_session_name();

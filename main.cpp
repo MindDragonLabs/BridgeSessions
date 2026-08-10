@@ -1149,15 +1149,32 @@ int main(int argc, char** argv) {
 
         // (already chmod'd above)
 
-        // Developer ID — read from env BS_DEV_ID, fall back to hardcoded default
+        // Developer ID — read from env BS_DEV_ID, fall back to hardcoded default.
+        // On macOS we refuse silent ad-hoc fallback: an unsigned/adhoc binary in
+        // ~/.local/bin is often SIGKILL'd by Gatekeeper (exit 137).
         const char* env_dev_id = std::getenv("BS_DEV_ID");
         std::string dev_id = env_dev_id ? env_dev_id : "Developer ID Application: Jefferson Nunn (QL5MD8FKPL)";
 
 #ifdef __APPLE__
-        // Sign with Developer ID if available, otherwise adhoc
-        std::string sign_cmd = "codesign --force --sign '" + dev_id + "' '" +
-                               tmp_path + "' 2>/dev/null || codesign --force --sign - '" + tmp_path + "' 2>/dev/null";
-        std::system(sign_cmd.c_str());
+        {
+            // Clear provenance/quarantine from the download, then Developer ID sign.
+            std::string xattr_cmd = "xattr -cr '" + tmp_path + "' 2>/dev/null";
+            std::system(xattr_cmd.c_str());
+            // Identity is mandatory — no ad-hoc fallback (SIGKILL risk on macOS).
+            std::string sign_cmd =
+                "codesign --force --options runtime --timestamp --sign '" + dev_id + "' '" +
+                tmp_path + "' 2>&1";
+            int sign_rc = std::system(sign_cmd.c_str());
+            if (sign_rc != 0) {
+                std::cerr << "upgrade: Developer ID codesign FAILED for identity:\n  "
+                          << dev_id << "\n"
+                          << "  Set BS_DEV_ID or ensure the cert is in the login keychain.\n"
+                          << "  Refusing ad-hoc fallback (macOS may SIGKILL adhoc installs).\n";
+                ::unlink(tmp_path.c_str());
+                return 1;
+            }
+            std::cout << "→ Signed with Developer ID\n";
+        }
 #endif
 
         // Stop daemon before swap

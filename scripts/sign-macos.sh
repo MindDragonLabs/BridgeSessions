@@ -1,18 +1,30 @@
 #!/bin/bash
-# Sign bridgesessions with Developer ID — stops TCC re-prompts on rebuild
-set -e
+# Sign bridgesessions with Developer ID — stops TCC re-prompts on rebuild.
+# Refuses ad-hoc fallback: a missing identity is a hard error.
+set -euo pipefail
 
-SOURCE="${1:-build-main/bridgesessions}"
-IDENTITY="Developer ID Application: Jefferson Nunn (QL5MD8FKPL)"
+SOURCE="${1:-build/bridgesessions}"
+IDENTITY="${BS_DEV_ID:-Developer ID Application: Jefferson Nunn (QL5MD8FKPL)}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ENTITLEMENTS="$SCRIPT_DIR/../macos-signing/entitlements.plist"
 INFO_PLIST="$SCRIPT_DIR/../macos-signing/Info.plist"
 OUTPUT="${2:-$SOURCE-signed}"
 
+if [[ ! -f "$SOURCE" ]]; then
+  echo "error: source not found: $SOURCE" >&2
+  exit 1
+fi
+if ! security find-identity -v -p codesigning 2>/dev/null | grep -F "$IDENTITY" >/dev/null; then
+  echo "error: identity not in keychain: $IDENTITY" >&2
+  security find-identity -v -p codesigning 2>&1 | sed 's/^/  /' >&2
+  exit 1
+fi
+
 echo "Signing $SOURCE with Developer ID..."
 
 # Copy unsigned binary
 cp "$SOURCE" "$OUTPUT"
+xattr -cr "$OUTPUT" 2>/dev/null || true
 
 # Add Info.plist to the Mach-O (seclndict requires it for stable identity)
 # codesign --add-info-plist is not available, so we embed via the -i flag

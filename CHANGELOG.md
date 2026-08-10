@@ -11,6 +11,29 @@ All notable public releases are documented here.
 
 ## Unreleased
 
+### macOS install / upgrade signing
+- **`scripts/install-local-macos.sh`**: installs `build/bridgesessions` to
+  `~/.local/bin` with **Developer ID Application** signing only (no ad-hoc
+  fallback). Clears xattrs; verifies TeamIdentifier. Fixes the SIGKILL/exit-137
+  class of "raw cp of cmake binary" installs.
+- **`bs upgrade` on macOS**: refuses ad-hoc fallback when Developer ID codesign
+  fails (previously `|| codesign -s -` left Gatekeeper-killable binaries).
+- **`scripts/sign-macos.sh`**: hard-fails if the Developer ID identity is missing.
+
+### Event-loop write path
+- **Per-connection encoded TX queue** (`Conn::tx_queue`) with non-blocking
+  `SSL_write` drain. Ping, gossip, ServerInfo, Pong, and output-queue promotion
+  use `enqueue_frame` so a slow peer cannot block the daemon for up to 30s.
+- **select() write set** includes conns with pending TX / output queues.
+
+### Session hygiene
+- **`prune_ephemeral_sessions`**: drops finished `health-*` / `cmd-*` /
+  `oneshot-*` / `script-*` sessions after ~90s so PTYs do not accumulate.
+
+### Decode bounds
+- ConversationBatch capped at 512 messages; CUA request text capped at 64KB.
+- VFolder sync holds `exec_busy` for the whole multi-file transfer (not per file).
+
 ### Stability (Hermes / agent one-shot shell hangs)
 - **`--cmd` no longer reattaches to a live named session and ignores the command.**
   `attach_connection` force-respawns when `ClientOverride` is set (the

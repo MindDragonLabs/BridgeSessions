@@ -1570,7 +1570,9 @@ Message decode(std::span<const uint8_t> raw) {
         ConversationBatchMsg m;
         m.conv_id = d.str_prefixed();
         // remaining bytes are a run of ConversationAppendMsg (no count prefix → parse until end)
-        while (d.ok(1)) {
+        // Cap message count so a hostile peer cannot force unbounded RAM.
+        static constexpr size_t kMaxConversationBatch = 512;
+        while (d.ok(1) && m.messages.size() < kMaxConversationBatch) {
             ConversationAppendMsg am;
             am.conv_id = d.str_prefixed();
             am.seq = d.u64be(); am.ts = d.u64be();
@@ -1578,6 +1580,8 @@ Message decode(std::span<const uint8_t> raw) {
             am.body = d.str_prefixed_u16(); // matches serialize (2.0.8-alpha3 final)
             m.messages.push_back(std::move(am));
         }
+        if (d.ok(1))
+            throw std::runtime_error("ConversationBatchMsg exceeds 512 messages");
         return m;
     }
     case 0x26: {
@@ -1586,6 +1590,8 @@ Message decode(std::span<const uint8_t> raw) {
         m.x = static_cast<int16_t>(d.u16()); m.y = static_cast<int16_t>(d.u16());
         m.button = d.u8(); m.hid_key = d.u32be(); m.modifiers = d.u8();
         m.text = d.str_prefixed();
+        if (m.text.size() > 64 * 1024)
+            throw std::runtime_error("CUA request text exceeds 64KB");
         return m;
     }
     case 0x27: {
@@ -5493,6 +5499,50 @@ public:
         }
     }
 
+    // Drop finished agent/health one-shot sessions so they cannot pile up
+    // as detached PTYs (linux-b had dozens of leftover /dev/pts entries).
+    // Names: health-*, cmd-*, oneshot-*, script-*.
+    void prune_ephemeral_sessions(std::chrono::seconds max_age = std::chrono::seconds(90)) {
+        auto is_ephemeral = [](const std::string& name) {
+            return name.rfind("health-", 0) == 0
+                || name.rfind("cmd-", 0) == 0
+                || name.rfind("oneshot-", 0) == 0
+                || name.rfind("script-", 0) == 0
+                || name.rfind("hcheck-", 0) == 0
+                || name.rfind("vcheck-", 0) == 0;
+        };
+        std::unique_lock lock(mutex_);
+        auto now = std::chrono::steady_clock::now();
+        for (auto it = sessions_.begin(); it != sessions_.end(); ) {
+            auto* s = it->second.get();
+            if (!is_ephemeral(s->name)) { ++it; continue; }
+            const bool terminal =
+                s->state == SessionState::Died
+                || s->state == SessionState::Exited
+                || s->state == SessionState::Killed
+                || s->state == SessionState::Detached;
+            const bool aged = (now - s->last_attach_at) > max_age
+                           || (now - s->last_output_at) > max_age;
+            // Also reap live attached ephemerals with zero attachments that
+            // finished long ago (child dead but state lagging).
+            bool child_gone = false;
+#ifdef _WIN32
+            if (s->child_pid && WaitForSingleObject(s->child_pid, 0) == WAIT_OBJECT_0)
+                child_gone = true;
+#else
+            if (s->child_pid <= 0) child_gone = true;
+#endif
+            if ((terminal && aged) || (child_gone && s->attachments.empty() && aged)) {
+                log_event("session_prune_ephemeral", s->name);
+                record_history_locked(*s, -1, "ephemeral_pruned");
+                if (on_session_erased_) on_session_erased_(s->name);
+                it = sessions_.erase(it);
+                continue;
+            }
+            ++it;
+        }
+    }
+
     // ── Size ────────────────────────────────────────────────────
     size_t count() const {
         std::shared_lock lock(mutex_);
@@ -6556,6 +6606,19 @@ public:
         std::deque<QueuedOutput> output_queue;
         uint64_t output_dropped_bytes = 0;
         bool output_gap_pending = false;
+
+        // ── Non-blocking control-plane TX queue ──────────────────────
+        // Encoded frames (ping/gossip/acks/output) wait here instead of
+        // blocking the event loop in write_frame() up to 30s. Drained when
+        // select() reports the socket writable (or immediately on enqueue).
+        static constexpr size_t kTxQueueHighWaterBytes = 2u * 1024u * 1024u;
+        struct QueuedTxFrame {
+            std::vector<uint8_t> data;
+            size_t offset = 0;
+        };
+        std::deque<QueuedTxFrame> tx_queue;
+        size_t tx_queue_bytes = 0;
+        bool want_write = false;
     };
 
     // Return 0 to drop the older connection (i), 1 to drop the newer one (j).
@@ -9301,6 +9364,24 @@ private:
         if (!fs::exists(vf->local_path)) {
             fs::create_directories(vf->local_path);
         }
+        Conn* target = nullptr;
+        for (auto& c : conns_) {
+            if (is_live_mesh_transport_for(c, vf->remote_peer)) { target = &c; break; }
+        }
+        if (!target) return "ERROR no conn to " + vf->remote_peer;
+
+        // Hold exec_busy for the whole multi-file sync (not per file).
+        if (target->exec_busy->exchange(true)) return "ERROR peer busy with another transfer, retry";
+        target->exec_completed->store(false);
+        struct BusyGuard {
+            std::shared_ptr<std::atomic<bool>> busy;
+            std::shared_ptr<std::atomic<bool>> completed;
+            ~BusyGuard() {
+                if (completed) completed->store(true);
+                if (busy) busy->store(false);
+            }
+        } busy_guard{target->exec_busy, target->exec_completed};
+
         // Scan local files, compute SHA-256 for each, send changed files
         int sent = 0;
         int skipped = 0;
@@ -9314,23 +9395,6 @@ private:
             if (!f) continue;
             std::string content((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
             std::string checksum = sha256_hex(content);
-            // Find conn
-            Conn* target = nullptr;
-            for (auto& c : conns_) { if (is_live_mesh_transport_for(c, vf->remote_peer)) { target = &c; break; } }
-            if (!target) return "ERROR no conn to " + vf->remote_peer;
-
-            // Acquire exec_busy guard once per sync — protects the SSL object
-            // from concurrent event-loop access across the multi-file transfer.
-            if (target->exec_busy->exchange(true)) return "ERROR peer busy with another transfer, retry";
-            target->exec_completed->store(false);
-            struct BusyGuard {
-                std::shared_ptr<std::atomic<bool>> busy;
-                std::shared_ptr<std::atomic<bool>> completed;
-                ~BusyGuard() {
-                    if (completed) completed->store(true);
-                    if (busy) busy->store(false);
-                }
-            } busy_guard{target->exec_busy, target->exec_completed};
 
             // Send FileMeta
             const size_t kChunkRawSize = 48 * 1024;
@@ -9419,9 +9483,7 @@ private:
         }
 
         if (std::holds_alternative<PingMsg>(msg)) {
-            try {
-                write_frame(c.ssl.get(), PongMsg{}, CONTROL_STREAM_ID);
-            } catch (...) {}
+            (void)enqueue_frame(c, PongMsg{}, CONTROL_STREAM_ID);
         }
         else if (std::holds_alternative<PongMsg>(msg)) {
             c.last_pong = std::chrono::steady_clock::now();
@@ -10474,57 +10536,110 @@ public:
         }
     }
 
-    // 4b. drain_output_queues — retry enqueued OutputMsg writes (2.0.8 P3).
-    // Also emits pending OutputGap notifications so clients know bytes were
-    // dropped. Called once per event-loop tick after PTY polling.
+    // Non-blocking control/output TX: encode + queue + best-effort flush.
+    // Returns false if the frame was dropped (overflow / no transport).
+    bool enqueue_frame(Conn& c, const Message& msg, uint16_t stream_id = CONTROL_STREAM_ID) {
+        if (c.sock_fd == INVALID_SOCKET || !c.ssl) return false;
+        if (c.exec_busy && c.exec_busy->load()) return false;
+        std::vector<uint8_t> frame;
+        try {
+            frame = encode(msg, stream_id);
+        } catch (...) {
+            return false;
+        }
+        if (c.tx_queue_bytes + frame.size() > Conn::kTxQueueHighWaterBytes) {
+            log_event("tx_queue_overflow", c.peer_name + " bytes=" +
+                      std::to_string(c.tx_queue_bytes));
+            return false;
+        }
+        c.tx_queue_bytes += frame.size();
+        c.tx_queue.push_back(Conn::QueuedTxFrame{std::move(frame), 0});
+        c.want_write = true;
+        flush_tx_queue(c);
+        return true;
+    }
+
+    // Drain encoded frames with non-blocking SSL_write. Never sleeps.
+    void flush_tx_queue(Conn& c) {
+        if (c.sock_fd == INVALID_SOCKET || !c.ssl) {
+            c.tx_queue.clear();
+            c.tx_queue_bytes = 0;
+            c.want_write = false;
+            return;
+        }
+        if (c.exec_busy && c.exec_busy->load()) return;
+        while (!c.tx_queue.empty()) {
+            auto& fr = c.tx_queue.front();
+            if (fr.offset >= fr.data.size()) {
+                c.tx_queue.pop_front();
+                continue;
+            }
+            size_t remain = fr.data.size() - fr.offset;
+            size_t n = 0;
+            clear_stale_ssl_errors_before_io();
+            int ret = SSL_write_ex(c.ssl.get(), fr.data.data() + fr.offset, remain, &n);
+            if (ret > 0 && n > 0) {
+                fr.offset += n;
+                if (c.tx_queue_bytes >= n) c.tx_queue_bytes -= n;
+                else c.tx_queue_bytes = 0;
+                c.bytes_out += n;
+                if (fr.offset >= fr.data.size()) c.tx_queue.pop_front();
+                continue;
+            }
+            int err = SSL_get_error(c.ssl.get(), ret);
+            if (err == SSL_ERROR_WANT_WRITE || err == SSL_ERROR_WANT_READ) {
+                c.want_write = true;
+                return;
+            }
+            log_event("tx_queue_write_fail", c.peer_name + " ssl_err=" + std::to_string(err));
+            c.tx_queue.clear();
+            c.tx_queue_bytes = 0;
+            c.want_write = false;
+            close_conn(c);
+            return;
+        }
+        c.want_write = false;
+    }
+
+    // 4b. drain_output_queues — promote logical OutputMsg queue into the
+    // encoded tx_queue, then flush. Also emits pending OutputGap notices.
     void drain_output_queues() {
         for (auto& target : conns_) {
-            if (target.output_queue.empty() && !target.output_gap_pending) continue;
+            if (target.output_queue.empty() && !target.output_gap_pending
+                && target.tx_queue.empty()) continue;
             if (target.sock_fd == INVALID_SOCKET || !target.ssl) {
                 target.output_queue.clear();
                 target.output_gap_pending = false;
+                target.tx_queue.clear();
+                target.tx_queue_bytes = 0;
+                target.want_write = false;
                 continue;
             }
-            // v2.0.12c: skip busy connections — a worker thread owns the SSL
-            // transport for file transfer; writing here would race and corrupt
-            // the TLS record stream.
             if (target.exec_busy && target.exec_busy->load()) continue;
-            // Emit OutputGap first if pending (client needs to know about drops
-            // before receiving the next queued OutputMsg).
             if (target.output_gap_pending) {
-                try {
-                    OutputGapMsg gap;
-                    gap.dropped_bytes = target.output_dropped_bytes;
-                    write_frame(target.ssl.get(), gap, 0);
+                OutputGapMsg gap;
+                gap.dropped_bytes = target.output_dropped_bytes;
+                if (enqueue_frame(target, gap, 0)) {
                     target.output_gap_pending = false;
                     target.output_dropped_bytes = 0;
-                } catch (...) {
-                    // Can't even send the gap — leave pending for next tick.
-                    continue;
                 }
             }
-            // Drain queued OutputMsg frames (best-effort; at most 8 per tick
-            // to avoid starving the event loop).
-            size_t drained = 0;
-            while (!target.output_queue.empty() && drained < 8) {
+            size_t promoted = 0;
+            while (!target.output_queue.empty() && promoted < 8) {
                 auto& qo = target.output_queue.front();
-                try {
-                    OutputMsg om;
-                    om.data = qo.data;
-                    om.render_markdown = qo.render_markdown;
-                    write_frame(target.ssl.get(), om, 0);
-                    target.output_queue.pop_front();
-                    ++drained;
-                } catch (...) {
-                    break; // socket still full, retry next tick
-                }
+                OutputMsg om;
+                om.data = qo.data;
+                om.render_markdown = qo.render_markdown;
+                if (!enqueue_frame(target, om, 0)) break;
+                target.output_queue.pop_front();
+                ++promoted;
             }
-            // If queue is still over high-water after drain, drop oldest.
             while (target.output_queue.size() > Conn::kOutputQueueHighWater) {
                 target.output_dropped_bytes += target.output_queue.front().data.size();
                 target.output_gap_pending = true;
                 target.output_queue.pop_front();
             }
+            if (!target.tx_queue.empty()) flush_tx_queue(target);
         }
     }
 
@@ -10752,17 +10867,15 @@ private:
         for (auto& c : conns_) {
             if (c.sock_fd == INVALID_SOCKET) continue;
             if (c.exec_busy && c.exec_busy->load()) continue;
-            try {
-                // gen 0 → full snapshot; stale gen → delta; current gen → skip
-                if (c.last_gossip_generation == 0 ||
-                    c.last_gossip_generation < cur_gen) {
-                    auto g = build_gossip(c.last_gossip_generation);
-                    if (!g.peers.empty())
-                        write_frame(c.ssl.get(), g, CONTROL_STREAM_ID);
-                    c.last_gossip_generation = cur_gen;
-                }
-                write_frame(c.ssl.get(), info, CONTROL_STREAM_ID);
-            } catch (...) {}
+            // gen 0 → full snapshot; stale gen → delta; current gen → skip
+            if (c.last_gossip_generation == 0 ||
+                c.last_gossip_generation < cur_gen) {
+                auto g = build_gossip(c.last_gossip_generation);
+                if (!g.peers.empty())
+                    (void)enqueue_frame(c, g, CONTROL_STREAM_ID);
+                c.last_gossip_generation = cur_gen;
+            }
+            (void)enqueue_frame(c, info, CONTROL_STREAM_ID);
         }
     }
 
@@ -10775,14 +10888,10 @@ private:
             // object right now (v1.7 async exec) — it handles Ping/Pong
             // itself; writing here too would race the thread's writes.
             if (c.exec_busy && c.exec_busy->load()) continue;
-            try {
-                write_frame(c.ssl.get(), PingMsg{}, CONTROL_STREAM_ID);
-            } catch (const std::exception& e) {
-                log_event("mesh_conn_close", c.peer_name + " reason=ping_write detail=" + e.what());
-                close_conn(c);
-            } catch (...) {
-                log_event("mesh_conn_close", c.peer_name + " reason=ping_write_unknown");
-                close_conn(c);
+            // Non-blocking enqueue — never stall the event loop on a slow peer.
+            if (!enqueue_frame(c, PingMsg{}, CONTROL_STREAM_ID)) {
+                // Overflow only: leave connection up; next tick may drain.
+                log_event("mesh_ping_enqueue_drop", c.peer_name);
             }
         }
     }
@@ -12284,6 +12393,11 @@ public:
                     }
 #endif
                     FD_SET(c.sock_fd, &read_fds);
+                    // Wake when TX queue or logical output queue needs drain.
+                    if (c.want_write || !c.tx_queue.empty() || !c.output_queue.empty()
+                        || c.output_gap_pending) {
+                        FD_SET(c.sock_fd, &write_fds);
+                    }
                     if (c.sock_fd > max_fd) max_fd = c.sock_fd;
                 }
             }
@@ -12371,9 +12485,11 @@ public:
             maybe_reload_config_seeds();
             maybe_prune_revoked_connections();
             maybe_close_join_window();
-            if (config_.idle_timeout_hours > 0 &&
-                now - last_session_prune_time_ >= std::chrono::minutes(1)) {
-                sessions_.prune_idle(std::chrono::hours(config_.idle_timeout_hours));
+            if (now - last_session_prune_time_ >= std::chrono::minutes(1)) {
+                if (config_.idle_timeout_hours > 0)
+                    sessions_.prune_idle(std::chrono::hours(config_.idle_timeout_hours));
+                // Always prune agent/health one-shots — they accumulate PTYs otherwise.
+                sessions_.prune_ephemeral_sessions(std::chrono::seconds(90));
                 last_session_prune_time_ = now;
             }
 #ifndef _WIN32
@@ -12406,6 +12522,18 @@ public:
                     FD_ISSET(conn.sock_fd, &read_fds)) {
                     check_conn_read(i);
                     --nfds;
+                }
+            }
+
+            // 4.2. Writable sockets: flush non-blocking TX queues.
+            for (auto& conn : conns_) {
+                if (conn.exec_busy && conn.exec_busy->load()) continue;
+                if (conn.sock_fd == INVALID_SOCKET) continue;
+                if (conn.want_write || !conn.tx_queue.empty()) {
+                    if (nfds <= 0 || FD_ISSET(conn.sock_fd, &write_fds) || SSL_pending(conn.ssl.get()) > 0
+                        || !conn.tx_queue.empty()) {
+                        flush_tx_queue(conn);
+                    }
                 }
             }
 
