@@ -14,9 +14,10 @@
 #else
 #include <csignal>
 #include <sys/wait.h>
-#include <termios.h>
+#include <sys/termios.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <netinet/tcp.h>  // TCP_NODELAY — critical for interactive shell performance
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <unistd.h>
@@ -5359,6 +5360,15 @@ inline void set_socket_timeouts(SOCKET fd, int ms) {
 #endif
 }
 
+// Disable Nagle's algorithm on a socket — critical for interactive shells.
+// Without this, the TCP stack batches small packets (individual keystrokes)
+// for up to 40ms, making typing feel sluggish compared to SSH.
+inline void set_tcp_nodelay(SOCKET fd) {
+    if (fd == INVALID_SOCKET) return;
+    int flag = 1;
+    setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, (const char*)&flag, sizeof(flag));
+}
+
 inline bool socket_selectable(SOCKET fd) {
     if (fd == INVALID_SOCKET) return false;
 #ifdef _WIN32
@@ -7017,6 +7027,7 @@ private:
         ph.want_read = true;
         ph.want_write = false;
         ph.deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(kAcceptHandshakeTimeoutMs);
+        set_tcp_nodelay(cfd);  // interactive shell performance (server side)
         pending_handshakes_.push_back(std::move(ph));
         log_event("inbound_accepted", std::string(inet_ntoa(peer_addr.sin_addr)) + ":" +
                   std::to_string(ntohs(peer_addr.sin_port)));
@@ -7050,6 +7061,7 @@ private:
         c.last_pong = std::chrono::steady_clock::now();
         // Steady-state recv timeout for established links.
         set_socket_timeouts(ph.sock_fd, kPeerRecvTimeoutMs);
+        set_tcp_nodelay(ph.sock_fd);  // interactive shell performance (mesh connections)
         // v2.0.12c: increase socket buffers for large file transfers
         { int sz = 262144; setsockopt(ph.sock_fd, SOL_SOCKET, SO_SNDBUF, (const char*)&sz, sizeof(sz));
           setsockopt(ph.sock_fd, SOL_SOCKET, SO_RCVBUF, (const char*)&sz, sizeof(sz)); }
@@ -7425,6 +7437,7 @@ private:
             SOCKET sfd = socket(AF_INET, SOCK_STREAM, 0);
             if (sfd == INVALID_SOCKET) return false;
             set_socket_timeouts(sfd, outbound_connect_timeout_ms_);
+            set_tcp_nodelay(sfd);  // interactive shell performance
             { int o = 1; setsockopt(sfd, SOL_SOCKET, SO_REUSEADDR, (const char*)&o, sizeof(o)); }  // R3.6
 
             const auto connect_result = connect_socket_with_timeout(
@@ -12411,6 +12424,7 @@ public:
             return out;
         }
         set_socket_timeouts(sfd, outbound_connect_timeout_ms_);
+        set_tcp_nodelay(sfd);  // interactive shell performance
         { int o = 1; setsockopt(sfd, SOL_SOCKET, SO_REUSEADDR, (const char*)&o, sizeof(o)); }  // R3.6
         const auto connect_result = connect_socket_with_timeout(
             sfd, reinterpret_cast<sockaddr*>(&sa), sizeof(sa),
@@ -12824,7 +12838,7 @@ public:
                     fd_set sock_fds;
                     FD_ZERO(&sock_fds);
                     FD_SET(sc.sfd, &sock_fds);
-                    timeval sock_tv{0, 50000};
+                    timeval sock_tv{0, 1000};  // 1ms poll — was 50ms (caused typing lag)
                     if (!local_stop && transport_alive &&
                         (select(0, &sock_fds, nullptr, nullptr, &sock_tv) > 0 ||
                          SSL_pending(sc.ssl.get()) > 0))
@@ -12835,7 +12849,7 @@ public:
                     FD_SET(STDIN_FILENO, &read_fds);
                     FD_SET((int)sc.sfd, &read_fds);
                     int maxfd = std::max(STDIN_FILENO, (int)sc.sfd);
-                    timeval tv{0, 50000};
+                    timeval tv{0, 1000};  // 1ms poll — was 50ms (caused typing lag)
                     int ready = select(maxfd + 1, &read_fds, nullptr, nullptr, &tv);
                     if (ready < 0 && errno != EINTR) {
                         transport_alive = false;
