@@ -12,6 +12,9 @@ All notable public releases are documented here.
 ## Unreleased
 
 ### CUA capture reliability
+- **Windows helper**: refuse GDI capture in Session 0 with a clear error instead of
+  crashing the helper (`cua-helper no response`); start `--cua-helper` in a logged-on
+  user session (Session 1) for real pixels.
 - **Windows helper**: soft-cap capture to 1920×1080 via StretchBlt so Session-0 /
   multi-monitor virtual desktops cannot allocate multi-GB bitmaps or hang the helper.
 - **macOS helper + in-process**: ScreenCaptureKit failure falls back to

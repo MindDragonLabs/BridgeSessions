@@ -142,15 +142,24 @@ inline CuaResponseMsg cua_helper_execute(const CuaRequestMsg& req) {
         }
         case 6: {  // capture — native GDI BitBlt + GDI+ JPEG (user session → real pixels).
             // 2.0.20: replaced PowerShell Add-Type (1-3s latency) with in-process GDI.
-            // Cap resolution so Session-0 / multi-monitor virtual desktops cannot
-            // allocate multi-GB bitmaps or hang the helper (CLI then times out
-            // with "cua-helper no response").
+            // Cap resolution so multi-monitor virtual desktops cannot allocate
+            // multi-GB bitmaps or hang the helper (CLI then times out with
+            // "cua-helper no response").
+            // Session 0 services have no interactive desktop — GDI capture can
+            // AV/crash the helper. Fail closed with a clear error so the daemon
+            // can fall back and the operator knows to run --cua-helper in Session 1.
+            DWORD sid = 0;
+            if (ProcessIdToSessionId(GetCurrentProcessId(), &sid) && sid == 0) {
+                resp.status = 1;
+                resp.error = "capture: helper is in Session 0 (no interactive desktop) — "
+                             "run bridgesessions --cua-helper in a logged-on user session";
+                return resp;
+            }
             int vw = GetSystemMetrics(SM_CXVIRTUALSCREEN);
             int vh = GetSystemMetrics(SM_CYVIRTUALSCREEN);
             int vx = GetSystemMetrics(SM_XVIRTUALSCREEN);
             int vy = GetSystemMetrics(SM_YVIRTUALSCREEN);
             if (vw <= 0 || vh <= 0) {
-                // Session 0 often reports 0 — fall back to primary metrics
                 vw = GetSystemMetrics(SM_CXSCREEN);
                 vh = GetSystemMetrics(SM_CYSCREEN);
                 vx = 0; vy = 0;
@@ -183,9 +192,16 @@ inline CuaResponseMsg cua_helper_execute(const CuaRequestMsg& req) {
                 return resp;
             }
             HBITMAP old = (HBITMAP)SelectObject(mem_dc, bmp);
-            // StretchBlt scales full virtual desktop into cap_w x cap_h
-            SetStretchBltMode(mem_dc, HALFTONE);
-            StretchBlt(mem_dc, 0, 0, cap_w, cap_h, screen_dc, vx, vy, vw, vh, SRCCOPY);
+            // COLORONCOLOR avoids HALFTONE palette issues on headless DCs.
+            SetStretchBltMode(mem_dc, COLORONCOLOR);
+            if (!StretchBlt(mem_dc, 0, 0, cap_w, cap_h, screen_dc, vx, vy, vw, vh, SRCCOPY)) {
+                SelectObject(mem_dc, old);
+                DeleteObject(bmp);
+                DeleteDC(mem_dc);
+                ReleaseDC(NULL, screen_dc);
+                resp.status = 1; resp.error = "capture: StretchBlt failed";
+                return resp;
+            }
             // Extract raw pixels via GetDIBits
             BITMAPINFOHEADER bih{};
             bih.biSize = sizeof(BITMAPINFOHEADER);
