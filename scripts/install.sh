@@ -376,8 +376,54 @@ EOF
       echo ""
       echo "   (Developer ID signing ensures permissions persist across updates)"
     else
-      echo "→ NOTE: BridgeSessions.app not found — using bare binary (TCC may not persist)"
-      # Fallback: create cua-helper plist pointing at bare binary
+      echo "→ NOTE: BridgeSessions.app not found — creating local .app wrapper for TCC"
+      # Create a minimal .app bundle so TCC (Screen Recording, Accessibility)
+      # can track a stable bundle identity. Without a bundle, macOS won't list
+      # the bare binary in System Settings → Privacy & Security.
+      LOCAL_APP="${HOME}/Applications/BridgeSessions.app"
+      mkdir -p "${LOCAL_APP}/Contents/MacOS"
+      cp "${BIN_ABS}" "${LOCAL_APP}/Contents/MacOS/bridgesessions"
+      chmod 755 "${LOCAL_APP}/Contents/MacOS/bridgesessions"
+      cat > "${LOCAL_APP}/Contents/Info.plist" << EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleName</key><string>BridgeSessions</string>
+  <key>CFBundleDisplayName</key><string>BridgeSessions</string>
+  <key>CFBundleIdentifier</key><string>com.mindragon.bridgesessions</string>
+  <key>CFBundleVersion</key><string>1.0</string>
+  <key>CFBundleShortVersionString</key><string>1.0</string>
+  <key>CFBundleExecutable</key><string>bridgesessions</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>LSMinimumSystemVersion</key><string>13.0</string>
+</dict>
+</plist>
+EOF
+      # Ad-hoc sign the bundle so TCC has a CDHash to track
+      codesign --force --sign - "${LOCAL_APP}" 2>/dev/null || true
+      # Point CLI symlink at the .app binary
+      ln -sf "${LOCAL_APP}/Contents/MacOS/bridgesessions" "${BIN_ABS}"
+      APP_BIN="${LOCAL_APP}/Contents/MacOS/bridgesessions"
+
+      # Update launchd plists to use .app binary
+      cat > "${PLIST_DIR}/com.bridgesessions.mesh.plist" << EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.bridgesessions.mesh</string>
+  <key>ProgramArguments</key>
+  <array><string>${APP_BIN}</string><string>--config</string><string>${CONFIG_PATH}</string></array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardOutPath</key><string>${APP_HOME}/daemon.log</string>
+  <key>StandardErrorPath</key><string>${APP_HOME}/daemon.err</string>
+</dict>
+</plist>
+EOF
+
+      # CUA helper plist (runs in user session for GUI access)
       CUA_PLIST="${PLIST_DIR}/com.bridgesessions.cua-helper.plist"
       cat > "${CUA_PLIST}" << EOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -386,7 +432,7 @@ EOF
 <dict>
   <key>Label</key><string>com.bridgesessions.cua-helper</string>
   <key>ProgramArguments</key>
-  <array><string>${BIN_ABS}</string><string>--config</string><string>${CONFIG_PATH}</string><string>--cua-helper</string></array>
+  <array><string>${APP_BIN}</string><string>--config</string><string>${CONFIG_PATH}</string><string>--cua-helper</string></array>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
   <key>StandardOutPath</key><string>${APP_HOME}/cua-helper.log</string>
@@ -396,11 +442,23 @@ EOF
 EOF
       launchctl bootstrap "gui/$(id -u)" "${CUA_PLIST}" 2>/dev/null || \
         launchctl load -w "${CUA_PLIST}" 2>/dev/null || true
-      echo "→ CUA helper launchd agent installed (bare binary fallback)."
-      tccutil reset ScreenCapture bridgesessions 2>/dev/null || true
-      tccutil reset Accessibility bridgesessions 2>/dev/null || true
+      echo "→ CUA helper launchd agent installed (.app bundle wrapper)."
+
+      # Purge old TCC entries and register the new bundle identity
+      tccutil reset ScreenCapture com.mindragon.bridgesessions 2>/dev/null || true
+      tccutil reset Accessibility com.mindragon.bridgesessions 2>/dev/null || true
+
+      # Open System Settings — the .app bundle now appears in the list
+      open "${LOCAL_APP}" 2>/dev/null || true
       open "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture" 2>/dev/null
-      echo "→ Grant Screen Recording + Accessibility permissions in System Settings"
+      echo ""
+      echo "⚠️  ACTION REQUIRED — Grant permissions on this Mac's screen:"
+      echo "   1. System Settings → Privacy & Security → Screen Recording"
+      echo "      → Find 'BridgeSessions' → Toggle ON"
+      echo "   2. System Settings → Privacy & Security → Accessibility"
+      echo "      → Find 'BridgeSessions' → Toggle ON"
+      echo "   3. Restart: launchctl kickstart -k gui/\$(id -u)/com.bridgesessions.cua-helper"
+      echo ""
     fi
     ;;
   Linux)
@@ -520,8 +578,40 @@ if [ $# -ge 2 ] && [ "$1" = "join" ]; then
   echo "→ Stopping existing daemon before join..."
   stop_daemon
   sleep 1
-  echo "→ Joining mesh: bridgesessions join $@ --start"
-  exec "${INSTALL_DIR}/${BIN_NAME}" join "$@" --start
+
+  # Strip duplicate --start flag (invite output already includes it)
+  JOIN_ARGS=""
+  HAS_START=0
+  for arg in "$@"; do
+    if [ "$arg" = "--start" ]; then
+      HAS_START=1
+    else
+      JOIN_ARGS="${JOIN_ARGS} ${arg}"
+    fi
+  done
+  [ "$HAS_START" = "1" ] && JOIN_ARGS="${JOIN_ARGS} --start"
+
+  # Retry join up to 3 times — TLS unexpected-eof happens when the
+  # join window on the host is momentarily closed or the token was
+  # just regenerated. The host re-opens the window on each invite.
+  JOIN_OK=0
+  for attempt in 1 2 3; do
+    echo "→ Joining mesh (attempt ${attempt}/3)..."
+    if "${INSTALL_DIR}/${BIN_NAME}" join ${JOIN_ARGS}; then
+      JOIN_OK=1
+      break
+    fi
+    echo "→ Join attempt ${attempt} failed, retrying in 2s..."
+    sleep 2
+  done
+
+  if [ "${JOIN_OK}" = "0" ]; then
+    echo "ERROR: All join attempts failed." >&2
+    echo "  The invite token may be expired or the host daemon may need a fresh 'bs invite'." >&2
+    exit 1
+  fi
+  echo "→ Join successful."
+  exit 0
 fi
 
 echo "→ Ready."

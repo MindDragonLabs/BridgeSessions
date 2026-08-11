@@ -734,7 +734,7 @@ int main(int argc, char** argv) {
             if (addr.empty() || addr == "0.0.0.0") addr = "127.0.0.1";
         }
         int port = cfg.listen_port > 0 ? cfg.listen_port : 19949;
-        std::cout << "Invite (valid 2h):  " << token << " --start\n";
+        std::cout << "Invite (valid 2h):  " << token << "\n";
         std::cout << "One-liner:\n";
         std::cout << "  bridgesessions join " << addr << ":" << port << " " << token << " --start\n";
         std::cout << "Or with curl install:\n";
