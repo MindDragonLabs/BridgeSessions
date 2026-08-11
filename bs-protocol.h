@@ -451,6 +451,10 @@ struct FileMetaMsg {
     uint64_t filesize = 0;      // total file size in bytes
     std::string checksum;       // SHA-256 hex of entire file
     uint32_t total_chunks = 0;  // total number of chunks
+    // Optional trailing field (v26.08.10+): raw chunk size in bytes.
+    // 0 = peer omitted field → use kTransferChunkRawSizeDefault.
+    // Enables mixed-fleet negotiation without compile-time lockstep.
+    uint32_t chunk_size = 0;
     bool operator==(const FileMetaMsg&) const = default;
 };
 
@@ -757,6 +761,9 @@ void serialize_msg(Serializer& s, const FileMetaMsg& m) {
     s.u32be(static_cast<uint32_t>(m.filesize & 0xFFFFFFFF));
     s.str_prefixed(m.checksum);
     s.u32be(m.total_chunks);
+    // Always emit chunk_size so new receivers can negotiate; old peers stop
+    // reading after total_chunks and ignore trailing payload bytes.
+    s.u32be(m.chunk_size);
 }
 void serialize_msg(Serializer& s, const FileChunkMsg& m) {
     s.u32be(m.chunk_index);
@@ -1018,8 +1025,22 @@ private:
 }
 constexpr int kTransferIdleTimeoutSec = 120;
 constexpr int kTransferProgressIntervalSec = 10;
-constexpr size_t kTransferChunkRawSize = 48 * 1024;   // 48KB (must match across peers)
-constexpr int    kTransferPipelineSize = 16;            // 768KB pipeline (was 8)
+// Default raw chunk size. Capped at 48KB so uncompressible data still fits a
+// u16 frame after framing overhead (MAX_FRAME_SIZE=65535). Larger sizes need
+// u32 frames (separate wire bump). Negotiated via FileMetaMsg.chunk_size.
+constexpr size_t kTransferChunkRawSizeDefault = 48 * 1024;
+constexpr size_t kTransferChunkRawSizeMin     = 4 * 1024;
+constexpr size_t kTransferChunkRawSizeMax     = 48 * 1024;
+constexpr size_t kTransferChunkRawSize = kTransferChunkRawSizeDefault; // alias
+constexpr int    kTransferPipelineSize = 32;            // 1.5MB pipeline at 48KB
+
+// Clamp a peer-declared or config chunk size into the safe wire range.
+[[nodiscard]] inline size_t effective_transfer_chunk_size(uint32_t declared) {
+    if (declared == 0) return kTransferChunkRawSizeDefault;
+    if (declared < kTransferChunkRawSizeMin) return kTransferChunkRawSizeMin;
+    if (declared > kTransferChunkRawSizeMax) return kTransferChunkRawSizeMax;
+    return static_cast<size_t>(declared);
+}
 
 // ── Transfer telemetry ──────────────────────────────────────────────
 // Accumulates per-chunk wall-clock timings during a transfer.  Emit a
@@ -1184,12 +1205,13 @@ struct TransferMetadataValidation {
 };
 
 [[nodiscard]] inline TransferMetadataValidation calculate_transfer_metadata(
-    uint64_t filesize, uint64_t max_bytes) {
+    uint64_t filesize, uint64_t max_bytes, size_t chunk_raw = kTransferChunkRawSizeDefault) {
     if (max_bytes > 0 && filesize > max_bytes) {
         return {false, 0, "file exceeds transfer.max_bytes"};
     }
-    uint64_t expected = filesize / kTransferChunkRawSize;
-    if (filesize % kTransferChunkRawSize != 0) ++expected;
+    chunk_raw = effective_transfer_chunk_size(static_cast<uint32_t>(chunk_raw));
+    uint64_t expected = filesize / chunk_raw;
+    if (filesize % chunk_raw != 0) ++expected;
     if (expected == 0) expected = 1;  // zero-byte files still carry one empty chunk
     if (expected > std::numeric_limits<uint32_t>::max()) {
         return {false, 0, "file requires too many chunks"};
@@ -1199,8 +1221,9 @@ struct TransferMetadataValidation {
 }
 
 [[nodiscard]] inline TransferMetadataValidation validate_transfer_metadata(
-    uint64_t filesize, uint32_t total_chunks, uint64_t max_bytes) {
-    auto result = calculate_transfer_metadata(filesize, max_bytes);
+    uint64_t filesize, uint32_t total_chunks, uint64_t max_bytes,
+    size_t chunk_raw = kTransferChunkRawSizeDefault) {
+    auto result = calculate_transfer_metadata(filesize, max_bytes, chunk_raw);
     if (!result.ok) return result;
     const auto expected_u32 = result.expected_chunks;
     if (total_chunks != expected_u32) {
@@ -1221,7 +1244,8 @@ struct TransferChunkValidation {
     uint32_t expected_total_chunks,
     uint32_t chunk_index,
     uint32_t chunk_total_chunks,
-    size_t decompressed_size) {
+    size_t decompressed_size,
+    size_t chunk_raw = kTransferChunkRawSizeDefault) {
     if (chunk_total_chunks != expected_total_chunks) {
         return {false, "chunk total does not match transfer metadata"};
     }
@@ -1231,9 +1255,10 @@ struct TransferChunkValidation {
     if (received_bytes > expected_size) {
         return {false, "received byte count already exceeds declared size"};
     }
+    chunk_raw = effective_transfer_chunk_size(static_cast<uint32_t>(chunk_raw));
     const uint64_t remaining = expected_size - received_bytes;
     const uint64_t expected_chunk_size =
-        std::min<uint64_t>(remaining, kTransferChunkRawSize);
+        std::min<uint64_t>(remaining, chunk_raw);
     if (decompressed_size != expected_chunk_size) {
         return {false, "chunk bytes do not match declared file size"};
     }
@@ -1514,6 +1539,8 @@ Message decode(std::span<const uint8_t> raw) {
         m.filesize = (hi << 32) | lo;
         m.checksum = d.str_prefixed();
         m.total_chunks = d.u32be();
+        // Optional trailing chunk_size (new peers). Absent → 0 → default.
+        m.chunk_size = d.ok(4) ? d.u32be() : 0u;
         return m;
     }
     case 0x1D: {
@@ -5682,8 +5709,51 @@ inline bool socket_selectable(SOCKET fd) {
 #ifdef _WIN32
     return true;
 #else
-    return fd >= 0 && fd < FD_SETSIZE;
+    // Main event loop uses poll() (no FD_SETSIZE). Paths that still call
+    // select() must keep the classic limit so FD_SET is defined behavior.
+    return fd >= 0;
 #endif
+}
+
+// ── poll() abstraction (main mesh loop — no FD_SETSIZE ceiling) ────
+#ifdef _WIN32
+using bs_pollfd = WSAPOLLFD;
+// Winsock2 uses POLLRDNORM/POLLWRNORM; some SDKs also define POLLIN/POLLOUT.
+#ifndef POLLIN
+#define POLLIN  POLLRDNORM
+#endif
+#ifndef POLLOUT
+#define POLLOUT POLLWRNORM
+#endif
+[[nodiscard]] inline int bs_poll(bs_pollfd* fds, unsigned long nfds, int timeout_ms) {
+    return WSAPoll(fds, nfds, timeout_ms);
+}
+#else
+using bs_pollfd = pollfd;
+[[nodiscard]] inline int bs_poll(bs_pollfd* fds, nfds_t nfds, int timeout_ms) {
+    return poll(fds, nfds, timeout_ms);
+}
+#endif
+[[nodiscard]] inline bool pollfd_readable(const bs_pollfd& p) {
+    return (p.revents & (POLLIN | POLLHUP | POLLERR)) != 0;
+}
+[[nodiscard]] inline bool pollfd_writable(const bs_pollfd& p) {
+    return (p.revents & POLLOUT) != 0;
+}
+// Lookup helper: find poll result for an fd (linear scan; N is small).
+[[nodiscard]] inline const bs_pollfd* find_pollfd(const std::vector<bs_pollfd>& pfds, SOCKET fd) {
+    for (const auto& p : pfds) {
+        if (static_cast<SOCKET>(p.fd) == fd) return &p;
+    }
+    return nullptr;
+}
+[[nodiscard]] inline bool poll_fd_readable(const std::vector<bs_pollfd>& pfds, SOCKET fd) {
+    const auto* p = find_pollfd(pfds, fd);
+    return p && pollfd_readable(*p);
+}
+[[nodiscard]] inline bool poll_fd_writable(const std::vector<bs_pollfd>& pfds, SOCKET fd) {
+    const auto* p = find_pollfd(pfds, fd);
+    return p && pollfd_writable(*p);
 }
 
 struct TimedConnectResult {
@@ -6537,6 +6607,7 @@ public:
         uint64_t received_bytes = 0;
         uint32_t total_chunks = 0;
         uint32_t received_chunks = 0;
+        size_t chunk_raw_size = kTransferChunkRawSizeDefault;
         std::ofstream file;
         bool active = false;
     };
@@ -8038,13 +8109,15 @@ private:
             try { write_frame(c.ssl.get(), FileAckMsg{0, 0, true, err}, CONTROL_STREAM_ID); } catch (...) {}
             return;
         }
+        const size_t chunk_raw = effective_transfer_chunk_size(m.chunk_size);
         const auto metadata = validate_transfer_metadata(
-            m.filesize, m.total_chunks, config_.transfer_max_bytes);
+            m.filesize, m.total_chunks, config_.transfer_max_bytes, chunk_raw);
         if (!metadata.ok) {
             const std::string& err = metadata.reason;
             log_event("file_recv_rejected",
                       *safe_name + " size=" + std::to_string(m.filesize) +
                       " chunks=" + std::to_string(m.total_chunks) +
+                      " chunk_size=" + std::to_string(chunk_raw) +
                       " reason=" + err);
             try { write_frame(c.ssl.get(), FileAckMsg{0, 0, true, err}, CONTROL_STREAM_ID); } catch (...) {}
             return;
@@ -8089,6 +8162,7 @@ private:
         state.checksum = m.checksum;
         state.expected_size = m.filesize;
         state.total_chunks = m.total_chunks;
+        state.chunk_raw_size = chunk_raw;
         state.file.open(part_path, std::ios::binary | std::ios::trunc);
         state.active = state.file.is_open();
         if (!state.active) {
@@ -8117,7 +8191,8 @@ private:
         }
         const auto chunk_valid = validate_transfer_chunk(
             state.expected_size, state.received_bytes, state.received_chunks,
-            state.total_chunks, m.chunk_index, m.total_chunks, decompressed.size());
+            state.total_chunks, m.chunk_index, m.total_chunks, decompressed.size(),
+            state.chunk_raw_size);
         if (!chunk_valid.ok) {
             const std::string err = chunk_valid.reason;
             log_event("file_chunk_rejected", state.filename + " reason=" + err);
@@ -8210,7 +8285,7 @@ private:
 
         FileMetaMsg meta;
         meta.filename = filename; meta.filesize = filesize;
-        meta.checksum = checksum; meta.total_chunks = total_chunks;
+        meta.checksum = checksum; meta.total_chunks = total_chunks; meta.chunk_size = static_cast<uint32_t>(kTransferChunkRawSizeDefault);
         write_frame(target->ssl.get(), meta, CONTROL_STREAM_ID);
         log_event("file_send_start", filename + " -> " + peer_name);
         std::cout << "sending " << filename << " (" << filesize << " bytes, "
@@ -8338,7 +8413,7 @@ private:
         try {
             FileMetaMsg meta;
             meta.filename = filename; meta.filesize = filesize;
-            meta.checksum = checksum; meta.total_chunks = total_chunks;
+            meta.checksum = checksum; meta.total_chunks = total_chunks; meta.chunk_size = static_cast<uint32_t>(kTransferChunkRawSizeDefault);
             write_frame(ssl, meta, CONTROL_STREAM_ID);
         } catch (const std::exception& e) {
             return "ERROR send meta: " + std::string(e.what());
@@ -8524,7 +8599,7 @@ private:
         try {
             FileMetaMsg meta;
             meta.filename = filename; meta.filesize = filesize;
-            meta.checksum = checksum; meta.total_chunks = total_chunks;
+            meta.checksum = checksum; meta.total_chunks = total_chunks; meta.chunk_size = static_cast<uint32_t>(kTransferChunkRawSizeDefault);
             write_frame(ssl, meta, CONTROL_STREAM_ID);
         } catch (const std::exception& e) {
             return "ERROR send meta: " + std::string(e.what());
@@ -8874,8 +8949,9 @@ private:
         }
         if (!meta) return "ERROR transfer timeout waiting for file metadata";
 
+        const size_t recv_chunk_raw = effective_transfer_chunk_size(meta->chunk_size);
         const auto metadata = validate_transfer_metadata(
-            meta->filesize, meta->total_chunks, config_.transfer_max_bytes);
+            meta->filesize, meta->total_chunks, config_.transfer_max_bytes, recv_chunk_raw);
         if (!metadata.ok) {
             try { write_frame(ssl, FileAckMsg{0, 0, true, metadata.reason}, CONTROL_STREAM_ID); } catch (...) {}
             return "ERROR " + metadata.reason;
@@ -8934,7 +9010,7 @@ private:
                         data = decompress_chunk_payload(std::span<const uint8_t>(chunk.data.data(), chunk.data.size()));
                     const auto chunk_valid = validate_transfer_chunk(
                         meta->filesize, bytes_recv, chunks_recv, meta->total_chunks,
-                        chunk.chunk_index, chunk.total_chunks, data.size());
+                        chunk.chunk_index, chunk.total_chunks, data.size(), recv_chunk_raw);
                     if (!chunk_valid.ok) {
                         try { write_frame(ssl, FileAckMsg{
                             chunk.chunk_index, chunks_recv, true, chunk_valid.reason},
@@ -9087,39 +9163,43 @@ private:
             return;
         }
 
-        fd_set read_fds, write_fds;
-        FD_ZERO(&read_fds);
-        FD_ZERO(&write_fds);
-        FD_SET(listen_fd_, &read_fds);
-        SOCKET max_fd = listen_fd_;
+        std::vector<bs_pollfd> pfds;
+        auto add = [&](SOCKET fd, short events) {
+            if (fd == INVALID_SOCKET) return;
+            bs_pollfd p{};
+            p.fd = static_cast<decltype(p.fd)>(fd);
+            p.events = events;
+            pfds.push_back(p);
+        };
+        add(listen_fd_, POLLIN);
         for (const auto& c : conns_) {
             if (c.exec_busy && c.exec_busy->load()) continue;
             if (c.sock_fd == INVALID_SOCKET) continue;
-            FD_SET(c.sock_fd, &read_fds);
-            if (c.sock_fd > max_fd) max_fd = c.sock_fd;
+            add(c.sock_fd, POLLIN);
         }
         for (auto& ph : pending_handshakes_) {
             if (ph.sock_fd == INVALID_SOCKET) continue;
-            if (ph.want_read) FD_SET(ph.sock_fd, &read_fds);
-            if (ph.want_write) FD_SET(ph.sock_fd, &write_fds);
-            if (ph.sock_fd > max_fd) max_fd = ph.sock_fd;
+            short ev = 0;
+            if (ph.want_read) ev = static_cast<short>(ev | POLLIN);
+            if (ph.want_write) ev = static_cast<short>(ev | POLLOUT);
+            if (ev) add(ph.sock_fd, ev);
         }
 
-        timeval tv{};
-        tv.tv_sec = timeout_ms / 1000;
-        tv.tv_usec = (timeout_ms % 1000) * 1000;
-        int nfds = select(static_cast<int>(max_fd) + 1, &read_fds, &write_fds, nullptr, &tv);
-        if (nfds <= 0) return;
+        int n = pfds.empty() ? 0 : bs_poll(pfds.data(),
+#ifdef _WIN32
+            static_cast<unsigned long>(pfds.size()),
+#else
+            static_cast<nfds_t>(pfds.size()),
+#endif
+            timeout_ms);
+        if (n <= 0) return;
 
-        if (FD_ISSET(listen_fd_, &read_fds)) {
+        if (poll_fd_readable(pfds, listen_fd_))
             accept_inbound();
-            --nfds;
-        }
-        for (int i = 0; i < static_cast<int>(conns_.size()) && nfds > 0; ++i) {
+        for (int i = 0; i < static_cast<int>(conns_.size()); ++i) {
             if (conns_[static_cast<size_t>(i)].sock_fd != INVALID_SOCKET &&
-                FD_ISSET(conns_[static_cast<size_t>(i)].sock_fd, &read_fds)) {
+                poll_fd_readable(pfds, conns_[static_cast<size_t>(i)].sock_fd)) {
                 check_conn_read(i);
-                --nfds;
             }
         }
 
@@ -9317,7 +9397,7 @@ private:
         if (total_chunks == 0) total_chunks = 1;
 
         FileMetaMsg meta;
-        meta.filename = filename; meta.filesize = filesize; meta.checksum = checksum; meta.total_chunks = total_chunks;
+        meta.filename = filename; meta.filesize = filesize; meta.checksum = checksum; meta.total_chunks = total_chunks; meta.chunk_size = static_cast<uint32_t>(kTransferChunkRawSizeDefault);
         try { write_frame(target->ssl.get(), meta, CONTROL_STREAM_ID); } catch (...) { return "ERROR upload: send meta failed"; }
 
         // Wait for ACK
@@ -9404,8 +9484,7 @@ private:
             FileMetaMsg meta;
             meta.filename = fs::path(remote_file).filename().string();
             meta.filesize = static_cast<uint64_t>(total);
-            meta.checksum = checksum;
-            meta.total_chunks = total_chunks;
+            meta.checksum = checksum; meta.total_chunks = total_chunks; meta.chunk_size = static_cast<uint32_t>(kTransferChunkRawSizeDefault);
             try { write_frame(target->ssl.get(), meta, CONTROL_STREAM_ID); } catch (...) { return "ERROR send meta for " + rel; }
             // Wait for ack
             auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(15);
@@ -12327,12 +12406,7 @@ public:
         { u_long nb = 1; ioctlsocket(listen_fd_, FIONBIO, &nb); }
 #else
         { int fl = fcntl(listen_fd_, F_GETFL, 0); if (fl >= 0) fcntl(listen_fd_, F_SETFL, fl | O_NONBLOCK); }
-        if (listen_fd_ >= FD_SETSIZE) {
-            log_event("mesh_listen_fd_too_high", std::to_string(listen_fd_));
-            CLOSESOCK(listen_fd_);
-            listen_fd_ = INVALID_SOCKET;
-            return;
-        }
+        // poll() has no FD_SETSIZE limit — high FDs are fine.
 #endif
 
         log_event("mesh_listening", config_.listen_addr + ":" + std::to_string(config_.listen_port));
@@ -12355,26 +12429,26 @@ public:
         startup_wait_for_network(config_.startup_wait_secs);
 
         while (running_) {
-            // 1. Build fd_set for select()
-            fd_set read_fds, write_fds;
-            FD_ZERO(&read_fds);
-            FD_ZERO(&write_fds);
-            FD_SET(listen_fd_, &read_fds);
+            // 1. Build pollfd set (poll/WSAPoll — no FD_SETSIZE ceiling).
+            std::vector<bs_pollfd> pfds;
+            pfds.reserve(8 + conns_.size() + pending_handshakes_.size());
 
-            SOCKET max_fd = listen_fd_;
-            // Make the CLI IPC port event-driven: include its listen fd in select()
-            // so `health` queries are serviced the moment they arrive, instead of
-            // once per (possibly slow) loop iteration. Without this, a loop tick
-            // spent in a peer handshake/read leaves IPC unaccepted and the CLI times
-            // out — observed as intermittent "health timed out" on Windows/macOS.
-            if (cli_listen_fd_ != INVALID_SOCKET) {
-                FD_SET(cli_listen_fd_, &read_fds);
-                if (cli_listen_fd_ > max_fd) max_fd = cli_listen_fd_;
-            }
+            auto add_poll = [&](SOCKET fd, short events) {
+                if (fd == INVALID_SOCKET) return;
+                bs_pollfd p{};
+                p.fd = static_cast<decltype(p.fd)>(fd);
+                p.events = events;
+                p.revents = 0;
+                pfds.push_back(p);
+            };
+
+            add_poll(listen_fd_, POLLIN);
+            // CLI IPC listen — event-driven so health is not starved mid-handshake.
+            if (cli_listen_fd_ != INVALID_SOCKET)
+                add_poll(cli_listen_fd_, POLLIN);
+
             for (auto& c : conns_) {
-                // Skip conns whose socket/SSL is currently owned by a
-                // background daemon_shell_exec thread (v1.7 async exec fix,
-                // Known Issue #2) — reading here would race the thread.
+                // Skip conns whose socket/SSL is owned by a worker (exec_busy).
                 if (c.exec_busy && c.exec_busy->load()) continue;
 #ifdef _WIN32
                 if (c.attached_session &&
@@ -12385,84 +12459,52 @@ public:
                     continue;
 #endif
                 if (c.sock_fd != INVALID_SOCKET) {
-#ifndef _WIN32
-                    if (c.sock_fd >= FD_SETSIZE) {
-                        log_event("mesh_peer_fd_too_high", c.peer_name);
-                        close_conn(c);
-                        continue;
-                    }
-#endif
-                    FD_SET(c.sock_fd, &read_fds);
-                    // Wake when TX queue or logical output queue needs drain.
+                    short ev = POLLIN;
                     if (c.want_write || !c.tx_queue.empty() || !c.output_queue.empty()
-                        || c.output_gap_pending) {
-                        FD_SET(c.sock_fd, &write_fds);
-                    }
-                    if (c.sock_fd > max_fd) max_fd = c.sock_fd;
+                        || c.output_gap_pending)
+                        ev = static_cast<short>(ev | POLLOUT);
+                    add_poll(c.sock_fd, ev);
                 }
             }
 #ifndef _WIN32
-            // PTY output is part of the event loop. Without these descriptors,
-            // select() can sleep for three seconds while a TUI is drawing,
-            // then forward only a fragment and visibly tear the screen.
+            // PTY masters wake the loop immediately (avoids torn TUI frames).
             for (const auto& info : sessions_.list()) {
                 Session* session = sessions_.get(info.name);
-                if (!session || !session->is_pollable() || session->master_fd < 0 ||
-                    session->master_fd >= FD_SETSIZE)
+                if (!session || !session->is_pollable() || session->master_fd < 0)
                     continue;
-                FD_SET(session->master_fd, &read_fds);
-                if (session->master_fd > max_fd) max_fd = session->master_fd;
-                // If the child is not consuming input fast enough, watch for
-                // writability so we can drain the pending queue.
-                if (!session->pending_input.empty()) {
-                    FD_SET(session->master_fd, &write_fds);
-                }
+                short ev = POLLIN;
+                if (!session->pending_input.empty())
+                    ev = static_cast<short>(ev | POLLOUT);
+                add_poll(session->master_fd, ev);
             }
 #endif
-            if (mdns_fd_ != INVALID_SOCKET) {
-#ifndef _WIN32
-                if (mdns_fd_ >= FD_SETSIZE) {
-                    log_event("mdns_fd_too_high", std::to_string(mdns_fd_));
-                    CLOSESOCK(mdns_fd_);
-                    mdns_fd_ = INVALID_SOCKET;
-                } else
-#endif
-                {
-                FD_SET(mdns_fd_, &read_fds);
-                if (mdns_fd_ > max_fd) max_fd = mdns_fd_;
-                }
-            }
+            if (mdns_fd_ != INVALID_SOCKET)
+                add_poll(mdns_fd_, POLLIN);
 
-            // v2.0.6: include pending TLS+Hello handshakes. A handshake may need
-            // both read and write readiness depending on OpenSSL state, so include
-            // pending sockets in both sets; advance_handshakes() is non-blocking.
             for (auto& ph : pending_handshakes_) {
                 if (ph.sock_fd == INVALID_SOCKET) continue;
-#ifndef _WIN32
-                if (ph.sock_fd >= FD_SETSIZE) {
-                    log_event("handshake_fd_too_high", std::to_string(ph.sock_fd));
-                    if (ph.ssl) SSL_set_quiet_shutdown(ph.ssl.get(), 1);
-                    CLOSESOCK(ph.sock_fd);
-                    ph.sock_fd = INVALID_SOCKET;
-                    ph.state = PendingHandshake::State::Failed;
-                    continue;
-                }
-#endif
-                if (ph.want_read) FD_SET(ph.sock_fd, &read_fds);
-                if (ph.want_write) FD_SET(ph.sock_fd, &write_fds);
-                if (ph.sock_fd > max_fd) max_fd = ph.sock_fd;
+                short ev = 0;
+                if (ph.want_read) ev = static_cast<short>(ev | POLLIN);
+                if (ph.want_write) ev = static_cast<short>(ev | POLLOUT);
+                if (ev == 0) ev = POLLIN; // always watch something
+                add_poll(ph.sock_fd, ev);
             }
 
-            // 2. select(): POSIX PTYs wake this set immediately. Windows pipe
-            // handles cannot participate in select(), so poll ConPTY.
-            // Adaptive: 500ms when idle (no sessions), 50ms when sessions exist
-            // for ConPTY responsiveness.
+            // Adaptive timeout: Windows needs faster ConPTY polling when busy.
 #ifdef _WIN32
-            timeval tv{0, sessions_.empty() ? 500'000 : 50'000};
+            int poll_timeout_ms = sessions_.empty() ? 500 : 50;
 #else
-            timeval tv{0, 100'000};
+            int poll_timeout_ms = 100;
 #endif
-            int nfds = select(static_cast<int>(max_fd) + 1, &read_fds, &write_fds, nullptr, &tv);
+            int nfds = pfds.empty()
+                ? 0
+                : bs_poll(pfds.data(),
+#ifdef _WIN32
+                          static_cast<unsigned long>(pfds.size()),
+#else
+                          static_cast<nfds_t>(pfds.size()),
+#endif
+                          poll_timeout_ms);
 
             if (nfds < 0) {
 #ifdef _WIN32
@@ -12470,8 +12512,7 @@ public:
 #else
                 if (errno == EINTR) continue;
 #endif
-                // P0 fix: log and continue instead of killing the daemon
-                log_event("mesh_select_error", "errno=" + std::to_string(
+                log_event("mesh_poll_error", "errno=" + std::to_string(
 #ifdef _WIN32
                     WSAGetLastError()
 #else
@@ -12480,6 +12521,8 @@ public:
                 ));
                 continue;
             }
+            // Snapshot readiness for the rest of the tick (pfds holds revents).
+            const std::vector<bs_pollfd>& ready = pfds;
 
             auto now = std::chrono::steady_clock::now();
             maybe_reload_config_seeds();
@@ -12498,30 +12541,26 @@ public:
 #endif
 
             // Service CLI IPC the moment a request arrives (event-driven).
-            if (cli_listen_fd_ != INVALID_SOCKET && FD_ISSET(cli_listen_fd_, &read_fds)) {
+            if (cli_listen_fd_ != INVALID_SOCKET && poll_fd_readable(ready, cli_listen_fd_)) {
                 cli_ipc_accept_one();
-                if (nfds > 0) --nfds;
             }
 
             // 3. Accept new connections
-            if (nfds > 0 && FD_ISSET(listen_fd_, &read_fds)) {
+            if (poll_fd_readable(ready, listen_fd_)) {
                 accept_inbound();
-                --nfds;
             }
             // 3.5. mDNS read
-            if (nfds > 0 && mdns_fd_ != INVALID_SOCKET && FD_ISSET(mdns_fd_, &read_fds)) {
+            if (mdns_fd_ != INVALID_SOCKET && poll_fd_readable(ready, mdns_fd_)) {
                 mdns_check();
-                --nfds;
             }
 
             // 4. Read from established connections
-            for (int i = 0; i < static_cast<int>(conns_.size()) && nfds > 0; ++i) {
+            for (int i = 0; i < static_cast<int>(conns_.size()); ++i) {
                 auto& conn = conns_[static_cast<size_t>(i)];
                 if (conn.exec_busy && conn.exec_busy->load()) continue;
                 if (conn.sock_fd != INVALID_SOCKET &&
-                    FD_ISSET(conn.sock_fd, &read_fds)) {
+                    poll_fd_readable(ready, conn.sock_fd)) {
                     check_conn_read(i);
-                    --nfds;
                 }
             }
 
@@ -12530,7 +12569,7 @@ public:
                 if (conn.exec_busy && conn.exec_busy->load()) continue;
                 if (conn.sock_fd == INVALID_SOCKET) continue;
                 if (conn.want_write || !conn.tx_queue.empty()) {
-                    if (nfds <= 0 || FD_ISSET(conn.sock_fd, &write_fds) || SSL_pending(conn.ssl.get()) > 0
+                    if (poll_fd_writable(ready, conn.sock_fd) || SSL_pending(conn.ssl.get()) > 0
                         || !conn.tx_queue.empty()) {
                         flush_tx_queue(conn);
                     }
@@ -12583,7 +12622,7 @@ public:
                 Session* session = sessions_.get(info.name);
                 if (!session || session->pending_input.empty() || session->master_fd < 0)
                     continue;
-                if (FD_ISSET(session->master_fd, &write_fds))
+                if (poll_fd_writable(ready, session->master_fd))
                     (void)drain_pending_pty_input(*session);
             }
 #endif
@@ -12593,6 +12632,7 @@ public:
             // drains final output and emits SessionDied. Reaping it here first
             // steals waitpid() and leaves the client waiting forever.
             sessions_.reap_dead(false);
+            (void)nfds; // readiness is driven by poll revents, not the count
         }
 
         // P1 fix: persist sessions on graceful shutdown

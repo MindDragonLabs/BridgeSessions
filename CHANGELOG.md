@@ -11,6 +11,16 @@ All notable public releases are documented here.
 
 ## Unreleased
 
+### Event loop / transfers
+- **Main mesh loop uses `poll()` / `WSAPoll`** instead of `select()` — removes the
+  FD_SETSIZE (~1024) ceiling so high FDs and large peer counts no longer drop
+  silently. `service_reconnect_wait_once` converted the same way.
+- **FileMeta.chunk_size negotiation** (optional trailing u32): receivers honor
+  the sender-declared raw chunk size (clamped 4–48 KiB). Old peers omit the
+  field → default 48 KiB. Stops mixed-fleet "chunk count mismatch" when sizes
+  diverge.
+- **Pipeline depth 32** (was 16) → 1.5 MiB in flight at 48 KiB chunks.
+
 ### macOS install / upgrade signing
 - **`scripts/install-local-macos.sh`**: installs `build/bridgesessions` to
   `~/.local/bin` with **Developer ID Application** signing only (no ad-hoc

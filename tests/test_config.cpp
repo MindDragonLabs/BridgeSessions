@@ -537,6 +537,13 @@ TEST_CASE("transfer metadata binds declared size to canonical chunk count",
     REQUIRE(validate_transfer_metadata(1, 1, 1024).ok);
     REQUIRE(validate_transfer_metadata(kTransferChunkRawSize, 1, 1 << 20).ok);
     REQUIRE(validate_transfer_metadata(kTransferChunkRawSize + 1, 2, 1 << 20).ok);
+    // Explicit chunk_size negotiation: 16KiB chunks for a 32KiB file → 2 chunks.
+    REQUIRE(validate_transfer_metadata(32 * 1024, 2, 1 << 20, 16 * 1024).ok);
+    REQUIRE_FALSE(validate_transfer_metadata(32 * 1024, 1, 1 << 20, 16 * 1024).ok);
+    REQUIRE(effective_transfer_chunk_size(0) == kTransferChunkRawSizeDefault);
+    REQUIRE(effective_transfer_chunk_size(100) == kTransferChunkRawSizeMin); // clamp up
+    REQUIRE(effective_transfer_chunk_size(999999) == kTransferChunkRawSizeMax);
+    REQUIRE(kTransferPipelineSize >= 16);
 
     REQUIRE_FALSE(validate_transfer_metadata(1, 0, 1024).ok);
     REQUIRE_FALSE(validate_transfer_metadata(1, 2, 1024).ok);

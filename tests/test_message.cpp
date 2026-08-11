@@ -303,6 +303,7 @@ TEST_CASE("FileMetaMsg defaults and equality", "[message][file]") {
         REQUIRE(m.filesize == 0);
         REQUIRE(m.checksum.empty());
         REQUIRE(m.total_chunks == 0);
+        REQUIRE(m.chunk_size == 0);
     }
 
     SECTION("equality") {
@@ -311,16 +312,35 @@ TEST_CASE("FileMetaMsg defaults and equality", "[message][file]") {
         a.filesize = 1024;
         a.checksum = "abc123";
         a.total_chunks = 4;
+        a.chunk_size = 49152;
 
         FileMetaMsg b;
         b.filename = "test.bin";
         b.filesize = 1024;
         b.checksum = "abc123";
         b.total_chunks = 4;
+        b.chunk_size = 49152;
 
         REQUIRE(a == b);
         b.filesize = 2048;
         REQUIRE_FALSE(a == b);
+    }
+
+    SECTION("chunk_size wire round-trip") {
+        FileMetaMsg a;
+        a.filename = "x.bin";
+        a.filesize = 100000;
+        a.checksum = "deadbeef";
+        a.total_chunks = 3;
+        a.chunk_size = 32768;
+        auto frame = encode(Message{a}, 0);
+        Message decoded = decode(frame);
+        REQUIRE(std::holds_alternative<FileMetaMsg>(decoded));
+        auto& b = std::get<FileMetaMsg>(decoded);
+        REQUIRE(b.filename == "x.bin");
+        REQUIRE(b.filesize == 100000);
+        REQUIRE(b.total_chunks == 3);
+        REQUIRE(b.chunk_size == 32768);
     }
 }
 
