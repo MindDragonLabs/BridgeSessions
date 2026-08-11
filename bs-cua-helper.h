@@ -142,18 +142,39 @@ inline CuaResponseMsg cua_helper_execute(const CuaRequestMsg& req) {
         }
         case 6: {  // capture — native GDI BitBlt + GDI+ JPEG (user session → real pixels).
             // 2.0.20: replaced PowerShell Add-Type (1-3s latency) with in-process GDI.
+            // Cap resolution so Session-0 / multi-monitor virtual desktops cannot
+            // allocate multi-GB bitmaps or hang the helper (CLI then times out
+            // with "cua-helper no response").
             int vw = GetSystemMetrics(SM_CXVIRTUALSCREEN);
             int vh = GetSystemMetrics(SM_CYVIRTUALSCREEN);
             int vx = GetSystemMetrics(SM_XVIRTUALSCREEN);
             int vy = GetSystemMetrics(SM_YVIRTUALSCREEN);
             if (vw <= 0 || vh <= 0) {
+                // Session 0 often reports 0 — fall back to primary metrics
+                vw = GetSystemMetrics(SM_CXSCREEN);
+                vh = GetSystemMetrics(SM_CYSCREEN);
+                vx = 0; vy = 0;
+            }
+            if (vw <= 0 || vh <= 0) {
                 resp.status = 1; resp.error = "capture: invalid screen metrics";
                 return resp;
+            }
+            // Soft cap 1920x1080 equivalent pixels for helper response size
+            const int max_w = 1920, max_h = 1080;
+            int cap_w = vw, cap_h = vh;
+            if (cap_w > max_w || cap_h > max_h) {
+                double sx = (double)max_w / cap_w;
+                double sy = (double)max_h / cap_h;
+                double s = sx < sy ? sx : sy;
+                cap_w = (int)(cap_w * s);
+                cap_h = (int)(cap_h * s);
+                if (cap_w < 1) cap_w = 1;
+                if (cap_h < 1) cap_h = 1;
             }
             HDC screen_dc = GetDC(NULL);
             if (!screen_dc) { resp.status = 1; resp.error = "GetDC failed"; return resp; }
             HDC mem_dc = CreateCompatibleDC(screen_dc);
-            HBITMAP bmp = CreateCompatibleBitmap(screen_dc, vw, vh);
+            HBITMAP bmp = CreateCompatibleBitmap(screen_dc, cap_w, cap_h);
             if (!mem_dc || !bmp) {
                 if (mem_dc) DeleteDC(mem_dc);
                 if (bmp) DeleteObject(bmp);
@@ -162,24 +183,26 @@ inline CuaResponseMsg cua_helper_execute(const CuaRequestMsg& req) {
                 return resp;
             }
             HBITMAP old = (HBITMAP)SelectObject(mem_dc, bmp);
-            BitBlt(mem_dc, 0, 0, vw, vh, screen_dc, vx, vy, SRCCOPY);
+            // StretchBlt scales full virtual desktop into cap_w x cap_h
+            SetStretchBltMode(mem_dc, HALFTONE);
+            StretchBlt(mem_dc, 0, 0, cap_w, cap_h, screen_dc, vx, vy, vw, vh, SRCCOPY);
             // Extract raw pixels via GetDIBits
             BITMAPINFOHEADER bih{};
             bih.biSize = sizeof(BITMAPINFOHEADER);
-            bih.biWidth = vw;
-            bih.biHeight = -vh;  // top-down
+            bih.biWidth = cap_w;
+            bih.biHeight = -cap_h;  // top-down
             bih.biPlanes = 1;
             bih.biBitCount = 32;
             bih.biCompression = BI_RGB;
-            std::vector<uint8_t> pixels((size_t)vw * vh * 4);
-            int rows = GetDIBits(mem_dc, bmp, 0, vh, pixels.data(),
+            std::vector<uint8_t> pixels((size_t)cap_w * (size_t)cap_h * 4);
+            int rows = GetDIBits(mem_dc, bmp, 0, cap_h, pixels.data(),
                                  (BITMAPINFO*)&bih, DIB_RGB_COLORS);
             SelectObject(mem_dc, old);
             DeleteObject(bmp);
             DeleteDC(mem_dc);
             ReleaseDC(NULL, screen_dc);
             if (rows <= 0) {
-                resp.status = 1; resp.error = "capture: GetDIBits failed";
+                resp.status = 1; resp.error = "capture: GetDIBits failed (session 0 may lack a desktop)";
                 return resp;
             }
             // Encode as JPEG via GDI+
@@ -190,7 +213,7 @@ inline CuaResponseMsg cua_helper_execute(const CuaRequestMsg& req) {
                 resp.status = 1; resp.error = "capture: GDI+ init failed";
                 return resp;
             }
-            Gdiplus::Bitmap bitmap(vw, vh, (size_t)vw * 4, PixelFormat32bppRGB, pixels.data());
+            Gdiplus::Bitmap bitmap(cap_w, cap_h, (size_t)cap_w * 4, PixelFormat32bppRGB, pixels.data());
             // quality 70 — ~30-50KB per screenshot, fits mesh frame limit
             CLSID jpg_clsid;
             UINT num = 0, size = 0;
@@ -255,8 +278,8 @@ inline CuaResponseMsg cua_helper_execute(const CuaRequestMsg& req) {
                 return resp;
             }
             resp.format = 2; resp.status = 0;  // JPEG
-            resp.screen_w = (int16_t)vw;
-            resp.screen_h = (int16_t)vh;
+            resp.screen_w = (int16_t)cap_w;
+            resp.screen_h = (int16_t)cap_h;
             return resp;
         }
         default:
@@ -358,7 +381,7 @@ inline CuaResponseMsg cua_helper_execute(const CuaRequestMsg& req) {
             resp.status = 0;
             return resp;
         }
-        case 6: {  // capture — ScreenCaptureKit → JPEG (downscaled to fit frame limit)
+        case 6: {  // capture — ScreenCaptureKit, with screencapture(1) fallback
             char tmp[] = "/tmp/bs-cua-helper-XXXXXX.png";
             int fd = mkstemps(tmp, 4);
             if (fd < 0) {
@@ -368,15 +391,28 @@ inline CuaResponseMsg cua_helper_execute(const CuaRequestMsg& req) {
             }
             close(fd);
             char err[1024] = {};
-            if (!bs_macos_capture_png(tmp, 0, err, sizeof(err))) {
+            bool got_png = bs_macos_capture_png(tmp, 0, err, sizeof(err));
+            if (!got_png) {
+                // Fallback: macOS screencapture CLI (often already TCC-authorized
+                // for the user session when SCK fails with "no shareable displays").
+                std::string sc = "/usr/sbin/screencapture -x -t png '";
+                sc += tmp;
+                sc += "' 2>/dev/null";
+                if (std::system(sc.c_str()) == 0 && std::filesystem::exists(tmp) &&
+                    std::filesystem::file_size(tmp) > 0) {
+                    got_png = true;
+                    err[0] = '\0';
+                }
+            }
+            if (!got_png) {
                 resp.status = 1;
-                resp.error = std::string("capture failed — grant Screen Recording to the helper (TCC): ") + err;
+                resp.error = std::string("capture failed — grant Screen Recording to "
+                                         "BridgeSessions.app (TCC): ") +
+                             (err[0] ? err : "no shareable displays / screencapture failed");
                 ::unlink(tmp);
                 return resp;
             }
-            // Convert PNG to JPEG, downscale to 1280px max, quality 70%.
-            // PNG screenshots are 2-4MB; JPEG at these settings ≈ 30-50KB
-            // which fits within the 65535-byte mesh frame limit.
+            // Convert PNG to JPEG, downscale to fit mesh frames (~30-50KB).
             char jpg[] = "/tmp/bs-cua-helper-XXXXXX.jpg";
             int jfd = mkstemps(jpg, 4);
             if (jfd < 0) {

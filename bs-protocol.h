@@ -3426,29 +3426,48 @@ extern "C" int bs_macos_capture_png(const char*, unsigned, char*, size_t);
         return resp;
     }
     if (req.action == 6) {
-        // Capture via ScreenCaptureKit (macos-capture.mm)
+        // Capture via ScreenCaptureKit (macos-capture.mm), with screencapture(1)
+        // fallback when TCC blocks SCK ("user declined" / no shareable displays).
+        // Default to failure — do not leave status=0 with empty data (CLI then
+        // prints "no capture data returned" with a false success).
+        resp.status = 1;
         char tmp[] = "/tmp/bs-cua-XXXXXX.png";
         int fd = mkstemps(tmp, 4);
         if (fd >= 0) close(fd);
         char err[1024] = {};
-        if (bs_macos_capture_png(tmp, 0, err, sizeof(err))) {
+        bool got_png = bs_macos_capture_png(tmp, 0, err, sizeof(err));
+        if (!got_png) {
+            std::string sc = "/usr/sbin/screencapture -x -t png '";
+            sc += tmp;
+            sc += "' 2>/dev/null";
+            if (std::system(sc.c_str()) == 0 && std::filesystem::exists(tmp) &&
+                std::filesystem::file_size(tmp) > 0) {
+                got_png = true;
+                err[0] = '\0';
+            }
+        }
+        if (got_png) {
             std::ifstream cap(tmp, std::ios::binary | std::ios::ate);
             auto sz = cap.tellg();
             if (sz > 0 && (size_t)sz <= MAX_IMAGE_BYTES) {
                 resp.data.resize((size_t)sz);
                 cap.seekg(0);
                 cap.read((char*)resp.data.data(), sz);
-                resp.format = 1; resp.status = 0;
+                resp.format = 1;
+                resp.status = 0;
+                resp.error.clear();
                 auto r = CGDisplayBounds(CGMainDisplayID());
                 resp.screen_w = (int16_t)r.size.width;
                 resp.screen_h = (int16_t)r.size.height;
+            } else {
+                resp.error = "macOS capture empty/oversize";
             }
+        } else {
+            resp.error = std::string("macOS capture failed (grant Screen Recording to "
+                                     "BridgeSessions.app if needed): ") +
+                         (err[0] ? err : "ScreenCaptureKit / screencapture failed");
         }
         ::unlink(tmp);
-        if (resp.status != 0) {
-            resp.status = 1;
-            resp.error = std::string("macOS capture failed: ") + err;
-        }
         return resp;
     }
     resp.status = 1;

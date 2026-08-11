@@ -11,6 +11,15 @@ All notable public releases are documented here.
 
 ## Unreleased
 
+### CUA capture reliability
+- **Windows helper**: soft-cap capture to 1920×1080 via StretchBlt so Session-0 /
+  multi-monitor virtual desktops cannot allocate multi-GB bitmaps or hang the helper.
+- **macOS helper + in-process**: ScreenCaptureKit failure falls back to
+  `screencapture(1)` before erroring; empty-success status=0 with no data fixed
+  (status defaults to failure until bytes are present). Prefer Dev ID-signed
+  BridgeSessions.app for stable TCC Screen Recording grants.
+
+
 ### Testing
 - **Linux CUA screen**: parse fix — no longer matches the `x` inside the word
   `dimensions` from `xdpyinfo` (was reporting bogus sizes like 128x20).
