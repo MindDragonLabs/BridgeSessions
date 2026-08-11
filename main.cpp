@@ -738,9 +738,9 @@ int main(int argc, char** argv) {
         std::cout << "One-liner:\n";
         std::cout << "  bridgesessions join " << addr << ":" << port << " " << token << " --start\n";
         std::cout << "Or with curl install:\n";
-        std::cout << "  curl -fsSL https://codeberg.org/Mind-Dragon/BridgeSessions/raw/tag/" << bs::mesh::kBridgeSessionsVersion << "/scripts/install.sh | bash -s -- join " << addr << ":" << port << " " << token << " --start\n";
+        std::cout << "  curl -fsSL https://raw.githubusercontent.com/MindDragonLabs/BridgeSessions/v" << bs::mesh::kBridgeSessionsVersion << "/scripts/install.sh | bash -s -- join " << addr << ":" << port << " " << token << " --start\n";
         std::cout << "Windows PowerShell:\n";
-        std::cout << "  irm https://codeberg.org/Mind-Dragon/BridgeSessions/raw/tag/" << bs::mesh::kBridgeSessionsVersion << "/scripts/install.ps1 | iex\n  bridgesessions join " << addr << ":" << port << " " << token << " --start\n";
+        std::cout << "  irm https://raw.githubusercontent.com/MindDragonLabs/BridgeSessions/v" << bs::mesh::kBridgeSessionsVersion << "/scripts/install.ps1 | iex\n  bridgesessions join " << addr << ":" << port << " " << token << " --start\n";
         return 0;
     }
     if (join_cmd_app->parsed()) {
