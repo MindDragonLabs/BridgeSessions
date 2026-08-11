@@ -385,19 +385,25 @@ EOF
       # Resolve symlinks — BIN_ABS may point back to a previous .app install
       REAL_BIN="${BIN_ABS}"
       if [ -L "${BIN_ABS}" ]; then
-        REAL_BIN=$(readlink -f "${BIN_ABS}" 2>/dev/null || readlink "${BIN_ABS}")
-        # readlink -f not available on older macOS — resolve manually
-        if [ -z "${REAL_BIN}" ] || [ ! -f "${REAL_BIN}" ]; then
-          REAL_BIN=$(cd "$(dirname "${BIN_ABS}")" && readlink "$(basename "${BIN_ABS}")")
-          case "${REAL_BIN}" in
-            /*) ;; # absolute — ok
-            *) REAL_BIN="$(dirname "${BIN_ABS}")/${REAL_BIN}" ;;
-          esac
-        fi
+        REAL_BIN=$(readlink "${BIN_ABS}" 2>/dev/null)
+        case "${REAL_BIN}" in
+          /*) ;; # absolute — ok
+          *) REAL_BIN="$(dirname "${BIN_ABS}")/${REAL_BIN}" ;;
+        esac
       fi
-      # Copy the real binary, not the symlink
-      cp -f "${REAL_BIN}" "${LOCAL_APP}/Contents/MacOS/bridgesessions"
-      chmod 755 "${LOCAL_APP}/Contents/MacOS/bridgesessions"
+      APP_DEST="${LOCAL_APP}/Contents/MacOS/bridgesessions"
+      if [ "${REAL_BIN}" = "${APP_DEST}" ]; then
+        # Re-run: BIN_ABS is a symlink into the .app we are (re)building —
+        # the binary is already inside the bundle. Copying would be a
+        # self-copy ('files are identical' error under set -eu).
+        echo "→ .app binary already in place (re-run) — skipping copy"
+      elif [ -f "${REAL_BIN}" ]; then
+        # Copy the real binary, not the symlink
+        cp -f "${REAL_BIN}" "${APP_DEST}"
+        chmod 755 "${APP_DEST}"
+      else
+        echo "WARNING: no source binary found for .app wrapper" >&2
+      fi
       cat > "${LOCAL_APP}/Contents/Info.plist" << EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
