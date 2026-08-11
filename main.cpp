@@ -791,7 +791,7 @@ int main(int argc, char** argv) {
 
         // Read JoinReply (skip Ping/Pong/Hello/Gossip noise from the event loop)
         bs::mesh::Message msg;
-        for (int retry = 0; retry < 20; ++retry) {
+        for (int retry = 0; retry < 100; ++retry) {
             try {
                 msg = bs::mesh::read_frame(conn.ssl.get());
             } catch (const std::exception& e) {
@@ -799,7 +799,8 @@ int main(int argc, char** argv) {
                 return 1;
             }
             if (std::holds_alternative<bs::mesh::JoinReplyMsg>(msg)) break;
-            std::cerr << "  (discarding non-JoinReply frame, index=" << msg.index() << ")\n";
+            // Discard gossip/ping/pong noise — server event loop floods the
+            // connection after promotion before we finish reading JoinReply.
         }
         if (!std::holds_alternative<bs::mesh::JoinReplyMsg>(msg)) {
             std::cerr << "Unexpected reply from host (message type index=" << msg.index() << ")\n";

@@ -400,8 +400,11 @@ EOF
 </dict>
 </plist>
 EOF
-      # Ad-hoc sign the bundle so TCC has a CDHash to track
-      codesign --force --sign - "${LOCAL_APP}" 2>/dev/null || true
+      # The downloaded binary from dist/ is already Developer ID signed.
+      # Do NOT re-sign — that would strip the signature (Rana's machine
+      # has no Developer ID cert). Just copy the signed binary as-is.
+      # TCC tracks the TeamIdentifier (QL5MD8FKPL) from the embedded signature.
+      echo "→ .app bundle created (preserving signed binary)"
       # Point CLI symlink at the .app binary
       ln -sf "${LOCAL_APP}/Contents/MacOS/bridgesessions" "${BIN_ABS}"
       APP_BIN="${LOCAL_APP}/Contents/MacOS/bridgesessions"

@@ -3251,12 +3251,13 @@ inline void close_socket(int fd) {
         return resp;
     }
 #endif
-    // P2: set 10s recv timeout so recv loop can't hang forever
+    // Recv timeout: capture (action 6) may take PowerShell+GDI ~2–8s; allow 20s.
+    // Input actions stay snappy with the same budget (fail closed if helper wedged).
 #ifdef _WIN32
-    DWORD rcv_timeout_ms = 10000;
+    DWORD rcv_timeout_ms = 20000;
     setsockopt(sfd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&rcv_timeout_ms, sizeof(rcv_timeout_ms));
 #else
-    struct timeval rcv_tv { 10, 0 };
+    struct timeval rcv_tv { 20, 0 };
     setsockopt(sfd, SOL_SOCKET, SO_RCVTIMEO, &rcv_tv, sizeof(rcv_tv));
 #endif
 
@@ -7913,6 +7914,10 @@ private:
                         }
                         if (reply.ok && reply_sent) {
                             log_event("join_success", ph.peer_pk.substr(0, 16) + "...");
+                            // Flush JoinReply to the wire before promoting —
+                            // otherwise the event loop floods gossip frames
+                            // that the client reads before JoinReply.
+                            BIO_flush(SSL_get_wbio(ph.ssl.get()));
                             promote_handshake_to_conn(ph, ph.peer_hello);
                         } else if (reply.ok && !reply_sent) {
                             log_event("join_promote_without_reply", ph.peer_pk.substr(0, 16) + "...");
@@ -10248,7 +10253,21 @@ public:
             // Non-spectator: dispatch to platform CUA backend (2.0.8 P5).
             CuaResponseMsg resp = cua_execute(req, home_dir_);
             resp.request_id = req.request_id;
-            try { write_frame(conn.ssl.get(), resp, CONTROL_STREAM_ID); } catch (...) {}
+            // Screenshots often exceed 64KB; use u32 frames when peer
+            // advertised +frm2 (default allow_large=false silently drops).
+            const bool allow_large = version_has_cap(conn.remote_version, kCapFrm2);
+            try {
+                write_frame(conn.ssl.get(), resp, CONTROL_STREAM_ID, allow_large);
+            } catch (const std::exception& e) {
+                log_event("cua_response_write_failed", e.what());
+                CuaResponseMsg fail;
+                fail.request_id = req.request_id;
+                fail.status = 1;
+                fail.error = std::string("cua response send failed: ") + e.what();
+                try { write_frame(conn.ssl.get(), fail, CONTROL_STREAM_ID); } catch (...) {}
+            } catch (...) {
+                log_event("cua_response_write_failed", "unknown");
+            }
             return;
         }
 
@@ -10257,7 +10276,8 @@ public:
             auto& req = std::get<CuaVideoCaptureMsg>(msg);
             CuaVideoCaptureResultMsg resp = video_capture_execute(req);
             resp.request_id = req.request_id;
-            try { write_frame(conn.ssl.get(), resp, CONTROL_STREAM_ID); } catch (...) {}
+            const bool allow_large = version_has_cap(conn.remote_version, kCapFrm2);
+            try { write_frame(conn.ssl.get(), resp, CONTROL_STREAM_ID, allow_large); } catch (...) {}
             return;
         }
 
