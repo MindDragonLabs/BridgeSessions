@@ -543,6 +543,8 @@ TEST_CASE("transfer metadata binds declared size to canonical chunk count",
     REQUIRE(effective_transfer_chunk_size(0) == kTransferChunkRawSizeDefault);
     REQUIRE(effective_transfer_chunk_size(100) == kTransferChunkRawSizeMin); // clamp up
     REQUIRE(effective_transfer_chunk_size(999999) == kTransferChunkRawSizeMax);
+    REQUIRE(transfer_chunk_size_for_peer("1.0.0") == kTransferChunkRawSizeDefault);
+    REQUIRE(transfer_chunk_size_for_peer("26.08.11-beta1+frm2") == kTransferChunkRawSizeLarge);
     REQUIRE(kTransferPipelineSize >= 16);
 
     REQUIRE_FALSE(validate_transfer_metadata(1, 0, 1024).ok);

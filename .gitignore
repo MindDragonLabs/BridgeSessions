@@ -152,3 +152,6 @@ tools/bridgepanel/TODO.md
 tools/windows-cua/
 build_static/
 site/
+
+# ── Local protocol / design standards (not published) ──
+.standards/

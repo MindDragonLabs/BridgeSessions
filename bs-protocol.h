@@ -557,20 +557,53 @@ using Message = std::variant<
 >;
 
 // ── Frame ──────────────────────────────────────────────────────────
-// Wire format: [stream_id: u16][type: u8][flags: u8][length: u16][data]
-// flags bit 0 = compressed (zstd), bit 1 = control frame
+// Wire format (legacy / small):
+//   [stream_id: u16][type: u8][flags: u8][length: u16][data]
+// Wire format (large, FLAG_LENGTH_U32):
+//   [stream_id: u16][type: u8][flags: u8][length: u32be][data]
+// Capability: Hello.version contains "+frm2" when a peer can send/recv u32 length.
+// Peers without frm2 must only ever see u16-length frames (≤65535 payload).
 
 constexpr uint16_t CONTROL_STREAM_ID = 0;
-constexpr size_t   FRAME_HEADER_SIZE  = 6;   // stream_id(u16) + type(u8) + flags(u8) + length(u16)
-constexpr uint16_t MAX_FRAME_SIZE     = 65535;
+constexpr size_t   FRAME_HEADER_SIZE_U16 = 6;   // stream_id + type + flags + length(u16)
+constexpr size_t   FRAME_HEADER_SIZE_U32 = 8;   // stream_id + type + flags + length(u32)
+constexpr size_t   FRAME_HEADER_SIZE     = FRAME_HEADER_SIZE_U16; // min header / legacy alias
+constexpr uint32_t MAX_FRAME_PAYLOAD_U16 = 65535u;
+constexpr uint32_t MAX_FRAME_PAYLOAD_U32 = 4u * 1024u * 1024u; // 4 MiB single-frame cap
+constexpr uint16_t MAX_FRAME_SIZE        = 65535; // legacy alias (= MAX_FRAME_PAYLOAD_U16)
 constexpr uint16_t COMPRESSION_THRESHOLD = 256;
-constexpr size_t    MAX_IMAGE_BYTES    = 50ull * 1024ull * 1024ull;
+constexpr size_t   MAX_IMAGE_BYTES       = 50ull * 1024ull * 1024ull;
+
+// Hello.version capability tags (appended as +tag[+tag...]).
+inline constexpr std::string_view kCapFrm2 = "frm2"; // u32 frame length support
 
 enum FrameFlags : uint8_t {
     FLAG_COMPRESSED      = 0x01,
     FLAG_CONTROL         = 0x02,
     FLAG_RENDER_MARKDOWN = 0x04,
+    FLAG_LENGTH_U32      = 0x08, // length field is u32be; header is 8 bytes
+    // FLAG_FRAGMENT      = 0x10, // reserved: multi-frame logical fragmentation
 };
+
+// Parse "+cap" tags from a version string like "26.08.10-beta2+frm2+txc".
+[[nodiscard]] inline bool version_has_cap(std::string_view version, std::string_view cap) {
+    if (cap.empty()) return false;
+    auto plus = version.find('+');
+    if (plus == std::string_view::npos) return false;
+    std::string_view rest = version.substr(plus + 1);
+    while (!rest.empty()) {
+        auto next = rest.find('+');
+        std::string_view tag = (next == std::string_view::npos) ? rest : rest.substr(0, next);
+        if (tag == cap) return true;
+        if (next == std::string_view::npos) break;
+        rest.remove_prefix(next + 1);
+    }
+    return false;
+}
+
+[[nodiscard]] inline std::string version_string_with_local_caps() {
+    return std::string(kBridgeSessionsVersion) + "+" + std::string(kCapFrm2);
+}
 
 struct Frame {
     uint16_t stream_id = 0;
@@ -768,8 +801,8 @@ void serialize_msg(Serializer& s, const FileMetaMsg& m) {
 void serialize_msg(Serializer& s, const FileChunkMsg& m) {
     s.u32be(m.chunk_index);
     s.u32be(m.total_chunks);
-    if (m.data.size() > MAX_FRAME_SIZE)
-        throw std::runtime_error("file chunk payload exceeds MAX_FRAME_SIZE");
+    if (m.data.size() > MAX_FRAME_PAYLOAD_U32)
+        throw std::runtime_error("file chunk payload exceeds MAX_FRAME_PAYLOAD_U32");
     s.u32be(static_cast<uint32_t>(m.data.size()));
     if (!m.data.empty()) s.bytes(std::span<const uint8_t>(m.data.data(), m.data.size()));
 }
@@ -865,11 +898,14 @@ std::vector<uint8_t> zstd_decompress(std::span<const uint8_t> data) {
     uint64_t bound = ZSTD_getFrameContentSize(data.data(), data.size());
     if (bound == ZSTD_CONTENTSIZE_ERROR) throw std::runtime_error("zstd: invalid frame");
     if (bound == ZSTD_CONTENTSIZE_UNKNOWN) throw std::runtime_error("zstd: unknown decompressed size");
-    if (bound > MAX_FRAME_SIZE) throw std::runtime_error("zstd: decompressed frame exceeds MAX_FRAME_SIZE");
+    // Cap matches largest dual-frame payload (frm2 / u32 length).
+    if (bound > MAX_FRAME_PAYLOAD_U32)
+        throw std::runtime_error("zstd: decompressed frame exceeds MAX_FRAME_PAYLOAD_U32");
     std::vector<uint8_t> out(static_cast<size_t>(bound));
     size_t sz = ZSTD_decompressDCtx(get_zstd_dctx(), out.data(), out.size(), data.data(), data.size());
     if (ZSTD_isError(sz)) throw std::runtime_error(std::string("zstd decompress: ") + ZSTD_getErrorName(sz));
-    if (sz > MAX_FRAME_SIZE) throw std::runtime_error("zstd: decoded frame exceeds MAX_FRAME_SIZE");
+    if (sz > MAX_FRAME_PAYLOAD_U32)
+        throw std::runtime_error("zstd: decoded frame exceeds MAX_FRAME_PAYLOAD_U32");
     out.resize(sz);
     return out;
 }
@@ -1025,21 +1061,35 @@ private:
 }
 constexpr int kTransferIdleTimeoutSec = 120;
 constexpr int kTransferProgressIntervalSec = 10;
-// Default raw chunk size. Capped at 48KB so uncompressible data still fits a
-// u16 frame after framing overhead (MAX_FRAME_SIZE=65535). Larger sizes need
-// u32 frames (separate wire bump). Negotiated via FileMetaMsg.chunk_size.
+// Default raw chunk size for legacy (u16-only) peers: uncompressible data must
+// still fit MAX_FRAME_PAYLOAD_U16 after framing. With +frm2, prefer large.
 constexpr size_t kTransferChunkRawSizeDefault = 48 * 1024;
+constexpr size_t kTransferChunkRawSizeLarge   = 256 * 1024; // frm2 peers
 constexpr size_t kTransferChunkRawSizeMin     = 4 * 1024;
-constexpr size_t kTransferChunkRawSizeMax     = 48 * 1024;
+constexpr size_t kTransferChunkRawSizeMax     = 256 * 1024; // clamp upper
 constexpr size_t kTransferChunkRawSize = kTransferChunkRawSizeDefault; // alias
-constexpr int    kTransferPipelineSize = 32;            // 1.5MB pipeline at 48KB
+constexpr int    kTransferPipelineSize = 32;
 
-// Clamp a peer-declared or config chunk size into the safe wire range.
-[[nodiscard]] inline size_t effective_transfer_chunk_size(uint32_t declared) {
-    if (declared == 0) return kTransferChunkRawSizeDefault;
-    if (declared < kTransferChunkRawSizeMin) return kTransferChunkRawSizeMin;
-    if (declared > kTransferChunkRawSizeMax) return kTransferChunkRawSizeMax;
-    return static_cast<size_t>(declared);
+// Clamp a peer-declared chunk size into the safe wire range.
+// declared==0 means "legacy peer omitted field" → always 48 KiB default
+// (must not invent 256 KiB or chunk-count validation breaks).
+[[nodiscard]] inline size_t effective_transfer_chunk_size(
+        uint32_t declared, size_t max_allowed = kTransferChunkRawSizeMax) {
+    size_t max_c = std::min(max_allowed, kTransferChunkRawSizeMax);
+    if (max_c < kTransferChunkRawSizeMin) max_c = kTransferChunkRawSizeMin;
+    if (declared == 0)
+        return std::min(kTransferChunkRawSizeDefault, max_c);
+    size_t v = static_cast<size_t>(declared);
+    if (v < kTransferChunkRawSizeMin) v = kTransferChunkRawSizeMin;
+    if (v > max_c) v = max_c;
+    return v;
+}
+
+// Chunk size to offer a peer based on Hello.version capability tags.
+[[nodiscard]] inline size_t transfer_chunk_size_for_peer(std::string_view remote_version) {
+    if (version_has_cap(remote_version, kCapFrm2))
+        return kTransferChunkRawSizeLarge;
+    return kTransferChunkRawSizeDefault;
 }
 
 // ── Transfer telemetry ──────────────────────────────────────────────
@@ -1330,13 +1380,17 @@ struct TransferChunkValidation {
     return h.final_hex();
 }
 
-std::vector<uint8_t> encode(const Message& msg, uint16_t stream_id) {
+// allow_large: emit FLAG_LENGTH_U32 frames when compressed payload > 65535.
+// Only true for peers advertising +frm2 (or local tests).
+std::vector<uint8_t> encode(const Message& msg, uint16_t stream_id,
+                            bool allow_large = false) {
     std::vector<uint8_t> payload;
     Serializer s{payload};
     std::visit([&](const auto& m) { serialize_msg(s, m); }, msg);
 
-    if (payload.size() > MAX_FRAME_SIZE)
-        throw std::runtime_error("logical payload exceeds MAX_FRAME_SIZE");
+    const uint32_t logical_cap = allow_large ? MAX_FRAME_PAYLOAD_U32 : MAX_FRAME_PAYLOAD_U16;
+    if (payload.size() > logical_cap)
+        throw std::runtime_error("logical payload exceeds frame capacity");
 
     bool compress = payload.size() > COMPRESSION_THRESHOLD;
     if (compress) payload = zstd_compress(payload);
@@ -1345,29 +1399,60 @@ std::vector<uint8_t> encode(const Message& msg, uint16_t stream_id) {
     if (compress) flags |= FLAG_COMPRESSED;
     if (stream_id == CONTROL_STREAM_ID) flags |= FLAG_CONTROL;
 
-    if (payload.size() > MAX_FRAME_SIZE)
-        throw std::runtime_error("encoded payload exceeds MAX_FRAME_SIZE");
+    const bool use_u32 = allow_large && payload.size() > MAX_FRAME_PAYLOAD_U16;
+    if (use_u32) {
+        if (payload.size() > MAX_FRAME_PAYLOAD_U32)
+            throw std::runtime_error("encoded payload exceeds MAX_FRAME_PAYLOAD_U32");
+        flags |= FLAG_LENGTH_U32;
+        std::vector<uint8_t> frame(FRAME_HEADER_SIZE_U32 + payload.size());
+        write_u16(frame.data(), stream_id);
+        frame[2] = static_cast<uint8_t>(message_type(msg));
+        frame[3] = flags;
+        write_u32be(frame.data() + 4, static_cast<uint32_t>(payload.size()));
+        std::copy(payload.begin(), payload.end(), frame.begin() + FRAME_HEADER_SIZE_U32);
+        return frame;
+    }
 
-    std::vector<uint8_t> frame(FRAME_HEADER_SIZE + payload.size());
+    if (payload.size() > MAX_FRAME_PAYLOAD_U16)
+        throw std::runtime_error("encoded payload exceeds MAX_FRAME_PAYLOAD_U16 (peer lacks +frm2)");
+
+    std::vector<uint8_t> frame(FRAME_HEADER_SIZE_U16 + payload.size());
     write_u16(frame.data(), stream_id);
     frame[2] = static_cast<uint8_t>(message_type(msg));
     frame[3] = flags;
     write_u16(frame.data() + 4, static_cast<uint16_t>(payload.size()));
-    std::copy(payload.begin(), payload.end(), frame.begin() + FRAME_HEADER_SIZE);
-
+    std::copy(payload.begin(), payload.end(), frame.begin() + FRAME_HEADER_SIZE_U16);
     return frame;
 }
 
+// Parse length + header size from a buffer that already has ≥6 bytes.
+// Returns {header_size, payload_length} or throws on protocol error.
+[[nodiscard]] inline std::pair<size_t, uint32_t> frame_header_layout(const uint8_t* data, size_t available) {
+    if (available < FRAME_HEADER_SIZE_U16)
+        throw std::runtime_error("frame header truncated");
+    const uint8_t flags = data[3];
+    if (flags & FLAG_LENGTH_U32) {
+        if (available < FRAME_HEADER_SIZE_U32)
+            throw std::runtime_error("frame u32 header truncated");
+        uint32_t length = read_u32be(data + 4);
+        if (length > MAX_FRAME_PAYLOAD_U32)
+            throw std::runtime_error("frame payload exceeds MAX_FRAME_PAYLOAD_U32");
+        return {FRAME_HEADER_SIZE_U32, length};
+    }
+    uint32_t length = read_u16(data + 4);
+    return {FRAME_HEADER_SIZE_U16, length};
+}
+
 Message decode(std::span<const uint8_t> raw) {
-    if (raw.size() < FRAME_HEADER_SIZE) throw std::runtime_error("frame too short");
+    if (raw.size() < FRAME_HEADER_SIZE_U16) throw std::runtime_error("frame too short");
 
-    uint8_t  type_byte = raw[2];
-    uint8_t  flags     = raw[3];
-    uint16_t length = read_u16(raw.data() + 4);
+    uint8_t type_byte = raw[2];
+    uint8_t flags     = raw[3];
+    auto [hdr, length] = frame_header_layout(raw.data(), raw.size());
 
-    if (raw.size() < FRAME_HEADER_SIZE + length) throw std::runtime_error("frame truncated");
+    if (raw.size() < hdr + length) throw std::runtime_error("frame truncated");
 
-    auto payload = raw.subspan(FRAME_HEADER_SIZE, length);
+    auto payload = raw.subspan(hdr, length);
 
     // Decompress if needed
     std::vector<uint8_t> decompressed;
@@ -1375,7 +1460,8 @@ Message decode(std::span<const uint8_t> raw) {
         decompressed = zstd_decompress(payload);
         payload = decompressed;
     }
-    if (payload.size() > MAX_FRAME_SIZE) throw std::runtime_error("decoded payload exceeds MAX_FRAME_SIZE");
+    if (payload.size() > MAX_FRAME_PAYLOAD_U32)
+        throw std::runtime_error("decoded payload exceeds MAX_FRAME_PAYLOAD_U32");
 
     Decoder d{payload.data(), payload.data() + payload.size()};
 
@@ -1548,8 +1634,8 @@ Message decode(std::span<const uint8_t> raw) {
         m.chunk_index = d.u32be();
         m.total_chunks = d.u32be();
         uint32_t sz = d.u32be();
-        if (sz > MAX_FRAME_SIZE)
-            throw std::runtime_error("file chunk size exceeds MAX_FRAME_SIZE");
+        if (sz > MAX_FRAME_PAYLOAD_U32)
+            throw std::runtime_error("file chunk size exceeds MAX_FRAME_PAYLOAD_U32");
         if (sz > 0) m.data = d.bytes_size(sz);
         return m;
     }
@@ -2321,33 +2407,45 @@ inline bool ssl_want_retry(SSL* ssl, int ret, int& budget) {
 
 Message read_frame(SSL* ssl) {
     int want_budget = 400;  // 400 x 25 ms = 10 s worst-case mid-frame stall
-    // Read header (6 bytes, u16 length format)
-    uint8_t header[FRAME_HEADER_SIZE];
+    // Read minimum header (6 bytes); extend to 8 if FLAG_LENGTH_U32.
+    uint8_t header[FRAME_HEADER_SIZE_U32];
     size_t total = 0;
-    while (total < FRAME_HEADER_SIZE) {
+    while (total < FRAME_HEADER_SIZE_U16) {
         size_t n = 0;
         clear_stale_ssl_errors_before_io();
-        int ret = SSL_read_ex(ssl, header + total, FRAME_HEADER_SIZE - total, &n);
+        int ret = SSL_read_ex(ssl, header + total, FRAME_HEADER_SIZE_U16 - total, &n);
         if (ret <= 0 && ssl_want_retry(ssl, ret, want_budget)) continue;
         ssl_check(ret, ssl, "SSL_read header");
         total += n;
     }
+    size_t hdr_size = FRAME_HEADER_SIZE_U16;
+    uint32_t length = 0;
+    if (header[3] & FLAG_LENGTH_U32) {
+        while (total < FRAME_HEADER_SIZE_U32) {
+            size_t n = 0;
+            clear_stale_ssl_errors_before_io();
+            int ret = SSL_read_ex(ssl, header + total, FRAME_HEADER_SIZE_U32 - total, &n);
+            if (ret <= 0 && ssl_want_retry(ssl, ret, want_budget)) continue;
+            ssl_check(ret, ssl, "SSL_read u32 header");
+            total += n;
+        }
+        hdr_size = FRAME_HEADER_SIZE_U32;
+        length = read_u32be(header + 4);
+        if (length > MAX_FRAME_PAYLOAD_U32)
+            throw std::runtime_error("frame payload exceeds MAX_FRAME_PAYLOAD_U32");
+    } else {
+        length = read_u16(header + 4);
+    }
 
-    uint16_t length = read_u16(header + 4);
-
-    if (length > MAX_FRAME_SIZE)
-        throw std::runtime_error("frame payload exceeds MAX_FRAME_SIZE");
-
-    // Read payload
-    std::vector<uint8_t> raw(FRAME_HEADER_SIZE + length);
-    std::memcpy(raw.data(), header, FRAME_HEADER_SIZE);
+    std::vector<uint8_t> raw(hdr_size + length);
+    std::memcpy(raw.data(), header, hdr_size);
 
     if (length > 0) {
         total = 0;
         while (total < length) {
             size_t n = 0;
             clear_stale_ssl_errors_before_io();
-            int ret = SSL_read_ex(ssl, raw.data() + FRAME_HEADER_SIZE + total, length - total, &n);
+            int ret = SSL_read_ex(ssl, raw.data() + hdr_size + total, length - total, &n);
             if (ret <= 0 && ssl_want_retry(ssl, ret, want_budget)) continue;
             ssl_check(ret, ssl, "SSL_read payload");
             total += n;
@@ -2357,39 +2455,44 @@ Message read_frame(SSL* ssl) {
     return decode(raw);
 }
 
-// Detect frame length with backward compatibility:
-// New format (v26.08.10+): u32 at offset 4 (8-byte header)
-// Old format (pre-v26.08.10): u16 at offset 4 (6-byte header)
-// Heuristic: if u32 value > 1MB and u16 value < 64KB, it's old format.
+// Payload length only (not including header). Requires ≥6 bytes available.
 inline uint32_t detect_frame_length(const uint8_t* data, size_t available) {
-    uint32_t u32_len = read_u32be(data + 4);
-    uint16_t u16_len = read_u16(data + 4);
-    // If u32 looks valid (reasonable size), use it
-    if (u32_len <= 4 * 1024 * 1024) return u32_len;
-    // Otherwise it's likely old u16 format — u16_len is the real length,
-    // and bytes 6-7 are start of payload (not part of length)
-    return u16_len;
+    auto [hdr, length] = frame_header_layout(data, available);
+    (void)hdr;
+    return length;
 }
 
 [[nodiscard]] inline bool buffered_bytes_hold_complete_frame(
     std::span<const uint8_t> bytes) {
-    if (bytes.size() < FRAME_HEADER_SIZE) return false;
-    const uint16_t length = read_u16(bytes.data() + 4);
-    if (length > MAX_FRAME_SIZE) return true;  // let decode surface the protocol error
-    return bytes.size() >= FRAME_HEADER_SIZE + length;
+    if (bytes.size() < FRAME_HEADER_SIZE_U16) return false;
+    try {
+        auto [hdr, length] = frame_header_layout(bytes.data(), bytes.size());
+        if (bytes.size() < hdr) return false; // need more header bytes
+        return bytes.size() >= hdr + length;
+    } catch (...) {
+        return true; // let decode surface the protocol error
+    }
 }
 
 [[nodiscard]] inline std::vector<Message> drain_complete_frames(
     std::vector<uint8_t>& buffered) {
     std::vector<Message> messages;
     size_t consumed = 0;
-    while (buffered.size() - consumed >= FRAME_HEADER_SIZE) {
+    while (buffered.size() - consumed >= FRAME_HEADER_SIZE_U16) {
         const uint8_t* start = buffered.data() + consumed;
-        const uint16_t length = read_u16(start + 4);
-        if (length > MAX_FRAME_SIZE)
-            throw std::runtime_error("frame payload exceeds MAX_FRAME_SIZE");
-        const size_t frame_size = FRAME_HEADER_SIZE + length;
-        if (buffered.size() - consumed < frame_size) break;
+        size_t avail = buffered.size() - consumed;
+        size_t hdr = 0;
+        uint32_t length = 0;
+        try {
+            auto layout = frame_header_layout(start, avail);
+            hdr = layout.first;
+            length = layout.second;
+        } catch (...) {
+            throw;
+        }
+        if (avail < hdr) break;
+        const size_t frame_size = hdr + length;
+        if (avail < frame_size) break;
         messages.push_back(decode(std::span<const uint8_t>(start, frame_size)));
         consumed += frame_size;
     }
@@ -2400,18 +2503,29 @@ inline uint32_t detect_frame_length(const uint8_t* data, size_t available) {
 
 [[nodiscard]] inline bool ssl_has_complete_buffered_frame(SSL* ssl) {
     const int pending = SSL_pending(ssl);
-    if (pending < static_cast<int>(FRAME_HEADER_SIZE)) return false;
-    std::array<uint8_t, FRAME_HEADER_SIZE> header{};
+    if (pending < static_cast<int>(FRAME_HEADER_SIZE_U16)) return false;
+    std::array<uint8_t, FRAME_HEADER_SIZE_U32> header{};
     size_t peeked = 0;
-    if (SSL_peek_ex(ssl, header.data(), header.size(), &peeked) <= 0 ||
-        peeked < header.size()) return false;
+    if (SSL_peek_ex(ssl, header.data(), FRAME_HEADER_SIZE_U16, &peeked) <= 0 ||
+        peeked < FRAME_HEADER_SIZE_U16) return false;
+    if (header[3] & FLAG_LENGTH_U32) {
+        if (pending < static_cast<int>(FRAME_HEADER_SIZE_U32)) return false;
+        size_t peeked2 = 0;
+        if (SSL_peek_ex(ssl, header.data(), FRAME_HEADER_SIZE_U32, &peeked2) <= 0 ||
+            peeked2 < FRAME_HEADER_SIZE_U32) return false;
+    }
     return buffered_bytes_hold_complete_frame(
-        std::span<const uint8_t>(header.data(), header.size())) ||
-        pending >= static_cast<int>(FRAME_HEADER_SIZE + read_u16(header.data() + 4));
+        std::span<const uint8_t>(header.data(),
+            (header[3] & FLAG_LENGTH_U32) ? FRAME_HEADER_SIZE_U32 : FRAME_HEADER_SIZE_U16))
+        || pending >= static_cast<int>(
+            ((header[3] & FLAG_LENGTH_U32) ? FRAME_HEADER_SIZE_U32 : FRAME_HEADER_SIZE_U16)
+            + detect_frame_length(header.data(),
+                (header[3] & FLAG_LENGTH_U32) ? FRAME_HEADER_SIZE_U32 : FRAME_HEADER_SIZE_U16));
 }
 
-void write_frame(SSL* ssl, const Message& msg, uint16_t stream_id) {
-    auto frame = encode(msg, stream_id);
+void write_frame(SSL* ssl, const Message& msg, uint16_t stream_id,
+                 bool allow_large = false) {
+    auto frame = encode(msg, stream_id, allow_large);
 
     size_t total = 0;
     int retries = 0;
@@ -7184,7 +7298,8 @@ private:
     HelloMsg build_hello() const {
         HelloMsg h;
         h.node_name = config_.node_name;
-        h.version = kBridgeSessionsVersion;
+        // Advertise wire capabilities (+frm2 = u32 frame length / large chunks).
+        h.version = version_string_with_local_caps();
         h.pubkey_hex = our_pubkey_;
 
         // Add seeds as known peers. Only gossip peers with pubkeys; empty pubkey
@@ -8335,7 +8450,8 @@ private:
         } guard{&sc.ssl, &sc.sfd};
         // Delegate to the transport-agnostic send-with-acks path.
         return file_send_wait_on_transport(
-            sc.ssl.get(), sc.sfd, local_path, {}, {}, nullptr, peer_name);
+            sc.ssl.get(), sc.sfd, local_path, {}, {}, nullptr, peer_name,
+            sc.hello.version);
     }
 
     // Direct TLS file recv (no daemon required) — sends FileRequestMsg, receives file
@@ -8368,7 +8484,8 @@ private:
             const std::function<bool()>& is_cancelled = {},
             const std::function<void(const std::string&)>& on_progress = {},
             TransferTelemetryRing* telemetry_ring = nullptr,
-            const std::string& peer_name = {}) {
+            const std::string& peer_name = {},
+            std::string_view peer_version = {}) {
         if (!socket_selectable(sock_fd)) return "ERROR socket exceeds select limit";
         // v2.0.12c: temporarily set blocking mode for the duration of the transfer.
         // Mesh sockets are non-blocking; SSL_write_ex on non-blocking sockets
@@ -8402,8 +8519,22 @@ private:
         if (!fs::exists(local_path) || fs::is_directory(local_path))
             return "ERROR file not found or is a directory: " + local_path;
 
+        // Resolve peer capability (+frm2 → 256KB chunks + u32 frames).
+        std::string ver{peer_version};
+        if (ver.empty() && !peer_name.empty()) {
+            for (const auto& c : conns_) {
+                if (is_live_mesh_transport_for(c, peer_name, false)) {
+                    ver = c.remote_version;
+                    break;
+                }
+            }
+        }
+        const size_t chunk_raw = transfer_chunk_size_for_peer(ver);
+        const bool allow_large = version_has_cap(ver, kCapFrm2);
+
         uint64_t filesize = static_cast<uint64_t>(fs::file_size(local_path));
-        const auto shape = calculate_transfer_metadata(filesize, config_.transfer_max_bytes);
+        const auto shape = calculate_transfer_metadata(
+            filesize, config_.transfer_max_bytes, chunk_raw);
         if (!shape.ok) return "ERROR " + shape.reason;
         std::string filename = fs::path(local_path).filename().string();
         std::string checksum = sha256_file_stream(local_path);
@@ -8413,8 +8544,9 @@ private:
         try {
             FileMetaMsg meta;
             meta.filename = filename; meta.filesize = filesize;
-            meta.checksum = checksum; meta.total_chunks = total_chunks; meta.chunk_size = static_cast<uint32_t>(kTransferChunkRawSizeDefault);
-            write_frame(ssl, meta, CONTROL_STREAM_ID);
+            meta.checksum = checksum; meta.total_chunks = total_chunks;
+            meta.chunk_size = static_cast<uint32_t>(chunk_raw);
+            write_frame(ssl, meta, CONTROL_STREAM_ID, allow_large);
         } catch (const std::exception& e) {
             return "ERROR send meta: " + std::string(e.what());
         }
@@ -8444,7 +8576,7 @@ private:
                             return "OK";
                         }
                     } else if (std::holds_alternative<PingMsg>(resp)) {
-                        write_frame(ssl, PongMsg{}, CONTROL_STREAM_ID);
+                        write_frame(ssl, PongMsg{}, CONTROL_STREAM_ID, allow_large);
                     }
                 } catch (const std::exception& e) {
                     return "ERROR transfer ack: " + std::string(e.what());
@@ -8465,7 +8597,7 @@ private:
         auto t0 = std::chrono::steady_clock::now();
         auto last_progress = t0;
         uint64_t bytes_sent = 0;
-        std::vector<char> raw(kTransferChunkRawSize);
+        std::vector<char> raw(chunk_raw);
         auto timing = make_transfer_timing();
 
         for (uint32_t ci = 0; ci < total_chunks; /* incremented in batch */) {
@@ -8474,7 +8606,7 @@ private:
             // ── Send batch: write all chunks without waiting for acks ──
             for (; ci < batch_end; ++ci) {
                 if (is_cancelled && is_cancelled()) return "ERROR cancelled";
-                infile.read(raw.data(), static_cast<std::streamsize>(kTransferChunkRawSize));
+                infile.read(raw.data(), static_cast<std::streamsize>(chunk_raw));
                 size_t chunk_sz = static_cast<size_t>(infile.gcount());
                 // v2.0.12c: let encode() handle compression — manual zstd_compress here
                 // causes double compression which breaks on Windows/MinGW.
@@ -8489,7 +8621,7 @@ private:
                 chunk.data = std::move(raw_chunk);
 
                 auto chunk_t0 = std::chrono::steady_clock::now();
-                try { write_frame(ssl, chunk, CONTROL_STREAM_ID); }
+                try { write_frame(ssl, chunk, CONTROL_STREAM_ID, allow_large); }
                 catch (const std::exception& e) { return "ERROR send chunk: " + std::string(e.what()); }
                 bytes_sent += chunk_sz;
                 auto after_write = std::chrono::steady_clock::now();
@@ -8582,7 +8714,18 @@ private:
             return "ERROR file not found: " + path + " (looked in " + resolved_path + ", receive_dir=" + receive_dir_ + ")";
         }
         uint64_t filesize = static_cast<uint64_t>(fs::file_size(resolved_path));
-        const auto shape = calculate_transfer_metadata(filesize, config_.transfer_max_bytes);
+        // peer_name param identifies the requester; use their Hello caps.
+        const size_t chunk_raw = transfer_chunk_size_for_peer(
+            [&]() -> std::string {
+                for (const auto& c : conns_) {
+                    if (is_live_mesh_transport_for(c, peer_name, false))
+                        return c.remote_version;
+                }
+                return {};
+            }());
+        const bool allow_large = chunk_raw > kTransferChunkRawSizeDefault;
+        const auto shape = calculate_transfer_metadata(
+            filesize, config_.transfer_max_bytes, chunk_raw);
         if (!shape.ok) {
             try { write_frame(ssl, FileAckMsg{0, 0, true, shape.reason}, CONTROL_STREAM_ID); } catch (...) {}
             return "ERROR " + shape.reason;
@@ -8599,8 +8742,9 @@ private:
         try {
             FileMetaMsg meta;
             meta.filename = filename; meta.filesize = filesize;
-            meta.checksum = checksum; meta.total_chunks = total_chunks; meta.chunk_size = static_cast<uint32_t>(kTransferChunkRawSizeDefault);
-            write_frame(ssl, meta, CONTROL_STREAM_ID);
+            meta.checksum = checksum; meta.total_chunks = total_chunks;
+            meta.chunk_size = static_cast<uint32_t>(chunk_raw);
+            write_frame(ssl, meta, CONTROL_STREAM_ID, allow_large);
         } catch (const std::exception& e) {
             return "ERROR send meta: " + std::string(e.what());
         }
@@ -8608,7 +8752,7 @@ private:
 
         std::ifstream infile(resolved_path, std::ios::binary);
         if (!infile) { log_event("file_request_error", "cannot open " + resolved_path); return "ERROR cannot open " + path; }
-        std::vector<char> raw(kTransferChunkRawSize);
+        std::vector<char> raw(chunk_raw);
 
         auto overall_deadline = std::chrono::steady_clock::now() + transfer_overall_timeout(filesize);
         auto idle_deadline = std::chrono::steady_clock::now() +
@@ -8632,7 +8776,7 @@ private:
 
             // ── Send batch: write all chunks, one select+breather between ──
             for (; ci < batch_end; ++ci) {
-                infile.read(raw.data(), static_cast<std::streamsize>(kTransferChunkRawSize));
+                infile.read(raw.data(), static_cast<std::streamsize>(chunk_raw));
                 size_t chunk_sz = static_cast<size_t>(infile.gcount());
                 // v2.0.12c: let encode() handle compression — manual zstd_compress here
                 // causes double compression which breaks on Windows/MinGW.
@@ -8653,7 +8797,7 @@ private:
                     if (sel == 0) return "ERROR transfer idle timeout at chunk " + std::to_string(ci);
                 }
 
-                try { write_frame(ssl, chunk, CONTROL_STREAM_ID); }
+                try { write_frame(ssl, chunk, CONTROL_STREAM_ID, allow_large); }
                 catch (const std::exception& e) {
                     log_event("file_request_error", "send chunk failed " + std::to_string(ci));
                     return "ERROR send chunk " + std::to_string(ci) + ": " + e.what();
@@ -10622,7 +10766,8 @@ public:
         if (c.exec_busy && c.exec_busy->load()) return false;
         std::vector<uint8_t> frame;
         try {
-            frame = encode(msg, stream_id);
+            const bool allow_large = version_has_cap(c.remote_version, kCapFrm2);
+            frame = encode(msg, stream_id, allow_large);
         } catch (...) {
             return false;
         }

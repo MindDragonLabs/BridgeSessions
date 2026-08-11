@@ -1,5 +1,6 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/catch_session.hpp>
+#include <random>
 #include "../bs-protocol.h"
 
 using namespace bs::mesh;
@@ -342,6 +343,39 @@ TEST_CASE("FileMetaMsg defaults and equality", "[message][file]") {
         REQUIRE(b.total_chunks == 3);
         REQUIRE(b.chunk_size == 32768);
     }
+}
+
+TEST_CASE("dual-frame FLAG_LENGTH_U32 encode/decode", "[message][frame][frm2]") {
+    REQUIRE(version_has_cap("26.08.10-beta2+frm2", kCapFrm2));
+    REQUIRE_FALSE(version_has_cap("26.08.10-beta2", kCapFrm2));
+    REQUIRE(version_string_with_local_caps().find("+frm2") != std::string::npos);
+
+    // Small payload stays u16 even with allow_large.
+    OutputMsg small;
+    small.data = "hi";
+    auto f_small = encode(Message{small}, 0, true);
+    REQUIRE(f_small.size() >= FRAME_HEADER_SIZE_U16);
+    REQUIRE((f_small[3] & FLAG_LENGTH_U32) == 0);
+
+    // Force a logical payload that compresses poorly → exceeds 64KB wire size.
+    FileChunkMsg big;
+    big.chunk_index = 0;
+    big.total_chunks = 1;
+    // High-entropy payload so zstd cannot shrink under 64 KiB.
+    big.data.resize(90 * 1024);
+    std::mt19937 rng(0xC0FFEEu);
+    for (auto& b : big.data) b = static_cast<uint8_t>(rng());
+    auto f_big = encode(Message{big}, CONTROL_STREAM_ID, true);
+    INFO("f_big.size=" << f_big.size() << " flags=" << int(f_big[3]));
+    REQUIRE(f_big.size() > FRAME_HEADER_SIZE_U16 + MAX_FRAME_PAYLOAD_U16);
+    REQUIRE((f_big[3] & FLAG_LENGTH_U32) != 0);
+    REQUIRE(f_big.size() >= FRAME_HEADER_SIZE_U32);
+    Message d = decode(f_big);
+    REQUIRE(std::holds_alternative<FileChunkMsg>(d));
+    REQUIRE(std::get<FileChunkMsg>(d).data.size() == big.data.size());
+
+    // Without allow_large, large payload must fail.
+    REQUIRE_THROWS(encode(Message{big}, CONTROL_STREAM_ID, false));
 }
 
 TEST_CASE("FileChunkMsg defaults and equality", "[message][file]") {

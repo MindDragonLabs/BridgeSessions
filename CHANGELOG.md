@@ -15,11 +15,12 @@ All notable public releases are documented here.
 - **Main mesh loop uses `poll()` / `WSAPoll`** instead of `select()` — removes the
   FD_SETSIZE (~1024) ceiling so high FDs and large peer counts no longer drop
   silently. `service_reconnect_wait_once` converted the same way.
-- **FileMeta.chunk_size negotiation** (optional trailing u32): receivers honor
-  the sender-declared raw chunk size (clamped 4–48 KiB). Old peers omit the
-  field → default 48 KiB. Stops mixed-fleet "chunk count mismatch" when sizes
-  diverge.
-- **Pipeline depth 32** (was 16) → 1.5 MiB in flight at 48 KiB chunks.
+- **Dual-frame wire format (`+frm2`)**: `FLAG_LENGTH_U32` (0x08) selects an
+  8-byte header with u32be length (payload up to 4 MiB). Legacy peers keep
+  6-byte u16 headers. Hello.version advertises `+frm2`.
+- **Large transfer chunks for frm2 peers**: 256 KiB raw when peer has `+frm2`;
+  48 KiB otherwise. FileMeta.chunk_size carries the declared size.
+- **Pipeline depth 32** (was 16).
 
 ### macOS install / upgrade signing
 - **`scripts/install-local-macos.sh`**: installs `build/bridgesessions` to
