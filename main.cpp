@@ -25,6 +25,7 @@
 #include <fstream>
 #include <iostream>
 #include <unordered_set>
+#include <filesystem>
 
 namespace {
 
@@ -830,7 +831,10 @@ int main(int argc, char** argv) {
         cfg.require_seed_pins = true;
         bs::mesh::PeerEntry host_seed;
         host_seed.name = "host";
-        host_seed.addr = jrep.host_addr;
+        // Server replies with its own listen_addr, which is usually the
+        // wildcard 0.0.0.0 — unreachable. Substitute the address we dialed.
+        host_seed.addr = (jrep.host_addr.rfind("0.0.0.0", 0) == 0 ||
+                          jrep.host_addr.empty()) ? join_addr : jrep.host_addr;
         host_seed.pubkey_hex = jrep.host_pubkey;
         cfg.seeds.push_back(std::move(host_seed));
         // 2.0.20: add all mesh seeds from the host's peer list
@@ -842,6 +846,16 @@ int main(int argc, char** argv) {
                     pe.name = pk.value("name", "");
                     pe.addr = pk.value("addr", "");
                     pe.pubkey_hex = pk.value("pubkey_hex", "");
+                    // Host records inbound peers at their EPHEMERAL source
+                    // port (e.g. :27826) — dialing that fails. Fleet nodes
+                    // all listen on the canonical port; normalize it.
+                    auto colon = pe.addr.rfind(':');
+                    if (colon != std::string::npos) {
+                        std::string port = pe.addr.substr(colon + 1);
+                        bool all_digit = !port.empty();
+                        for (char c : port) if (!std::isdigit(static_cast<unsigned char>(c))) all_digit = false;
+                        if (all_digit && port != "19949") pe.addr = pe.addr.substr(0, colon) + ":19949";
+                    }
                     if (!pe.name.empty() && !pe.addr.empty() && !pe.pubkey_hex.empty() &&
                         pe.pubkey_hex != jrep.host_pubkey) {
                         cfg.seeds.push_back(std::move(pe));
@@ -898,19 +912,55 @@ int main(int argc, char** argv) {
         }
         std::cout << "Joined. Node: " << cfg.node_name << "  Config: " << config_path << "\n";
         if (join_start) {
-            // Start daemon in background
+            // Start daemon in background. Prefer the platform service manager
+            // (launchd/systemd) if installed — it keeps the daemon alive and
+            // avoids double-binding IPC. Fallback: nohup with our own path
+            // (bare `bridgesessions` may not be on PATH in this shell).
             std::cout << "→ Starting daemon...\n";
-#ifdef _WIN32
-            std::string cmd = "start /B bridgesessions --daemon";
-#else
-            std::string cmd = "nohup bridgesessions --daemon > /dev/null 2>&1 &";
+            bool started = false;
+#ifdef __APPLE__
+            {
+                std::string plist = home_dir + "/../Library/LaunchAgents/com.bridgesessions.mesh.plist";
+                std::error_code ec;
+                if (std::filesystem::exists(plist, ec)) {
+                    int rc = std::system((std::string("launchctl kickstart -k gui/$(id -u)/com.bridgesessions.mesh 2>/dev/null || launchctl bootstrap gui/$(id -u) \"") + plist + "\" 2>/dev/null").c_str());
+                    started = (rc == 0);
+                }
+            }
+#elif defined(__linux__)
+            if (std::system("systemctl --user is-enabled bridgesessions.service >/dev/null 2>&1") == 0) {
+                started = (std::system("systemctl --user restart bridgesessions.service 2>/dev/null") == 0);
+            }
 #endif
-            int rc = std::system(cmd.c_str());
-            if (rc != 0) {
-                std::cout << "→ Could not auto-start daemon (system rc=" << rc
-                          << "). Start it manually: bridgesessions --daemon\n";
+            if (!started) {
+                // Self path: argv[0] may not resolve; prefer the real exe path.
+                std::string self = argv[0];
+#ifdef __APPLE__
+                char exe_path[4096] = {};
+                uint32_t size = sizeof(exe_path);
+                if (_NSGetExecutablePath(exe_path, &size) == 0) self = exe_path;
+#elif defined(__linux__)
+                {
+                    char rp[4096];
+                    ssize_t n = ::readlink("/proc/self/exe", rp, sizeof(rp) - 1);
+                    if (n > 0) { rp[n] = 0; self = rp; }
+                }
+#endif
+                std::string cfg_path = home_dir + "/config";
+#ifdef _WIN32
+                std::string cmd = "start /B \"\" \"" + self + "\" --daemon --config \"" + cfg_path + "\"";
+#else
+                std::string cmd = "nohup '" + self + "' --daemon --config '" + cfg_path + "' > /dev/null 2>&1 &";
+#endif
+                int rc = std::system(cmd.c_str());
+                if (rc != 0) {
+                    std::cout << "→ Could not auto-start daemon (system rc=" << rc
+                              << "). Start it manually: bridgesessions --daemon\n";
+                } else {
+                    std::cout << "→ Daemon started. Run 'bridgesessions health <peer>' to verify.\n";
+                }
             } else {
-                std::cout << "→ Daemon started. Run 'bridgesessions health <peer>' to verify.\n";
+                std::cout << "→ Daemon started (via service manager). Run 'bridgesessions health <peer>' to verify.\n";
             }
         } else {
             std::cout << "Start daemon: bridgesessions --daemon\n";

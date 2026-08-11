@@ -7081,6 +7081,7 @@ private:
         HelloMsg outbound_hello;          // client side: our Hello already built
         HelloMsg peer_hello;              // authenticated peer Hello retained across partial writes
         std::string peer_pk;              // cert pubkey once TLS completes
+        std::string contact_addr;         // inbound: peer ip:port (for JoinReply host_addr)
         bool hello_written = false;       // join path: Hello reply written to peer
         bool want_read = true;
         bool want_write = false;

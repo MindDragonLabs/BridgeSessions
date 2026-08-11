@@ -267,3 +267,33 @@ class TestStaticBinary:
         )
         assert 'Mach-O' in result.stdout
         assert 'arm64' in result.stdout
+
+
+# ════════════════════════════════════════════════════════════════
+# Bugs 12–13: join client must not record unreachable addresses
+# (host_addr 0.0.0.0 wildcard; ephemeral inbound source ports)
+# ════════════════════════════════════════════════════════════════
+
+MAIN_CPP = REPO_ROOT / "main.cpp"
+
+
+class TestJoinClientAddrFixes:
+    """Bugs 12+13 (2026-08-11): joiner wrote 'seed host 0.0.0.0:19949'
+    (server wildcard listen addr) and seeds at EPHEMERAL source ports —
+    both unreachable, so the new node could never dial out."""
+
+    def test_host_addr_wildcard_substituted(self):
+        text = MAIN_CPP.read_text()
+        assert 'rfind("0.0.0.0", 0) == 0' in text, \
+            "join client must substitute dialed addr when server sends 0.0.0.0"
+        assert 'join_addr' in text
+
+    def test_ephemeral_seed_ports_normalized(self):
+        text = MAIN_CPP.read_text()
+        assert ':19949' in text and 'all_digit' in text, \
+            "join client must normalize ephemeral seed ports to canonical port"
+
+    def test_join_start_prefers_service_manager(self):
+        text = MAIN_CPP.read_text()
+        assert 'launchctl kickstart' in text, \
+            "join --start must prefer the launchd service over bare nohup"
