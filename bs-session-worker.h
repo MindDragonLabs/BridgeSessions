@@ -21,7 +21,12 @@
 #include <ws2tcpip.h>
 #include <windows.h>
 #include <namedpipeapi.h>
+#include <process.h>
 #pragma comment(lib, "Ws2_32.lib")
+#ifndef _PID_T_DEFINED
+typedef int pid_t;
+#define _PID_T_DEFINED
+#endif
 #else
 #include <sys/socket.h>
 #include <sys/un.h>

@@ -49,9 +49,8 @@ enable_testing()
 
 # ── Core library (header-only) + binary ──────────────────────────
 add_executable(bridgesessions main.cpp bs-protocol.h)
-if(WIN32)
-    set_target_properties(bridgesessions PROPERTIES WIN32_EXECUTABLE TRUE)
-endif()
+# Console subsystem on Windows: this is a CLI/daemon (int main), not WinMain GUI.
+# WIN32_EXECUTABLE TRUE would require WinMain and hides stdout from shells.
 if(APPLE)
     enable_language(OBJCXX)
     target_sources(bridgesessions PRIVATE macos-capture.mm)

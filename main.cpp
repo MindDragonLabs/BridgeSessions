@@ -721,7 +721,7 @@ int main(int argc, char** argv) {
         std::string addr = cfg.listen_addr;
         if (addr.empty() || addr == "0.0.0.0") {
             // Detect reachable address: prefer Tailscale, then best non-loopback
-            FILE* ts = popen("tailscale ip -4 2>/dev/null", "r");
+            FILE* ts = BS_POPEN("tailscale ip -4 2>/dev/null", "r");
             if (ts) {
                 char buf[64] = {};
                 if (fgets(buf, sizeof(buf), ts)) {
@@ -729,7 +729,7 @@ int main(int argc, char** argv) {
                     while (!ts_ip.empty() && (ts_ip.back() == '\n' || ts_ip.back() == '\r')) ts_ip.pop_back();
                     if (!ts_ip.empty()) addr = ts_ip;
                 }
-                pclose(ts);
+                BS_PCLOSE(ts);
             }
             if (addr.empty() || addr == "0.0.0.0") addr = "127.0.0.1";
         }
@@ -1121,11 +1121,11 @@ int main(int argc, char** argv) {
         std::string reported_version;
         {
             std::string cmd = "'" + tmp_path + "' --version 2>&1";
-            FILE* p = popen(cmd.c_str(), "r");
+            FILE* p = BS_POPEN(cmd.c_str(), "r");
             if (p) {
                 char buf[256];
                 if (fgets(buf, sizeof(buf), p)) reported_version = buf;
-                pclose(p);
+                BS_PCLOSE(p);
             }
         }
         // Trim
@@ -1257,12 +1257,12 @@ int main(int argc, char** argv) {
 
         // Verify
         std::string verify_final = "'" + bin_path + "' --version 2>&1";
-        FILE* p = popen(verify_final.c_str(), "r");
+        FILE* p = BS_POPEN(verify_final.c_str(), "r");
         std::string final_version;
         if (p) {
             char buf[256];
             if (fgets(buf, sizeof(buf), p)) final_version = buf;
-            pclose(p);
+            BS_PCLOSE(p);
         }
         while (!final_version.empty() && (final_version.back() == '\n' || final_version.back() == '\r'))
             final_version.pop_back();
@@ -1517,12 +1517,12 @@ int main(int argc, char** argv) {
         }
         // locate the bridgepanel helper on PATH (installed to ~/.local/bin)
         std::string bin = "bridgepanel";
-        FILE* which = popen("command -v bridgepanel 2>/dev/null", "r");
+        FILE* which = BS_POPEN("command -v bridgepanel 2>/dev/null", "r");
         if (which) {
             char buf[512];
             std::string found;
             while (std::fgets(buf, sizeof(buf), which)) found += buf;
-            pclose(which);
+            BS_PCLOSE(which);
             auto nl = found.find('\n');
             if (nl != std::string::npos) found = found.substr(0, nl);
             if (!found.empty()) bin = found;

@@ -61,6 +61,21 @@
 #include <windows.h>
 #include <fcntl.h>
 #include <process.h>
+// MSVC does not provide POSIX pid_t; MinGW does. Unify for both.
+#ifndef _PID_T_DEFINED
+typedef int pid_t;
+#define _PID_T_DEFINED
+#endif
+// POSIX-compatible pipe spawn aliases (MSVC CRT)
+#ifndef BS_POPEN
+#define BS_POPEN _popen
+#define BS_PCLOSE _pclose
+#endif
+#else
+#ifndef BS_POPEN
+#define BS_POPEN popen
+#define BS_PCLOSE pclose
+#endif
 #endif
 #include <zstd.h>
 #include <openssl/evp.h>
