@@ -22,43 +22,40 @@ fi
 
 echo "Signing $SOURCE with Developer ID..."
 
-# Copy unsigned binary
+# Standalone Mach-O signing (do NOT extract from a signed .app — that
+# invalidates the seal and AMFI kills the binary with exit 137 on other hosts).
 cp "$SOURCE" "$OUTPUT"
 xattr -cr "$OUTPUT" 2>/dev/null || true
+codesign --remove-signature "$OUTPUT" 2>/dev/null || true
 
-# Add Info.plist to the Mach-O (seclndict requires it for stable identity)
-# codesign --add-info-plist is not available, so we embed via the -i flag
-# and the plist must be in the bundle structure. For a standalone binary,
-# we use --bundle to create a .app structure.
+codesign --force --options runtime \
+    --entitlements "$ENTITLEMENTS" \
+    --sign "$IDENTITY" \
+    --timestamp \
+    --identifier com.minddragon.bridgesessions \
+    "$OUTPUT"
+chmod +x "$OUTPUT"
 
+echo "=== Verification ==="
+codesign --verify --strict --verbose=2 "$OUTPUT" 2>&1
+echo "=== Binary signature ==="
+codesign -dvv "$OUTPUT" 2>&1 | head -12
+
+# Also produce a signed .app for GUI installs (optional, same identity)
 APP_NAME="bridgesessions"
 BUNDLE_DIR="/tmp/${APP_NAME}.app"
 rm -rf "$BUNDLE_DIR"
 mkdir -p "$BUNDLE_DIR/Contents/MacOS"
-cp "$SOURCE" "$BUNDLE_DIR/Contents/MacOS/$APP_NAME"
+cp "$OUTPUT" "$BUNDLE_DIR/Contents/MacOS/$APP_NAME"
 cp "$INFO_PLIST" "$BUNDLE_DIR/Contents/Info.plist"
-
-# Sign the .app bundle
 codesign --force --deep --options runtime \
     --entitlements "$ENTITLEMENTS" \
     --sign "$IDENTITY" \
     --timestamp \
-    "$BUNDLE_DIR"
-
-# Verify
-echo "=== Verification ==="
-codesign --verify --strict --verbose=2 "$BUNDLE_DIR" 2>&1
-
-# Extract the signed binary
-cp "$BUNDLE_DIR/Contents/MacOS/$APP_NAME" "$OUTPUT"
-chmod +x "$OUTPUT"
-
-# Verify the binary itself
-echo "=== Binary signature ==="
-codesign -dvv "$OUTPUT" 2>&1 | head -10
+    "$BUNDLE_DIR" 2>/dev/null || true
+codesign --verify --strict "$BUNDLE_DIR" 2>/dev/null && \
+  echo "Also signed app bundle: $BUNDLE_DIR" || true
 
 echo ""
 echo "Signed binary: $OUTPUT"
 echo "Install to: cp $OUTPUT ~/.local/bin/bridgesessions"
-
-rm -rf "$BUNDLE_DIR"
