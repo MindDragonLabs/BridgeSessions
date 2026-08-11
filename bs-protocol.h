@@ -6911,6 +6911,29 @@ public:
 
 #ifdef BS_TESTING
     void close_conn_for_test(Conn& conn) { (void)close_conn(conn); }
+
+    // Test accessors for invite/join regression tests
+    size_t test_pending_invite_count() const {
+        std::lock_guard lock(invite_mutex_);
+        return pending_invites_.size();
+    }
+    bool test_has_unclaimed_invite(const std::string& token) const {
+        std::lock_guard lock(invite_mutex_);
+        return std::any_of(pending_invites_.begin(), pending_invites_.end(),
+            [&](const auto& p) { return p.token == token && p.claimed_by.empty(); });
+    }
+    void test_add_invite(const std::string& token) {
+        std::lock_guard lock(invite_mutex_);
+        PendingInvite pi;
+        pi.token = token;
+        pi.created_at = std::chrono::steady_clock::now();
+        pending_invites_.push_back(std::move(pi));
+        g_allow_join_connections.store(true, std::memory_order_relaxed);
+    }
+    JoinReplyMsg test_process_join(const JoinRequestMsg& jr, const std::string& peer_pk) {
+        return process_join_request(jr, peer_pk);
+    }
+    void test_close_join_window() { maybe_close_join_window(); }
 #endif
 
 private:
