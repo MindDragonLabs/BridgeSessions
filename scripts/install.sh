@@ -188,7 +188,7 @@ if ! echo "${PATH}" | grep -q "${INSTALL_DIR}"; then
   # Pick the login shell's rc file: macOS zsh → .zshrc, Linux bash → .bashrc,
   # fall back to .profile if neither exists yet.
   RC_FILE=""
-  if [ -n "${ZSH_VERSION}" ] || [ "$(basename "$SHELL" 2>/dev/null)" = "zsh" ]; then
+  if [ -n "${ZSH_VERSION:-}" ] || [ "$(basename "$SHELL" 2>/dev/null)" = "zsh" ]; then
     RC_FILE="${HOME}/.zshrc"
   elif [ "$(basename "$SHELL" 2>/dev/null)" = "bash" ]; then
     RC_FILE="${HOME}/.bashrc"
