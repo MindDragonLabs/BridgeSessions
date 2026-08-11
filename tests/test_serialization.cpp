@@ -82,6 +82,39 @@ TEST_CASE("JoinReply error case round-trip", "[serialization]") {
     REQUIRE(reply.error == original.error);
 }
 
+TEST_CASE("JoinReply seeds_csv > 255 bytes round-trips (fleet join regression)", "[serialization][regression]") {
+    // Bug 2026-08-11: seeds_csv used u8 str_prefixed (255B cap). With the
+    // 9-seed production fleet the CSV exceeded 255B, JoinReply serialization
+    // threw "prefixed string exceeds 255 bytes", and every fresh join hung.
+    // Spec: long fields use str_prefixed_u16. This test pins the fleet size.
+    JoinReplyMsg original;
+    original.ok = true;
+    original.node_name = "node-4852beea";
+    // Replicate the actual production seed list (9 seeds, >255 chars).
+    original.seeds_csv =
+        "linux-d:203.0.113.14:19949|linux-c:203.0.113.13:19949|"
+        "linux-a:203.0.113.11:19949|linux-b:203.0.113.12:19949|"
+        "macos-peer:203.0.113.16:19949|linux-db:203.0.113.15:19949|"
+        "node-5aa99a4d:203.0.113.20:19949|windows-peer:203.0.113.17:19949|"
+        "shadow-m1j6:100.115.10.27:19949";
+    REQUIRE(original.seeds_csv.size() > 255); // guard: fleet grew beyond u8 cap
+    original.host_pubkey = "c8efdf34adf16b9ed3bfd424f4bea1ffc8b7438518e5cf381bcf87d65ebcb9cf";
+    original.host_addr = "0.0.0.0:19949";
+    original.peer_pubkeys_json = "[]";
+
+    Message msg = original;
+    std::vector<uint8_t> frame;
+    REQUIRE_NOTHROW(frame = encode(msg, 0)); // must not throw at fleet size
+    Message decoded = decode(frame);
+    REQUIRE(std::holds_alternative<JoinReplyMsg>(decoded));
+    auto& reply = std::get<JoinReplyMsg>(decoded);
+    REQUIRE(reply.ok);
+    REQUIRE(reply.seeds_csv == original.seeds_csv);
+    REQUIRE(reply.node_name == original.node_name);
+    REQUIRE(reply.host_pubkey == original.host_pubkey);
+    REQUIRE(reply.host_addr == original.host_addr);
+}
+
 
 // ── Main ─────────────────────────────────────────────────────────────
 int main(int argc, char* argv[]) {

@@ -28,6 +28,7 @@
 #endif
 
 #if defined(__APPLE__)
+#include <CoreFoundation/CoreFoundation.h>
 #include <CoreGraphics/CoreGraphics.h>
 #include <CoreGraphics/CGEvent.h>
 #include <unistd.h>
@@ -35,6 +36,19 @@ extern "C" int bs_macos_capture_png(const char*, unsigned, char*, size_t);
 #endif
 
 namespace bs::mesh {
+
+#if defined(__APPLE__)
+// TCC bootstrap API — forward-declared instead of including
+// <ApplicationServices/ApplicationServices.h>, whose Carbon umbrella
+// headers ('Rect', etc.) fail to compile as C++. Linked via
+// -framework ApplicationServices (see CMakeLists.txt).
+// (bs-protocol.h pulls CoreFoundation into this namespace, so the CF
+// types resolve here.)
+extern "C" {
+    extern CFStringRef kAXTrustedCheckOptionPrompt;
+    bool AXIsProcessTrustedWithOptions(CFDictionaryRef options);
+}
+#endif
 
 // ── platform backends (run in the USER session) ─────────────────
 
@@ -513,6 +527,30 @@ inline int run_cua_helper(const std::string& app_home_in) {
     std::string app_home = app_home_in.empty()
         ? (expand_home("~") + "/.bridgesessions") : app_home_in;
     make_app_paths(app_home);  // ensure root exists
+
+#ifdef __APPLE__
+    // ── TCC permission bootstrap ────────────────────────────────────
+    // Accessibility and Screen Recording entries only appear in System
+    // Settings after the process has REQUESTED them. Bare launchd starts
+    // never trigger the prompt, so the app is invisible to the user.
+    // Request both at helper start; the OS shows the grant prompt once.
+    {
+        // Accessibility (prompt + add entry to System Settings list).
+        // Pure CoreFoundation — this header compiles as C++, not ObjC++.
+        const void* ax_keys[] = { kAXTrustedCheckOptionPrompt };
+        const void* ax_vals[] = { kCFBooleanTrue };
+        CFDictionaryRef ax_opts = CFDictionaryCreate(
+            nullptr, ax_keys, ax_vals, 1,
+            &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+        bool ax_ok = AXIsProcessTrustedWithOptions(ax_opts);
+        if (ax_opts) CFRelease(ax_opts);
+        // Screen Recording: CGRequestScreenCaptureAccess triggers the
+        // ScreenCaptureKit TCC prompt (macOS 10.15+).
+        bool sr_ok = CGRequestScreenCaptureAccess();
+        bs::log::get("cua-helper")->info("tcc_request accessibility={} screen_recording={}",
+                                         ax_ok, sr_ok);
+    }
+#endif
 
     // Token: generate fresh each start, owner-only. The daemon reads the
     // same file — rotate-on-start means a stale daemon-side cache can't

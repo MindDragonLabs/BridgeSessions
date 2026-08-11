@@ -145,13 +145,28 @@ class TestAppBundleWrapper:
 
     def test_opens_app_for_tcc_indexing(self):
         text = read_script()
-        assert 'open "${LOCAL_APP}"' in text or 'open "$LOCAL_APP"' in text, \
-               "Missing open command to trigger TCC indexing"
+        # TCC indexing happens via lsregister, NOT 'open' (which launches
+        # the binary bare without --config and causes dock bounce).
+        assert 'lsregister' in text, "Missing lsregister for TCC indexing"
+        # Must NOT 'open' the .app (bug: launches bare binary, dock bounce)
+        assert 'open "${LOCAL_APP}"' not in text and 'open "$LOCAL_APP"' not in text, \
+               "install.sh should not 'open' the .app bundle"
 
     def test_tcc_reset_uses_bundle_id(self):
         text = read_script()
         # Should reset TCC using bundle ID, not bare binary name
         assert 'tccutil reset ScreenCapture com.mindragon.bridgesessions' in text
+
+    def test_lsui_element_prevents_dock_bounce(self):
+        text = read_script()
+        assert '<key>LSUIElement</key><true/>' in text, \
+               "Local .app plist missing LSUIElement (dock bounce bug)"
+
+    def test_daemon_restarted_after_app_wrapper(self):
+        text = read_script()
+        # After creating the .app wrapper, both agents must restart onto
+        # the bundle binary — the daemon started earlier is on the bare path.
+        assert 'Daemons restarted from .app bundle' in text
 
 
 # ════════════════════════════════════════════════════════════════

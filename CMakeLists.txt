@@ -59,7 +59,8 @@ if(APPLE)
         "-framework CoreGraphics"
         "-framework ScreenCaptureKit"
         "-framework ImageIO"
-        "-framework UniformTypeIdentifiers")
+        "-framework UniformTypeIdentifiers"
+        "-framework ApplicationServices")
 endif()
 if(NOT BS_ENABLE_NAT)
     target_compile_definitions(bridgesessions PRIVATE BS_NO_NAT)
@@ -134,7 +135,8 @@ foreach(TEST_SRC ${TEST_SOURCES})
         target_link_libraries(${TEST_NAME}
             "-framework CoreGraphics"
             "-framework ScreenCaptureKit"
-            "-framework Foundation")
+            "-framework Foundation"
+            "-framework ApplicationServices")
     endif()
     if(TEST_NAME STREQUAL "test_mesh" OR
        TEST_NAME STREQUAL "test_mesh_responsiveness")

@@ -411,6 +411,11 @@ EOF
   <key>CFBundleExecutable</key><string>bridgesessions</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>LSMinimumSystemVersion</key><string>13.0</string>
+  <key>LSUIElement</key><true/>
+  <key>NSDesktopFolderUsageDescription</key>
+  <string>BridgeSessions needs access to automate desktop tasks.</string>
+  <key>NSCameraUsageDescription</key>
+  <string>BridgeSessions captures the screen for remote automation.</string>
 </dict>
 </plist>
 EOF
@@ -465,16 +470,34 @@ EOF
       tccutil reset ScreenCapture com.mindragon.bridgesessions 2>/dev/null || true
       tccutil reset Accessibility com.mindragon.bridgesessions 2>/dev/null || true
 
-      # Open System Settings — the .app bundle now appears in the list
-      open "${LOCAL_APP}" 2>/dev/null || true
-      open "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture" 2>/dev/null
+      # Register the bundle with LaunchServices so TCC can resolve it,
+      # then restart both agents so they run from the .app bundle
+      # (the mesh daemon started earlier is still on the bare path).
+      LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/LaunchServices.framework/Versions/A/Support/lsregister"
+      [ -x "${LSREGISTER}" ] && "${LSREGISTER}" -f "${LOCAL_APP}" 2>/dev/null || true
+
+      launchctl bootout "gui/$(id -u)/com.bridgesessions.mesh" 2>/dev/null || true
+      launchctl bootout "gui/$(id -u)/com.bridgesessions.cua-helper" 2>/dev/null || true
+      sleep 1
+      launchctl bootstrap "gui/$(id -u)" "${PLIST_DIR}/com.bridgesessions.mesh.plist" 2>/dev/null || \
+        launchctl load -w "${PLIST_DIR}/com.bridgesessions.mesh.plist" 2>/dev/null || true
+      launchctl bootstrap "gui/$(id -u)" "${CUA_PLIST}" 2>/dev/null || \
+        launchctl load -w "${CUA_PLIST}" 2>/dev/null || true
+      sleep 2
+      echo "→ Daemons restarted from .app bundle."
+
+      # Do NOT 'open' the .app — that launches the binary bare (no
+      # --config). TCC entries are created by the CUA helper calling
+      # AXIsProcessTrustedWithOptions + CGRequestScreenCaptureAccess at
+      # startup, which shows the grant prompts automatically.
       echo ""
       echo "⚠️  ACTION REQUIRED — Grant permissions on this Mac's screen:"
-      echo "   1. System Settings → Privacy & Security → Screen Recording"
-      echo "      → Find 'BridgeSessions' → Toggle ON"
-      echo "   2. System Settings → Privacy & Security → Accessibility"
-      echo "      → Find 'BridgeSessions' → Toggle ON"
-      echo "   3. Restart: launchctl kickstart -k gui/\$(id -u)/com.bridgesessions.cua-helper"
+      echo "   The CUA helper will pop system prompts for:"
+      echo "   1. Screen Recording   → click 'Open System Settings' → toggle ON"
+      echo "   2. Accessibility      → follow the prompt"
+      echo "   (If no prompt appears: System Settings → Privacy & Security,"
+      echo "    look for 'BridgeSessions' in both lists, toggle ON, then:"
+      echo "    launchctl kickstart -k gui/\$(id -u)/com.bridgesessions.cua-helper)"
       echo ""
     fi
     ;;
