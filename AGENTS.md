@@ -60,6 +60,19 @@ BS_E2E_SKIP_CUA=1 scripts/e2e-fleet-test.sh      # skip CUA probes
 
 Requires a working local `bs` on PATH and reachable mesh peers. Exit 0 only if all required tests pass.
 
+**Desktop / CUA / tray / menubar / installer** (L3–L4): see **`docs/E2E-FRAMEWORK.md`** and:
+
+```bash
+python3 tests/e2e/runner.py --layers L2,L3 --json /tmp/bs-e2e.json
+# Windows Session-1 helper (Hermes or interactive user):
+#   tests/e2e/harness/win_desktop_setup.ps1 + win_cua_fix_auth.ps1
+# Linux desktop KVM guest on linux-a: tests/e2e/harness/linux_kvm_setup.sh
+# macos-peer (no wipe): tests/e2e/harness/mac_desktop_probe.sh
+```
+
+Run on **work completion**, not nightly.
+
+
 ## Load the skill
 
 If your harness supports progressive skills, load **`bridgesessions`** from `skills/bridgesessions/SKILL.md` (or the `.claude` / `.opencode` / `.agents` symlinks).  
