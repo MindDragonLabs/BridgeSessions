@@ -1199,7 +1199,11 @@ int main(int argc, char** argv) {
                    "pkill -9 -f 'BridgeSessions.app' 2>/dev/null";
 #endif
         std::system(kill_cmd.c_str());
+#ifdef _WIN32
+        Sleep(2000);
+#else
         sleep(2);
+#endif
 
         // Atomic swap: rename old, move new
         std::string old_path = bin_path + ".old";
@@ -1217,7 +1221,9 @@ int main(int argc, char** argv) {
                 return 1;
             }
         }
+#ifndef _WIN32
         chmod(bin_path.c_str(), 0755);
+#endif
         ::unlink(tmp_path.c_str());
 
 #ifdef __APPLE__
@@ -1243,7 +1249,11 @@ int main(int argc, char** argv) {
 #elif defined(_WIN32)
         std::system("schtasks /run /tn BridgeSessions");
 #endif
+#ifdef _WIN32
+        Sleep(3000);
+#else
         sleep(3);
+#endif
 
         // Verify
         std::string verify_final = "'" + bin_path + "' --version 2>&1";

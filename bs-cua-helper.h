@@ -39,8 +39,13 @@ namespace bs::mesh {
 
 #ifdef _WIN32
 
-#include <gdiplus.h>
+// Order matters for MinGW: windows.h / objidl before gdiplus.
+#ifndef WIN32_LEAN_AND_MEAN
+// Do not define WIN32_LEAN_AND_MEAN here — GDI+ needs full COM types.
+#endif
+#include <windows.h>
 #include <objidl.h>
+#include <gdiplus.h>
 // GDI+ linkage: gdiplus.lib — ensure build system links it
 #pragma comment(lib, "gdiplus.lib")
 
@@ -178,7 +183,8 @@ inline CuaResponseMsg cua_helper_execute(const CuaRequestMsg& req) {
                 return resp;
             }
             // Encode as JPEG via GDI+
-            ULONG gdiplus_token = 0;
+            // MinGW: token must be ULONG_PTR (not ULONG) for GdiplusStartup.
+            ULONG_PTR gdiplus_token = 0;
             Gdiplus::GdiplusStartupInput gdiplus_input;
             if (Gdiplus::GdiplusStartup(&gdiplus_token, &gdiplus_input, NULL) != Gdiplus::Ok) {
                 resp.status = 1; resp.error = "capture: GDI+ init failed";
@@ -227,8 +233,8 @@ inline CuaResponseMsg cua_helper_execute(const CuaRequestMsg& req) {
                 resp.status = 1; resp.error = "capture: GdipSaveImageToStream failed";
                 return resp;
             }
-            LARGE seek_pos{};
-            ULARGE large_pos{};
+            LARGE_INTEGER seek_pos{};
+            ULARGE_INTEGER large_pos{};
             stream->Seek(seek_pos, STREAM_SEEK_SET, &large_pos);
             STATSTG stat{};
             stream->Stat(&stat, STATFLAG_NONAME);
