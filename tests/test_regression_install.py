@@ -205,6 +205,23 @@ class TestVersionNotHardcoded:
 # Bug 3: dist binary must be statically linked (no Homebrew dylibs)
 # ════════════════════════════════════════════════════════════════
 
+class TestSymlinkSafeCopy:
+    """Bug 11: cp fails when BIN_ABS is a symlink back to .app binary."""
+
+    def test_resolves_symlink_before_copy(self):
+        text = read_script()
+        assert 'readlink' in text, "Missing symlink resolution before cp"
+        assert 'REAL_BIN' in text, "Missing REAL_BIN variable"
+
+    def test_cp_uses_real_bin(self):
+        text = read_script()
+        assert 'cp -f "${REAL_BIN}"' in text, "cp should use REAL_BIN not BIN_ABS"
+
+    def test_cp_forces_overwrite(self):
+        text = read_script()
+        assert 'cp -f' in text, "cp should force overwrite"
+
+
 class TestStaticBinary:
     """Bug 3: macOS dist binary must not depend on Homebrew dylibs."""
 

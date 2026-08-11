@@ -382,7 +382,21 @@ EOF
       # the bare binary in System Settings → Privacy & Security.
       LOCAL_APP="${HOME}/Applications/BridgeSessions.app"
       mkdir -p "${LOCAL_APP}/Contents/MacOS"
-      cp "${BIN_ABS}" "${LOCAL_APP}/Contents/MacOS/bridgesessions"
+      # Resolve symlinks — BIN_ABS may point back to a previous .app install
+      REAL_BIN="${BIN_ABS}"
+      if [ -L "${BIN_ABS}" ]; then
+        REAL_BIN=$(readlink -f "${BIN_ABS}" 2>/dev/null || readlink "${BIN_ABS}")
+        # readlink -f not available on older macOS — resolve manually
+        if [ -z "${REAL_BIN}" ] || [ ! -f "${REAL_BIN}" ]; then
+          REAL_BIN=$(cd "$(dirname "${BIN_ABS}")" && readlink "$(basename "${BIN_ABS}")")
+          case "${REAL_BIN}" in
+            /*) ;; # absolute — ok
+            *) REAL_BIN="$(dirname "${BIN_ABS}")/${REAL_BIN}" ;;
+          esac
+        fi
+      fi
+      # Copy the real binary, not the symlink
+      cp -f "${REAL_BIN}" "${LOCAL_APP}/Contents/MacOS/bridgesessions"
       chmod 755 "${LOCAL_APP}/Contents/MacOS/bridgesessions"
       cat > "${LOCAL_APP}/Contents/Info.plist" << EOF
 <?xml version="1.0" encoding="UTF-8"?>
