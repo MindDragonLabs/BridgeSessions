@@ -547,6 +547,16 @@ inline int run_cua_helper(const std::string& app_home_in) {
         // Screen Recording: CGRequestScreenCaptureAccess triggers the
         // ScreenCaptureKit TCC prompt (macOS 10.15+).
         bool sr_ok = CGRequestScreenCaptureAccess();
+        if (!sr_ok) {
+            // CGRequestScreenCaptureAccess silently fails for launchd-spawned
+            // processes on macOS 15+/26 — it returns false without showing a
+            // dialog. Forcing a real ScreenCaptureKit capture attempt is what
+            // reliably triggers the TCC grant prompt.
+            std::string probe = "/tmp/.bs-tcc-probe.png";
+            char err[256] = {};
+            bs_macos_capture_png(probe.c_str(), 0, err, sizeof(err));
+            ::unlink(probe.c_str());
+        }
         bs::log::get("cua-helper")->info("tcc_request accessibility={} screen_recording={}",
                                          ax_ok, sr_ok);
     }
