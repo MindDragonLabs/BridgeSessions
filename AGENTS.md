@@ -45,6 +45,21 @@ cmake -S . -B build && cmake --build build -j
 ctest --test-dir build --output-on-failure
 ```
 
+### Fleet e2e (live mesh)
+
+Cross-platform feature matrix (health, shell, file send/recv, run-script, medium transfer, optional CUA) against live peers:
+
+```bash
+# Core matrix: Linux (linux-b,linux-a) + macOS (macos-peer) + Windows (windows-peer)
+scripts/e2e-fleet-test.sh
+scripts/e2e-fleet-test.sh --json /tmp/bs-e2e.json
+scripts/e2e-fleet-test.sh --quick linux-b          # health+shell only
+scripts/e2e-fleet-test.sh --all                  # every healthy seed
+BS_E2E_SKIP_CUA=1 scripts/e2e-fleet-test.sh      # skip CUA probes
+```
+
+Requires a working local `bs` on PATH and reachable mesh peers. Exit 0 only if all required tests pass.
+
 ## Load the skill
 
 If your harness supports progressive skills, load **`bridgesessions`** from `skills/bridgesessions/SKILL.md` (or the `.claude` / `.opencode` / `.agents` symlinks).  

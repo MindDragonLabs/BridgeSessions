@@ -14196,19 +14196,21 @@ public:
         std::string exec_cmd;
 
         if (interp == "powershell" || interp == "pwsh") {
-            // PowerShell: decode base64 to temp file, execute, clean up
+            // PowerShell: decode base64 to temp file, execute, clean up.
+            // IMPORTANT: do not put $env:TEMP inside single quotes — it will not expand
+            // and WriteAllBytes fails with "path's format is not supported".
             std::string exe = (interp == "pwsh") ? "pwsh" : "powershell";
-            remote_tmp = "$env:TEMP\\bs-script-" + basename;
             exec_cmd = exe + " -NoProfile -Command \""
-                "[IO.File]::WriteAllBytes('" + remote_tmp + "', [Convert]::FromBase64String('" + b64 + "'));"
-                + exe + " -ExecutionPolicy Bypass -NoProfile -File '" + remote_tmp + "';"
-                "Remove-Item '" + remote_tmp + "' -ErrorAction SilentlyContinue\"";
+                "$p = Join-Path $env:TEMP 'bs-script-" + basename + "'; "
+                "[IO.File]::WriteAllBytes($p, [Convert]::FromBase64String('" + b64 + "')); "
+                + exe + " -ExecutionPolicy Bypass -NoProfile -File $p; "
+                "Remove-Item $p -ErrorAction SilentlyContinue\"";
         } else if (interp == "cmd" || interp == "bat") {
-            remote_tmp = "%TEMP%\\bs-script-" + basename;
             exec_cmd = "powershell -NoProfile -Command \""
-                "[IO.File]::WriteAllBytes('" + remote_tmp + "', [Convert]::FromBase64String('" + b64 + "'));"
-                "cmd /c '\"" + remote_tmp + "\"';"
-                "Remove-Item '" + remote_tmp + "' -ErrorAction SilentlyContinue\"";
+                "$p = Join-Path $env:TEMP 'bs-script-" + basename + "'; "
+                "[IO.File]::WriteAllBytes($p, [Convert]::FromBase64String('" + b64 + "')); "
+                "cmd /c $p; "
+                "Remove-Item $p -ErrorAction SilentlyContinue\"";
         } else {
             // POSIX (bash/sh/python): use base64 | decode > tmpfile
             std::string runner = (interp == "python" || interp == "python3") ? "python3" : "sh";

@@ -11,6 +11,17 @@ All notable public releases are documented here.
 
 ## Unreleased
 
+### Testing
+- **`scripts/e2e-fleet-test.sh`**: live multi-platform fleet e2e matrix (health,
+  shell, file send/recv, run-script, 256 KiB transfer, optional CUA, cross-peer
+  health). Defaults: `linux-b`/`linux-a` (Linux), `macos-peer` (macOS), `windows-peer`
+  (Windows). Supports `--quick`, `--all`, `--json`, and `BS_E2E_*` env knobs.
+
+### Windows run-script
+- **PowerShell temp path**: `run-script` no longer puts `$env:TEMP` inside single
+  quotes (WriteAllBytes failed with “path's format is not supported”). Uses
+  `Join-Path $env:TEMP 'bs-script-…'` so the path expands on the remote host.
+
 ### Event loop / transfers
 - **Main mesh loop uses `poll()` / `WSAPoll`** instead of `select()` — removes the
   FD_SETSIZE (~1024) ceiling so high FDs and large peer counts no longer drop
