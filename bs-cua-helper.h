@@ -18,6 +18,7 @@
 
 #include <cstring>
 #include <iostream>
+#include <memory>
 #include <nlohmann/json.hpp>
 #include "bs-logging.h"
 
@@ -202,34 +203,48 @@ inline CuaResponseMsg cua_helper_execute(const CuaRequestMsg& req) {
                 resp.status = 1; resp.error = "capture: StretchBlt failed";
                 return resp;
             }
-            // Extract raw pixels via GetDIBits
-            BITMAPINFOHEADER bih{};
-            bih.biSize = sizeof(BITMAPINFOHEADER);
-            bih.biWidth = cap_w;
-            bih.biHeight = -cap_h;  // top-down
-            bih.biPlanes = 1;
-            bih.biBitCount = 32;
-            bih.biCompression = BI_RGB;
-            std::vector<uint8_t> pixels((size_t)cap_w * (size_t)cap_h * 4);
-            int rows = GetDIBits(mem_dc, bmp, 0, cap_h, pixels.data(),
-                                 (BITMAPINFO*)&bih, DIB_RGB_COLORS);
+            // Deselect before wrapping HBITMAP — GDI+ owns a view of the bitmap.
             SelectObject(mem_dc, old);
-            DeleteObject(bmp);
             DeleteDC(mem_dc);
             ReleaseDC(NULL, screen_dc);
-            if (rows <= 0) {
-                resp.status = 1; resp.error = "capture: GetDIBits failed (session 0 may lack a desktop)";
-                return resp;
-            }
-            // Encode as JPEG via GDI+
+
+            // Encode as JPEG via GDI+. Prefer FromHBITMAP over the
+            // Bitmap(scan0, PixelFormat32bppRGB) ctor — that path AVs in
+            // gdiplus.dll (0xc0000005) on recent Windows 11 builds when
+            // handed GetDIBits BI_RGB buffers (observed Session-1 helper
+            // dumps on windows-peer 26.08.10-beta2).
             // MinGW: token must be ULONG_PTR (not ULONG) for GdiplusStartup.
             ULONG_PTR gdiplus_token = 0;
             Gdiplus::GdiplusStartupInput gdiplus_input;
             if (Gdiplus::GdiplusStartup(&gdiplus_token, &gdiplus_input, NULL) != Gdiplus::Ok) {
+                DeleteObject(bmp);
                 resp.status = 1; resp.error = "capture: GDI+ init failed";
                 return resp;
             }
-            Gdiplus::Bitmap bitmap(cap_w, cap_h, (size_t)cap_w * 4, PixelFormat32bppRGB, pixels.data());
+            // Keep HBITMAP alive until GDI+ Bitmap is destroyed — FromHBITMAP
+            // may reference the GDI object (deleting early → Save fails / AV).
+            std::unique_ptr<Gdiplus::Bitmap> bitmap(Gdiplus::Bitmap::FromHBITMAP(bmp, NULL));
+            if (!bitmap || bitmap->GetLastStatus() != Gdiplus::Ok) {
+                bitmap.reset();
+                DeleteObject(bmp);
+                Gdiplus::GdiplusShutdown(gdiplus_token);
+                resp.status = 1; resp.error = "capture: Bitmap::FromHBITMAP failed";
+                return resp;
+            }
+            // Clone into a JPEG-friendly 24bpp buffer (screen HBITMAPs are often
+            // 32bpp with an awkward format that ImageFormatJPEG rejects).
+            std::unique_ptr<Gdiplus::Bitmap> enc_bmp(
+                bitmap->Clone(0, 0, bitmap->GetWidth(), bitmap->GetHeight(),
+                              PixelFormat24bppRGB));
+            bitmap.reset();
+            DeleteObject(bmp);
+            bmp = NULL;
+            if (!enc_bmp || enc_bmp->GetLastStatus() != Gdiplus::Ok) {
+                enc_bmp.reset();
+                Gdiplus::GdiplusShutdown(gdiplus_token);
+                resp.status = 1; resp.error = "capture: Bitmap clone 24bpp failed";
+                return resp;
+            }
             // quality 70 — ~30-50KB per screenshot, fits mesh frame limit
             CLSID jpg_clsid;
             UINT num = 0, size = 0;
@@ -249,27 +264,43 @@ inline CuaResponseMsg cua_helper_execute(const CuaRequestMsg& req) {
                 }
             }
             if (!got_encoder) {
+                enc_bmp.reset();
                 Gdiplus::GdiplusShutdown(gdiplus_token);
                 resp.status = 1; resp.error = "capture: JPEG encoder not found";
                 return resp;
             }
             IStream* stream = nullptr;
             if (CreateStreamOnHGlobal(NULL, TRUE, &stream) != S_OK || !stream) {
+                enc_bmp.reset();
                 Gdiplus::GdiplusShutdown(gdiplus_token);
                 resp.status = 1; resp.error = "capture: CreateStream failed";
                 return resp;
             }
+            // EncoderParameter requires NumberOfValues; omitting it yields
+            // Gdiplus::InvalidParameter (status=2) on Save.
             Gdiplus::EncoderParameters params;
             params.Count = 1;
             params.Parameter[0].Guid = Gdiplus::EncoderQuality;
+            params.Parameter[0].NumberOfValues = 1;
             params.Parameter[0].Type = Gdiplus::EncoderParameterValueTypeLong;
             ULONG quality = 70;
             params.Parameter[0].Value = &quality;
-            auto save_status = bitmap.Save(stream, &jpg_clsid, &params);
+            auto save_status = enc_bmp->Save(stream, &jpg_clsid, &params);
+            if (save_status != Gdiplus::Ok) {
+                // Retry without quality params (some codecs reject EncoderQuality).
+                LARGE_INTEGER zero{};
+                stream->Seek(zero, STREAM_SEEK_SET, nullptr);
+                ULARGE_INTEGER unused{};
+                stream->SetSize(unused);
+                save_status = enc_bmp->Save(stream, &jpg_clsid, nullptr);
+            }
+            enc_bmp.reset();
             if (save_status != Gdiplus::Ok) {
                 stream->Release();
                 Gdiplus::GdiplusShutdown(gdiplus_token);
-                resp.status = 1; resp.error = "capture: GdipSaveImageToStream failed";
+                resp.status = 1;
+                resp.error = "capture: GdipSaveImageToStream failed status=" +
+                             std::to_string((int)save_status);
                 return resp;
             }
             LARGE_INTEGER seek_pos{};
