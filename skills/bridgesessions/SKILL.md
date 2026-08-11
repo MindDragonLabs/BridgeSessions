@@ -226,20 +226,61 @@ bs cua scroll <peer> --direction down   # scroll wheel
 On Windows/macOS, CUA requires the `--cua-helper` running in the user desktop
 session. Install adds it automatically. Linux works via xdotool directly.
 
-### Large files (26.08.05+)
+### Large files / flaky Wi‑Fi (resume + agent timeouts)
 
-- `bs file send|recv` now falls back to direct TLS when daemon IPC unavailable
-- Pipeline depth 16 (768KB/batch) — 3x faster than v2.x
-- Direct TLS path: works even without daemon mesh connection
+- `bs file send|recv` uses direct TLS with pipelined chunks + `FileAck.next_requested`.
+- **Idle stall budget is 300s** (survives ~60s Wi‑Fi blackouts). Progress resets idle.
+- **Direct-TLS send reconnects up to 12 times** after transport errors, resuming from
+  the last acked chunk. Receiver keeps `.part` + `.part.bsmeta` for checksum-matched resume.
 - Streams AI-parseable progress:
 
 ```text
-PROGRESS phase=recv file=x.bin chunks=a/b bytes=c/d pct=P rate_mibs=R eta_sec=E
+PROGRESS phase=send|recv file=x.bin chunks=a/b bytes=c/d pct=P rate_mibs=R eta_sec=E
+RESUME phase=send file=x.bin from_chunk=N/M
+RETRY phase=send peer=P attempt=K from_chunk=N backoff_ms=…
 ```
+
+#### Hermes / agent harness rules (required)
+
+1. **Never** run multi‑MB `bs file send|recv --wait` with a short tool timeout (10–100s).
+   Use **timeout ≥ 600s**, or `background=true` and poll PROGRESS / final OK line.
+2. Exit **124** from the harness is *your* timeout, not necessarily a BS protocol failure.
+3. On `ERROR send chunk` / `SSL_*` / `transfer idle`, **re-run the same command** — resume
+   is automatic when the peer still has the matching `.part` sidecar.
+4. Prefer `bs file send … --wait` over daemon fire-and-forget for reliability evidence.
 
 - Streaming SHA-256 (no full-file RAM). Default `transfer.max_bytes` is large (8 GiB).
 - `receive_dir` config option overrides received/ path (for SYSTEM daemons on Windows)
 
+### Multi-step remote jobs (prefer over `cmd1 && cmd2 && cmd3`)
+
+Stacked bash on `bs shell --cmd` fails the whole string on one error and is quoting-hostile
+(PowerShell, nested quotes, Windows). Use **JSON jobs**:
+
+```bash
+# job.json
+# {
+#   "job_id": "playwright-probe",
+#   "stop_on_error": false,
+#   "steps": [
+#     {"id": "find", "cmd": "cd /home/agent/workspace/casa-frontend && find . -maxdepth 2 -type f \\( -name 'playwright.config.*' -o -path './e2e/*' \\) -print"},
+#     {"id": "head", "cmd": "sed -n '1,80p' /home/agent/workspace/casa-frontend/playwright.config.ts"}
+#   ]
+# }
+bs job run linux-a job.json
+```
+
+Each step prints one JSON object (`exit`, `stdout`, `stderr`). Default continues after
+non-zero exits; use `--stop-on-error` or per-step `"continue_on_error": false` to abort.
+
+Prefer `argv` arrays when possible: `{"id":"u","argv":["uname","-a"]}`.
+
+### NL→shell helper (optional hub: linux-a/linux-b)
+
+For natural-language command *generation* only (not multi-step orchestration), deploy
+[whatisit-nl2sh](https://github.com/ThorOdinson246/whatisit-nl2sh) +
+`ThorOdinson246/nl2sh-1.5b-Q4_K_M` via `scripts/nl2sh-hub-setup.sh`. Always execute
+generated commands through `bs job` / `run-script`, never raw stacked `&&`.
 ### PowerShell `$_` / pipes
 
 - v2.0.2+: powershell/pwsh skip broken `cmd /c` quote destruction.

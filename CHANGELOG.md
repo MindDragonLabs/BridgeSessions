@@ -11,6 +11,21 @@ All notable public releases are documented here.
 
 ## Unreleased
 
+### File transfer (Wi‑Fi resilience)
+- Idle stall budget raised to **300s** (survives ~60s blackouts; progress resets idle).
+- Direct-TLS `file send` **reconnects up to 12×** and resumes from last `FileAck.next_requested`.
+- Receiver keeps `.part` + `.part.bsmeta` (checksum/size/chunks) so a reconnect does not
+  restart from chunk 0 after a drop mid-transfer.
+
+### Multi-step jobs
+- **`bs job run <peer> job.json`**: JSON steps with per-step `exit`/`stdout`/`stderr` lines;
+  default continues after failures (`--stop-on-error` to abort). Prefer over
+  `bs shell --cmd 'a && b && c'`.
+
+### Agent skill / nl2sh
+- Skill documents long harness timeouts for large `bs file` and resume retry rules.
+- `scripts/nl2sh-hub-setup.sh` installs whatisit-nl2sh + optional loopback HTTP on linux-a/linux-b.
+
 ### CUA capture reliability
 - **Windows helper**: refuse GDI capture in Session 0 with a clear error instead of
   crashing the helper (`cua-helper no response`); start `--cua-helper` in a logged-on

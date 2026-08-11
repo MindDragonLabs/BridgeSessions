@@ -1076,8 +1076,12 @@ private:
     if (secs > 7200) secs = 7200;
     return std::chrono::seconds(static_cast<int64_t>(secs));
 }
-constexpr int kTransferIdleTimeoutSec = 120;
+// Idle stall budget: long enough for Wi‑Fi blackouts (~60s) without aborting.
+// Progress (any FileAck / successful write) resets this deadline.
+constexpr int kTransferIdleTimeoutSec = 300;
 constexpr int kTransferProgressIntervalSec = 10;
+// How many times direct-TLS send/recv reconnects after a transport error.
+constexpr int kTransferReconnectMax = 12;
 // Default raw chunk size for legacy (u16-only) peers: uncompressible data must
 // still fit MAX_FRAME_PAYLOAD_U16 after framing. With +frm2, prefer large.
 constexpr size_t kTransferChunkRawSizeDefault = 48 * 1024;
@@ -8393,11 +8397,14 @@ private:
             return;
         }
 
-        // Starting a new transfer on the same connection aborts its old partial.
+        // Starting a new transfer on the same connection aborts its old partial
+        // unless the new FileMeta resumes the same checksum (Wi‑Fi reconnect).
         auto& state = c.file_receive;
         if (state.active) {
             state.file.close();
-            fs::remove(state.path + ".part", ec);
+            if (state.checksum != m.checksum) {
+                fs::remove(state.path + ".part", ec);
+            }
             state.active = false;
         }
 
@@ -8408,15 +8415,58 @@ private:
             try { write_frame(c.ssl.get(), FileAckMsg{0, 0, true, err}, CONTROL_STREAM_ID); } catch (...) {}
             return;
         }
-        int suffix = 1;
-        while (fs::exists(out_path) || fs::exists(out_path + ".part")) {
-            std::string alt = (fs::path(recv_dir) /
-                               (*safe_name + "." + std::to_string(suffix))).string();
-            if (!path_is_inside_directory(alt, recv_dir)) break;
-            out_path = alt;
-            ++suffix;
+        // Resume candidate: existing .part for this basename with matching sidecar
+        // checksum. Prefer that path over inventing suffix.N (avoids restart-from-0
+        // after a Wi‑Fi drop mid-transfer).
+        std::string part_path = out_path + ".part";
+        std::string meta_path = out_path + ".part.bsmeta";
+        bool resume = false;
+        uint32_t resume_chunks = 0;
+        uint64_t resume_bytes = 0;
+        if (fs::exists(part_path) && fs::exists(meta_path)) {
+            std::ifstream mf(meta_path);
+            std::string line;
+            std::string meta_sum;
+            uint64_t meta_size = 0;
+            uint32_t meta_total = 0;
+            size_t meta_chunk = 0;
+            while (std::getline(mf, line)) {
+                if (line.rfind("checksum=", 0) == 0) meta_sum = line.substr(9);
+                else if (line.rfind("size=", 0) == 0) meta_size = std::strtoull(line.c_str() + 5, nullptr, 10);
+                else if (line.rfind("total_chunks=", 0) == 0) meta_total = static_cast<uint32_t>(std::strtoul(line.c_str() + 13, nullptr, 10));
+                else if (line.rfind("chunk_raw=", 0) == 0) meta_chunk = static_cast<size_t>(std::strtoul(line.c_str() + 10, nullptr, 10));
+            }
+            std::error_code pec;
+            auto psz = fs::file_size(part_path, pec);
+            if (!pec && meta_sum == m.checksum && meta_size == m.filesize &&
+                meta_total == m.total_chunks && meta_chunk == chunk_raw &&
+                psz > 0 && psz < m.filesize && (psz % chunk_raw == 0 || psz == m.filesize)) {
+                resume = true;
+                resume_bytes = static_cast<uint64_t>(psz);
+                resume_chunks = static_cast<uint32_t>(resume_bytes / chunk_raw);
+                // last partial chunk: if not aligned, truncate to whole chunks
+                if (resume_bytes % chunk_raw != 0) {
+                    resume_bytes = static_cast<uint64_t>(resume_chunks) * chunk_raw;
+                    fs::resize_file(part_path, resume_bytes, pec);
+                }
+            }
         }
-        const std::string part_path = out_path + ".part";
+        if (!resume) {
+            int suffix = 1;
+            while (fs::exists(out_path) || fs::exists(out_path + ".part")) {
+                // Keep resume-compatible part if checksum matches; otherwise suffix.
+                if (fs::exists(out_path + ".part") && fs::exists(out_path + ".part.bsmeta")) {
+                    // already considered above for exact basename
+                }
+                std::string alt = (fs::path(recv_dir) /
+                                   (*safe_name + "." + std::to_string(suffix))).string();
+                if (!path_is_inside_directory(alt, recv_dir)) break;
+                out_path = alt;
+                ++suffix;
+            }
+            part_path = out_path + ".part";
+            meta_path = out_path + ".part.bsmeta";
+        }
 
         state = FileReceiveState{};
         state.filename = *safe_name;
@@ -8425,7 +8475,26 @@ private:
         state.expected_size = m.filesize;
         state.total_chunks = m.total_chunks;
         state.chunk_raw_size = chunk_raw;
-        state.file.open(part_path, std::ios::binary | std::ios::trunc);
+        if (resume) {
+            state.received_bytes = resume_bytes;
+            state.received_chunks = resume_chunks;
+            state.file.open(part_path, std::ios::binary | std::ios::app);
+            log_event("file_recv_resume", *safe_name + " from_chunk=" + std::to_string(resume_chunks) +
+                      " bytes=" + std::to_string(resume_bytes));
+        } else {
+            state.file.open(part_path, std::ios::binary | std::ios::trunc);
+            // Sidecar for cross-connection resume after Wi‑Fi drops
+            {
+                std::ofstream mf(meta_path, std::ios::trunc);
+                if (mf) {
+                    mf << "checksum=" << m.checksum << "\n"
+                       << "size=" << m.filesize << "\n"
+                       << "total_chunks=" << m.total_chunks << "\n"
+                       << "chunk_raw=" << chunk_raw << "\n";
+                }
+            }
+            log_event("file_recv_start", *safe_name + " -> " + out_path);
+        }
         state.active = state.file.is_open();
         if (!state.active) {
             std::string err = "cannot open " + out_path + ".part";
@@ -8433,9 +8502,14 @@ private:
             try { write_frame(c.ssl.get(), FileAckMsg{0, 0, true, err}, CONTROL_STREAM_ID); } catch (...) {}
             return;
         }
-        log_event("file_recv_start", *safe_name + " -> " + out_path);
-        // Acknowledge chunk index 0 to start streaming
-        try { write_frame(c.ssl.get(), FileAckMsg{0, 0, false, ""}, CONTROL_STREAM_ID); } catch (...) {}
+        // next_requested = first chunk we still need (0 for fresh, N for resume)
+        try {
+            write_frame(c.ssl.get(),
+                        FileAckMsg{resume ? (resume_chunks > 0 ? resume_chunks - 1 : 0)
+                                          : 0,
+                                   resume_chunks, false, ""},
+                        CONTROL_STREAM_ID);
+        } catch (...) {}
     }
 
     void handle_file_chunk(Conn& c, const FileChunkMsg& m) {
@@ -8507,6 +8581,11 @@ private:
             log_event("file_recv_complete", state.filename
                        + " " + std::to_string(state.received_chunks) + " chunks"
                        + (complete_ok ? " checksum_ok" : " ERROR=" + final_error));
+            // Drop resume sidecar either way (mismatch already removed .part)
+            {
+                std::error_code mec;
+                fs::remove(final_path + ".part.bsmeta", mec);
+            }
             state.active = false;
             // Send final ack
             try { write_frame(c.ssl.get(), FileAckMsg{m.chunk_index, m.total_chunks, !complete_ok, final_error}, CONTROL_STREAM_ID); } catch (...) {}
@@ -8584,21 +8663,62 @@ private:
         std::string addr = find_peer_addr(peer_name);
         if (addr.empty()) return "ERROR peer not found: " + peer_name;
         std::string expected_pubkey = trusted_peer_pubkey(config_, peer_name);
-        auto sc = connect_and_hello(addr, expected_pubkey);
-        if (!sc.ssl || sc.sfd == INVALID_SOCKET) {
-            std::string detail = sc.fail_detail.empty()
-                ? connect_fail_string(sc.fail) : sc.fail_detail;
-            return "ERROR failed to connect to " + peer_name + ": " + detail;
+
+        // Wi‑Fi-resilient: on transport errors, reconnect and resume from the
+        // last FileAck.next_requested (receiver keeps .part + .bsmeta sidecar).
+        uint32_t start_chunk = 0;
+        std::string last_err = "ERROR transfer failed";
+        for (int attempt = 0; attempt <= kTransferReconnectMax; ++attempt) {
+            if (attempt > 0) {
+                // Exponential backoff capped at 30s (survives multi-minute flaky Wi‑Fi
+                // when combined with 300s idle budget across attempts).
+                int backoff_ms = std::min(30000, 500 * (1 << std::min(attempt - 1, 6)));
+                std::cerr << "RETRY phase=send peer=" << peer_name
+                          << " attempt=" << attempt
+                          << " from_chunk=" << start_chunk
+                          << " backoff_ms=" << backoff_ms << "\n";
+#ifdef _WIN32
+                Sleep(static_cast<DWORD>(backoff_ms));
+#else
+                std::this_thread::sleep_for(std::chrono::milliseconds(backoff_ms));
+#endif
+            }
+            auto sc = connect_and_hello(addr, expected_pubkey);
+            if (!sc.ssl || sc.sfd == INVALID_SOCKET) {
+                std::string detail = sc.fail_detail.empty()
+                    ? connect_fail_string(sc.fail) : sc.fail_detail;
+                last_err = "ERROR failed to connect to " + peer_name + ": " + detail;
+                continue;
+            }
+            struct SslCloseGuard {
+                SslPtr* ssl; SOCKET* sfd;
+                ~SslCloseGuard() {
+                    if (*sfd != INVALID_SOCKET) {
+                        ssl_close(ssl->get(), *sfd);
+                        *sfd = INVALID_SOCKET;
+                    }
+                }
+            } guard{&sc.ssl, &sc.sfd};
+
+            uint32_t resume_hint = start_chunk;
+            std::string result = file_send_wait_on_transport(
+                sc.ssl.get(), sc.sfd, local_path, {}, {}, nullptr, peer_name,
+                sc.hello.version, start_chunk, &resume_hint);
+            if (result.rfind("ERROR", 0) != 0) return result;  // success
+
+            last_err = result;
+            // Only retry transport/ack failures — not validation or cancel.
+            const bool retryable =
+                result.find("send chunk") != std::string::npos ||
+                result.find("transfer ack") != std::string::npos ||
+                result.find("idle timeout") != std::string::npos ||
+                result.find("SSL") != std::string::npos ||
+                result.find("connect") != std::string::npos;
+            if (!retryable) return result;
+            if (resume_hint > start_chunk) start_chunk = resume_hint;
         }
-        // P2: RAII guard — ensures ssl_close runs even if send throws
-        struct SslCloseGuard {
-            SslPtr* ssl; SOCKET* sfd;
-            ~SslCloseGuard() { if (*sfd != INVALID_SOCKET) { ssl_close(ssl->get(), *sfd); *sfd = INVALID_SOCKET; } }
-        } guard{&sc.ssl, &sc.sfd};
-        // Delegate to the transport-agnostic send-with-acks path.
-        return file_send_wait_on_transport(
-            sc.ssl.get(), sc.sfd, local_path, {}, {}, nullptr, peer_name,
-            sc.hello.version);
+        return last_err + " (after " + std::to_string(kTransferReconnectMax) +
+               " reconnects; last resume chunk=" + std::to_string(start_chunk) + ")";
     }
 
     // Direct TLS file recv (no daemon required) — sends FileRequestMsg, receives file
@@ -8626,13 +8746,18 @@ private:
 
     // v2.0.6: transport-agnostic file send-wait. Runs on the event loop or a
     // worker thread; caller must ensure exclusive SSL transport access.
+    // start_chunk: skip [0, start_chunk) after FileMeta handshake (resume after Wi‑Fi drop).
+    // On transport error returns "ERROR …" and *resume_out is set to the first unacked chunk
+    // so the caller can reconnect and continue.
     std::string file_send_wait_on_transport(
             SSL* ssl, SOCKET sock_fd, const std::string& local_path,
             const std::function<bool()>& is_cancelled = {},
             const std::function<void(const std::string&)>& on_progress = {},
             TransferTelemetryRing* telemetry_ring = nullptr,
             const std::string& peer_name = {},
-            std::string_view peer_version = {}) {
+            std::string_view peer_version = {},
+            uint32_t start_chunk = 0,
+            uint32_t* resume_out = nullptr) {
         if (!socket_selectable(sock_fd)) return "ERROR socket exceeds select limit";
         // v2.0.12c: temporarily set blocking mode for the duration of the transfer.
         // Mesh sockets are non-blocking; SSL_write_ex on non-blocking sockets
@@ -8702,6 +8827,12 @@ private:
         auto idle_deadline = std::chrono::steady_clock::now() +
                              std::chrono::seconds(kTransferIdleTimeoutSec);
 
+        uint32_t last_acked = start_chunk;  // first chunk not yet fully acked
+
+        auto mark_resume = [&](uint32_t at) {
+            if (resume_out) *resume_out = at;
+        };
+
         auto wait_ack = [&](uint32_t expected_next) -> std::string {
             while (std::chrono::steady_clock::now() < overall_deadline &&
                    std::chrono::steady_clock::now() < idle_deadline) {
@@ -8718,36 +8849,53 @@ private:
                         auto& ack = std::get<FileAckMsg>(resp);
                         if (ack.error) return "ERROR remote: " + ack.error_msg;
                         if (ack.next_requested >= expected_next) {
+                            last_acked = ack.next_requested;
                             idle_deadline = std::chrono::steady_clock::now() +
                                             std::chrono::seconds(kTransferIdleTimeoutSec);
                             return "OK";
                         }
+                        // Peer ahead of us on resume: snap forward
+                        if (ack.next_requested > last_acked)
+                            last_acked = ack.next_requested;
                     } else if (std::holds_alternative<PingMsg>(resp)) {
                         write_frame(ssl, PongMsg{}, CONTROL_STREAM_ID, allow_large);
                     }
                 } catch (const std::exception& e) {
+                    mark_resume(last_acked);
                     return "ERROR transfer ack: " + std::string(e.what());
                 } catch (...) {
+                    mark_resume(last_acked);
                     return "ERROR transfer ack failed";
                 }
             }
+            mark_resume(last_acked);
             if (std::chrono::steady_clock::now() >= overall_deadline)
                 return "ERROR transfer overall timeout";
             return "ERROR transfer idle timeout waiting for ack";
         };
 
+        // Initial handshake ack: next_requested may be >0 if peer resumes a .part
         std::string ack = wait_ack(0);
         if (ack.rfind("ERROR", 0) == 0) return ack;
+        if (last_acked > start_chunk) start_chunk = last_acked;
 
         std::ifstream infile(local_path, std::ios::binary);
         if (!infile) return "ERROR cannot open " + local_path;
+        if (start_chunk > 0) {
+            infile.seekg(static_cast<std::streamoff>(
+                static_cast<uint64_t>(start_chunk) * chunk_raw), std::ios::beg);
+            if (!infile) return "ERROR seek for resume failed at chunk " + std::to_string(start_chunk);
+            emit("RESUME phase=send file=" + filename + " from_chunk=" +
+                 std::to_string(start_chunk) + "/" + std::to_string(total_chunks));
+        }
         auto t0 = std::chrono::steady_clock::now();
         auto last_progress = t0;
-        uint64_t bytes_sent = 0;
+        uint64_t bytes_sent = static_cast<uint64_t>(start_chunk) * chunk_raw;
+        if (bytes_sent > filesize) bytes_sent = filesize;
         std::vector<char> raw(chunk_raw);
         auto timing = make_transfer_timing();
 
-        for (uint32_t ci = 0; ci < total_chunks; /* incremented in batch */) {
+        for (uint32_t ci = start_chunk; ci < total_chunks; /* incremented in batch */) {
             uint32_t batch_end = std::min(ci + kTransferPipelineSize, total_chunks);
 
             // ── Send batch: write all chunks without waiting for acks ──
@@ -8769,7 +8917,10 @@ private:
 
                 auto chunk_t0 = std::chrono::steady_clock::now();
                 try { write_frame(ssl, chunk, CONTROL_STREAM_ID, allow_large); }
-                catch (const std::exception& e) { return "ERROR send chunk: " + std::string(e.what()); }
+                catch (const std::exception& e) {
+                    mark_resume(last_acked > 0 ? last_acked : ci);
+                    return "ERROR send chunk: " + std::string(e.what());
+                }
                 bytes_sent += chunk_sz;
                 auto after_write = std::chrono::steady_clock::now();
 
