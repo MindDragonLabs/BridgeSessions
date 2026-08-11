@@ -3463,14 +3463,29 @@ extern "C" int bs_macos_capture_png(const char*, unsigned, char*, size_t);
             FILE* p = popen("xdpyinfo 2>/dev/null | grep dimensions", "r");
             if (p) { char buf[256]; while (fgets(buf, sizeof(buf), p)) out += buf; pclose(p); }
             if (!out.empty()) {
-                // Parse "  dimensions:    1920 x 1080 pixels"
-                auto px = out.find('x');
-                if (px != std::string::npos) {
-                    auto w_start = out.rfind(' ', px - 1);
-                    auto h_end = out.find(' ', px + 1);
-                    if (w_start != std::string::npos && h_end != std::string::npos) {
-                        resp.screen_w = std::stoul(out.substr(w_start + 1, px - w_start - 2));
-                        resp.screen_h = std::stoul(out.substr(px + 2, h_end - px - 2));
+                // Parse "  dimensions:    1920x1080 pixels" (or "1920 x 1080").
+                // IMPORTANT: do not search for 'x' from offset 0 — that hits the
+                // letter x inside the word "dimensions".
+                auto dim = out.find("dimensions");
+                auto px = (dim == std::string::npos) ? std::string::npos
+                                                     : out.find('x', dim);
+                if (px != std::string::npos && px > 0) {
+                    // Walk back over spaces to the start of the width number
+                    size_t w_end = px;
+                    while (w_end > 0 && out[w_end - 1] == ' ') --w_end;
+                    size_t w_start = w_end;
+                    while (w_start > 0 && std::isdigit(static_cast<unsigned char>(out[w_start - 1])))
+                        --w_start;
+                    size_t h_start = px + 1;
+                    while (h_start < out.size() && out[h_start] == ' ') ++h_start;
+                    size_t h_end = h_start;
+                    while (h_end < out.size() && std::isdigit(static_cast<unsigned char>(out[h_end])))
+                        ++h_end;
+                    if (w_end > w_start && h_end > h_start) {
+                        resp.screen_w = static_cast<int16_t>(
+                            std::stoul(out.substr(w_start, w_end - w_start)));
+                        resp.screen_h = static_cast<int16_t>(
+                            std::stoul(out.substr(h_start, h_end - h_start)));
                         resp.status = 0;
                         return resp;
                     }

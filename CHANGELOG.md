@@ -12,6 +12,10 @@ All notable public releases are documented here.
 ## Unreleased
 
 ### Testing
+- **Linux CUA screen**: parse fix — no longer matches the `x` inside the word
+  `dimensions` from `xdpyinfo` (was reporting bogus sizes like 128x20).
+- **bs-qa-ubuntu** KVM guest on linux-a for automated Linux CUA/display; mesh via virbr0.
+- Runner always includes **windows-peer** in the peer matrix.
 - **Desktop e2e framework** (`docs/E2E-FRAMEWORK.md`, `tests/e2e/`): L2 mesh + L3
   CUA/tray/menubar orchestrator; Windows helper bootstrap; KVM Ubuntu guest on linux-a;
   macos-peer probes without wipe. Run: `python3 tests/e2e/runner.py --layers L2,L3`.

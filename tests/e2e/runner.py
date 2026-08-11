@@ -264,6 +264,37 @@ def setup_linux_kvm(bs: str, report: Report) -> Optional[str]:
     return None
 
 
+def test_linux_desktop_via_linux-a(bs: str, report: Report) -> None:
+    """CUA against KVM guest as seen from linux-a (virbr0 path)."""
+    print("\n== L3 Linux CUA via linux-a hop (bs-qa-ubuntu) ==")
+    cmd = (
+        'export PATH="$HOME/.local/bin:/usr/bin:/bin"; '
+        'bridgesessions health bs-qa-ubuntu 2>&1; '
+        'bridgesessions cua screen bs-qa-ubuntu 2>&1; '
+        'bridgesessions cua capture bs-qa-ubuntu -o /tmp/e2e-linux-cua.png 2>&1 | tail -3; '
+        'file /tmp/e2e-linux-cua.png 2>/dev/null | head -1'
+    )
+    try:
+        cp = run([bs, "shell", "linux-a", "--cmd", cmd], timeout=90)
+    except subprocess.TimeoutExpired:
+        rec(report, "FAIL", "cua_linux_desktop", "linux-a_hop_timeout", "")
+        return
+    out = cp.stdout + cp.stderr
+    if "healthy" in out:
+        rec(report, "PASS", "cua_linux_desktop", "health_via_linux-a", "ok")
+    else:
+        rec(report, "FAIL", "cua_linux_desktop", "health_via_linux-a", out[:200])
+    m = re.search(r"(\d{3,5})\s*[xX]\s*(\d{3,5})", out)
+    if m and int(m.group(1)) >= 640:
+        rec(report, "PASS", "cua_linux_desktop", "cua_screen", m.group(0))
+    else:
+        rec(report, "FAIL", "cua_linux_desktop", "cua_screen", out[:200])
+    if "PNG image" in out or "Saved" in out:
+        rec(report, "PASS", "cua_linux_desktop", "cua_capture", "png ok")
+    else:
+        rec(report, "FAIL", "cua_linux_desktop", "cua_capture", out[:200])
+
+
 def test_linux_desktop_peer(bs: str, peer: str, report: Report) -> None:
     """If peer is on mesh with DISPLAY, run CUA; else SKIP."""
     print(f"\n== L3 Linux desktop peer: {peer} ==")
@@ -307,11 +338,14 @@ def main() -> int:
     ap.add_argument(
         "--peers",
         default="linux-b,linux-a,macos-peer,windows-peer",
-        help="L2 peers comma-separated",
+        help="L2 peers comma-separated (windows-peer always appended)",
     )
     args = ap.parse_args()
     layers = [x.strip().upper() for x in args.layers.split(",") if x.strip()]
     peers = [x.strip() for x in args.peers.split(",") if x.strip()]
+    # Always include Shadow PC in the matrix
+    if "windows-peer" not in peers:
+        peers.append("windows-peer")
 
     bs = which_bs()
     report = Report(started=ts(), layers=layers)
@@ -327,10 +361,14 @@ def main() -> int:
         else:
             rec(report, "SKIP", "setup", "skipped", "--skip-setup")
 
+        # Windows: always Shadow first (production desktop path)
         test_windows_tray(bs, "windows-peer", report)
         test_cua(bs, "windows-peer", "cua_windows", report)
+        # macOS: macos-peer no-wipe
         test_mac_desktop(bs, "macos-peer", report)
-        # Linux desktop peer when joined as bs-qa-ubuntu; also try linux-b with DISPLAY
+        # Linux desktop: KVM guest on linux-a (mesh via host virbr0)
+        # Reachability: run CUA from linux-a hop if orchestrator cannot route 192.168.122.x
+        test_linux_desktop_via_linux-a(bs, report)
         test_linux_desktop_peer(bs, "bs-qa-ubuntu", report)
 
     report.finished = ts()
