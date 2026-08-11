@@ -879,8 +879,10 @@ void serialize_msg(Serializer& s, const CuaVideoCaptureResultMsg& m) {
 void serialize_msg(Serializer& s, const JoinReplyMsg& m) {
     s.u8(m.ok ? 1 : 0);
     if (m.ok) {
-        s.str_prefixed(m.node_name); s.str_prefixed(m.seeds_csv);
-        s.str_prefixed(m.host_pubkey); s.str_prefixed(m.host_addr);
+        s.str_prefixed(m.node_name);
+        s.str_prefixed_u16(m.seeds_csv); // u16 — fleet with >3 seeds exceeds 255B
+        s.str_prefixed(m.host_pubkey);
+        s.str_prefixed(m.host_addr);
         s.str_prefixed_u16(m.peer_pubkeys_json); // 2.0.20 — u16-prefixed (was u8, exceeded 255B with >3 seeds)
     } else {
         s.str_prefixed(m.error);
@@ -1758,7 +1760,8 @@ Message decode(std::span<const uint8_t> raw) {
         JoinReplyMsg m;
         m.ok = (d.u8() != 0);
         if (m.ok) {
-            m.node_name = d.str_prefixed(); m.seeds_csv = d.str_prefixed();
+            m.node_name = d.str_prefixed();
+            m.seeds_csv = d.str_prefixed_u16(); // u16 — fleet with >3 seeds exceeds 255B
             m.host_pubkey = d.str_prefixed(); m.host_addr = d.str_prefixed();
             m.peer_pubkeys_json = d.str_prefixed_u16(); // 2.0.20 — u16 (was u8, exceeded 255B)
         } else {
@@ -3542,36 +3545,84 @@ extern "C" int bs_macos_capture_png(const char*, unsigned, char*, size_t);
             cmd = std::string("xdotool click ") + ((req.button == 0) ? "4" : "5") + " 2>/dev/null";
             break;
         case 6: { // screen capture — v2.0.11 P5c
-            // Try multiple capture tools in order: grim (Wayland), import (X11/ImageMagick), scrot (X11 fallback)
+            // Tool order matters: ImageMagick `import` often "succeeds" with a
+            // 1-bit grayscale black PNG under XFCE/Xvfb (~263B for 1280x800) while
+            // scrot returns a real RGB framebuffer. Prefer grim (Wayland) then
+            // scrot, and only then import as last resort.
+            // Ensure DISPLAY for X11 tools when daemon lacks a session env.
+            if (const char* d = std::getenv("DISPLAY"); !d || !*d) {
+                setenv("DISPLAY", ":0", 0);
+                // Common agent desktop paths (bs-qa-ubuntu XFCE uses :1)
+                if (std::filesystem::exists("/tmp/.X11-unix/X1"))
+                    setenv("DISPLAY", ":1", 1);
+                else if (std::filesystem::exists("/tmp/.X11-unix/X0"))
+                    setenv("DISPLAY", ":0", 1);
+            }
             std::string tmp_path;
-            const char* tools[] = {"grim", "import", "scrot", nullptr};
+            const char* tools[] = {"grim", "scrot", "import", nullptr};
             for (int i = 0; tools[i]; ++i) {
                 auto bin = find_binary(tools[i]);
                 if (!bin) continue;
-                tmp_path = "/tmp/bs-capture-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + ".png";
+                tmp_path = "/tmp/bs-capture-" +
+                    std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) +
+                    ".png";
                 std::string capture_cmd;
                 if (std::string(tools[i]) == "grim") {
-                    capture_cmd = *bin + " " + tmp_path + " 2>/dev/null";
+                    capture_cmd = *bin + " '" + tmp_path + "' 2>/dev/null";
                 } else if (std::string(tools[i]) == "import") {
-                    capture_cmd = *bin + " -window root " + tmp_path + " 2>/dev/null";
+                    capture_cmd = *bin + " -window root '" + tmp_path + "' 2>/dev/null";
                 } else {
-                    capture_cmd = *bin + " " + tmp_path + " 2>/dev/null";
+                    capture_cmd = *bin + " '" + tmp_path + "' 2>/dev/null";
                 }
-                if (std::system(capture_cmd.c_str()) == 0) break;
-                ::unlink(tmp_path.c_str());
-                tmp_path.clear();
+                if (std::system(capture_cmd.c_str()) != 0) {
+                    ::unlink(tmp_path.c_str());
+                    tmp_path.clear();
+                    continue;
+                }
+                // Reject tiny / 1-bit "success" captures and try next tool.
+                std::error_code ec;
+                auto sz = std::filesystem::file_size(tmp_path, ec);
+                if (ec || sz < 1024) {
+                    ::unlink(tmp_path.c_str());
+                    tmp_path.clear();
+                    continue;
+                }
+                break;
             }
             if (tmp_path.empty()) {
                 resp.status = 1;
-                resp.error = "no screen capture tool available (install grim, imagemagick, or scrot)";
+                resp.error = "no screen capture tool available (install grim, scrot, or imagemagick)";
                 return resp;
             }
-            // Read captured PNG into response
-            std::ifstream cap(tmp_path, std::ios::binary | std::ios::ate);
+            // Prefer JPEG for mesh (macOS path does the same): smaller frames,
+            // reliable +frm2 transport. Fall back to PNG if convert missing.
+            std::string out_path = tmp_path;
+            uint8_t out_format = 1;  // PNG
+            {
+                std::string jpg = tmp_path + ".jpg";
+                std::string conv;
+                if (auto c = find_binary("convert")) {
+                    conv = *c + " '" + tmp_path +
+                           "' -colorspace sRGB -type TrueColor -resize '1280x1280>' -quality 40 '" +
+                           jpg + "' 2>/dev/null";
+                } else if (auto m = find_binary("magick")) {
+                    conv = *m + " '" + tmp_path +
+                           "' -colorspace sRGB -type TrueColor -resize '1280x1280>' -quality 40 '" +
+                           jpg + "' 2>/dev/null";
+                }
+                if (!conv.empty() && std::system(conv.c_str()) == 0 &&
+                    std::filesystem::exists(jpg) &&
+                    std::filesystem::file_size(jpg) > 0) {
+                    ::unlink(tmp_path.c_str());
+                    out_path = jpg;
+                    out_format = 2;  // JPEG
+                }
+            }
+            std::ifstream cap(out_path, std::ios::binary | std::ios::ate);
             if (!cap) {
                 resp.status = 1;
                 resp.error = "failed to open capture temp file";
-                ::unlink(tmp_path.c_str());
+                ::unlink(out_path.c_str());
                 return resp;
             }
             auto cap_size = cap.tellg();
@@ -3579,14 +3630,30 @@ extern "C" int bs_macos_capture_png(const char*, unsigned, char*, size_t);
                 resp.data.resize(static_cast<size_t>(cap_size));
                 cap.seekg(0);
                 cap.read(reinterpret_cast<char*>(resp.data.data()), cap_size);
-                resp.format = 1; // PNG
+                resp.format = out_format;
                 resp.status = 0;
-                // Try to get screen dimensions from xdpyinfo or xrandr
-                FILE* xr = popen("xdpyinfo 2>/dev/null | grep 'dimensions:' | awk '{print $2}'", "r");
+                FILE* xr = popen(
+                    "xdpyinfo 2>/dev/null | grep dimensions", "r");
                 if (xr) {
-                    char dims[64] = {};
+                    char dims[256] = {};
                     if (fgets(dims, sizeof(dims), xr)) {
-                        sscanf(dims, "%ux%u", &resp.screen_w, &resp.screen_h);
+                        // Parse after "dimensions" so we don't match the 'x' in the word.
+                        std::string out = dims;
+                        auto dim = out.find("dimensions");
+                        auto px = (dim == std::string::npos) ? std::string::npos
+                                                             : out.find('x', dim);
+                        if (px != std::string::npos && px > 0) {
+                            int w = 0, h = 0;
+                            // walk back for width digits
+                            size_t i = px;
+                            while (i > 0 && std::isdigit(static_cast<unsigned char>(out[i - 1]))) --i;
+                            w = std::atoi(out.c_str() + i);
+                            h = std::atoi(out.c_str() + px + 1);
+                            if (w > 0 && h > 0) {
+                                resp.screen_w = (int16_t)w;
+                                resp.screen_h = (int16_t)h;
+                            }
+                        }
                     }
                     pclose(xr);
                 }
@@ -3594,7 +3661,7 @@ extern "C" int bs_macos_capture_png(const char*, unsigned, char*, size_t);
                 resp.status = 1;
                 resp.error = "capture file empty or exceeds size limit";
             }
-            ::unlink(tmp_path.c_str());
+            ::unlink(out_path.c_str());
             return resp;
         }
         default:
