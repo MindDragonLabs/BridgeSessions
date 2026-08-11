@@ -46,7 +46,7 @@ schtasks /run /tn "BS-CUA-Helper"
 ```
 
 The helper:
-- Listens on `127.0.0.1:34960` (localhost only — not exposed to the network).
+- Listens on `127.0.0.1:19986` (localhost only — not exposed to the network).
 - Generates a random auth token written to `~/.bridgesessions/cua-helper-token`.
 - The daemon reads this token and forwards CUA requests to the helper via IPC.
 
@@ -68,7 +68,7 @@ bridgesessions --cua-helper
 
 Verify:
 ```bash
-# Should print: cua-helper: listening on 127.0.0.1:34960
+# Should print: cua-helper: listening on 127.0.0.1:19986
 bridgesessions --cua-helper
 ```
 
@@ -233,7 +233,7 @@ bs cua capture test-pc1 -o /tmp/scrolled.png
 
 ## Security considerations
 
-1. **Helper is localhost-only.** The `--cua-helper` binds `127.0.0.1:34960` —
+1. **Helper is localhost-only.** The `--cua-helper` binds `127.0.0.1:19986` —
    not exposed to the network. The daemon connects locally with a random token.
 2. **Token auth.** Every helper request carries a token from
    `~/.bridgesessions/cua-helper-token`. A process without the token is rejected.
@@ -262,7 +262,7 @@ bs cua capture test-pc1 -o /tmp/scrolled.png
 | macOS input injection does nothing | Grant Accessibility TCC permission for the binary |
 | Windows: helper not found | Ensure `bridgesessions.exe` is on PATH in the user session |
 | Wrong coordinates clicked | Run `bs cua screen <peer>` first; coordinates are absolute screen pixels |
-| Helper port conflict | Port 34960 is in use — kill the stale helper process |
+| Helper port conflict | Port 19986 is in use — kill the stale helper process |
 
 ---
 

@@ -3346,7 +3346,16 @@ extern "C" int bs_macos_capture_png(const char*, unsigned, char*, size_t);
     resp.status = 0;
 
 #ifdef _WIN32
-    // Windows: use PowerShell GDI screen capture (v2.0.11 P5c)
+    // Prefer cua-helper for ALL actions (including capture). Session 0 daemons
+    // cannot reliably GDI-capture the interactive desktop; the helper (user
+    // session or co-located) owns GDI+/BitBlt capture.
+    {
+        auto helper_resp = cua_helper_rpc(req, app_home);
+        if (helper_resp.status == 0) return helper_resp;
+        // Keep helper error for diagnostics when no fallback applies
+        if (!helper_resp.error.empty()) resp.error = helper_resp.error;
+    }
+    // Fallback: PowerShell GDI capture for action 6 only (interactive session)
     if (req.action == 6) {
         std::string tmp_path;
         char tmpl[MAX_PATH];
@@ -3355,7 +3364,6 @@ extern "C" int bs_macos_capture_png(const char*, unsigned, char*, size_t);
         GetTempFileNameA(tmpPathBuf, "bsc", 0, tmpl);
         tmp_path = std::string(tmpl) + ".png";
         ::unlink(tmpl);
-        // PowerShell one-liner: GDI screen capture to PNG
         std::string ps_cmd =
             "powershell -NoProfile -Command \""
             "Add-Type -AssemblyName System.Drawing;"
@@ -3372,11 +3380,11 @@ extern "C" int bs_macos_capture_png(const char*, unsigned, char*, size_t);
         int rc = std::system(ps_cmd.c_str());
         if (rc != 0 || !std::filesystem::exists(tmp_path)) {
             resp.status = 1;
-            resp.error = "windows screen capture failed (PowerShell GDI)";
+            if (resp.error.empty())
+                resp.error = "windows screen capture failed (helper + PowerShell GDI)";
             ::unlink(tmpl);
             return resp;
         }
-        // Read captured PNG
         std::ifstream cap(tmp_path, std::ios::binary | std::ios::ate);
         if (!cap) {
             resp.status = 1; resp.error = "failed to open capture file";
@@ -3397,14 +3405,8 @@ extern "C" int bs_macos_capture_png(const char*, unsigned, char*, size_t);
         return resp;
     }
     resp.status = 1;
-    // Try the cua-helper first (runs in user session for desktop access)
-    {
-        auto helper_resp = cua_helper_rpc(req, app_home);
-        if (helper_resp.status == 0) return helper_resp;
-        // Fall through to in-process fallback if helper not running
-    }
-    resp.status = 1;
-    resp.error = "windows CUA input requires cua-helper (run: bridgesessions --cua-helper in user session)";
+    if (resp.error.empty())
+        resp.error = "windows CUA requires cua-helper (run: bridgesessions --cua-helper in user session)";
     return resp;
 #elif defined(__APPLE__)
     // macOS: route through cua-helper (runs in user session for desktop access).

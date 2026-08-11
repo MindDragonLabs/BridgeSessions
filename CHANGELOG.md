@@ -12,6 +12,13 @@ All notable public releases are documented here.
 ## Unreleased
 
 ### Testing
+- **Desktop e2e framework** (`docs/E2E-FRAMEWORK.md`, `tests/e2e/`): L2 mesh + L3
+  CUA/tray/menubar orchestrator; Windows helper bootstrap; KVM Ubuntu guest on linux-a;
+  macos-peer probes without wipe. Run: `python3 tests/e2e/runner.py --layers L2,L3`.
+- Windows CUA: prefer `--cua-helper` for capture (not Session-0 PowerShell GDI first);
+  helper port docs fixed to **19986**.
+
+### Testing
 - **`scripts/e2e-fleet-test.sh`**: live multi-platform fleet e2e matrix (health,
   shell, file send/recv, run-script, 256 KiB transfer, optional CUA, cross-peer
   health). Defaults: `linux-b`/`linux-a` (Linux), `macos-peer` (macOS), `windows-peer`

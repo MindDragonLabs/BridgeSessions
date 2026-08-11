@@ -1,0 +1,63 @@
+# BridgeSessions e2e matrix — run on work completion (not nightly)
+version: 1
+expected_version: "26.08.10-beta2"
+
+layers:
+  L2:
+    description: Mesh CLI feature matrix
+    required: true
+  L3:
+    description: Desktop CUA, tray, menubar
+    required: true
+  L4:
+    description: Foreground installer on clean guest
+    required: false  # enable when clean VM snapshot ready
+
+peers:
+  mesh:
+    - linux-b
+    - linux-a
+    - macos-peer
+    - windows-peer
+  linux_desktop: bs-qa-ubuntu   # KVM guest on linux-a (when joined)
+  windows_desktop: windows-peer
+  macos_desktop: macos-peer
+
+suites:
+  mesh_core:
+    layer: L2
+    required: true
+    entry: scripts/e2e-fleet-test.sh
+  cua_linux_desktop:
+    layer: L3
+    required: true
+    needs: [linux_desktop_display]
+    peer: bs-qa-ubuntu
+  cua_windows:
+    layer: L3
+    required: true
+    needs: [windows_session1_helper]
+    peer: windows-peer
+  cua_macos:
+    layer: L3
+    required: true
+    needs: [macos_cua_helper]
+    peer: macos-peer
+  tray_linux:
+    layer: L3
+    required: true
+    needs: [linux_desktop_display]
+    peer: bs-qa-ubuntu
+  tray_windows:
+    layer: L3
+    required: true
+    needs: [windows_session1]
+    peer: windows-peer
+  menubar_macos:
+    layer: L3
+    required: true
+    peer: macos-peer
+  installer_linux:
+    layer: L4
+    required: false
+    needs: [clean_linux_vm]
