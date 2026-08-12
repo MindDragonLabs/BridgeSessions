@@ -4380,7 +4380,7 @@ void write_peer_line(std::ostream& os, const std::string& prefix, const PeerEntr
     auto ic_eq = [](unsigned char a, unsigned char b) {
         return std::tolower(a) == std::tolower(b);
     };
-    // Exact suffix: "shadow" matches "windows-peer"
+    // Exact suffix: "shadow" matches "lab-shadow"
     if (name.size() > query.size() &&
         name[name.size() - query.size() - 1] == '-' &&
         std::equal(query.rbegin(), query.rend(), name.rbegin(), ic_eq))
@@ -5847,7 +5847,7 @@ public:
     }
 
     // Drop finished agent/health one-shot sessions so they cannot pile up
-    // as detached PTYs (linux-b had dozens of leftover /dev/pts entries).
+    // as detached PTYs (peer-linux-b had dozens of leftover /dev/pts entries).
     // Names: health-*, cmd-*, oneshot-*, script-*.
     void prune_ephemeral_sessions(std::chrono::seconds max_age = std::chrono::seconds(90)) {
         auto is_ephemeral = [](const std::string& name) {
@@ -13296,7 +13296,7 @@ public:
     // ── Peer name resolution: 4-tier fuzzy matching ────────────
     // Tier 1: exact case-insensitive (backward-compatible)
     // Tier 2: (reserved for config aliases — not yet in config format)
-    // Tier 3: hyphen-segment suffix/prefix (shadow → windows-peer)
+    // Tier 3: hyphen-segment suffix/prefix (shadow → lab-shadow)
     // Tier 4: Levenshtein ≤ 2 (shadwo → shadow)
     struct PeerResolveResult {
         std::string name;       // resolved canonical name, empty if not found

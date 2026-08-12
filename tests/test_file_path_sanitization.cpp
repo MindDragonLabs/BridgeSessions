@@ -202,7 +202,7 @@ TEST_CASE("file_path: non-existent file returns error with resolved path info",
 }
 
 // ── 8. Double-nesting scenario from 2026-08-09 incident ────────────────
-// On the macbook, 926 meshmon-probe files were stored under
+// On the peer-mac-b, 926 meshmon-probe files were stored under
 // received/.bridgesessions/received/ due to path nesting.
 
 TEST_CASE("file_path: meshmon-probe resolves basename under receive_dir",

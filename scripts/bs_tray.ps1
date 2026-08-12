@@ -10,7 +10,7 @@ $ErrorActionPreference = "Stop"
 
 # -- Paths --------------------------------------------------------------------
 # Resolve install dir: script location first, then common deploy paths.
-# (windows-peer uses %USERPROFILE%\bridgesessions; install.ps1 uses LOCALAPPDATA.)
+# (Deployments use %USERPROFILE%\bridgesessions or LOCALAPPDATA\bridgesessions.)
 function Resolve-InstallDir {
     $candidates = @()
     if ($PSScriptRoot) { $candidates += $PSScriptRoot }
@@ -19,9 +19,7 @@ function Resolve-InstallDir {
     }
     $candidates += @(
         "$env:LOCALAPPDATA\bridgesessions",
-        "$env:USERPROFILE\bridgesessions",
-        "C:\Users\shadow\bridgesessions",
-        "C:\Users\user\AppData\Local\bridgesessions"
+        "$env:USERPROFILE\bridgesessions"
     )
     foreach ($d in $candidates) {
         if ($d -and (Test-Path (Join-Path $d "bridgesessions.exe"))) { return $d }

@@ -1,7 +1,7 @@
 """Chained BS relay test (bs → bs → ssh) for BridgeSessions (2026-08-09 regression).
 
 Root cause: BS should work when chaining through multiple hops:
-  bs shell linux-a → from linux-a bs shell linux-b → should work
+  bs shell peer-linux-a → from peer-linux-a bs shell peer-linux-b → should work
 
 This test:
   - Spins up 3 local daemons forming a chain: A → B → C

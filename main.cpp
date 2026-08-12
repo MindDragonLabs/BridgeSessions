@@ -1214,14 +1214,21 @@ int main(int argc, char** argv) {
 
         // (already chmod'd above)
 
-        // Developer ID — read from env BS_DEV_ID, fall back to hardcoded default.
+        // Developer ID — from BS_DEV_ID only (do not hardcode operator name in tree).
         // On macOS we refuse silent ad-hoc fallback: an unsigned/adhoc binary in
         // ~/.local/bin is often SIGKILL'd by Gatekeeper (exit 137).
         const char* env_dev_id = std::getenv("BS_DEV_ID");
-        std::string dev_id = env_dev_id ? env_dev_id : "Developer ID Application: Jefferson Nunn (QL5MD8FKPL)";
+        std::string dev_id = env_dev_id ? env_dev_id : "";
 
 #ifdef __APPLE__
         {
+            if (dev_id.empty()) {
+                std::cerr << "upgrade: set BS_DEV_ID to your Developer ID Application "
+                             "identity (do not leave ad-hoc).\n"
+                          << "  Example: export BS_DEV_ID='Developer ID Application: …'\n";
+                ::unlink(tmp_path.c_str());
+                return 1;
+            }
             // Clear provenance/quarantine from the download, then Developer ID sign.
             std::string xattr_cmd = "xattr -cr '" + tmp_path + "' 2>/dev/null";
             std::system(xattr_cmd.c_str());

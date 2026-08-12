@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# macos-peer desktop probes — no wipe, no reinstall of OS.
-# Run via: bs shell macos-peer --cmd 'bash -s' < mac_desktop_probe.sh
-# Or copy to macos-peer and execute.
+# peer-mac desktop probes — no wipe, no reinstall of OS.
+# Run via: bs shell peer-mac --cmd 'bash -s' < mac_desktop_probe.sh
+# Or copy to peer-mac and execute.
 set -euo pipefail
 
 PASS=0

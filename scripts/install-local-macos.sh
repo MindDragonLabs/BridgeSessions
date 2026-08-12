@@ -7,7 +7,13 @@
 # Default source: build/bridgesessions
 set -euo pipefail
 
-IDENTITY="${BS_DEV_ID:-Developer ID Application: Jefferson Nunn (QL5MD8FKPL)}"
+# Prefer BS_DEV_ID; else first Developer ID Application identity in keychain.
+IDENTITY="${BS_DEV_ID:-}"
+if [[ -z "$IDENTITY" ]]; then
+  IDENTITY="$(security find-identity -v -p codesigning 2>/dev/null \
+    | grep -F 'Developer ID Application' | head -1 \
+    | sed -E 's/.*"(.+)"/\1/' || true)"
+fi
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 SOURCE="${1:-$REPO_ROOT/build/bridgesessions}"
@@ -21,6 +27,11 @@ if [[ ! -f "$SOURCE" ]]; then
   exit 1
 fi
 
+if [[ -z "$IDENTITY" ]]; then
+  echo "error: set BS_DEV_ID or install a Developer ID Application cert" >&2
+  security find-identity -v -p codesigning 2>&1 | sed 's/^/  /' >&2
+  exit 1
+fi
 if ! security find-identity -v -p codesigning 2>/dev/null | grep -F "$IDENTITY" >/dev/null; then
   echo "error: Developer ID identity not found in keychain:" >&2
   echo "  $IDENTITY" >&2

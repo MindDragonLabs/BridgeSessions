@@ -315,7 +315,7 @@ TEST_CASE("resolve_peer: tier 3 suffix/prefix segment match", "[features][resolv
     cfg.node_name = "test";
     cfg.authorized_keys_path = home + "/authorized_keys";
     cfg.seeds.push_back(PeerEntry{
-        .name = "windows-peer",   // query "shadow" should suffix-match
+        .name = "lab-shadow",   // query "shadow" should suffix-match
         .addr = "10.0.0.1:19949",
         .pubkey_hex = seed_pk});
 
@@ -323,7 +323,7 @@ TEST_CASE("resolve_peer: tier 3 suffix/prefix segment match", "[features][resolv
 
     auto r = mc.resolve_peer("shadow");
     REQUIRE(r.tier == PR::Suffix);
-    REQUIRE(r.name == "windows-peer");
+    REQUIRE(r.name == "lab-shadow");
     REQUIRE(r.addr == "10.0.0.1:19949");
 
     fs::remove_all(home);

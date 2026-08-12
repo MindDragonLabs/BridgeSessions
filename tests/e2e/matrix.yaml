@@ -1,4 +1,6 @@
 # BridgeSessions e2e matrix — run on work completion (not nightly)
+# Peer names are placeholders. Override for a real lab with:
+#   BS_E2E_PEERS, BS_E2E_PEER_WIN, BS_E2E_PEER_MAC
 version: 1
 expected_version: "26.08.12-beta3"
 
@@ -15,13 +17,13 @@ layers:
 
 peers:
   mesh:
-    - linux-b
-    - linux-a
-    - macos-peer
-    - windows-peer
-  linux_desktop: bs-qa-ubuntu   # KVM guest on linux-a (when joined)
-  windows_desktop: windows-peer
-  macos_desktop: macos-peer
+    - peer-linux-a
+    - peer-linux-b
+    - peer-mac
+    - peer-win
+  linux_desktop: bs-qa-ubuntu   # KVM guest (when joined)
+  windows_desktop: peer-win
+  macos_desktop: peer-mac
 
 suites:
   mesh_core:
@@ -37,12 +39,12 @@ suites:
     layer: L3
     required: true
     needs: [windows_session1_helper]
-    peer: windows-peer
+    peer: peer-win
   cua_macos:
     layer: L3
     required: true
     needs: [macos_cua_helper]
-    peer: macos-peer
+    peer: peer-mac
   tray_linux:
     layer: L3
     required: true
@@ -52,11 +54,11 @@ suites:
     layer: L3
     required: true
     needs: [windows_session1]
-    peer: windows-peer
+    peer: peer-win
   menubar_macos:
     layer: L3
     required: true
-    peer: macos-peer
+    peer: peer-mac
   installer_linux:
     layer: L4
     required: false

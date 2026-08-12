@@ -75,10 +75,13 @@ endif()
 # __FILE__ and assert messages embed the compile-time source path.
 # -ffile-prefix-map rewrites them so dist/ binaries don't leak /home/<user>
 # or /Users/<user>. Applied to the main binary only (not tests).
+# Map common local home prefixes so CI/dev usernames never bake into dist/.
+# Prefer CMAKE_SOURCE_DIR + $ENV{HOME}; avoid hardcoding a real account name.
 target_compile_options(bridgesessions PRIVATE
     $<$<CXX_COMPILER_ID:GNU,Clang,AppleClang>:-ffile-prefix-map=${CMAKE_SOURCE_DIR}=.>
+    $<$<AND:$<CXX_COMPILER_ID:GNU,Clang,AppleClang>,$<BOOL:$ENV{HOME}>>:-ffile-prefix-map=$ENV{HOME}=.>
     $<$<CXX_COMPILER_ID:GNU,Clang,AppleClang>:-ffile-prefix-map=/home/agent=.>
-    $<$<CXX_COMPILER_ID:GNU,Clang,AppleClang>:-ffile-prefix-map=/Users/jeffersonnunn=.>)
+    $<$<CXX_COMPILER_ID:GNU,Clang,AppleClang>:-ffile-prefix-map=/Users/builder=.>)
 
 target_link_libraries(bridgesessions
     OpenSSL::SSL OpenSSL::Crypto

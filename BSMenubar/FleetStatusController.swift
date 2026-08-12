@@ -115,7 +115,7 @@ final class FleetStatusController: NSObject {
     // Parses markdown-style table:
     // | Name | Address | Version | Status | Uptime |
     // |------|---------|---------|--------|--------|
-    // | linux-d | 203.0.113.14:37812 | 26.08.06-beta1 | healthy | 1h |
+    // | peer-a | 10.0.0.1:19949 | 26.08.12-beta3 | healthy | 1h |
     static func parseFleetOutput(_ output: String) -> [FleetPeer] {
         var peers: [FleetPeer] = []
         let lines = output.split(separator: "\n", omittingEmptySubsequences: true)

@@ -15,9 +15,23 @@ set -e
 
 SOURCE="${1:-build/bridgesessions}"
 OUTPUT="${2:-dist/bridgesessions-macos-arm64}"
-IDENTITY="Developer ID Application: Jefferson Nunn (QL5MD8FKPL)"
-TEAM_ID="QL5MD8FKPL"
+# Prefer BS_DEV_ID / BS_TEAM_ID; else discover from keychain (no hardcoded name).
+IDENTITY="${BS_DEV_ID:-}"
+if [[ -z "$IDENTITY" ]]; then
+  IDENTITY="$(security find-identity -v -p codesigning 2>/dev/null \
+    | grep -F 'Developer ID Application' | head -1 \
+    | sed -E 's/.*"(.+)"/\1/' || true)"
+fi
+TEAM_ID="${BS_TEAM_ID:-}"
+if [[ -z "$TEAM_ID" && -n "$IDENTITY" ]]; then
+  TEAM_ID="$(echo "$IDENTITY" | sed -nE 's/.*\(([A-Z0-9]+)\)/\1/p')"
+fi
 BUNDLE_ID="com.minddragon.bridgesessions"
+if [[ -z "$IDENTITY" || -z "$TEAM_ID" ]]; then
+  echo "ERROR: set BS_DEV_ID and BS_TEAM_ID, or install Developer ID Application cert"
+  exit 1
+fi
+
 ENTITLEMENTS="$(dirname "$0")/../macos-signing/entitlements.plist"
 INFO_PLIST="$(dirname "$0")/../macos-signing/Info.plist"
 

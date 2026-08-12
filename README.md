@@ -71,10 +71,10 @@ Each tool has its own auth, escaping rules, failure modes, and security surface.
 - **Cross-platform** — Linux (xdotool), Windows (SendInput), macOS (CGEvent)
 
 ```bash
-bs cua screen windows-peer        # → 1920x1080
-bs cua capture windows-peer -o shot.png
-bs cua click windows-peer --x 500 --y 300
-bs cua type windows-peer --text "Hello World"
+bs cua screen peer-win           # → 1920x1080
+bs cua capture peer-win -o shot.png
+bs cua click peer-win --x 500 --y 300
+bs cua type peer-win --text "Hello World"
 ```
 
 ### 📜 Script Library
@@ -84,13 +84,13 @@ bs cua type windows-peer --text "Hello World"
 
 ```bash
 bs script add deploy.sh --name deploy
-bs script push deploy --peer linux-a
-bs script run deploy --peer linux-a -- --env prod
+bs script push deploy --peer peer-linux
+bs script run deploy --peer peer-linux -- --env prod
 ```
 
 ### 🔍 Smart Peer Resolution
 - **4-tier fuzzy matching** — exact → suffix → Levenshtein → suggestions
-- **Alias support** — `shadow` resolves to `windows-peer`
+- **Alias support** — short names resolve to longer peer ids (e.g. `win` → `peer-win`)
 - **"Did you mean...?"** — never leaves you guessing
 
 ### 🛡️ Built for AI Agents
@@ -149,11 +149,11 @@ bridgesessions keygen
 bridgesessions --daemon --config ~/.bridgesessions/config
 
 # 3. From any other machine — connect, run, transfer
-bs health linux-a                    # → healthy (data-plane ok)
-bs shell linux-a --cmd 'uname -a'   # → Linux linux-a 6.8.0...
-bs file send linux-a ./app.tar.gz   # → OK sent app.tar.gz SHA256:...
-bs shell windows-peer --cmd 'hostname'  # → SHADOW-OLNM5J3N
-bs cua capture macos-peer -o screen.png    # → screenshot from Mac mini
+bs health peer-linux                 # → healthy (data-plane ok)
+bs shell peer-linux --cmd 'uname -a' # → Linux …
+bs file send peer-linux ./app.tar.gz # → OK sent app.tar.gz SHA256:…
+bs shell peer-win --cmd 'hostname'   # → WIN-…
+bs cua capture peer-mac -o screen.png # → screenshot from macOS peer
 ```
 
 <details>

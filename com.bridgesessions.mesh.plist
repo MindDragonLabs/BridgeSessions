@@ -1,20 +1,20 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Example LaunchAgent template only. Install scripts generate a host-specific
+  plist under ~/Library/LaunchAgents/ with the real home directory paths.
+  Do not commit machine-local /Users/<name> paths.
+-->
 <plist version="1.0">
 <dict>
   <key>Label</key>
   <string>com.bridgesessions.mesh</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/Users/jeffersonnunn/.local/bin/bridgesessions</string>
+    <string>/usr/local/bin/bridgesessions</string>
     <string>--config</string>
-    <string>/Users/jeffersonnunn/.bridgesessions/config</string>
+    <string>/var/empty/.bridgesessions/config</string>
   </array>
-  <key>EnvironmentVariables</key>
-  <dict>
-    <key>HOME</key>
-    <string>/Users/jeffersonnunn</string>
-  </dict>
   <key>RunAtLoad</key>
   <true/>
   <key>KeepAlive</key>
@@ -24,8 +24,8 @@
   <key>ThrottleInterval</key>
   <integer>10</integer>
   <key>StandardOutPath</key>
-  <string>/Users/jeffersonnunn/.bridgesessions/logs/bs-mesh.log</string>
+  <string>/tmp/bridgesessions-mesh.log</string>
   <key>StandardErrorPath</key>
-  <string>/Users/jeffersonnunn/.bridgesessions/logs/bs-mesh.err</string>
+  <string>/tmp/bridgesessions-mesh.err</string>
 </dict>
 </plist>

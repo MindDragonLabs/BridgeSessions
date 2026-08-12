@@ -132,7 +132,7 @@ Needs App Store Connect API key (create in App Store Connect → Keys).
 ```bash
 bs script add cleanup.sh          # SHA256 → cache on all peers
 bs script push                     # sync to fleet
-bs script run cleanup.sh --peer linux-a  # skip transfer if hash matches
+bs script run cleanup.sh --peer peer-linux-a  # skip transfer if hash matches
 ```
 Scripts stored in `~/.bridgesessions/scripts/<sha256>.sh`. Named symlinks.
 

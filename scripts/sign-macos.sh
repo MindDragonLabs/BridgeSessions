@@ -4,7 +4,14 @@
 set -euo pipefail
 
 SOURCE="${1:-build/bridgesessions}"
-IDENTITY="${BS_DEV_ID:-Developer ID Application: Jefferson Nunn (QL5MD8FKPL)}"
+# Prefer BS_DEV_ID; else first Developer ID Application identity in keychain.
+# Do not hardcode an operator name in the public tree.
+IDENTITY="${BS_DEV_ID:-}"
+if [[ -z "$IDENTITY" ]]; then
+  IDENTITY="$(security find-identity -v -p codesigning 2>/dev/null \
+    | grep -F 'Developer ID Application' | head -1 \
+    | sed -E 's/.*"(.+)"/\1/' || true)"
+fi
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ENTITLEMENTS="$SCRIPT_DIR/../macos-signing/entitlements.plist"
 INFO_PLIST="$SCRIPT_DIR/../macos-signing/Info.plist"
@@ -12,6 +19,11 @@ OUTPUT="${2:-$SOURCE-signed}"
 
 if [[ ! -f "$SOURCE" ]]; then
   echo "error: source not found: $SOURCE" >&2
+  exit 1
+fi
+if [[ -z "$IDENTITY" ]]; then
+  echo "error: set BS_DEV_ID or install a Developer ID Application cert" >&2
+  security find-identity -v -p codesigning 2>&1 | sed 's/^/  /' >&2
   exit 1
 fi
 if ! security find-identity -v -p codesigning 2>/dev/null | grep -F "$IDENTITY" >/dev/null; then

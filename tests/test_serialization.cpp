@@ -10,12 +10,12 @@ TEST_CASE("JoinReply peer_pubkeys_json > 255 bytes round-trips (join failure bug
     original.ok = true;
     original.node_name = "test-node";
     original.host_pubkey = std::string(64, 'a');
-    original.host_addr = "203.0.113.11:19949";
+    original.host_addr = "10.0.0.1:19949";
     // Create a JSON array > 255 bytes (this was the bug — u8 prefix overflow)
     std::string json = "[";
     for (int i = 0; i < 6; i++) {
         if (i > 0) json += ",";
-        json += "{\"name\":\"peer" + std::to_string(i) + "\",\"addr\":\"100.112.0." + std::to_string(i) + ":19949\",\"pubkey_hex\":\"" + std::string(64, 'a' + i) + "\"}";
+        json += "{\"name\":\"peer" + std::to_string(i) + "\",\"addr\":\"10.0.0." + std::to_string(i) + ":19949\",\"pubkey_hex\":\"" + std::string(64, 'a' + i) + "\"}";
     }
     json += "]";
     REQUIRE(json.size() > 255);
@@ -83,22 +83,20 @@ TEST_CASE("JoinReply error case round-trip", "[serialization]") {
 }
 
 TEST_CASE("JoinReply seeds_csv > 255 bytes round-trips (fleet join regression)", "[serialization][regression]") {
-    // Bug 2026-08-11: seeds_csv used u8 str_prefixed (255B cap). With the
-    // 9-seed production fleet the CSV exceeded 255B, JoinReply serialization
-    // threw "prefixed string exceeds 255 bytes", and every fresh join hung.
-    // Spec: long fields use str_prefixed_u16. This test pins the fleet size.
+    // Bug 2026-08-11: seeds_csv used u8 str_prefixed (255B cap). Large fleets
+    // exceeded 255B, JoinReply serialization threw, and fresh joins hung.
+    // Spec: long fields use str_prefixed_u16. Synthetic peers only (no real IPs).
     JoinReplyMsg original;
     original.ok = true;
-    original.node_name = "node-4852beea";
-    // Replicate the actual production seed list (9 seeds, >255 chars).
+    original.node_name = "node-test-host";
+    // 12 synthetic seeds — intentionally >255 chars to pin u16 path.
     original.seeds_csv =
-        "linux-d:203.0.113.14:19949|linux-c:203.0.113.13:19949|"
-        "linux-a:203.0.113.11:19949|linux-b:203.0.113.12:19949|"
-        "macos-peer:203.0.113.16:19949|linux-db:203.0.113.15:19949|"
-        "node-5aa99a4d:203.0.113.20:19949|windows-peer:203.0.113.17:19949|"
-        "shadow-m1j6:100.115.10.27:19949";
-    REQUIRE(original.seeds_csv.size() > 255); // guard: fleet grew beyond u8 cap
-    original.host_pubkey = "c8efdf34adf16b9ed3bfd424f4bea1ffc8b7438518e5cf381bcf87d65ebcb9cf";
+        "peer-01:10.0.1.1:19949|peer-02:10.0.2.1:19949|peer-03:10.0.3.1:19949|"
+        "peer-04:10.0.4.1:19949|peer-05:10.0.5.1:19949|peer-06:10.0.6.1:19949|"
+        "peer-07:10.0.7.1:19949|peer-08:10.0.8.1:19949|peer-09:10.0.9.1:19949|"
+        "peer-10:10.0.10.1:19949|peer-11:10.0.11.1:19949|peer-12:10.0.12.1:19949";
+    REQUIRE(original.seeds_csv.size() > 255); // guard: must exercise u16 prefix
+    original.host_pubkey = std::string(64, 'a');
     original.host_addr = "0.0.0.0:19949";
     original.peer_pubkeys_json = "[]";
 

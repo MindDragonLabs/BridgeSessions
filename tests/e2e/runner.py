@@ -251,22 +251,23 @@ def test_mac_desktop(bs: str, peer: str, report: Report) -> None:
         else:
             rec(report, "SKIP", "menubar_macos", "probe", "no summary line")
 
-    # CUA against macos-peer
+    # CUA against peer-mac
     test_cua(bs, peer, "cua_macos", report)
 
 
 # ── L3 Linux KVM ────────────────────────────────────────────────────
 def setup_linux_kvm(bs: str, report: Report) -> Optional[str]:
-    """Run KVM setup on linux-a; return guest IP if known."""
-    print("\n== L3 setup: Linux KVM desktop on linux-a ==")
+    """Run KVM setup on Linux lab hop (BS_E2E_LINUX_HOST); return guest IP if known."""
+    host = os.environ.get("BS_E2E_LINUX_HOST", "peer-linux-a")
+    print(f"\n== L3 setup: Linux KVM desktop on {host} ==")
     script = HARNESS / "linux_kvm_setup.sh"
-    run([bs, "file", "send", "linux-a", str(script), "--wait"], timeout=60)
+    run([bs, "file", "send", host, str(script), "--wait"], timeout=60)
     cmd = (
         'f=$(ls -t "$HOME/.bridgesessions/received/linux_kvm_setup.sh"* 2>/dev/null | head -1); '
         'chmod +x "$f"; bash "$f" 2>&1'
     )
     try:
-        cp = run([bs, "shell", "linux-a", "--cmd", cmd], timeout=900)
+        cp = run([bs, "shell", host, "--cmd", cmd], timeout=900)
     except subprocess.TimeoutExpired:
         rec(report, "FAIL", "linux_kvm", "setup", "timeout 900s")
         return None
@@ -283,9 +284,10 @@ def setup_linux_kvm(bs: str, report: Report) -> Optional[str]:
     return None
 
 
-def test_linux_desktop_via_linux-a(bs: str, report: Report) -> None:
-    """CUA against KVM guest as seen from linux-a (virbr0 path)."""
-    print("\n== L3 Linux CUA via linux-a hop (bs-qa-ubuntu) ==")
+def test_linux_desktop_via_linux_hop(bs: str, report: Report) -> None:
+    """CUA against KVM guest as seen from Linux hop (virbr0 path)."""
+    host = os.environ.get("BS_E2E_LINUX_HOST", "peer-linux-a")
+    print(f"\n== L3 Linux CUA via {host} hop (bs-qa-ubuntu) ==")
     cmd = (
         'export PATH="$HOME/.local/bin:/usr/bin:/bin"; '
         'bridgesessions health bs-qa-ubuntu 2>&1; '
@@ -294,15 +296,15 @@ def test_linux_desktop_via_linux-a(bs: str, report: Report) -> None:
         'file /tmp/e2e-linux-cua.png 2>/dev/null | head -1'
     )
     try:
-        cp = run([bs, "shell", "linux-a", "--cmd", cmd], timeout=90)
+        cp = run([bs, "shell", host, "--cmd", cmd], timeout=90)
     except subprocess.TimeoutExpired:
-        rec(report, "FAIL", "cua_linux_desktop", "linux-a_hop_timeout", "")
+        rec(report, "FAIL", "cua_linux_desktop", "linux_hop_timeout", "")
         return
     out = cp.stdout + cp.stderr
     if "healthy" in out:
-        rec(report, "PASS", "cua_linux_desktop", "health_via_linux-a", "ok")
+        rec(report, "PASS", "cua_linux_desktop", "health_via_linux_hop", "ok")
     else:
-        rec(report, "FAIL", "cua_linux_desktop", "health_via_linux-a", out[:200])
+        rec(report, "FAIL", "cua_linux_desktop", "health_via_linux_hop", out[:200])
     m = re.search(r"(\d{3,5})\s*[xX]\s*(\d{3,5})", out)
     if m and int(m.group(1)) >= 640:
         rec(report, "PASS", "cua_linux_desktop", "cua_screen", m.group(0))
@@ -370,15 +372,25 @@ def main() -> int:
     ap.add_argument("--skip-setup", action="store_true", help="Skip KVM/Windows desktop bootstrap")
     ap.add_argument(
         "--peers",
-        default="linux-b,linux-a,macos-peer,windows-peer",
-        help="L2 peers comma-separated (windows-peer always appended)",
+        default=os.environ.get("BS_E2E_PEERS", "peer-linux-a,peer-linux-b,peer-mac,peer-win"),
+        help="L2 peers comma-separated (override with BS_E2E_PEERS for lab fleet)",
+    )
+    ap.add_argument(
+        "--peer-win",
+        default=os.environ.get("BS_E2E_PEER_WIN", "peer-win"),
+        help="Windows desktop peer (BS_E2E_PEER_WIN)",
+    )
+    ap.add_argument(
+        "--peer-mac",
+        default=os.environ.get("BS_E2E_PEER_MAC", "peer-mac"),
+        help="macOS desktop peer (BS_E2E_PEER_MAC)",
     )
     args = ap.parse_args()
     layers = [x.strip().upper() for x in args.layers.split(",") if x.strip()]
     peers = [x.strip() for x in args.peers.split(",") if x.strip()]
-    # Always include Shadow PC in the matrix
-    if "windows-peer" not in peers:
-        peers.append("windows-peer")
+    # Ensure Windows desktop peer is in the L2 matrix when L3 needs it
+    if args.peer_win and args.peer_win not in peers:
+        peers.append(args.peer_win)
 
     bs = which_bs()
     report = Report(started=ts(), layers=layers)
@@ -389,19 +401,17 @@ def main() -> int:
 
     if "L3" in layers:
         if not args.skip_setup:
-            setup_windows_desktop(bs, "windows-peer", report)
+            setup_windows_desktop(bs, args.peer_win, report)
             setup_linux_kvm(bs, report)
         else:
             rec(report, "SKIP", "setup", "skipped", "--skip-setup")
 
-        # Windows: always Shadow first (production desktop path)
-        test_windows_tray(bs, "windows-peer", report)
-        test_cua(bs, "windows-peer", "cua_windows", report)
-        # macOS: macos-peer no-wipe
-        test_mac_desktop(bs, "macos-peer", report)
-        # Linux desktop: KVM guest on linux-a (mesh via host virbr0)
-        # Reachability: run CUA from linux-a hop if orchestrator cannot route 192.168.122.x
-        test_linux_desktop_via_linux-a(bs, report)
+        test_windows_tray(bs, args.peer_win, report)
+        test_cua(bs, args.peer_win, "cua_windows", report)
+        test_mac_desktop(bs, args.peer_mac, report)
+        # Linux desktop: KVM guest (mesh via host virbr0)
+        test_linux_desktop_via_linux_hop(bs, report)
+
         test_linux_desktop_peer(bs, "bs-qa-ubuntu", report)
 
     report.finished = ts()

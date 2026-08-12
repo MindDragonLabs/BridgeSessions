@@ -274,7 +274,7 @@ Stacked bash on `bs shell --cmd` fails the whole string on one error and is quot
 #     {"id": "head", "cmd": "sed -n '1,80p' /home/agent/workspace/casa-frontend/playwright.config.ts"}
 #   ]
 # }
-bs job run linux-a job.json
+bs job run peer-linux-a job.json
 ```
 
 Each step prints one JSON object (`exit`, `stdout`, `stderr`). Default continues after
@@ -282,7 +282,7 @@ non-zero exits; use `--stop-on-error` or per-step `"continue_on_error": false` t
 
 Prefer `argv` arrays when possible: `{"id":"u","argv":["uname","-a"]}`.
 
-### NL→shell helper (optional hub: linux-a/linux-b)
+### NL→shell helper (optional hub: peer-linux-a/peer-linux-b)
 
 For natural-language command *generation* only (not multi-step orchestration), deploy
 [whatisit-nl2sh](https://github.com/ThorOdinson246/whatisit-nl2sh) +

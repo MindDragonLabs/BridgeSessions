@@ -112,8 +112,9 @@ TEST_CASE("JoinReplyMsg serializes with seeds", "[regression][join][serialize]")
     JoinReplyMsg reply;
     reply.ok = true;
     reply.node_name = "node-abc12345";
-    reply.seeds_csv = "linux-a:203.0.113.11:19949|linux-b:203.0.113.12:19949";
-    reply.host_pubkey = "c8efdf34adf16b9ed3bfd424f4bea1ffc8b7438518e5cf381bcf87d65ebcb9cf";
+    reply.seeds_csv = "peer-a:10.0.0.1:19949|peer-b:10.0.0.2:19949";
+    reply.host_pubkey = std::string(64, 'b');
+
     REQUIRE(reply.ok);
     REQUIRE(reply.seeds_csv.find(':') != std::string::npos);
     REQUIRE(reply.host_pubkey.size() == 64);
@@ -239,7 +240,8 @@ TEST_CASE("GitHub raw URL format for install.sh", "[regression][invite][urls]") 
 
 TEST_CASE("Invite one-liner contains token and address", "[regression][invite][format]") {
     std::string token = "f5009f005f9dd82acd822c965b4e1e24";
-    std::string addr = "203.0.113.21:19949";
+    std::string addr = "10.0.0.50:19949";
+
     std::string oneliner = "bridgesessions join " + addr + " " + token + " --start";
 
     // Must contain the address

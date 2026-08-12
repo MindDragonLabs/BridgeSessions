@@ -11,6 +11,13 @@ All notable public releases are documented here.
 
 ## Unreleased
 
+### Privacy / public tip hygiene
+- Scrubbed private fleet peer names, Tailscale CGNAT IPs, and operator home paths
+  from tests, docs, e2e defaults, and example LaunchAgent plist.
+- Signing scripts resolve Developer ID from `BS_DEV_ID` or the local keychain
+  (no hardcoded personal name in source defaults).
+
+
 ## 26.08.12-beta3
 
 ### Interactive shell
@@ -62,7 +69,7 @@ All notable public releases are documented here.
 
 ### Agent skill / nl2sh
 - Skill documents long harness timeouts for large `bs file` and resume retry rules.
-- `scripts/nl2sh-hub-setup.sh` installs whatisit-nl2sh + optional loopback HTTP on linux-a/linux-b.
+- `scripts/nl2sh-hub-setup.sh` installs whatisit-nl2sh + optional loopback HTTP on peer-linux-a/peer-linux-b.
 
 ### CUA capture reliability
 - **Windows helper**: refuse GDI capture in Session 0 with a clear error instead of
@@ -87,18 +94,18 @@ All notable public releases are documented here.
 ### Testing
 - **Linux CUA screen**: parse fix — no longer matches the `x` inside the word
   `dimensions` from `xdpyinfo` (was reporting bogus sizes like 128x20).
-- **bs-qa-ubuntu** KVM guest on linux-a for automated Linux CUA/display; mesh via virbr0.
-- Runner always includes **windows-peer** in the peer matrix.
+- **bs-qa-ubuntu** KVM guest on peer-linux-a for automated Linux CUA/display; mesh via virbr0.
+- Runner always includes **peer-win** in the peer matrix.
 - **Desktop e2e framework** (`docs/E2E-FRAMEWORK.md`, `tests/e2e/`): L2 mesh + L3
-  CUA/tray/menubar orchestrator; Windows helper bootstrap; KVM Ubuntu guest on linux-a;
-  macos-peer probes without wipe. Run: `python3 tests/e2e/runner.py --layers L2,L3`.
+  CUA/tray/menubar orchestrator; Windows helper bootstrap; KVM Ubuntu guest on peer-linux-a;
+  peer-mac probes without wipe. Run: `python3 tests/e2e/runner.py --layers L2,L3`.
 - Windows CUA: prefer `--cua-helper` for capture (not Session-0 PowerShell GDI first);
   helper port docs fixed to **19986**.
 
 ### Testing
 - **`scripts/e2e-fleet-test.sh`**: live multi-platform fleet e2e matrix (health,
   shell, file send/recv, run-script, 256 KiB transfer, optional CUA, cross-peer
-  health). Defaults: `linux-b`/`linux-a` (Linux), `macos-peer` (macOS), `windows-peer`
+  health). Defaults: `peer-linux-b`/`peer-linux-a` (Linux), `peer-mac` (macOS), `peer-win`
   (Windows). Supports `--quick`, `--all`, `--json`, and `BS_E2E_*` env knobs.
 
 ### Windows run-script

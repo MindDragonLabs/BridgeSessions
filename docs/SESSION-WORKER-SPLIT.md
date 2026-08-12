@@ -154,5 +154,5 @@ The `shell_peer` reconnect loop already exists (line 12068). Improvements:
 3. Modify attach path to spawn/connect workers
 4. Add worker discovery on controller startup
 5. Enhance client reconnect UX
-6. Build, test (336+ existing tests must pass), deploy to linux-a
+6. Build, test (336+ existing tests must pass), deploy to peer-linux-a
 7. Test: kill daemon mid-session → session survives → restart daemon → reattach

@@ -5,9 +5,9 @@
 # CUA against live mesh peers on Linux / macOS / Windows.
 #
 # Usage:
-#   scripts/e2e-fleet-test.sh                         # default core peers
-#   scripts/e2e-fleet-test.sh linux-b macos-peer windows-peer
-#   BS_E2E_PEERS="linux-b,linux-a" scripts/e2e-fleet-test.sh
+#   scripts/e2e-fleet-test.sh                         # default placeholder peers
+#   scripts/e2e-fleet-test.sh peer-linux-a peer-mac peer-win
+#   BS_E2E_PEERS="peer-linux-a,peer-linux-b" scripts/e2e-fleet-test.sh
 #   scripts/e2e-fleet-test.sh --all                   # every healthy seed
 #   scripts/e2e-fleet-test.sh --quick                 # health+shell only
 #   scripts/e2e-fleet-test.sh --json /tmp/e2e.json    # machine-readable summary
@@ -18,6 +18,7 @@
 #   BS_E2E_SKIP_CUA=1            skip CUA probes
 #   BS_E2E_SKIP_LARGE=1          skip large transfer
 #   BS_E2E_VERSION               expected version substring (default from VERSION file)
+#   BS_E2E_PEERS                 comma-separated peer list (lab-specific; not committed)
 #
 # Exit 0 if all required tests pass; non-zero otherwise.
 set -euo pipefail
@@ -137,8 +138,8 @@ if [[ $ALL_PEERS -eq 1 ]]; then
     [[ -n "$_p" ]] && PEERS+=("$_p")
   done < <(discover_healthy_peers)
 elif [[ ${#PEERS[@]} -eq 0 ]]; then
-  # Core multi-platform matrix (Linux ×2, macOS, Windows)
-  PEERS=(linux-b linux-a macos-peer windows-peer)
+  # Placeholder multi-platform matrix (override with args or BS_E2E_PEERS)
+  PEERS=(peer-linux-a peer-linux-b peer-mac peer-win)
 fi
 
 # ── workspace ───────────────────────────────────────────────────────
@@ -305,8 +306,9 @@ test_peer() {
   case "$os" in
     windows)
       # Prefer profile-relative absolute path (expandable on remote, stable for file recv)
-      remote_path="C:/Users/shadow/.bridgesessions/state/bs-e2e-recv.txt"
-      run_to "$BS_BIN" shell "$peer" --cmd "powershell -NoProfile -Command \"New-Item -ItemType Directory -Force -Path (Split-Path '$remote_path') | Out-Null; Set-Content -Path '$remote_path' -Value '$marker' -NoNewline\"" >/dev/null 2>&1 || true
+      # Avoid hardcoding C:\Users\<name>; use Windows Temp (no profile PII).
+      remote_path="C:/Windows/Temp/bs-e2e-recv.txt"
+      run_to "$BS_BIN" shell "$peer" --cmd "powershell -NoProfile -Command \"Set-Content -Path '$remote_path' -Value '$marker' -NoNewline\"" >/dev/null 2>&1 || true
       ;;
     *)
       remote_path="/tmp/bs-e2e-recv.txt"
@@ -418,26 +420,23 @@ for peer in "${PEERS[@]}"; do
   test_peer "$peer"
 done
 
-# Cross edges when we have multi-platform set
+# Cross edges when we have multi-platform set (heuristic on peer name tokens)
 has_linux=0 has_mac=0 has_win=0
+linux_peer="" mac_peer="" win_peer=""
 for peer in "${PEERS[@]}"; do
   case "$peer" in
-    linux-*|linux-d|linux-c|mysql*) has_linux=1 ;;
-    macos-peer|macbook|node-5aa*) has_mac=1 ;;
-    *shadow*|windows-peer) has_win=1 ;;
+    *linux*|peer-linux*) has_linux=1; [[ -z "$linux_peer" ]] && linux_peer=$peer ;;
+    *mac*|peer-mac*) has_mac=1; [[ -z "$mac_peer" ]] && mac_peer=$peer ;;
+    *win*|peer-win*|*shadow*) has_win=1; [[ -z "$win_peer" ]] && win_peer=$peer ;;
   esac
 done
 
 if [[ $QUICK -eq 0 ]]; then
-  if [[ $has_linux -eq 1 && $has_mac -eq 1 ]]; then
-    if printf '%s\n' "${PEERS[@]}" | grep -qx 'linux-b' && printf '%s\n' "${PEERS[@]}" | grep -qx 'macos-peer'; then
-      test_cross_peer_shell "linux-b" "macos-peer"
-    fi
+  if [[ $has_linux -eq 1 && $has_mac -eq 1 && -n "$linux_peer" && -n "$mac_peer" ]]; then
+    test_cross_peer_shell "$linux_peer" "$mac_peer"
   fi
-  if [[ $has_linux -eq 1 && $has_win -eq 1 ]]; then
-    if printf '%s\n' "${PEERS[@]}" | grep -qx 'linux-b' && printf '%s\n' "${PEERS[@]}" | grep -qx 'windows-peer'; then
-      test_cross_peer_shell "linux-b" "windows-peer"
-    fi
+  if [[ $has_linux -eq 1 && $has_win -eq 1 && -n "$linux_peer" && -n "$win_peer" ]]; then
+    test_cross_peer_shell "$linux_peer" "$win_peer"
   fi
 fi
 
