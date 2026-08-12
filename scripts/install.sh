@@ -340,11 +340,14 @@ MPEOF
     if [ -d "${REPO_APP}" ]; then
       echo "→ Installing BridgeSessions.app (Developer ID signed) to /Applications/..."
 
-      # Purge ALL old TCC entries for bridgesessions (ad hoc identities)
-      tccutil reset ScreenCapture bridgesessions 2>/dev/null || true
-      tccutil reset Accessibility bridgesessions 2>/dev/null || true
-      tccutil reset ScreenCapture com.minddragon.bridgesessions 2>/dev/null || true
-      tccutil reset Accessibility com.minddragon.bridgesessions 2>/dev/null || true
+      # NEVER tccutil reset com.minddragon.bridgesessions here — that wipes
+      # Screen Recording / Accessibility on every reinstall. TCC persists when
+      # TeamID (QL5MD8FKPL) + Identifier stay stable across rebuilds.
+      # Optional one-time cleanup of legacy ad-hoc bare names only:
+      if [ "${BS_RESET_LEGACY_TCC:-0}" = "1" ]; then
+        tccutil reset ScreenCapture bridgesessions 2>/dev/null || true
+        tccutil reset Accessibility bridgesessions 2>/dev/null || true
+      fi
 
       # Stop daemons before swap
       launchctl bootout "gui/$(id -u)/com.bridgesessions.mesh" 2>/dev/null || true
@@ -443,27 +446,33 @@ EOF
       else
         echo "WARNING: no source binary found for .app wrapper" >&2
       fi
-      cat > "${LOCAL_APP}/Contents/Info.plist" << EOF
+      # Prefer repo Info.plist (stable CFBundleIdentifier + usage strings).
+      REPO_INFO="$(cd "$(dirname "$0")/.." && pwd)/macos-signing/Info.plist"
+      if [ -f "${REPO_INFO}" ]; then
+        cp "${REPO_INFO}" "${LOCAL_APP}/Contents/Info.plist"
+      else
+        cat > "${LOCAL_APP}/Contents/Info.plist" << EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
   <key>CFBundleName</key><string>BridgeSessions</string>
   <key>CFBundleDisplayName</key><string>BridgeSessions</string>
-  <key>CFBundleIdentifier</key><string>com.mindragon.bridgesessions</string>
-  <key>CFBundleVersion</key><string>1.0</string>
-  <key>CFBundleShortVersionString</key><string>1.0</string>
+  <key>CFBundleIdentifier</key><string>com.minddragon.bridgesessions</string>
+  <key>CFBundleVersion</key><string>26.08.12-beta3</string>
+  <key>CFBundleShortVersionString</key><string>26.08.12</string>
   <key>CFBundleExecutable</key><string>bridgesessions</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>LSMinimumSystemVersion</key><string>13.0</string>
   <key>LSUIElement</key><true/>
-  <key>NSDesktopFolderUsageDescription</key>
-  <string>BridgeSessions needs access to automate desktop tasks.</string>
-  <key>NSCameraUsageDescription</key>
-  <string>BridgeSessions captures the screen for remote automation.</string>
+  <key>NSScreenCaptureUsageDescription</key>
+  <string>BridgeSessions needs Screen Recording to capture the desktop for remote CUA automation.</string>
+  <key>NSAccessibilityUsageDescription</key>
+  <string>BridgeSessions needs Accessibility to inject keyboard and mouse events for remote CUA automation.</string>
 </dict>
 </plist>
 EOF
+      fi
       # The downloaded binary from dist/ is already Developer ID signed.
       # Do NOT re-sign — that would strip the signature (Rana's machine
       # has no Developer ID cert). Just copy the signed binary as-is.
@@ -511,9 +520,8 @@ EOF
         launchctl load -w "${CUA_PLIST}" 2>/dev/null || true
       echo "→ CUA helper launchd agent installed (.app bundle wrapper)."
 
-      # Purge old TCC entries and register the new bundle identity
-      tccutil reset ScreenCapture com.mindragon.bridgesessions 2>/dev/null || true
-      tccutil reset Accessibility com.mindragon.bridgesessions 2>/dev/null || true
+      # Do NOT tccutil reset here — reinstall must keep Screen Recording /
+      # Accessibility for TeamID+com.minddragon.bridgesessions.
 
       # Register the bundle with LaunchServices so TCC can resolve it,
       # then restart both agents so they run from the .app bundle

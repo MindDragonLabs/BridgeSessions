@@ -79,10 +79,14 @@ bridgesessions --cua-helper
 - **Accessibility** — for mouse/keyboard input injection (`click`, `move`,
   `type`, `key`, `scroll`).
 
-> Rebuilt ad-hoc binaries get a new CDHash. You must remove and re-add the
-> binary under Screen & System Audio Recording and Accessibility after every
-> rebuild, then restart the launchd daemon.
-
+> **One grant persists across reinstalls** when binaries stay Developer ID
+> signed as `TeamIdentifier=QL5MD8FKPL` + `Identifier=com.minddragon.bridgesessions`
+> (see `scripts/sign-macos.sh` / `install-local-macos.sh`). macOS keys TCC on
+> that pair, not on the file path or rebuild CDHash.
+>
+> Ad-hoc / unsigned / random `bs-install.XXXXXX` identifiers break this and
+> force re-grant. Install scripts must **not** run `tccutil reset` for the
+> stable id (legacy ad-hoc cleanup only via `BS_RESET_LEGACY_TCC=1`).
 Verify:
 ```bash
 # Should print: cua-helper: listening on 127.0.0.1:19986

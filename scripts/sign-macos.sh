@@ -52,6 +52,7 @@ codesign --force --deep --options runtime \
     --entitlements "$ENTITLEMENTS" \
     --sign "$IDENTITY" \
     --timestamp \
+    --identifier com.minddragon.bridgesessions \
     "$BUNDLE_DIR" 2>/dev/null || true
 codesign --verify --strict "$BUNDLE_DIR" 2>/dev/null && \
   echo "Also signed app bundle: $BUNDLE_DIR" || true

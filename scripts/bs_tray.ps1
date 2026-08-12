@@ -147,9 +147,29 @@ function Update-FleetStatus {
 $script:CuaHelperProcess = $null
 $script:CuaHelperLastCheck = Get-Date
 
+$script:CuaHelperStarting = $false
+
+function Stop-Session0CuaHelpers {
+    # Session-0 (services) helpers cannot capture the interactive desktop and
+    # still overwrite cua-helper-token — always remove them.
+    try {
+        Get-CimInstance Win32_Process -Filter "Name='bridgesessions.exe'" -ErrorAction SilentlyContinue |
+            Where-Object { $_.CommandLine -and ($_.CommandLine -match 'cua-helper') } |
+            ForEach-Object {
+                try {
+                    $gp = Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue
+                    if ($gp -and $gp.SessionId -eq 0) {
+                        Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
+                    }
+                } catch {}
+            }
+    } catch {}
+}
+
 function Find-ExistingCuaHelper {
     # Prefer an already-running Session-1 helper (schtasks /IT). Starting a second
     # helper overwrites cua-helper-token and bricks auth for the first instance.
+    Stop-Session0CuaHelpers
     try {
         $procs = Get-CimInstance Win32_Process -Filter "Name='bridgesessions.exe'" -ErrorAction SilentlyContinue |
             Where-Object { $_.CommandLine -and ($_.CommandLine -match 'cua-helper') }
@@ -165,34 +185,68 @@ function Find-ExistingCuaHelper {
     return $null
 }
 
+function Count-CuaHelpers {
+    try {
+        return @(Get-CimInstance Win32_Process -Filter "Name='bridgesessions.exe'" -ErrorAction SilentlyContinue |
+            Where-Object { $_.CommandLine -and ($_.CommandLine -match 'cua-helper') }).Count
+    } catch { return 0 }
+}
+
+function Stop-AllCuaHelpers {
+    # Kill every helper process (any session) so only one can own the token/port.
+    try {
+        Get-CimInstance Win32_Process -Filter "Name='bridgesessions.exe'" -ErrorAction SilentlyContinue |
+            Where-Object { $_.CommandLine -and ($_.CommandLine -match 'cua-helper') } |
+            ForEach-Object {
+                try { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue } catch {}
+            }
+    } catch {}
+    $script:CuaHelperProcess = $null
+}
+
 function Start-CuaHelper {
     if (-not (Test-Path $BIN_PATH)) { return }
+    if ($script:CuaHelperStarting) { return }
     if ($script:CuaHelperProcess -and -not $script:CuaHelperProcess.HasExited) { return }
 
     $existing = Find-ExistingCuaHelper
     if ($existing) {
+        # Extra helpers already running → kill extras, keep the first Session-1.
+        if ((Count-CuaHelpers) -gt 1) {
+            Write-Host "-> Multiple CUA helpers detected; reducing to one"
+            $keep = $existing.Id
+            Get-CimInstance Win32_Process -Filter "Name='bridgesessions.exe'" -ErrorAction SilentlyContinue |
+                Where-Object { $_.CommandLine -match 'cua-helper' -and $_.ProcessId -ne $keep } |
+                ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+        }
         $script:CuaHelperProcess = $existing
         Write-Host ("-> CUA helper already running (PID {0}, session {1}) - attaching" -f $existing.Id, $existing.SessionId)
         return
     }
 
-    # Prefer the interactive scheduled task (Session 1) over spawning from the tray
-    # process, which can land in the wrong session or double-start with schtasks.
+    $script:CuaHelperStarting = $true
     try {
-        $task = Get-ScheduledTask -TaskName 'BS-CUA-Helper' -ErrorAction SilentlyContinue
+        # Prefer interactive scheduled task (Session 1). Never Process.Start when
+        # the task exists — that races schtasks and dual-starts helpers.
+        $task = $null
+        try { $task = Get-ScheduledTask -TaskName 'BS-CUA-Helper' -ErrorAction SilentlyContinue } catch {}
         if ($task) {
             Start-ScheduledTask -TaskName 'BS-CUA-Helper' -ErrorAction SilentlyContinue
-            Start-Sleep -Seconds 2
-            $existing = Find-ExistingCuaHelper
-            if ($existing) {
-                $script:CuaHelperProcess = $existing
-                Write-Host ("-> CUA helper started via BS-CUA-Helper task (PID {0})" -f $existing.Id)
-                return
+            for ($i = 0; $i -lt 12; $i++) {
+                Start-Sleep -Milliseconds 500
+                $existing = Find-ExistingCuaHelper
+                if ($existing) {
+                    $script:CuaHelperProcess = $existing
+                    Write-Host ("-> CUA helper started via BS-CUA-Helper task (PID {0})" -f $existing.Id)
+                    return
+                }
             }
+            Write-Host "-> BS-CUA-Helper task did not produce a Session-1 helper"
+            return
         }
-    } catch {}
 
-    try {
+        # No schtask: last-resort spawn (still only if zero helpers)
+        if ((Count-CuaHelpers) -gt 0) { return }
         $psi = New-Object System.Diagnostics.ProcessStartInfo
         $psi.FileName = $BIN_PATH
         $psi.Arguments = "--config `"$CONFIG_PATH`" --cua-helper"
@@ -203,22 +257,32 @@ function Start-CuaHelper {
         Write-Host ("-> CUA helper started (PID {0})" -f $script:CuaHelperProcess.Id)
     } catch {
         Write-Host ("-> Failed to start CUA helper: {0}" -f $_.Exception.Message)
+    } finally {
+        $script:CuaHelperStarting = $false
     }
 }
 
 function Restart-CuaHelper {
-    if ($script:CuaHelperProcess -and -not $script:CuaHelperProcess.HasExited) {
-        try { $script:CuaHelperProcess.Kill() } catch {}
-        Start-Sleep -Milliseconds 500
-    }
+    # Always wipe all helpers first so we never leave two tokens fighting.
+    Stop-AllCuaHelpers
+    Start-Sleep -Seconds 1
     Start-CuaHelper
 }
 
 function Watch-CuaHelper {
     if (-not $script:Settings.RestartHelper) { return }
-    if ($script:CuaHelperProcess -and -not $script:CuaHelperProcess.HasExited) { return }
-    # Re-attach to Session-1 helper if present (schtasks /IT). Never race-start a
-    # second helper while another is already listening with a different token.
+    if ($script:CuaHelperStarting) { return }
+    if ($script:CuaHelperProcess -and -not $script:CuaHelperProcess.HasExited) {
+        # Still enforce single-instance while healthy
+        if ((Count-CuaHelpers) -gt 1) {
+            $keep = $script:CuaHelperProcess.Id
+            Get-CimInstance Win32_Process -Filter "Name='bridgesessions.exe'" -ErrorAction SilentlyContinue |
+                Where-Object { $_.CommandLine -match 'cua-helper' -and $_.ProcessId -ne $keep } |
+                ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+        }
+        return
+    }
+    # Re-attach or start exactly one helper (via task / single-flight).
     $existing = Find-ExistingCuaHelper
     if ($existing) {
         $script:CuaHelperProcess = $existing
@@ -404,4 +468,22 @@ function Start-Tray {
 }
 
 # -- Entry point ---------------------------------------------------------------
+# Single-instance: a second tray races Start-CuaHelper and leaves dual helpers.
+$mutex = $null
+try {
+    $created = $false
+    $mutex = New-Object System.Threading.Mutex($true, 'Global\BridgeSessionsTray', [ref]$created)
+    if (-not $created) {
+        Write-Host '-> BridgeSessions tray already running - exiting'
+        exit 0
+    }
+} catch {
+    # If mutex fails (session isolation), still start; attach-only limits damage.
+}
+
 Start-Tray
+
+if ($mutex) {
+    try { $mutex.ReleaseMutex() | Out-Null } catch {}
+    $mutex.Dispose()
+}

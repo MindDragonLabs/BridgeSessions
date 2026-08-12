@@ -30,13 +30,21 @@ if ! security find-identity -v -p codesigning 2>/dev/null | grep -F "$IDENTITY" 
 fi
 
 mkdir -p "$DEST_DIR"
-TMP="$(mktemp /tmp/bs-install.XXXXXX)"
+# Stable path so codesign Identifier is not mktemp-random (TCC keys on
+# TeamID + Identifier; bs-install.XXXXXX broke Screen Recording every reinstall).
+TMP="/tmp/bridgesessions-install-staging"
 cp "$SOURCE" "$TMP"
 chmod 755 "$TMP"
 xattr -cr "$TMP" 2>/dev/null || true
+codesign --remove-signature "$TMP" 2>/dev/null || true
 
-echo "→ Signing with $IDENTITY ..."
-SIGN_ARGS=(--force --options runtime --sign "$IDENTITY" --timestamp)
+echo "→ Signing with $IDENTITY (identifier=com.minddragon.bridgesessions) ..."
+SIGN_ARGS=(
+  --force --options runtime
+  --sign "$IDENTITY"
+  --timestamp
+  --identifier com.minddragon.bridgesessions
+)
 if [[ -f "$ENTITLEMENTS" ]]; then
   SIGN_ARGS+=(--entitlements "$ENTITLEMENTS")
 fi
@@ -47,9 +55,18 @@ if ! codesign "${SIGN_ARGS[@]}" "$TMP"; then
 fi
 
 codesign --verify --strict --verbose=2 "$TMP" 2>&1 | sed 's/^/  /'
-# Must show TeamIdentifier QL5MD8FKPL (or whatever is on the cert)
-if ! codesign -dvv "$TMP" 2>&1 | grep -q 'TeamIdentifier='; then
+# Must show TeamIdentifier + stable Identifier (TCC Screen Recording).
+# Capture codesign -dvv first: pipefail+grep -q causes SIGPIPE races that
+# falsely fail even when Identifier/TeamIdentifier are correct.
+CS_META="$(codesign -dvv "$TMP" 2>&1 || true)"
+if ! grep -q 'TeamIdentifier=' <<<"$CS_META"; then
   echo "error: signed binary has no TeamIdentifier — not a proper Developer ID sign" >&2
+  rm -f "$TMP"
+  exit 1
+fi
+if ! grep -q 'Identifier=com.minddragon.bridgesessions' <<<"$CS_META"; then
+  echo "error: signed binary Identifier is not com.minddragon.bridgesessions" >&2
+  grep Identifier <<<"$CS_META" | sed 's/^/  /' >&2
   rm -f "$TMP"
   exit 1
 fi
@@ -59,6 +76,28 @@ cp "$TMP" "$DEST.new"
 chmod 755 "$DEST.new"
 mv -f "$DEST.new" "$DEST"
 rm -f "$TMP"
+
+# Keep BridgeSessions.app in sync (same TeamID+CFBundleIdentifier for TCC)
+APP_BUNDLE="/Applications/BridgeSessions.app"
+if [[ -d "$APP_BUNDLE/Contents/MacOS" ]]; then
+  echo "→ Updating $APP_BUNDLE with same signature ..."
+  cp "$DEST" "$APP_BUNDLE/Contents/MacOS/bridgesessions"
+  chmod 755 "$APP_BUNDLE/Contents/MacOS/bridgesessions"
+  if [[ -f "$REPO_ROOT/macos-signing/Info.plist" ]]; then
+    cp "$REPO_ROOT/macos-signing/Info.plist" "$APP_BUNDLE/Contents/Info.plist"
+  fi
+  xattr -cr "$APP_BUNDLE" 2>/dev/null || true
+  # Same Identifier as the Mach-O so TCC keys (TeamID+Identifier) match.
+  APP_SIGN=(
+    --force --deep --options runtime
+    --sign "$IDENTITY" --timestamp
+    --identifier com.minddragon.bridgesessions
+  )
+  if [[ -f "$ENTITLEMENTS" ]]; then
+    APP_SIGN+=(--entitlements "$ENTITLEMENTS")
+  fi
+  codesign "${APP_SIGN[@]}" "$APP_BUNDLE" 2>&1 | sed 's/^/  /' || true
+fi
 
 # Symlink bs → bridgesessions
 ln -sfn bridgesessions "$DEST_DIR/bs"

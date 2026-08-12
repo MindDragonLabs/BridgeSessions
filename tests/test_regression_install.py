@@ -137,7 +137,9 @@ class TestAppBundleWrapper:
         text = read_script()
         assert 'Info.plist' in text
         assert 'CFBundleIdentifier' in text
-        assert 'com.mindragon.bridgesessions' in text
+        # Must be minddragon (not mindragon typo) — TCC keys on this id.
+        assert 'com.minddragon.bridgesessions' in text
+        assert 'com.mindragon.bridgesessions' not in text
 
     def test_updates_launchd_plists_to_app_binary(self):
         text = read_script()
@@ -152,14 +154,17 @@ class TestAppBundleWrapper:
         assert 'open "${LOCAL_APP}"' not in text and 'open "$LOCAL_APP"' not in text, \
                "install.sh should not 'open' the .app bundle"
 
-    def test_tcc_reset_uses_bundle_id(self):
+    def test_no_tcc_reset_of_stable_identity(self):
         text = read_script()
-        # Should reset TCC using bundle ID, not bare binary name
-        assert 'tccutil reset ScreenCapture com.mindragon.bridgesessions' in text
+        # Reinstall must NOT wipe Screen Recording for the stable Developer ID
+        # identity — that forced re-grant on every upgrade.
+        assert 'tccutil reset ScreenCapture com.minddragon.bridgesessions' not in text
+        assert 'tccutil reset Accessibility com.minddragon.bridgesessions' not in text
+        assert 'Do NOT tccutil reset' in text or 'NEVER tccutil reset' in text
 
     def test_lsui_element_prevents_dock_bounce(self):
         text = read_script()
-        assert '<key>LSUIElement</key><true/>' in text, \
+        assert 'LSUIElement' in text, \
                "Local .app plist missing LSUIElement (dock bounce bug)"
 
     def test_daemon_restarted_after_app_wrapper(self):
