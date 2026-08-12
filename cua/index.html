@@ -78,7 +78,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#cua-computer-use-automation-bridgesessions-260810-beta2" class="md-skip">
+        <a href="#cua-computer-use-automation-bridgesessions-260812-beta3" class="md-skip">
           Skip to content
         </a>
       
@@ -725,6 +725,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#tray-menubar-applets-b-logo" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tray / menubar applets (B logo)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#architecture" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1301,6 +1312,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#tray-menubar-applets-b-logo" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tray / menubar applets (B logo)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#architecture" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1580,11 +1602,44 @@
   
 
 
-<h1 id="cua-computer-use-automation-bridgesessions-260810-beta2">CUA — Computer-Use Automation (BridgeSessions 26.08.10-beta2)<a class="headerlink" href="#cua-computer-use-automation-bridgesessions-260810-beta2" title="Permanent link">&para;</a></h1>
+<h1 id="cua-computer-use-automation-bridgesessions-260812-beta3">CUA — Computer-Use Automation (BridgeSessions 26.08.12-beta3)<a class="headerlink" href="#cua-computer-use-automation-bridgesessions-260812-beta3" title="Permanent link">&para;</a></h1>
 <p>Remote desktop automation over the <code>bs://</code> mesh. Seven subcommands: screen query,
 screenshot capture, mouse click/move/scroll, text typing, and HID key press.
 No VNC/RDP/streaming server required — input injection and capture happen in the
 peer's user session via the <code>--cua-helper</code> process.</p>
+<h2 id="tray-menubar-applets-b-logo">Tray / menubar applets (B logo)<a class="headerlink" href="#tray-menubar-applets-b-logo" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Platform</th>
+<th>Applet</th>
+<th>Mesh service (not foreground)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>macOS</td>
+<td><code>BSMenubar.app</code> menubar <strong>B</strong></td>
+<td>launchd <code>com.bridgesessions.mesh</code> + <code>cua-helper</code></td>
+</tr>
+<tr>
+<td>Windows</td>
+<td><code>scripts/bs_tray.ps1</code> NotifyIcon <strong>B</strong></td>
+<td>schtasks <code>BridgeSessions</code> / <code>bridgesessions</code> (SYSTEM)</td>
+</tr>
+<tr>
+<td>Linux</td>
+<td><code>scripts/bs_tray.py</code> pystray <strong>B</strong></td>
+<td>systemd user <code>bridgesessions.service</code></td>
+</tr>
+</tbody>
+</table>
+<p><strong>Applet menus (parity):</strong> Fleet Status · Restart Daemon · Restart Helper (Win/mac) ·
+Open Logs · Autostart/Login · Quit.</p>
+<p><strong>Windows auth note:</strong> only <strong>one</strong> Session‑1 <code>--cua-helper</code>. If capture returns
+<code>ERROR: auth</code>, stop tray, kill helpers, start <code>BS-CUA-Helper</code>, then tray. The tray
+attaches to an existing helper and grants SYSTEM read on <code>cua-helper-token</code>.</p>
+<p>Static icons: <code>assets/icon-b.png</code> / <code>icon-b.ico</code>.</p>
 <h2 id="architecture">Architecture<a class="headerlink" href="#architecture" title="Permanent link">&para;</a></h2>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>bs cua &lt;subcommand&gt; &lt;peer&gt;     ← CLI (operator machine)
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    │
@@ -2013,7 +2068,7 @@ helper-side implementation.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 11, 2026 14:23:42 UTC">August 11, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 12, 2026 14:08:36 UTC">August 12, 2026</span>
   </span>
 
     
