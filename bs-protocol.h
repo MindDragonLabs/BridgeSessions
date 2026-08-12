@@ -4570,9 +4570,16 @@ struct OutboundPeerVerifyResult {
     for (unsigned char ch : hello_name)
         if (ch < 0x20 || ch == 0x7f)
             return {false, "Hello node name contains control characters"};
+    // Name is an operational label; identity is the pinned key. Allow rename
+    // when the pin already matched (e.g. seed "windows-peer" announces as
+    // "windows-peer-2"). Reject only when there is no pin to bind identity.
     if (!expected_name.empty() &&
         !config_peer_name_eq(expected_name, hello_name)) {
-        return {false, "Hello node name does not match expected peer name"};
+        if (expected_pubkey.empty() ||
+            !peer_identity_matches(expected_pubkey, cert_pubkey)) {
+            return {false, "Hello node name does not match expected peer name"};
+        }
+        // pinned key OK — accept Hello name (conn.peer_name becomes hello_name)
     }
     return {true, {}};
 }
