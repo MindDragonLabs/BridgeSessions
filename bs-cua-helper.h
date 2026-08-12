@@ -46,7 +46,11 @@ namespace bs::mesh {
 // types resolve here.)
 extern "C" {
     extern CFStringRef kAXTrustedCheckOptionPrompt;
+    bool AXIsProcessTrusted(void);
     bool AXIsProcessTrustedWithOptions(CFDictionaryRef options);
+    // ScreenCaptureKit / CG TCC preflight + request (macOS 10.15+)
+    bool CGPreflightScreenCaptureAccess(void);
+    bool CGRequestScreenCaptureAccess(void);
 }
 #endif
 
@@ -445,35 +449,61 @@ inline int run_cua_helper(const std::string& app_home_in) {
 
 #ifdef __APPLE__
     // ── TCC permission bootstrap ────────────────────────────────────
-    // Accessibility and Screen Recording entries only appear in System
-    // Settings after the process has REQUESTED them. Bare launchd starts
-    // never trigger the prompt, so the app is invisible to the user.
-    // Request both at helper start; the OS shows the grant prompt once.
+    // TCC (Accessibility + Screen Recording):
+    // - Never re-prompt on every launchd KeepAlive / kickstart — that stacks
+    //   dozens of System Settings dialogs when the helper restarts.
+    // - Preflight first; only request when not already decided.
+    // - Interactive request at most once per app_home (marker file). Force a
+    //   capture probe only on that first interactive attempt (or when
+    //   BS_TCC_FORCE_PROMPT=1). Later starts log status only.
     {
-        // Accessibility (prompt + add entry to System Settings list).
-        // Pure CoreFoundation — this header compiles as C++, not ObjC++.
-        const void* ax_keys[] = { kAXTrustedCheckOptionPrompt };
-        const void* ax_vals[] = { kCFBooleanTrue };
-        CFDictionaryRef ax_opts = CFDictionaryCreate(
-            nullptr, ax_keys, ax_vals, 1,
-            &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
-        bool ax_ok = AXIsProcessTrustedWithOptions(ax_opts);
-        if (ax_opts) CFRelease(ax_opts);
-        // Screen Recording: CGRequestScreenCaptureAccess triggers the
-        // ScreenCaptureKit TCC prompt (macOS 10.15+).
-        bool sr_ok = CGRequestScreenCaptureAccess();
-        if (!sr_ok) {
-            // CGRequestScreenCaptureAccess silently fails for launchd-spawned
-            // processes on macOS 15+/26 — it returns false without showing a
-            // dialog. Forcing a real ScreenCaptureKit capture attempt is what
-            // reliably triggers the TCC grant prompt.
-            std::string probe = "/tmp/.bs-tcc-probe.png";
-            char err[256] = {};
-            bs_macos_capture_png(probe.c_str(), 0, err, sizeof(err));
-            ::unlink(probe.c_str());
+        const bool force_prompt = [] {
+            const char* e = std::getenv("BS_TCC_FORCE_PROMPT");
+            return e && e[0] == '1' && e[1] == '\0';
+        }();
+        const std::string marker = app_home + "/tcc-prompted-v1";
+        const bool already_prompted = !force_prompt &&
+            (access(marker.c_str(), F_OK) == 0);
+
+        // Accessibility: silent check first.
+        bool ax_ok = AXIsProcessTrusted();
+        if (!ax_ok && !already_prompted) {
+            const void* ax_keys[] = { kAXTrustedCheckOptionPrompt };
+            const void* ax_vals[] = { kCFBooleanTrue };
+            CFDictionaryRef ax_opts = CFDictionaryCreate(
+                nullptr, ax_keys, ax_vals, 1,
+                &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+            ax_ok = AXIsProcessTrustedWithOptions(ax_opts);
+            if (ax_opts) CFRelease(ax_opts);
         }
-        bs::log::get("cua-helper")->info("tcc_request accessibility={} screen_recording={}",
-                                         ax_ok, sr_ok);
+
+        // Screen Recording: preflight; request only if needed and not yet asked.
+        bool sr_ok = CGPreflightScreenCaptureAccess();
+        if (!sr_ok && !already_prompted) {
+            sr_ok = CGRequestScreenCaptureAccess();
+            if (!sr_ok) {
+                // One-shot SCKit probe — only on first interactive attempt.
+                // (CGRequest alone is often silent for launchd on macOS 15+/26.)
+                std::string probe = "/tmp/.bs-tcc-probe.png";
+                char err[256] = {};
+                bs_macos_capture_png(probe.c_str(), 0, err, sizeof(err));
+                ::unlink(probe.c_str());
+                sr_ok = CGPreflightScreenCaptureAccess();
+            }
+        }
+
+        if (!already_prompted) {
+            // Mark so kickstart/KeepAlive cannot stack more dialogs.
+            FILE* mf = std::fopen(marker.c_str(), "w");
+            if (mf) {
+                std::fprintf(mf, "prompted=1 ax=%d sr=%d\n", ax_ok ? 1 : 0, sr_ok ? 1 : 0);
+                std::fclose(mf);
+            }
+        }
+
+        bs::log::get("cua-helper")->info(
+            "tcc_status accessibility={} screen_recording={} prompted_before={} force={}",
+            ax_ok, sr_ok, already_prompted, force_prompt);
     }
 #endif
 
