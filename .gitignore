@@ -126,7 +126,11 @@ _archive/
 screenshots/
 /docs/remediation-*/
 *.ps1
+!scripts/bs_tray.ps1
+!scripts/install.ps1
+!tests/**/*.ps1
 *.bat
+!scripts/*.bat
 COMPLETED.md
 FIELD-NOTES*.md
 FIX-PROPOSALS.md
