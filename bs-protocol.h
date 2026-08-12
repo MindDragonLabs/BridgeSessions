@@ -621,6 +621,23 @@ enum FrameFlags : uint8_t {
     return std::string(kBridgeSessionsVersion) + "+" + std::string(kCapFrm2);
 }
 
+// Strip capability tags: "26.08.12-beta3+frm2" → "26.08.12-beta3"
+[[nodiscard]] inline std::string_view version_core(std::string_view v) {
+    auto plus = v.find('+');
+    return plus == std::string_view::npos ? v : v.substr(0, plus);
+}
+
+// True if `remote` is strictly older than `local` for date-based tags
+// YY.MM.DD[-betaN] (lexicographic works for zero-padded YY.MM.DD).
+[[nodiscard]] inline bool version_is_older(std::string_view remote, std::string_view local) {
+    auto r = version_core(remote);
+    auto l = version_core(local);
+    if (r.empty() || l.empty()) return false;
+    if (r == l) return false;
+    // Prefer pure string compare for our scheme (26.08.06-beta1 < 26.08.12-beta3).
+    return r < l;
+}
+
 struct Frame {
     uint16_t stream_id = 0;
     MessageType type = MessageType::Ping;
@@ -3956,6 +3973,12 @@ struct MeshConfig {
     std::string receive_dir_override;  // override default received/ path (for SYSTEM daemons)
     int ping_interval_secs = 5;
     int pong_timeout_secs = 30;
+    // When true, offer `bridgesessions upgrade` to peers that reconnect with an
+    // older Hello.version than this node (cooldown-limited). Peers that were
+    // offline during a fleet upgrade catch up automatically when they return.
+    bool auto_upgrade = true;
+    // Minimum seconds between auto-upgrade attempts for the same peer.
+    int auto_upgrade_cooldown_secs = 3600;
     // When true (default), outbound seed/discovered dials require pubkey= pin and
     // post-handshake cert/Hello identity binding. TLS fingerprint TOFU alone is
     // not sufficient for mesh trust (independent review 2026-07-16 P0-1).
@@ -4177,6 +4200,13 @@ void write_peer_line(std::ostream& os, const std::string& prefix, const PeerEntr
         } else if (key_str == "mesh.pong_timeout_secs") {
             auto v = parse_int(val);
             if (v.has_value()) cfg.pong_timeout_secs = *v;
+        } else if (key_str == "mesh.auto_upgrade") {
+            std::string s(val);
+            for (char& c : s) if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
+            cfg.auto_upgrade = !(s == "false" || s == "0" || s == "no" || s == "off");
+        } else if (key_str == "mesh.auto_upgrade_cooldown_secs") {
+            auto v = parse_int(val);
+            if (v.has_value() && *v >= 60) cfg.auto_upgrade_cooldown_secs = *v;
         } else if (key_str == "mesh.require_seed_pins") {
             std::string s(val);
             for (char& c : s) if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
@@ -5006,6 +5036,8 @@ struct ResolvedSessionCommand {
     f << "mesh.reconnect_backoff_max_secs " << cfg.reconnect_backoff_max_secs << "\n";
     f << "mesh.ping_interval_secs " << cfg.ping_interval_secs << "\n";
     f << "mesh.pong_timeout_secs " << cfg.pong_timeout_secs << "\n";
+    f << "mesh.auto_upgrade " << (cfg.auto_upgrade ? "true" : "false") << "\n";
+    f << "mesh.auto_upgrade_cooldown_secs " << cfg.auto_upgrade_cooldown_secs << "\n";
     f << "mesh.require_seed_pins " << (cfg.require_seed_pins ? "true" : "false") << "\n";
     f << "mesh.mdns_enabled " << (cfg.mdns_enabled ? "true" : "false") << "\n";
     f << "transfer.max_bytes " << cfg.transfer_max_bytes << "\n";
@@ -7231,6 +7263,9 @@ private:
     std::optional<LongOperationWorkerPool> worker_pool_;
     static constexpr size_t kLongOperationWorkers = 2;
 
+    // Auto-upgrade: last attempt time per peer (cooldown).
+    std::unordered_map<std::string, std::chrono::steady_clock::time_point> auto_upgrade_last_;
+
     // ── Transfer telemetry ────────────────────────────────────────────
     TransferTelemetryRing transfer_telemetry_;
 
@@ -7859,9 +7894,37 @@ private:
                   hello.node_name + " addr=" + (ph.server_side ? "inbound" : ph.expected_addr) +
                   " pubkey=" + ph.peer_pk.substr(0, 16) + "...");
 
+        maybe_schedule_auto_upgrade(hello.node_name, hello.version);
+
         // Handshake object will be erased; mark fd moved so ssl_close isn't called twice.
         ph.sock_fd = INVALID_SOCKET;
         ph.state = PendingHandshake::State::Done;
+    }
+
+    // If peer is behind us, fire-and-forget a remote `bridgesessions upgrade`
+    // so hosts that were offline during a fleet cut catch up when they return.
+    void maybe_schedule_auto_upgrade(const std::string& peer, const std::string& remote_ver) {
+        if (!config_.auto_upgrade) return;
+        if (peer.empty() || peer == config_.node_name) return;
+        if (!version_is_older(remote_ver, kBridgeSessionsVersion)) return;
+        const auto now = std::chrono::steady_clock::now();
+        const auto cooldown = std::chrono::seconds(
+            std::max(60, config_.auto_upgrade_cooldown_secs));
+        auto it = auto_upgrade_last_.find(peer);
+        if (it != auto_upgrade_last_.end() && now - it->second < cooldown) return;
+        auto_upgrade_last_[peer] = now;
+        log_event("auto_upgrade_dispatch",
+                  peer + " remote=" + remote_ver +
+                  " local=" + std::string(kBridgeSessionsVersion));
+        // Detached: must not block the mesh event loop. Prefer `bs`/`bridgesessions`
+        // on PATH of the operator host that is running this daemon.
+        std::thread([peer]() {
+            // shell + upgrade; remote daemon may stop mid-command (expected).
+            std::string cmd =
+                "bridgesessions shell " + peer +
+                " --cmd 'bridgesessions upgrade' >/dev/null 2>&1";
+            std::system(cmd.c_str());
+        }).detach();
     }
 
     void advance_handshakes() {

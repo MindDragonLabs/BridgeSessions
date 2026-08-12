@@ -29,7 +29,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install dependencies
+        env:
+          HOMEBREW_NO_REQUIRE_TAP_TRUST: "1"
+          HOMEBREW_NO_AUTO_UPDATE: "1"
+          HOMEBREW_NO_INSTALL_CLEANUP: "1"
         run: |
+          # Ignore untrusted third-party taps noise; only install from homebrew/core.
+          brew untap aws/tap 2>/dev/null || true
           brew install cmake ninja fmt spdlog zstd openssl@3 catch2 nlohmann-json cli11
       - name: Configure
         run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBRIDGESESSIONS_PYTHON=OFF

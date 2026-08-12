@@ -1067,24 +1067,15 @@ int main(int argc, char** argv) {
                     }
                     if (name.empty()) continue;
                     std::cout << "  " << name << ": sending upgrade command...";
-                    // Send 'upgrade' command via mesh shell. NOTE: the remote
-                    // upgrade stops the remote daemon (systemctl stop), so the
-                    // SHELL response may never return. Treat as fire-and-forget:
-                    // send with a short timeout, report dispatched-not-confirmed.
-                    std::string cmd = "bridgesessions upgrade";
-                    if (!upgrade_tag.empty()) cmd += " --tag " + upgrade_tag;
-                    std::string result = daemon_simple_ipc(
-                        ("SHELL " + name + " default " + cmd).c_str(), 8000, home_dir);
-                    if (result.find("Already up to date") != std::string::npos) {
-                        std::cout << " already current\n";
-                    } else if (result.find("upgraded") != std::string::npos) {
-                        std::cout << " OK\n";
-                    } else if (result.empty() || result.rfind("ERROR", 0) == 0) {
-                        // Daemon likely stopped mid-command — upgrade dispatched.
-                        std::cout << " dispatched (daemon restarting)\n";
-                    } else {
-                        std::cout << " FAILED (" << result.substr(0, 60) << ")\n";
-                    }
+                    // Direct TLS shell (daemon IPC never relays SHELL). Remote
+                    // upgrade stops the peer daemon — fire-and-forget.
+                    std::string remote_cmd = "bridgesessions upgrade";
+                    if (!upgrade_tag.empty()) remote_cmd += " --tag " + upgrade_tag;
+                    std::string shell_cmd =
+                        "bridgesessions shell " + name + " --cmd '" + remote_cmd +
+                        "' >/dev/null 2>&1 &";
+                    std::system(shell_cmd.c_str());
+                    std::cout << " dispatched\n";
                 }
                 std::cout << "Fleet upgrade initiated.\n";
                 return 0;
@@ -1222,30 +1213,54 @@ int main(int argc, char** argv) {
 
 #ifdef __APPLE__
         {
+            // Prefer BS_DEV_ID; else first Developer ID Application identity in keychain.
             if (dev_id.empty()) {
-                std::cerr << "upgrade: set BS_DEV_ID to your Developer ID Application "
-                             "identity (do not leave ad-hoc).\n"
-                          << "  Example: export BS_DEV_ID='Developer ID Application: …'\n";
-                ::unlink(tmp_path.c_str());
-                return 1;
+                FILE* p = BS_POPEN(
+                    "security find-identity -v -p codesigning 2>/dev/null | "
+                    "grep -F 'Developer ID Application' | head -1 | "
+                    "sed -E 's/.*\"(.+)\"/\\1/'",
+                    "r");
+                if (p) {
+                    char buf[512] = {};
+                    if (fgets(buf, sizeof(buf), p)) dev_id = buf;
+                    BS_PCLOSE(p);
+                    while (!dev_id.empty() &&
+                           (dev_id.back() == '\n' || dev_id.back() == '\r'))
+                        dev_id.pop_back();
+                }
             }
-            // Clear provenance/quarantine from the download, then Developer ID sign.
+            // Dist binaries from GitHub are already Developer ID signed — verify
+            // first; only re-sign when the download is ad-hoc / unsigned.
             std::string xattr_cmd = "xattr -cr '" + tmp_path + "' 2>/dev/null";
             std::system(xattr_cmd.c_str());
-            // Identity is mandatory — no ad-hoc fallback (SIGKILL risk on macOS).
-            std::string sign_cmd =
-                "codesign --force --options runtime --timestamp --sign '" + dev_id + "' '" +
-                tmp_path + "' 2>&1";
-            int sign_rc = std::system(sign_cmd.c_str());
-            if (sign_rc != 0) {
-                std::cerr << "upgrade: Developer ID codesign FAILED for identity:\n  "
-                          << dev_id << "\n"
-                          << "  Set BS_DEV_ID or ensure the cert is in the login keychain.\n"
-                          << "  Refusing ad-hoc fallback (macOS may SIGKILL adhoc installs).\n";
-                ::unlink(tmp_path.c_str());
-                return 1;
+            std::string verify_cmd =
+                "codesign --verify --strict '" + tmp_path + "' 2>/dev/null && "
+                "codesign -dvv '" + tmp_path +
+                "' 2>&1 | grep -q 'TeamIdentifier='";
+            if (std::system(verify_cmd.c_str()) == 0) {
+                std::cout << "→ Pre-signed Developer ID binary (verified)\n";
+            } else {
+                if (dev_id.empty()) {
+                    std::cerr << "upgrade: binary is not Developer ID signed and "
+                                 "no BS_DEV_ID / keychain identity found.\n"
+                              << "  Refusing ad-hoc install (macOS may SIGKILL).\n";
+                    ::unlink(tmp_path.c_str());
+                    return 1;
+                }
+                std::string sign_cmd =
+                    "codesign --force --options runtime --timestamp --sign '" +
+                    dev_id + "' --identifier com.minddragon.bridgesessions '" +
+                    tmp_path + "' 2>&1";
+                int sign_rc = std::system(sign_cmd.c_str());
+                if (sign_rc != 0) {
+                    std::cerr << "upgrade: Developer ID codesign FAILED for identity:\n  "
+                              << dev_id << "\n"
+                              << "  Refusing ad-hoc fallback.\n";
+                    ::unlink(tmp_path.c_str());
+                    return 1;
+                }
+                std::cout << "→ Signed with Developer ID\n";
             }
-            std::cout << "→ Signed with Developer ID\n";
         }
 #endif
 

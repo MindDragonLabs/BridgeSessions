@@ -288,7 +288,7 @@ BridgeSessions ships multi-harness agent instructions:
 | Windows x86_64 | `bridgesessions-windows-x86_64.exe` |
 | macOS arm64 | `bridgesessions-macos-arm64` |
 
-Current release: **`26.08.10-beta2`** on [GitHub Releases](https://github.com/MindDragonLabs/BridgeSessions/releases).
+Current release: **`26.08.12-beta3`** on [GitHub Releases](https://github.com/MindDragonLabs/BridgeSessions/releases).
 
 ```bash
 # Verify checksums

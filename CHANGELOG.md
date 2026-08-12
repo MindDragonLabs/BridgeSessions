@@ -11,6 +11,12 @@ All notable public releases are documented here.
 
 ## Unreleased
 
+### Mesh auto-upgrade
+- When a peer reconnects with an older `Hello.version`, the local daemon can
+  dispatch `bridgesessions upgrade` automatically (`mesh.auto_upgrade`, default
+  on; cooldown `mesh.auto_upgrade_cooldown_secs`, default 3600).
+
+
 ## 26.08.12-beta3
 
 ### Interactive shell

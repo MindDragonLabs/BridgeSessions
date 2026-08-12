@@ -754,8 +754,18 @@ TEST_CASE("bounded TCP connect does not exceed its deadline",
 #endif
 }
 
+TEST_CASE("version_is_older compares date-based tags", "[config][release][version]") {
+    REQUIRE(version_is_older("26.08.06-beta1", "26.08.12-beta3"));
+    REQUIRE(version_is_older("26.08.12-beta2", "26.08.12-beta3"));
+    REQUIRE_FALSE(version_is_older("26.08.12-beta3", "26.08.12-beta3"));
+    REQUIRE_FALSE(version_is_older("26.08.12-beta3+frm2", "26.08.12-beta3"));
+    REQUIRE(version_is_older("26.08.10-beta2+frm2", "26.08.12-beta3+frm2"));
+    REQUIRE_FALSE(version_is_older("26.09.01-beta1", "26.08.12-beta3"));
+}
+
 TEST_CASE("release and mesh Hello share the canonical version",
           "[config][release][version]") {
+
     // Canonical version lives in the repo VERSION file — never hardcode it here,
     // otherwise every version bump silently breaks this test.
     std::ifstream vf(BS_VERSION_FILE_PATH);
