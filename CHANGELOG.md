@@ -19,6 +19,17 @@ All notable public releases are documented here.
   resurrected session.
 
 
+### macOS TCC (Screen Recording / Accessibility)
+- Grants **persist across reinstalls** when the binary stays Developer ID signed as
+  `TeamIdentifier=QL5MD8FKPL` + `Identifier=com.minddragon.bridgesessions`.
+- `install-local-macos.sh` / `sign-macos.sh`: always pass `--identifier
+  com.minddragon.bridgesessions` (no mktemp-derived `bs-install.XXXXXX` ids).
+- `install.sh`: **does not** `tccutil reset` the stable id on upgrade (legacy ad-hoc
+  wipe only via `BS_RESET_LEGACY_TCC=1`); fixed `com.mindragon` typo in fallback
+  `CFBundleIdentifier`.
+- `macos-signing/Info.plist`: `LSUIElement` (not `LSBackgroundOnly`) + Screen
+  Recording / Accessibility usage strings so one-time TCC prompts can surface.
+
 ### CUA / Windows capture
 - GDI-only helper capture (CreateDIBSection + BMP); Session 0 skips PS fallback;
   single-instance helper; token written only after exclusive listen.
@@ -27,6 +38,8 @@ All notable public releases are documented here.
 ### Tray / menubar applets
 - **Windows** `scripts/bs_tray.ps1`: B logo, Fleet Status, Restart Daemon/Helper, Open Logs,
   Auto-launch Startup link; attach to existing Session-1 helper (no double-start auth brick).
+- **Windows tray**: single-instance mutex (`Global\BridgeSessionsTray`); kill Session-0
+  helpers (they overwrite the token but cannot capture the interactive desktop).
 - **Linux** `scripts/bs_tray.py`: Open Logs menu; static `assets/icon-b.png` when present;
   systemd unit `LD_LIBRARY_PATH` for user-local libspdlog.
 - **macOS** BSMenubar: Restart Daemon + Open Logs; install.sh installs BSMenubar.app +
