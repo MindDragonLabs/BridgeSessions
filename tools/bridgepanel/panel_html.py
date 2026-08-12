@@ -151,7 +151,6 @@ aside.sessions { border-right: 1px solid var(--divider); }
 .session-row .hicon { font-size: 12px; opacity: 0.6; width: 16px; text-align: center; }
 .session-row .sname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
 .session-row .sstate { font-family: var(--mono); font-size: 10px; color: var(--text-4); }
-.session-row .connect-btn {
   width: 20px; height: 20px;
   display: flex; align-items: center; justify-content: center;
   border: 1px solid var(--border-2);
@@ -163,9 +162,6 @@ aside.sessions { border-right: 1px solid var(--divider); }
   opacity: 0;
   transition: opacity 0.15s ease;
 }
-.session-row:hover .connect-btn { opacity: 1; }
-.session-row .connect-btn:hover { background: var(--accent-soft); border-color: var(--accent); }
-.session-row .dot {
   width: 6px; height: 6px; border-radius: 50%;
   background: #c8c8c8; flex-shrink: 0;
 }
@@ -342,14 +338,6 @@ main { min-width: 0; min-height: 0; display: flex; flex-direction: column; overf
 }
 #editTextarea:focus { border-color: var(--accent); }
 
-#connectPane {
-  flex: 1;
-  overflow-y: auto;
-  padding: 18px 20px 40px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
 .harness-card {
   display: flex;
   align-items: center;
@@ -398,31 +386,6 @@ main { min-width: 0; min-height: 0; display: flex; flex-direction: column; overf
 }
 
 /* ── Providers ── */
-#providersPane {
-  flex: 1;
-  overflow-y: auto;
-  padding: 16px 20px 40px;
-}
-#providersPane .providers-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 16px;
-}
-#providersPane .providers-head h2 {
-  font-size: 18px;
-  color: var(--text);
-  margin: 0;
-}
-#providersPane .providers-head .providers-summary {
-  font-size: 13px;
-  color: var(--text-4);
-}
-#providersPane .btn-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 12px;
-}
 .provider-card {
   border: 1px solid var(--border-2);
   border-radius: 10px;
@@ -505,21 +468,12 @@ main { min-width: 0; min-height: 0; display: flex; flex-direction: column; overf
   margin-top: 3px;
 }
 /* ── Fleet ── */
-#fleetPane {
-  flex: 1;
-  overflow-y: auto;
-  padding: 16px 20px 40px;
-}
-#fleetPane .fleet-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
-#fleetPane .fleet-head h2 { font-size: 18px; color: var(--text); margin: 0; }
-#fleetPane .stat-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; margin-bottom: 20px; }
 .fleet-stat { border: 1px solid var(--border-2); border-radius: 8px; padding: 12px 14px; text-align: center; }
 .fleet-stat .fs-v { font-size: 28px; font-weight: 700; color: var(--text); }
 .fleet-stat .fs-l { font-size: 11px; color: var(--text-4); text-transform: uppercase; letter-spacing: 0.5px; margin-top: 2px; }
 .fleet-stat .fs-v.ok { color: var(--accent); }
 .fleet-stat .fs-v.warn { color: #f0a020; }
 
-#fleetPane .spoke-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; margin-bottom: 20px; }
 .spoke-card { border: 1px solid var(--border-2); border-radius: 10px; padding: 14px 16px; background: var(--bg); }
 .spoke-card .sc-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
 .spoke-card .sc-ip { font-size: 14px; font-weight: 600; color: var(--text); font-family: var(--mono); }
@@ -538,8 +492,6 @@ main { min-width: 0; min-height: 0; display: flex; flex-direction: column; overf
 .sh-badge.degraded { background: #fef3e0; color: #c77700; }
 .sh-badge.hil { background: #fce4ec; color: #c62828; }
 
-#fleetPane .events-list { margin-top: 16px; }
-#fleetPane .events-list h3 { font-size: 14px; color: var(--text-2); margin-bottom: 8px; }
 .event-row { padding: 4px 0; font-size: 12px; border-bottom: 1px solid var(--border); display: flex; gap: 8px; }
 .event-row .ev-time { font-family: var(--mono); color: var(--text-4); width: 60px; flex-shrink: 0; }
 .event-row .ev-type { font-family: var(--mono); font-size: 10px; color: var(--text-3); width: 70px; flex-shrink: 0; text-transform: uppercase; }
@@ -547,16 +499,6 @@ main { min-width: 0; min-height: 0; display: flex; flex-direction: column; overf
 .event-row .ev-hil { color: #c62828; font-weight: 600; }
 
 /* ── Models / Registry ── */
-#modelsPane { flex: 1; overflow-y: auto; padding: 16px 20px 40px; }
-#modelsPane a { color: var(--accent-deep); text-decoration: none; }
-#modelsPane a:hover { text-decoration: underline; }
-
-/* ── Health ── */
-#healthPane { flex: 1; overflow-y: auto; padding: 16px 20px 40px; }
-
-/* ── Settings ── */
-#settingsPane { flex: 1; overflow-y: auto; padding: 16px 20px 40px; }
-
 .pc-balance .bar-fill {
   height: 100%;
   border-radius: 2px;
@@ -685,13 +627,6 @@ main { min-width: 0; min-height: 0; display: flex; flex-direction: column; overf
       <button data-tab="output" class="active">Output</button>
       <button data-tab="comms">Comms</button>
       <button data-tab="docs">Docs</button>
-      <button data-tab="connect">Connect</button>
-      <button data-tab="providers" id="providersTab">Providers</button>
-      <button data-tab="fleet" id="fleetTab">Fleet</button>
-      <button data-tab="events" id="eventsTab">Events</button>
-      <button data-tab="models" id="modelsTab">Models</button>
-      <button data-tab="health" id="healthTab">Health</button>
-      <button data-tab="settings" id="settingsTab">Settings</button>
     </div>
     <div class="toolbar" id="toolbar" style="display:none">
       <div class="btn-group">
@@ -709,16 +644,9 @@ main { min-width: 0; min-height: 0; display: flex; flex-direction: column; overf
         <div id="filelist"></div>
         <div id="content"><div class="empty-state">Select a file</div></div>
       </div>
-      <div id="connectPane" style="display:none"></div>
-      <div id="providersPane" style="display:none"></div>
-      <div id="fleetPane" style="display:none"></div>
-      <div id="eventsPane" style="display:none"></div>
-      <div id="modelsPane" style="display:none"></div>
-      <div id="healthPane" style="display:none"></div>
-      <div id="settingsPane" style="display:none"></div>
       <div class="empty-state" id="welcomePane">
         <div>Select a machine, then a session.</div>
-        <div class="hint">machines → sessions → output / comms / docs / connect</div>
+        <div class="hint">machines → sessions → output / comms / docs</div>
       </div>
     </div>
   </main>
@@ -767,13 +695,6 @@ main { min-width: 0; min-height: 0; display: flex; flex-direction: column; overf
   const toolbarEl = document.getElementById('toolbar');
   const outputPane = document.getElementById('outputPane');
   const filePane = document.getElementById('filePane');
-  const connectPane = document.getElementById('connectPane');
-  const providersPane = document.getElementById('providersPane');
-  const fleetPane = document.getElementById('fleetPane');
-  const eventsPane = document.getElementById('eventsPane');
-  const modelsPane = document.getElementById('modelsPane');
-  const healthPane = document.getElementById('healthPane');
-  const settingsPane = document.getElementById('settingsPane');
   const welcomePane = document.getElementById('welcomePane');
   const filelistEl = document.getElementById('filelist');
   const contentEl = document.getElementById('content');
@@ -1017,31 +938,13 @@ main { min-width: 0; min-height: 0; display: flex; flex-direction: column; overf
       '<span class="hicon">' + (s.harness ? '⚙' : '⬚') + '</span>' +
       '<span class="sname">' + esc(s.name) + '</span>' +
       '<span class="sstate">' + esc(s.state || '') + '</span>' +
-      (s.live ? '<button class="connect-btn" data-session="' + esc(s.name) +
-       '" title="Connect harness">▶</button>' : '') +
+
       '<span class="dot' + (s.live ? ' live' : '') + '"></span>' +
       '</div>'
     ).join('');
   }
 
   sessionsEl.addEventListener('click', e => {
-    const connectBtn = e.target.closest('.connect-btn');
-    if (connectBtn) {
-      e.stopPropagation();
-      const row = connectBtn.closest('.session-row');
-      selSession = connectBtn.dataset.session;
-      selSessionLive = row && row.dataset.live === '1';
-      selSessionCommand = (row && row.dataset.command) || '';
-      tab = 'connect';
-      for (const b of tabbarEl.querySelectorAll('button'))
-        b.classList.toggle('active', b.dataset.tab === 'connect');
-      outputOffset = 0;
-      outputPane.textContent = '';
-      curFile = null; editing = false;
-      renderSessions();
-      renderWork();
-      return;
-    }
     const row = e.target.closest('.session-row');
     if (!row || !row.dataset.session) return;
     selSession = row.dataset.session;
@@ -1064,56 +967,6 @@ main { min-width: 0; min-height: 0; display: flex; flex-direction: column; overf
     curFile = null; editing = false;
     renderWork();
   });
-  // Allow the Providers/Fleet tabs to be shown without session selected
-  document.getElementById('providersTab').addEventListener('click', function() {
-    if (!selSession) {
-      tab = 'providers';
-      for (var b of tabbarEl.querySelectorAll('button'))
-        b.classList.toggle('active', b.dataset.tab === 'providers');
-      renderWork();
-    }
-  });
-  document.getElementById('fleetTab').addEventListener('click', function() {
-    if (!selSession) {
-      tab = 'fleet';
-      for (var b of tabbarEl.querySelectorAll('button'))
-        b.classList.toggle('active', b.dataset.tab === 'fleet');
-      renderWork();
-    }
-  });
-  document.getElementById('eventsTab').addEventListener('click', function() {
-    if (!selSession) {
-      tab = 'events';
-      for (var b of tabbarEl.querySelectorAll('button'))
-        b.classList.toggle('active', b.dataset.tab === 'events');
-      renderWork();
-    }
-  });
-  document.getElementById('modelsTab').addEventListener('click', function() {
-    if (!selSession) {
-      tab = 'models';
-      for (var b of tabbarEl.querySelectorAll('button'))
-        b.classList.toggle('active', b.dataset.tab === 'models');
-      renderWork();
-    }
-  });
-  document.getElementById('healthTab').addEventListener('click', function() {
-    if (!selSession) {
-      tab = 'health';
-      for (var b of tabbarEl.querySelectorAll('button'))
-        b.classList.toggle('active', b.dataset.tab === 'health');
-      renderWork();
-    }
-  });
-  document.getElementById('settingsTab').addEventListener('click', function() {
-    if (!selSession) {
-      tab = 'settings';
-      for (var b of tabbarEl.querySelectorAll('button'))
-        b.classList.toggle('active', b.dataset.tab === 'settings');
-      renderWork();
-    }
-  });
-
   // ── Work area ──
   function renderBreadcrumb() {
     if (!selSession) { breadcrumbEl.innerHTML = ''; return; }
@@ -1136,25 +989,11 @@ main { min-width: 0; min-height: 0; display: flex; flex-direction: column; overf
     renderBreadcrumb();
     updateTools();
     var has = !!selSession;
-    var isProviders = tab === 'providers';
-    var isFleet = tab === 'fleet';
-    var isEvents = tab === 'events';
-    var isModels = tab === 'models';
-    var isHealth = tab === 'health';
-    var isSettings = tab === 'settings';
-    var isGlobal = isProviders || isFleet || isEvents || isModels || isHealth || isSettings;
-    tabbarEl.style.display = has || isGlobal || !selSession ? '' : 'none';
+    tabbarEl.style.display = has || !selSession ? '' : 'none';
     toolbarEl.style.display = has ? '' : 'none';
-    welcomePane.style.display = has || isGlobal ? 'none' : '';
+    welcomePane.style.display = has ? 'none' : '';
     outputPane.style.display = (has && tab === 'output') ? '' : 'none';
     filePane.style.display = (has && (tab === 'comms' || tab === 'docs')) ? 'flex' : 'none';
-    connectPane.style.display = (has && tab === 'connect') ? '' : 'none';
-    providersPane.style.display = isProviders ? '' : 'none';
-    fleetPane.style.display = isFleet ? '' : 'none';
-    eventsPane.style.display = isEvents ? '' : 'none';
-    modelsPane.style.display = isModels ? '' : 'none';
-    healthPane.style.display = isHealth ? '' : 'none';
-    settingsPane.style.display = isSettings ? '' : 'none';
 
     if (outputTimer) { clearInterval(outputTimer); outputTimer = null; }
     if (has && tab === 'output') {
@@ -1168,27 +1007,6 @@ main { min-width: 0; min-height: 0; display: flex; flex-direction: column; overf
     }
     if (has && (tab === 'comms' || tab === 'docs')) {
       renderFileList();
-    }
-    if (has && tab === 'connect') {
-      renderConnectPane();
-    }
-    if (isProviders) {
-      renderProviders();
-    }
-    if (isFleet) {
-      renderFleet();
-    }
-    if (isEvents) {
-      renderEvents();
-    }
-    if (isModels) {
-      renderModels();
-    }
-    if (isHealth) {
-      renderHealth();
-    }
-    if (isSettings) {
-      renderSettings();
     }
   }
 
@@ -1225,398 +1043,6 @@ main { min-width: 0; min-height: 0; display: flex; flex-direction: column; overf
                      outputPane.scrollHeight - 24;
     if (!atBottom && outputFollow) followChip.click();
   });
-
-  // ── Connect pane ──
-  function renderConnectPane() {
-    if (!selSession) {
-      connectPane.innerHTML = '<div class="empty-state">Select a session to connect.</div>';
-      return;
-    }
-    const peer = selMachine || mesh.node || '(peer)';
-    var opts = '';
-    for (var k in HARNESS_CATALOG) {
-      opts += '<option value="' + k + '">' + HARNESS_CATALOG[k].name + '</option>';
-    }
-    connectPane.innerHTML =
-      '<div class="connect-form">' +
-      '<label for="connectHarness">Harness</label>' +
-      '<select id="connectHarness">' + opts + '</select>' +
-      '<label class="check-label" style="margin:10px 0">' +
-      '<input type="checkbox" id="connectYolo" checked>' +
-      '--yolo / auto-approve</label>' +
-      '<div class="harness-card" id="connectCard">' +
-      '<div class="harness-info"><strong>Command</strong>' +
-      '<code id="connectCmd">bs shell ' + esc(peer) + ' -n ' + esc(selSession) + '</code></div>' +
-      '<button class="copy-btn" id="connectCopy">Copy</button>' +
-      '</div>' +
-      '<div class="connect-hint">' +
-      'Create the session first (click + on a machine), then use this command to join.' +
-      '<br>Reconnect anytime: <code>bs shell ' + esc(peer) + ' -n ' + esc(selSession) + '</code>' +
-      '</div></div>';
-
-    var harnessEl = document.getElementById('connectHarness');
-    var yoloEl = document.getElementById('connectYolo');
-    var cmdEl = document.getElementById('connectCmd');
-    var copyBtn = document.getElementById('connectCopy');
-    function refreshCmd() {
-      var h = harnessEl.value;
-      var baseCmd = 'bs shell ' + peer + ' -n ' + selSession;
-      var harnessCmd = HARNESS_CATALOG[h] ? HARNESS_CATALOG[h].cmd : '/bin/bash -l';
-      if (yoloEl.checked && YOLO_FLAGS[h]) harnessCmd += YOLO_FLAGS[h];
-      cmdEl.textContent = harnessCmd + '  # then: ' + baseCmd;
-    }
-    harnessEl.addEventListener('change', refreshCmd);
-    yoloEl.addEventListener('change', refreshCmd);
-    copyBtn.addEventListener('click', function() {
-      copyToClipboard(cmdEl.textContent);
-    });
-    refreshCmd();
-  }
-
-  // ── Providers pane ──
-  var providerCache = null;
-  function renderProviders() {
-    if (providerCache) { drawProviders(providerCache); return; }
-    providersPane.innerHTML = '<div class=\"empty-state\">Loading providers…</div>';
-    fetch(base + '/api/providers').then(function(r) {
-      if (!r.ok) throw new Error('HTTP ' + r.status);
-      return r.json();
-    }).then(function(d) {
-      providerCache = d;
-      drawProviders(d);
-    }).catch(function(err) {
-      providersPane.innerHTML = '<div class=\"empty-state\">Failed to load provider status.<div class=\"hint\">' + esc(String(err.message || err)) + '</div></div>';
-    });
-  }
-  function drawProviders(d) {
-    var provs = d.providers || {};
-    var list = [];
-    for (var k in provs) { list.push(provs[k]); }
-    list.sort(function(a, b) { return (a.name || a.prefix || '').localeCompare(b.name || b.prefix || ''); });
-    var total = list.length;
-    var warns = 0, expired = 0;
-    for (var i = 0; i < total; i++) {
-      if (list[i].status === 'warn') warns++;
-      if (list[i].status === 'expired') expired++;
-    }
-    var summary = total + ' provider' + (total !== 1 ? 's' : '');
-    if (warns) summary += ' · ' + warns + ' warning' + (warns !== 1 ? 's' : '');
-    if (expired) summary += ' · ' + expired + ' expired';
-    var html = '<div class=\"providers-head\"><h2>Providers<\/h2><span class=\"providers-summary\">' + esc(summary) + '<\/span><\/div>';
-    html += '<div class=\"btn-grid\" id=\"providerGrid\">';
-    for (var i = 0; i < list.length; i++) {
-      var p = list[i];
-      var st = p.status || 'ok';
-      html += '<div class=\"provider-card\" data-provider=\"' + esc(p.prefix || '') + '\">' +
-        '<div class=\"pc-head\">' +
-          '<span class=\"pc-status ' + esc(st) + '\"><\/span>' +
-          '<span class=\"pc-name\">' + esc(p.name || p.prefix) + '<\/span>' +
-          '<span class=\"pc-tier\">' + esc(p.tier || '') + '<\/span>' +
-        '<\/div>' +
-        '<span class=\"pc-auth\">' + esc(p.auth || '') + '<\/span>';
-      // Expiry
-      if (p.expiresIn) {
-        html += '<span class=\"pc-details\">Expires in <code>' + esc(p.expiresIn) + '<\/code>';
-        if (p.hasRefresh) html += ' · RT present';
-        html += '<\/span>';
-      }
-      // Detail/error
-      if (p.detail) {
-        html += '<span class=\"pc-details\">' + esc(p.detail) + '<\/span>';
-      }
-      // Balance bars
-      if (p.tokensLimit) {
-        var pct = 100;
-        if (p.tokensLimit > 0) pct = (p.tokensRemaining / p.tokensLimit) * 100;
-        var cls = pct < 10 ? 'drain' : (pct < 30 ? 'warn' : '');
-        html += '<div class=\"pc-balance\">Tokens: ' + (p.tokensRemaining || 0) + ' / ' + (p.tokensLimit || 0) +
-          '<div class=\"bar-track\"><div class=\"bar-fill ' + cls + '\" style=\"width:' + Math.min(100, pct) + '%\"><\/div><\/div><\/div>';
-      }
-      if (p.requestsLimit) {
-        var rpct = 100;
-        if (p.requestsLimit > 0) rpct = (p.requestsRemaining / p.requestsLimit) * 100;
-        var rcls = rpct < 10 ? 'drain' : (rpct < 30 ? 'warn' : '');
-        html += '<div class=\"pc-balance\">Requests: ' + (p.requestsRemaining || 0) + ' / ' + (p.requestsLimit || 0) +
-          '<div class=\"bar-track\"><div class=\"bar-fill ' + rcls + '\" style=\"width:' + Math.min(100, rpct) + '%\"><\/div><\/div><\/div>';
-      }
-      html += '<div class=\"pc-actions\">' +
-          '<button class=\"test-btn\" data-prefix=\"' + esc(p.prefix) + '\">Test<\/button>' +
-        '<\/div>';
-      html += '<\/div>';
-    }
-    html += '<\/div>';
-    providersPane.innerHTML = html;
-    // Bind test buttons
-    for (var btns = providersPane.querySelectorAll('.test-btn'), j = 0; j < btns.length; j++) {
-      (function(btn) {
-        btn.addEventListener('click', function() {
-          toast('Not implemented yet — use CLI: hermes chat -q ok --provider ' + btn.dataset.prefix, true);
-        });
-      })(btns[j]);
-    }
-  }
-
-  // ── Fleet pane ──
-  var fleetCache = null;
-  function renderFleet() {
-    if (fleetCache) { drawFleet(fleetCache); return; }
-    fleetPane.innerHTML = '<div class=\"empty-state\">Loading fleet…</div>';
-    fetch(base + '/api/fleet').then(function(r) {
-      if (!r.ok) throw new Error('HTTP ' + r.status);
-      return r.json();
-    }).then(function(d) {
-      fleetCache = d;
-      drawFleet(d);
-    }).catch(function(err) {
-      fleetPane.innerHTML = '<div class=\"empty-state\">Failed to load fleet.<div class=\"hint\">' + esc(String(err.message || err)) + '</div></div>';
-    });
-  }
-  function drawFleet(d) {
-    var spokes = d.spokes || [];
-    var configs = d.spoke_configs || {};
-    var harnesses = d.harnesses || [];
-    var events = d.events || [];
-    var online = 0, offline = 0;
-    for (var i = 0; i < spokes.length; i++) {
-      if (spokes[i].status === 'healthy') online++; else offline++;
-    }
-    // Stat cards
-    var html = '<div class=\"fleet-head\"><h2>Fleet<\/h2><\/div>';
-    html += '<div class=\"stat-cards\">';
-    html += '<div class=\"fleet-stat\"><div class=\"fs-v ok\">' + online + '<\/div><div class=\"fs-l\">Online<\/div><\/div>';
-    html += '<div class=\"fleet-stat\"><div class=\"fs-v warn\">' + offline + '<\/div><div class=\"fs-l\">Offline<\/div><\/div>';
-    html += '<div class=\"fleet-stat\"><div class=\"fs-v\">' + spokes.length + '<\/div><div class=\"fs-l\">Total<\/div><\/div>';
-    html += '<\/div>';
-    // Spoke cards
-    html += '<h3 style=\"margin-bottom:10px;font-size:14px;color:var(--text-2)\">Fleet Members<\/h3>';
-    html += '<div class=\"spoke-cards\">';
-    for (var i = 0; i < spokes.length; i++) {
-      var sp = spokes[i];
-      var ip = sp.ip || '';
-      var cfg = configs[ip] || {};
-      var st = sp.status === 'healthy' ? 'ok' : 'warn';
-      var provider = cfg.provider || '?';
-      var model = cfg.default_model || '?';
-      html += '<div class=\"spoke-card\">' +
-        '<div class=\"sc-head\">' +
-          '<span class=\"sc-status ' + st + '\"><\/span>' +
-          '<span class=\"sc-ip\">' + esc(ip) + '<\/span>' +
-        '<\/div>' +
-        '<div class=\"sc-meta\">' +
-          'Host: <code>' + esc(sp.hostname || ip) + '</code> · OS: <code>' + esc(sp.os || 'linux') + '</code><br>' +
-          'Provider: <code>' + esc(provider) + '</code> · Model: <code>' + esc(model) + '</code>' +
-        '</div>' +
-      '</div>';
-    }
-    html += '<\/div>';
-    // Harness status table — all harnesses across fleet
-    if (harnesses.length) {
-      html += '<h3 style=\"margin-top:20px;margin-bottom:10px;font-size:14px;color:var(--text-2)\">Harness Status<\/h3>';
-      html += '<div class=\"spoke-cards\">';
-      for (var j = 0; j < harnesses.length; j++) {
-        var h = harnesses[j];
-        var badge = 'ok';
-        if (h.status === 'missing') badge = 'missing';
-        if (h.status === 'degraded') badge = 'degraded';
-        if (h.hil) badge = 'hil';
-        html += '<div class=\"sh-row\" style=\"border:1px solid var(--border);padding:5px 10px;border-radius:5px\">' +
-          '<span class=\"sh-name\">' + esc(h.host) + ' / ' + esc(h.harness) + '<\/span>' +
-          '<span class=\"sh-v\">' + esc(h.version || h.detail || '') + '<\/span>' +
-          '<span class=\"sh-badge ' + badge + '\">' + esc(h.status) + '<\/span>' +
-        '<\/div>';
-      }
-      html += '<\/div>';
-    }
-    // Event log
-    if (events.length) {
-      html += '<div class=\"events-list\"><h3>Recent Events<\/h3>';
-      for (var i = 0; i < Math.min(events.length, 20); i++) {
-        var ev = events[i];
-        html += '<div class=\"event-row\">' +
-          '<span class=\"ev-time\">' + esc(ev.time || '') + '<\/span>' +
-          '<span class=\"ev-type\">' + esc(ev.type || '') + '<\/span>' +
-          '<span class=\"ev-msg\">' + esc(ev.msg || '') + '<\/span>' +
-        '<\/div>';
-      }
-      html += '<\/div>';
-    }
-    fleetPane.innerHTML = html;
-  }
-
-  // ── Events pane ──
-  var eventsCache = null;
-  function renderEvents() {
-    if (eventsCache) { drawEvents(eventsCache); return; }
-    eventsPane.innerHTML = '<div class=\"empty-state\">Loading events…</div>';
-    fetch(base + '/api/events?limit=200').then(function(r) {
-      if (!r.ok) throw new Error('HTTP ' + r.status);
-      return r.json();
-    }).then(function(d) {
-      eventsCache = d;
-      drawEvents(d);
-    }).catch(function(err) {
-      eventsPane.innerHTML = '<div class=\"empty-state\">Failed to load events.<div class=\"hint\">' + esc(String(err.message || err)) + '</div></div>';
-    });
-  }
-  function drawEvents(d) {
-    var evs = d.events || [];
-    var html = '<div class=\"fleet-head\"><h2>Event Log</h2><span class=\"providers-summary\">' + evs.length + ' events</span></div>';
-    if (!evs.length) { html += '<div class=\"empty-state\">No events yet.</div>'; eventsPane.innerHTML = html; return; }
-    html += '<div class=\"events-list\">';
-    for (var i = 0; i < evs.length; i++) {
-      var ev = evs[i];
-      html += '<div class=\"event-row\">' +
-        '<span class=\"ev-time\">' + esc(ev.time || '') + '</span>' +
-        '<span class=\"ev-type\">' + esc(ev.type || '') + '</span>' +
-        '<span class=\"ev-msg\">' + esc(ev.msg || '') + '</span>' +
-      '</div>';
-    }
-    html += '</div>';
-    eventsPane.innerHTML = html;
-  }
-
-  // ── Models pane ──
-  var modelsCache = null;
-  function renderModels() {
-    if (modelsCache) { drawModels(modelsCache); return; }
-    modelsPane.innerHTML = '<div class=\"empty-state\">Loading model registry…</div>';
-    fetch(base + '/api/registry').then(function(r) {
-      if (!r.ok) throw new Error('HTTP ' + r.status);
-      return r.json();
-    }).then(function(d) {
-      modelsCache = d;
-      drawModels(d);
-    }).catch(function(err) {
-      modelsPane.innerHTML = '<div class=\"empty-state\">Failed to load registry.<div class=\"hint\">' + esc(String(err.message || err)) + '</div></div>';
-    });
-  }
-  function drawModels(d) {
-    var provs = d.providers || [];
-    // Also show discovered models
-    var html = '<div class=\"fleet-head\"><h2>Model Registry</h2><span class=\"providers-summary\">' + provs.length + ' providers (models.dev)</span></div>';
-    html += '<div style=\"margin-bottom:12px;font-size:12px;color:var(--text-4)\">Models.dev registry — known model providers and their endpoints.</div>';
-    html += '<div class=\"spoke-cards\">';
-    for (var i = 0; i < provs.length; i++) {
-      var p = provs[i];
-      html += '<div class=\"spoke-card\" style=\"font-size:13px\">' +
-        '<div class=\"sc-head\"><span class=\"sc-ip\" style=\"font-size:13px\">' + esc(p.name || p.id) + '</span></div>' +
-        '<div class=\"sc-meta\">ID: <code>' + esc(p.id) + '</code>';
-      if (p.doc) html += ' · <a href=\"' + esc(p.doc) + '\" target=\"_blank\" style=\"color:var(--accent-deep)\">docs</a>';
-      html += '</div></div>';
-    }
-    html += '</div>';
-    modelsPane.innerHTML = html;
-  }
-
-  // ── Health pane ──
-  var healthCache = null;
-  function renderHealth() {
-    if (healthCache) { drawHealth(healthCache); return; }
-    healthPane.innerHTML = '<div class=\"empty-state\">Loading health…</div>';
-    fetch(base + '/api/fleet').then(function(r) {
-      if (!r.ok) throw new Error('HTTP ' + r.status);
-      return r.json();
-    }).then(function(d) {
-      healthCache = d;
-      drawHealth(d);
-    }).catch(function(err) {
-      healthPane.innerHTML = '<div class=\"empty-state\">Failed to load health.<div class=\"hint\">' + esc(String(err.message || err)) + '</div></div>';
-    });
-  }
-  function drawHealth(d) {
-    var spokes = d.spokes || [];
-    var harnesses = d.harnesses || [];
-    var online = 0, offline = 0, degraded = 0, missing = 0;
-    for (var i = 0; i < spokes.length; i++) {
-      if (spokes[i].status === 'healthy') online++; else offline++;
-    }
-    for (var i = 0; i < harnesses.length; i++) {
-      if (harnesses[i].status === 'degraded') degraded++;
-      if (harnesses[i].status === 'missing') missing++;
-    }
-    var html = '<div class=\"fleet-head\"><h2>Fleet Health</h2></div>';
-    html += '<div class=\"stat-cards\">';
-    html += '<div class=\"fleet-stat\"><div class=\"fs-v ok\">' + online + '</div><div class=\"fs-l\">Spokes Up</div></div>';
-    html += '<div class=\"fleet-stat\"><div class=\"fs-v warn\">' + offline + '</div><div class=\"fs-l\">Spokes Down</div></div>';
-    html += '<div class=\"fleet-stat\"><div class=\"fs-v\">' + degraded + '</div><div class=\"fs-l\">Harness Degraded</div></div>';
-    html += '<div class=\"fleet-stat\"><div class=\"fs-v\">' + missing + '</div><div class=\"fs-l\">Harness Missing</div></div>';
-    html += '</div>';
-    // Spoke health
-    html += '<h3 style=\"margin-bottom:10px;font-size:14px;color:var(--text-2)\">Spoke Health</h3>';
-    html += '<div class=\"spoke-cards\">';
-    for (var i = 0; i < spokes.length; i++) {
-      var sp = spokes[i];
-      var st = sp.status === 'healthy' ? 'ok' : 'warn';
-      html += '<div class=\"spoke-card\"><div class=\"sc-head\">' +
-        '<span class=\"sc-status ' + st + '\"></span>' +
-        '<span class=\"sc-ip\">' + esc(sp.ip) + '</span></div>' +
-        '<div class=\"sc-meta\">' + esc(sp.status) + ' · ' + esc(sp.hostname || sp.ip) + '</div></div>';
-    }
-    html += '</div>';
-    // Harness summary
-    if (harnesses.length) {
-      html += '<h3 style=\"margin-top:16px;margin-bottom:8px;font-size:14px;color:var(--text-2)\">Harness Summary</h3>';
-      html += '<div class=\"spoke-cards\">';
-      for (var i = 0; i < harnesses.length; i++) {
-        var h = harnesses[i];
-        var badge = 'ok';
-        if (h.status === 'missing') badge = 'missing';
-        if (h.status === 'degraded') badge = 'degraded';
-        if (h.hil) badge = 'hil';
-        html += '<div class=\"sh-row\" style=\"border:1px solid var(--border);padding:5px 10px;border-radius:5px\">' +
-          '<span class=\"sh-name\">' + esc(h.host) + ' / ' + esc(h.harness) + '</span>' +
-          '<span class=\"sh-badge ' + badge + '\">' + esc(h.status) + '</span></div>';
-      }
-      html += '</div>';
-    }
-    healthPane.innerHTML = html;
-  }
-
-  // ── Settings pane ──
-  var settingsCache = null;
-  function renderSettings() {
-    if (settingsCache) { drawSettings(settingsCache); return; }
-    settingsPane.innerHTML = '<div class=\"empty-state\">Loading settings…</div>';
-    fetch(base + '/api/fleet').then(function(r) {
-      if (!r.ok) throw new Error('HTTP ' + r.status);
-      return r.json();
-    }).then(function(d) {
-      settingsCache = d;
-      drawSettings(d);
-    }).catch(function(err) {
-      settingsPane.innerHTML = '<div class=\"empty-state\">Failed to load settings.<div class=\"hint\">' + esc(String(err.message || err)) + '</div></div>';
-    });
-  }
-  function drawSettings(d) {
-    var configs = d.spoke_configs || {};
-    var ips = Object.keys(configs).sort();
-    var model = '';
-    try {
-      model = ips.length ? (JSON.parse(JSON.stringify(configs[ips[0]])) || {}) : {};
-    } catch(_) { model = configs[ips[0]] || {}; }
-    var html = '<div class=\"fleet-head\"><h2>Settings</h2><span class=\"providers-summary\">fleet standard</span></div>';
-    html += '<div style=\"margin-bottom:14px;font-size:12px;color:var(--text-4)\">All fleet hosts should use identical config. First spoke config shown as reference.</div>';
-    if (model.provider) {
-      html += '<div class=\"spoke-card\" style=\"margin-bottom:12px\"><div class=\"sc-head\"><span class=\"sc-ip\">Fleet Standard</span></div>';
-      html += '<div class=\"sc-meta\">Provider: <code>' + esc(model.provider || '') + '</code><br>';
-      html += 'Model: <code>' + esc(model.default_model || '') + '</code><br>';
-      if (model.base_url) html += 'Base URL: <code>' + esc(model.base_url) + '</code><br>';
-      html += 'Path: <code>' + esc(model.path || '') + '</code></div></div>';
-    }
-    html += '<h3 style=\"margin-bottom:8px;font-size:14px;color:var(--text-2)\">Per-Host Configs</h3>';
-    html += '<div class=\"spoke-cards\">';
-    for (var i = 0; i < ips.length; i++) {
-      var ip = ips[i];
-      var cfg = configs[ip] || {};
-      html += '<div class=\"spoke-card\"><div class=\"sc-head\"><span class=\"sc-status ok\"></span>' +
-        '<span class=\"sc-ip\">' + esc(ip) + '</span></div>' +
-        '<div class=\"sc-meta\">Provider: <code>' + esc(cfg.provider || '?') + '</code> · Model: <code>' + esc(cfg.default_model || '?') + '</code></div>' +
-      '</div>';
-    }
-    html += '</div>';
-    html += '<div style=\"margin-top:16px;font-size:12px;color:var(--text-4)\">Quotas & Sessions tabs are planned for Phase 7. BridgePanel reads live from the 9warp sidecar (' + esc(ips.length) + ' hosts).</div>';
-    settingsPane.innerHTML = html;
-  }
 
   // ── File list (comms/docs) ──
   function filesFor(session, dtype) {

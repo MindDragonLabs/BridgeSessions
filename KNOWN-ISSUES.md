@@ -1,18 +1,21 @@
 # Known Issues
 
-## Bridge Panel (Web UI) — non-functional
+## Bridge Panel (Web UI)
 
-The Bridge Panel web dashboard (`tools/bridgepanel/`) is not operational in the
-current release. The Python server and its API exist in the source tree but are
-not wired to the daemon's live data plane. Do not rely on it for fleet
-monitoring or session management.
+Bridge Panel (`tools/bridgepanel/`) is a functional web dashboard served on
+`127.0.0.1:9770` by default. It connects to the local BS daemon via IPC
+(port 19980) for live mesh data: machines, sessions, scrollback, comms/docs.
 
-**Workaround:** use the CLI directly:
+**Tabs:** Output (live session scrollback), Comms, Docs.
 
+**Limitations:**
+- Served on loopback only. Bind to a VPN address explicitly after configuring
+  trusted sources; never expose directly to the internet.
+- The `bridgepanel publish` CLI command publishes Markdown files into sessions.
+
+**Start:**
 ```bash
-bs peers list          # connected peers
-bs health <peer>       # data-plane health check
-bs fleet               # mesh-wide fleet table (name, addr, version, status, cpu/mem/disk)
-bs ctl sessions        # active sessions on local daemon
-bs ctl peers           # live peer connectivity
+python3 tools/bridgepanel/panel.py serve
+# Or via the launcher:
+python3 tools/bridgepanel/panel.py
 ```
