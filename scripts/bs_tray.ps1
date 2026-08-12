@@ -71,9 +71,24 @@ function Save-Settings {
     $script:Settings | ConvertTo-Json | Set-Content $SETTINGS_FILE -Encoding UTF8
 }
 
-# -- Create the "B" tray icon bitmap -----------------------------------------
+# -- Create the "B" tray icon (static ICO/PNG if present, else draw) ----------
 function Create-TrayIcon {
     Add-Type -AssemblyName System.Drawing
+    $static = @(
+        (Join-Path $INSTALL_DIR "icon-b.ico"),
+        (Join-Path $INSTALL_DIR "icon-b.png"),
+        (Join-Path $CONFIG_DIR "icon-b.ico")
+    )
+    foreach ($p in $static) {
+        if (Test-Path $p) {
+            try {
+                if ($p -like "*.ico") { return New-Object System.Drawing.Icon($p) }
+                $bmpFile = [System.Drawing.Bitmap]::FromFile($p)
+                $hicon = $bmpFile.GetHicon()
+                return [System.Drawing.Icon]::FromHandle($hicon)
+            } catch {}
+        }
+    }
     $bmp = New-Object System.Drawing.Bitmap(32, 32)
     $g = [System.Drawing.Graphics]::FromImage($bmp)
     $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
@@ -333,6 +348,16 @@ function Start-Tray {
     $miRestartDaemon = New-Object System.Windows.Forms.ToolStripMenuItem("Restart Daemon")
     $miRestartDaemon.Add_Click({ Restart-Daemon })
     $menu.Items.Add($miRestartDaemon) | Out-Null
+
+    # Open Logs
+    $miLogs = New-Object System.Windows.Forms.ToolStripMenuItem("Open Logs")
+    $miLogs.Add_Click({
+        $logDir = Join-Path $INSTALL_DIR "logs"
+        if (-not (Test-Path $logDir)) { $logDir = $CONFIG_DIR }
+        if (-not (Test-Path $logDir)) { $logDir = $INSTALL_DIR }
+        Start-Process explorer.exe $logDir
+    })
+    $menu.Items.Add($miLogs) | Out-Null
 
     $menu.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator)) | Out-Null
 

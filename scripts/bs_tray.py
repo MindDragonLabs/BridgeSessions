@@ -40,7 +40,17 @@ ICON_SIZE = 64
 
 # ── Icon generation ───────────────────────────────────────────────
 def create_icon_image():
-    """Generate a blue-square 'B' icon programmatically with PIL."""
+    """Load static branded B icon if present; else draw blue-square 'B' with PIL."""
+    for cand in (
+        os.path.expanduser("~/.local/share/bridgesessions/icon-b.png"),
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "assets", "icon-b.png"),
+        "/usr/share/bridgesessions/icon-b.png",
+    ):
+        if os.path.isfile(cand):
+            try:
+                return Image.open(cand).convert("RGBA").resize((ICON_SIZE, ICON_SIZE))
+            except Exception:
+                pass
     img = Image.new("RGBA", (ICON_SIZE, ICON_SIZE), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
     # Rounded blue background
@@ -147,6 +157,23 @@ def on_quit(icon, item):
     """Stop the tray icon."""
     icon.stop()
 
+def on_open_logs(icon, item):
+    """Open the BridgeSessions log / config directory in the file manager."""
+    home = os.path.expanduser("~")
+    candidates = [
+        os.path.join(home, ".bridgesessions"),
+        os.path.join(home, ".local", "share", "bridgesessions"),
+        "/tmp",
+    ]
+    path = next((p for p in candidates if os.path.isdir(p)), home)
+    for opener in ("xdg-open", "gio"):
+        try:
+            subprocess.Popen([opener, path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return
+        except FileNotFoundError:
+            continue
+    notify("BridgeSessions", f"Logs: {path}")
+
 # ── Autostart .desktop ────────────────────────────────────────────
 def install_autostart():
     """Create the autostart .desktop file."""
@@ -195,6 +222,7 @@ def main():
     menu = Menu(
         MenuItem("Fleet Status", on_fleet_status, default=True),
         MenuItem("Restart Daemon", on_restart_daemon),
+        MenuItem("Open Logs", on_open_logs),
         MenuItem(autostart_label, on_settings),
         Menu.SEPARATOR,
         MenuItem("Quit", on_quit),

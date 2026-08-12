@@ -11,6 +11,25 @@ All notable public releases are documented here.
 
 ## Unreleased
 
+## 26.08.12-beta3
+
+### CUA / Windows capture
+- GDI-only helper capture (CreateDIBSection + BMP); Session 0 skips PS fallback;
+  single-instance helper; token written only after exclusive listen.
+- **SYSTEM-readable CUA token ACL** so Session-0 mesh daemons can auth to Session-1 helpers.
+
+### Tray / menubar applets
+- **Windows** `scripts/bs_tray.ps1`: B logo, Fleet Status, Restart Daemon/Helper, Open Logs,
+  Auto-launch Startup link; attach to existing Session-1 helper (no double-start auth brick).
+- **Linux** `scripts/bs_tray.py`: Open Logs menu; static `assets/icon-b.png` when present;
+  systemd unit `LD_LIBRARY_PATH` for user-local libspdlog.
+- **macOS** BSMenubar: Restart Daemon + Open Logs; install.sh installs BSMenubar.app +
+  LaunchAgent `com.minddragon.bridgesessions.menubar`.
+- Static branded icons under `assets/icon-b.{png,ico}`.
+
+### E2E
+- L3 asserts Windows helper count, Linux systemd mesh, macOS launchd parent + menubar LA.
+
 ### File transfer (Wi‑Fi resilience)
 - Idle stall budget raised to **300s** (survives ~60s blackouts; progress resets idle).
 - Direct-TLS `file send` **reconnects up to 12×** and resumes from last `FileAck.next_requested`.
@@ -30,7 +49,7 @@ All notable public releases are documented here.
 - **Windows helper**: refuse GDI capture in Session 0 with a clear error instead of
   crashing the helper (`cua-helper no response`); start `--cua-helper` in a logged-on
   user session (Session 1) for real pixels.
-- **Windows helper**: soft-cap capture to 1920×1080 via StretchBlt so Session-0 /
+- **Windows helper**: soft-cap helper BMP to 1280×720 via StretchBlt so Session-0 /
   multi-monitor virtual desktops cannot allocate multi-GB bitmaps or hang the helper.
 - **Windows helper (P0)**: capture is **GDI-only** (CreateDIBSection + StretchBlt +
   hand-rolled BMP). GDI+ `FromHBITMAP`/`Save` AVs (0xc0000005 in gdiplus.dll) on

@@ -74,5 +74,25 @@ else
   result SKIP cua_helper_token "missing (helper may use unix socket only)"
 fi
 
+# Mesh must be launchd-managed (ppid 1), not a foreground Terminal child
+mesh_pid="$(pgrep -f 'bridgesessions.*--config' | head -1 || true)"
+if [[ -n "$mesh_pid" ]]; then
+  ppid="$(ps -o ppid= -p "$mesh_pid" 2>/dev/null | tr -d ' ')"
+  if [[ "$ppid" == "1" ]]; then
+    result PASS mesh_service "launchd parent (ppid=1)"
+  else
+    result FAIL mesh_service "mesh ppid=$ppid (want 1 / launchd)"
+  fi
+else
+  result FAIL mesh_service "no mesh process"
+fi
+
+# Menubar LaunchAgent for B-logo applet
+if [[ -f "$HOME/Library/LaunchAgents/com.minddragon.bridgesessions.menubar.plist" ]]; then
+  result PASS menubar_launchagent "present"
+else
+  result SKIP menubar_launchagent "no com.minddragon.bridgesessions.menubar plist"
+fi
+
 echo "MAC_DESKTOP_SUMMARY pass=$PASS fail=$FAIL skip=$SKIP"
 [[ $FAIL -eq 0 ]]

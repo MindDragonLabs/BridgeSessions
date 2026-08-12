@@ -1,6 +1,6 @@
 # BridgeSessions e2e matrix — run on work completion (not nightly)
 version: 1
-expected_version: "26.08.10-beta2"
+expected_version: "26.08.12-beta3"
 
 layers:
   L2:

@@ -9,9 +9,9 @@
     <key>CFBundleName</key>
     <string>BridgeSessions</string>
     <key>CFBundleVersion</key>
-    <string>26.08.06-beta1</string>
+    <string>26.08.12-beta3</string>
     <key>CFBundleShortVersionString</key>
-    <string>26.08.06</string>
+    <string>26.08.12</string>
     <key>LSBackgroundOnly</key>
     <true/>
     <key>NSHighResolutionCapable</key>

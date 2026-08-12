@@ -2,16 +2,16 @@
 set -eu
 # BridgeSessions one-line install + upgrade (Linux / macOS)
 #
-#   curl -fsSL https://github.com/MindDragonLabs/BridgeSessions/releases/download/26.08.10-beta2/scripts/install.sh | bash
+#   curl -fsSL https://github.com/MindDragonLabs/BridgeSessions/releases/download/26.08.12-beta3/scripts/install.sh | bash
 #
 # Or join a mesh in one command:
 #
 #   curl ... | bash -s -- join <host-addr> <invite-code>
 #
 # On Windows (PowerShell):
-#   irm https://github.com/MindDragonLabs/BridgeSessions/releases/download/26.08.10-beta2/scripts/install.ps1 | iex
+#   irm https://github.com/MindDragonLabs/BridgeSessions/releases/download/26.08.12-beta3/scripts/install.ps1 | iex
 
-TAG="${BRIDGESESSIONS_TAG:-26.08.10-beta2}"
+TAG="${BRIDGESESSIONS_TAG:-26.08.12-beta3}"
 BASE="https://raw.githubusercontent.com/MindDragonLabs/BridgeSessions/v${TAG}/dist"
 INSTALL_DIR="${HOME}/.local/bin"
 VERSION_FILE="${INSTALL_DIR}/.bridgesessions-version"
@@ -296,6 +296,45 @@ EOF
     REPO_APP="$(cd "$(dirname "$0")/.." && pwd)/dist/BridgeSessions.app"
     if [ ! -d "${REPO_APP}" ]; then
       REPO_APP="$(cd "$(dirname "$0")" && pwd)/../dist/BridgeSessions.app"
+    fi
+
+    # Install BSMenubar.app (B logo menubar applet) when present in dist/
+    MENUBAR_SRC="$(cd "$(dirname "$0")/.." && pwd)/dist/BSMenubar.app"
+    if [ ! -d "${MENUBAR_SRC}" ]; then
+      MENUBAR_SRC="$(cd "$(dirname "$0")" && pwd)/../dist/BSMenubar.app"
+    fi
+    if [ -d "${MENUBAR_SRC}" ]; then
+      echo "→ Installing BSMenubar.app to /Applications/..."
+      rm -rf /Applications/BSMenubar.app
+      cp -R "${MENUBAR_SRC}" /Applications/
+      chmod +x /Applications/BSMenubar.app/Contents/MacOS/BSMenubar 2>/dev/null || true
+      # Login LaunchAgent for menubar applet (UI only; mesh stays launchd)
+      MENUBAR_PLIST="${PLIST_DIR}/com.minddragon.bridgesessions.menubar.plist"
+      cat > "${MENUBAR_PLIST}" <<'MPEOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.minddragon.bridgesessions.menubar</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/bin/open</string>
+    <string>-a</string>
+    <string>/Applications/BSMenubar.app</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+</dict>
+</plist>
+MPEOF
+      launchctl bootout "gui/$(id -u)/com.minddragon.bridgesessions.menubar" 2>/dev/null || true
+      launchctl bootstrap "gui/$(id -u)" "${MENUBAR_PLIST}" 2>/dev/null || \
+        launchctl load -w "${MENUBAR_PLIST}" 2>/dev/null || true
+      open -a BSMenubar 2>/dev/null || true
+      echo "  → BSMenubar installed (menubar B logo applet)."
+    else
+      echo "  → BSMenubar.app not in dist/ — skip menubar install (optional)."
     fi
 
     if [ -d "${REPO_APP}" ]; then

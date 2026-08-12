@@ -173,8 +173,9 @@ inline CuaResponseMsg cua_helper_execute(const CuaRequestMsg& req) {
                 resp.status = 1; resp.error = "capture: invalid screen metrics";
                 return resp;
             }
-            // Soft cap 1920x1080 equivalent for helper response size
-            const int max_w = 1920, max_h = 1080;
+            // Soft cap ~1280x720 so hand-rolled BMP fits mesh frame capacity
+            // (full 1920x1080 24bpp BMP is ~6MB and can exceed frame limits).
+            const int max_w = 1280, max_h = 720;
             int cap_w = vw, cap_h = vh;
             if (cap_w > max_w || cap_h > max_h) {
                 double sx = (double)max_w / cap_w;
@@ -547,7 +548,8 @@ inline int run_cua_helper(const std::string& app_home_in) {
 #endif
         return 1;
     }
-    if (!write_private_text_file(cua_helper_token_path(app_home), token)) {
+    // SYSTEM-readable on Windows so Session-0 mesh daemon can auth to Session-1 helper
+    if (!write_cua_helper_token(app_home, token)) {
         std::cerr << "cua-helper: cannot write " << cua_helper_token_path(app_home) << "\n";
         CLOSESOCK(lfd);
 #ifdef _WIN32

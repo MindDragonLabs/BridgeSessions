@@ -59,6 +59,7 @@
 #include <functional>
 #ifdef _WIN32
 #include <windows.h>
+#include <aclapi.h>
 #include <fcntl.h>
 #include <process.h>
 // MSVC does not provide POSIX pid_t; MinGW (sys/types.h) does.
@@ -3197,6 +3198,59 @@ inline constexpr uint16_t kCuaHelperPort = 19986; // Windows-only (POSIX uses Un
     return (std::filesystem::path(app_home) / "cua-helper-token").string();
 }
 
+// Windows: Session-1 helper writes the token as the interactive user; the mesh
+// daemon often runs as SYSTEM (Session 0). Default creator-owner ACLs can block
+// the daemon from reading the token → "ERROR: auth". Grant SYSTEM + Admins read.
+[[nodiscard]] inline bool grant_local_system_read(const std::string& path) {
+#ifdef _WIN32
+    PACL old_dacl = nullptr;
+    PSECURITY_DESCRIPTOR sd = nullptr;
+    DWORD st = GetNamedSecurityInfoA(path.c_str(), SE_FILE_OBJECT, DACL_SECURITY_INFORMATION,
+                                     nullptr, nullptr, &old_dacl, nullptr, &sd);
+    if (st != ERROR_SUCCESS) return false;
+    PSID system_sid = nullptr;
+    SID_IDENTIFIER_AUTHORITY nt_auth = SECURITY_NT_AUTHORITY;
+    if (!AllocateAndInitializeSid(&nt_auth, 1, SECURITY_LOCAL_SYSTEM_RID,
+                                  0, 0, 0, 0, 0, 0, 0, &system_sid)) {
+        if (sd) LocalFree(sd);
+        return false;
+    }
+    EXPLICIT_ACCESSA ea{};
+    ea.grfAccessPermissions = FILE_GENERIC_READ;
+    ea.grfAccessMode = GRANT_ACCESS;
+    ea.grfInheritance = NO_INHERITANCE;
+    ea.Trustee.TrusteeForm = TRUSTEE_IS_SID;
+    ea.Trustee.TrusteeType = TRUSTEE_IS_WELL_KNOWN_GROUP;
+    ea.Trustee.ptstrName = reinterpret_cast<LPSTR>(system_sid);
+    PACL new_dacl = nullptr;
+    st = SetEntriesInAclA(1, &ea, old_dacl, &new_dacl);
+    bool ok = false;
+    if (st == ERROR_SUCCESS && new_dacl) {
+        st = SetNamedSecurityInfoA(const_cast<char*>(path.c_str()), SE_FILE_OBJECT,
+                                   DACL_SECURITY_INFORMATION, nullptr, nullptr, new_dacl, nullptr);
+        ok = (st == ERROR_SUCCESS);
+        LocalFree(new_dacl);
+    }
+    FreeSid(system_sid);
+    if (sd) LocalFree(sd);
+    return ok;
+#else
+    (void)path;
+    return true;
+#endif
+}
+
+// Write CUA helper IPC token (owner-private + SYSTEM read on Windows).
+[[nodiscard]] inline bool write_cua_helper_token(const std::string& app_home,
+                                                 std::string_view token) {
+    const std::string path = cua_helper_token_path(app_home);
+    if (!write_private_text_file(path, token)) return false;
+#ifdef _WIN32
+    (void)grant_local_system_read(path);
+#endif
+    return true;
+}
+
 // P2: Unix domain socket path for CUA helper (POSIX). Windows keeps TCP loopback.
 [[nodiscard]] inline std::string cua_helper_socket_path(const std::string& app_home) {
     return (std::filesystem::path(app_home) / "cua-helper.sock").string();
@@ -3218,8 +3272,8 @@ inline void close_socket(int fd) {
     CuaResponseMsg resp;
     resp.status = 1;
 
-    // Load auth token from app home
-    std::string token_path = app_home + "/cua-helper-token";
+    // Load auth token from app home (path helper; SYSTEM must be able to read)
+    std::string token_path = cua_helper_token_path(app_home);
     std::ifstream tf(token_path);
     if (!tf) { resp.error = "no cua-helper token"; return resp; }
     std::string token((std::istreambuf_iterator<char>(tf)), std::istreambuf_iterator<char>());

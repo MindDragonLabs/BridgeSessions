@@ -1,9 +1,26 @@
-# CUA — Computer-Use Automation (BridgeSessions 26.08.10-beta2)
+# CUA — Computer-Use Automation (BridgeSessions 26.08.12-beta3)
 
 Remote desktop automation over the `bs://` mesh. Seven subcommands: screen query,
 screenshot capture, mouse click/move/scroll, text typing, and HID key press.
 No VNC/RDP/streaming server required — input injection and capture happen in the
 peer's user session via the `--cua-helper` process.
+
+## Tray / menubar applets (B logo)
+
+| Platform | Applet | Mesh service (not foreground) |
+|----------|--------|-------------------------------|
+| macOS | `BSMenubar.app` menubar **B** | launchd `com.bridgesessions.mesh` + `cua-helper` |
+| Windows | `scripts/bs_tray.ps1` NotifyIcon **B** | schtasks `BridgeSessions` / `bridgesessions` (SYSTEM) |
+| Linux | `scripts/bs_tray.py` pystray **B** | systemd user `bridgesessions.service` |
+
+**Applet menus (parity):** Fleet Status · Restart Daemon · Restart Helper (Win/mac) ·
+Open Logs · Autostart/Login · Quit.
+
+**Windows auth note:** only **one** Session‑1 `--cua-helper`. If capture returns
+`ERROR: auth`, stop tray, kill helpers, start `BS-CUA-Helper`, then tray. The tray
+attaches to an existing helper and grants SYSTEM read on `cua-helper-token`.
+
+Static icons: `assets/icon-b.png` / `icon-b.ico`.
 
 ## Architecture
 

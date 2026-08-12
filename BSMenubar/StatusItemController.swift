@@ -1,4 +1,5 @@
 import Cocoa
+import Darwin
 
 // MARK: - Menubar Status Item + Menu
 
@@ -94,6 +95,18 @@ final class StatusItemController: NSObject {
 
         menu.addItem(.separator())
 
+        // Restart mesh daemon (launchd) — parity with Windows/Linux tray
+        let restartDaemon = NSMenuItem(title: "Restart Daemon", action: #selector(restartDaemon), keyEquivalent: "")
+        restartDaemon.target = self
+        menu.addItem(restartDaemon)
+
+        // Open logs folder
+        let openLogs = NSMenuItem(title: "Open Logs…", action: #selector(openLogs), keyEquivalent: "")
+        openLogs.target = self
+        menu.addItem(openLogs)
+
+        menu.addItem(.separator())
+
         // Quit
         let quitItem = NSMenuItem(title: "Quit BridgeSessions Helper", action: #selector(quit), keyEquivalent: "q")
         quitItem.target = self
@@ -127,6 +140,35 @@ final class StatusItemController: NSObject {
 
     @objc private func restartHelper() {
         helperManager.restart()
+    }
+
+    @objc private func restartDaemon() {
+        let uid = getuid()
+        let label = "gui/\(uid)/com.bridgesessions.mesh"
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: "/bin/launchctl")
+        task.arguments = ["kickstart", "-k", label]
+        task.standardOutput = FileHandle.nullDevice
+        task.standardError = FileHandle.nullDevice
+        do {
+            try task.run()
+            task.waitUntilExit()
+            NSLog("[BSMenubar] Restart Daemon: launchctl kickstart %@ (status=%d)", label, task.terminationStatus)
+        } catch {
+            NSLog("[BSMenubar] Restart Daemon failed: %@", error.localizedDescription)
+        }
+    }
+
+    @objc private func openLogs() {
+        let home = NSHomeDirectory()
+        let candidates = [
+            home + "/.bridgesessions",
+            home + "/Library/Logs/BridgeSessions",
+            "/tmp"
+        ]
+        let fm = FileManager.default
+        let path = candidates.first(where: { fm.fileExists(atPath: $0) }) ?? home + "/.bridgesessions"
+        NSWorkspace.shared.open(URL(fileURLWithPath: path))
     }
 
     @objc private func quit() {

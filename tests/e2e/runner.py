@@ -193,6 +193,7 @@ def test_windows_tray(bs: str, peer: str, report: Report) -> None:
         start = (
             r'powershell -NoProfile -Command '
             r'"$t=Join-Path $env:LOCALAPPDATA bridgesessions\bs_tray.ps1; '
+            r'if(-not (Test-Path $t)){$t=Join-Path $env:USERPROFILE bridgesessions\bs_tray.ps1}; '
             r'if(Test-Path $t){Start-Process powershell -ArgumentList '
             r'\"-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File $t\"}; '
             r'Start-Sleep 2; '
@@ -204,6 +205,24 @@ def test_windows_tray(bs: str, peer: str, report: Report) -> None:
             rec(report, "PASS", "tray_windows", "process", "started")
         else:
             rec(report, "FAIL", "tray_windows", "process", (out + cp2.stdout)[:200])
+
+    # Service posture: one mesh + at most one helper
+    svc = (
+        "powershell -NoProfile -Command "
+        "\"$m=@(Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match "
+        "'bridgesessions.exe' -and $_.CommandLine -notmatch 'cua-helper' }); "
+        "$h=@(Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match 'cua-helper' }); "
+        "Write-Output ('MESH=' + $m.Count + ' HELPER=' + $h.Count); "
+        "if($h.Count -gt 1){Write-Output 'MULTI_HELPER'}\""
+    )
+    cp3 = run([bs, "shell", peer, "--cmd", svc], timeout=45)
+    out3 = cp3.stdout + cp3.stderr
+    if "MULTI_HELPER" in out3:
+        rec(report, "FAIL", "tray_windows", "helper_count", "more than one --cua-helper process")
+    elif "MESH=" in out3:
+        rec(report, "PASS", "tray_windows", "service_posture", out3.replace("\n", " ")[:120])
+    else:
+        rec(report, "SKIP", "tray_windows", "service_posture", out3[:120])
 
 
 # ── L3 macOS ────────────────────────────────────────────────────────
@@ -327,6 +346,20 @@ def test_linux_desktop_peer(bs: str, peer: str, report: Report) -> None:
         rec(report, "SKIP", "tray_linux", "process", "not running (start bs_tray.py under XFCE)")
     else:
         rec(report, "PASS", "tray_linux", "process", "found")
+    # systemd user service should own mesh when installed
+    cp_svc = run(
+        [bs, "shell", peer, "--cmd",
+         "systemctl --user is-active bridgesessions 2>/dev/null || echo inactive; "
+         "pgrep -x bridgesessions >/dev/null && echo MESH_PROC || echo NO_MESH"],
+        timeout=30,
+    )
+    outs = cp_svc.stdout + cp_svc.stderr
+    if "active" in outs and "MESH_PROC" in outs:
+        rec(report, "PASS", "tray_linux", "systemd_mesh", "active")
+    elif "MESH_PROC" in outs:
+        rec(report, "SKIP", "tray_linux", "systemd_mesh", "mesh running without active unit")
+    else:
+        rec(report, "FAIL", "tray_linux", "systemd_mesh", outs[:120])
 
 
 # ── main ────────────────────────────────────────────────────────────
