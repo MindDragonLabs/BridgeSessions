@@ -1454,10 +1454,10 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#phase-1-code-fixes-on-linux-a-the-source-host" class="md-nav__link">
+  <a href="#phase-1-code-fixes-on-peer-linux-a-the-source-host" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Phase 1: Code fixes (on FECv3, the source host)
+        Phase 1: Code fixes (on peer-linux-a, the source host)
       
     </span>
   </a>
@@ -1465,10 +1465,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#phase-2-macos-menubar-app-on-macbook-where-xcodeswift-is-available" class="md-nav__link">
+  <a href="#phase-2-macos-menubar-app-on-peer-mac-b-where-xcodeswift-is-available" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Phase 2: macOS menubar app (on macbook, where Xcode/Swift is available)
+        Phase 2: macOS menubar app (on peer-mac-b, where Xcode/Swift is available)
       
     </span>
   </a>
@@ -1525,10 +1525,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#appendix-c-tcc-database-state-macos-peer" class="md-nav__link">
+  <a href="#appendix-c-tcc-database-state-peer-mac" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Appendix C: TCC database state (macos-peer)
+        Appendix C: TCC database state (peer-mac)
       
     </span>
   </a>
@@ -1573,7 +1573,7 @@
 
 <h1 id="bridgesessions-macos-cua-deep-rca-installactivatemenubar-design">BridgeSessions macOS CUA — Deep RCA + Install/Activate/Menubar Design<a class="headerlink" href="#bridgesessions-macos-cua-deep-rca-installactivatemenubar-design" title="Permanent link">&para;</a></h1>
 <p><strong>Date:</strong> 2026-08-09<br />
-<strong>Author:</strong> Hermes Agent (FECv3)<br />
+<strong>Author:</strong> Hermes Agent (peer-linux-a)<br />
 <strong>Scope:</strong> Full root-cause analysis of <code>bs cua</code> failures on macOS, binary/source divergence, TCC permission persistence, and design for a proper install → activate → menubar helper workflow.</p>
 <hr />
 <h2 id="executive-summary">Executive Summary<a class="headerlink" href="#executive-summary" title="Permanent link">&para;</a></h2>
@@ -1623,7 +1623,7 @@
 <a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">    </span><span class="n">resp</span><span class="p">.</span><span class="n">error</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&quot;macos CGEvent not yet deployed (P5c)&quot;</span><span class="p">;</span>
 <a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="n">resp</span><span class="p">;</span>
 </code></pre></div>
-<p>This stub <strong>never calls <code>cua_helper_rpc()</code></strong>. But the binary running on macos-peer (<code>9a8b229c</code>, 2,337,280 bytes, dynamic Mach-O) <strong>does</strong> call the helper — we proved this with <code>strings</code>:</p>
+<p>This stub <strong>never calls <code>cua_helper_rpc()</code></strong>. But the binary running on peer-mac (<code>9a8b229c</code>, 2,337,280 bytes, dynamic Mach-O) <strong>does</strong> call the helper — we proved this with <code>strings</code>:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>$ strings ~/.local/bin/bridgesessions | grep -i &quot;cua-helper&quot;
 <a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>macos CUA input requires cua-helper (run: bridgesessions --cua-helper in user session)
 <a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>--cua-helper
@@ -1634,7 +1634,7 @@
 <a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a>cua-helper send failed
 <a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a>cua-helper no response
 </code></pre></div>
-<p>The string <code>"macos CUA input requires cua-helper"</code> <strong>does not exist in any branch</strong> of the source repo (checked: <code>main</code>, <code>release/2.0.19-alpha7</code>, <code>audit/public-2.0.5-alpha2</code>). The macos-peer binary was built from <strong>uncommitted/lost source</strong> that implemented the macOS helper dispatch but was never committed.</p>
+<p>The string <code>"macos CUA input requires cua-helper"</code> <strong>does not exist in any branch</strong> of the source repo (checked: <code>main</code>, <code>release/2.0.19-alpha7</code>, <code>audit/public-2.0.5-alpha2</code>). The peer-mac binary was built from <strong>uncommitted/lost source</strong> that implemented the macOS helper dispatch but was never committed.</p>
 <h3 id="the-macos-helper-code-does-exist-in-source">The macOS helper code DOES exist in source<a class="headerlink" href="#the-macos-helper-code-does-exist-in-source" title="Permanent link">&para;</a></h3>
 <p>The actual helper implementation (<code>cua_helper_execute()</code> in <code>bs-cua-helper.h:170–293</code>) is complete and correct for macOS:
 - Action 0: <code>CGDisplayBounds</code> screen info ✓
@@ -1693,12 +1693,12 @@
 <a id="__codelineno-8-39" name="__codelineno-8-39" href="#__codelineno-8-39"></a><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="n">resp</span><span class="p">;</span>
 </code></pre></div>
 <h3 id="also-screen-vs-capture-inconsistency">Also: <code>screen</code> vs <code>capture</code> inconsistency<a class="headerlink" href="#also-screen-vs-capture-inconsistency" title="Permanent link">&para;</a></h3>
-<p><code>bs cua screen macos-peer</code> returns <code>0x0</code> with exit 0 (appears to succeed with empty dimensions). This is because action=0 (screen_info) hits the macOS stub, returns <code>status=1, error="macos CGEvent not yet deployed"</code>, but the client-side code for <code>screen</code> interprets <code>status=1</code> as "return 0x0" instead of propagating the error. <code>capture</code> correctly surfaces the error string.</p>
+<p><code>bs cua screen peer-mac</code> returns <code>0x0</code> with exit 0 (appears to succeed with empty dimensions). This is because action=0 (screen_info) hits the macOS stub, returns <code>status=1, error="macos CGEvent not yet deployed"</code>, but the client-side code for <code>screen</code> interprets <code>status=1</code> as "return 0x0" instead of propagating the error. <code>capture</code> correctly surfaces the error string.</p>
 <p><strong>Fix:</strong> Client-side <code>cua screen</code> should check <code>status</code> and print the error if non-zero, same as <code>capture</code> does.</p>
 <hr />
 <h2 id="layer-3-tcc-permission-persistence-bug-signingidentity">Layer 3: TCC Permission Persistence (BUG — signing/identity)<a class="headerlink" href="#layer-3-tcc-permission-persistence-bug-signingidentity" title="Permanent link">&para;</a></h2>
 <h3 id="what-happens_2">What happens<a class="headerlink" href="#what-happens_2" title="Permanent link">&para;</a></h3>
-<p>The TCC database on macos-peer has <strong>zero entries</strong> for Screen Recording or Accessibility:</p>
+<p>The TCC database on peer-mac has <strong>zero entries</strong> for Screen Recording or Accessibility:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="k">SELECT</span><span class="w"> </span><span class="n">service</span><span class="p">,</span><span class="w"> </span><span class="n">client</span><span class="p">,</span><span class="w"> </span><span class="n">auth_value</span><span class="w"> </span><span class="k">FROM</span><span class="w"> </span><span class="k">access</span><span class="w"> </span>
 <a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="k">WHERE</span><span class="w"> </span><span class="n">service</span><span class="w"> </span><span class="k">IN</span><span class="w"> </span><span class="p">(</span><span class="s1">&#39;kTCCServiceScreenCapture&#39;</span><span class="p">,</span><span class="s1">&#39;kTCCServiceAccessibility&#39;</span><span class="p">);</span>
 <a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="c1">-- (empty result set)</span>
@@ -1789,13 +1789,13 @@
 <a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a>│       ┌──────────────────────────────────────┐
 <a id="__codelineno-13-5" name="__codelineno-13-5" href="#__codelineno-13-5"></a>│       │ Peer          Version      Status    │
 <a id="__codelineno-13-6" name="__codelineno-13-6" href="#__codelineno-13-6"></a>│       │ ───────────────────────────────────── │
-<a id="__codelineno-13-7" name="__codelineno-13-7" href="#__codelineno-13-7"></a>│       │ linux-a         26.08.06-b1   ● online  │
-<a id="__codelineno-13-8" name="__codelineno-13-8" href="#__codelineno-13-8"></a>│       │ macos-peer       26.08.06-b1   ● online  │
-<a id="__codelineno-13-9" name="__codelineno-13-9" href="#__codelineno-13-9"></a>│       │ macbook       26.08.06-b1   ● online  │
+<a id="__codelineno-13-7" name="__codelineno-13-7" href="#__codelineno-13-7"></a>│       │ peer-linux-a         26.08.06-b1   ● online  │
+<a id="__codelineno-13-8" name="__codelineno-13-8" href="#__codelineno-13-8"></a>│       │ peer-mac       26.08.06-b1   ● online  │
+<a id="__codelineno-13-9" name="__codelineno-13-9" href="#__codelineno-13-9"></a>│       │ peer-mac-b       26.08.06-b1   ● online  │
 <a id="__codelineno-13-10" name="__codelineno-13-10" href="#__codelineno-13-10"></a>│       │ linux-d          26.08.06-b1   ● online  │
 <a id="__codelineno-13-11" name="__codelineno-13-11" href="#__codelineno-13-11"></a>│       │ linux-c        26.08.06-b1   ● online  │
-<a id="__codelineno-13-12" name="__codelineno-13-12" href="#__codelineno-13-12"></a>│       │ linux-db  26.08.06-b1   ● online  │
-<a id="__codelineno-13-13" name="__codelineno-13-13" href="#__codelineno-13-13"></a>│       │ linux-b         26.08.06-b1   ● online  │
+<a id="__codelineno-13-12" name="__codelineno-13-12" href="#__codelineno-13-12"></a>│       │ peer-db  26.08.06-b1   ● online  │
+<a id="__codelineno-13-13" name="__codelineno-13-13" href="#__codelineno-13-13"></a>│       │ peer-linux-b         26.08.06-b1   ● online  │
 <a id="__codelineno-13-14" name="__codelineno-13-14" href="#__codelineno-13-14"></a>│       │ shadow        0.0.0-dev     ○ offline  │
 <a id="__codelineno-13-15" name="__codelineno-13-15" href="#__codelineno-13-15"></a>│       │                        [Close]         │
 <a id="__codelineno-13-16" name="__codelineno-13-16" href="#__codelineno-13-16"></a>│       └──────────────────────────────────────┘
@@ -1955,10 +1955,10 @@
 <hr />
 <h2 id="additional-fixes-needed-beyond-the-users-request">Additional Fixes Needed (beyond the user's request)<a class="headerlink" href="#additional-fixes-needed-beyond-the-users-request" title="Permanent link">&para;</a></h2>
 <h3 id="fix-5-bs-cua-screen-should-propagate-errors">Fix 5: <code>bs cua screen</code> should propagate errors<a class="headerlink" href="#fix-5-bs-cua-screen-should-propagate-errors" title="Permanent link">&para;</a></h3>
-<p><strong>Current:</strong> <code>bs cua screen macos-peer</code> returns <code>0x0</code> with exit 0 when the helper fails — misleading.
+<p><strong>Current:</strong> <code>bs cua screen peer-mac</code> returns <code>0x0</code> with exit 0 when the helper fails — misleading.
 <strong>Fix:</strong> Check <code>resp.status</code> in the screen_info client path and print the error string if non-zero.</p>
 <h3 id="fix-6-binary-source-divergence-must-be-resolved">Fix 6: Binary source divergence must be resolved<a class="headerlink" href="#fix-6-binary-source-divergence-must-be-resolved" title="Permanent link">&para;</a></h3>
-<p>The macos-peer binary (<code>9a8b229c</code>) was built from source that doesn't exist in the repo. The macOS helper dispatch code was implemented but <strong>never committed</strong>. This is a source-control failure.</p>
+<p>The peer-mac binary (<code>9a8b229c</code>) was built from source that doesn't exist in the repo. The macOS helper dispatch code was implemented but <strong>never committed</strong>. This is a source-control failure.</p>
 <p><strong>Action:</strong> Commit the macOS helper dispatch code (the fix from Layer 2) to <code>main</code>. Rebuild all macOS binaries from committed source. Replace all fleet macOS binaries with the rebuilt version.</p>
 <h3 id="fix-7-tcc-reset-re-grant-after-binary-update">Fix 7: TCC reset + re-grant after binary update<a class="headerlink" href="#fix-7-tcc-reset-re-grant-after-binary-update" title="Permanent link">&para;</a></h3>
 <p>Every time the binary is replaced, TCC grants are invalidated (adhoc signing). After deploying a new binary:</p>
@@ -1971,7 +1971,7 @@
 <p><strong>Long-term fix:</strong> Use a Developer ID certificate for stable signing. The repo has <code>scripts/sign-macos.sh</code> ready — it just needs a real certificate.</p>
 <h3 id="fix-8-launchd-plist-should-not-start-the-helper">Fix 8: launchd plist should not start the helper<a class="headerlink" href="#fix-8-launchd-plist-should-not-start-the-helper" title="Permanent link">&para;</a></h3>
 <p>The current <code>com.bridgesessions.mesh.plist</code> runs the <strong>daemon</strong> only. This is correct — the helper must run in the user GUI session, not under launchd (which may run in a different session context). The menubar app handles helper lifecycle.</p>
-<p>But: the plist should be updated to use <code>$HOME</code>-relative paths or <code>~</code> expansion, not hardcoded <code>/Users/jeffersonnunn/...</code> paths. The <code>install.sh</code> already does this correctly (line 150: <code>${BIN_ABS}</code>), but the committed <code>com.bridgesessions.mesh.plist</code> has hardcoded paths.</p>
+<p>But: the plist should be updated to use <code>$HOME</code>-relative paths or <code>~</code> expansion, not hardcoded <code>/Users/&lt;operator&gt;/...</code> paths. The <code>install.sh</code> already does this correctly (line 150: <code>${BIN_ABS}</code>); the example <code>com.bridgesessions.mesh.plist</code> in-tree must stay free of machine-local home paths.</p>
 <h3 id="fix-9-capture-should-use-screencapturekit-not-screencapture-cli">Fix 9: Capture should use ScreenCaptureKit, not <code>screencapture</code> CLI<a class="headerlink" href="#fix-9-capture-should-use-screencapturekit-not-screencapture-cli" title="Permanent link">&para;</a></h3>
 <p>The helper's macOS capture path (action 6, bs-cua-helper.h:263–287) shells out to <code>screencapture -x</code>. This works but:
 - Requires Screen Recording permission for <code>screencapture</code> (or the calling process)
@@ -2085,7 +2085,7 @@
 </table>
 <hr />
 <h2 id="build-deploy-plan">Build + Deploy Plan<a class="headerlink" href="#build-deploy-plan" title="Permanent link">&para;</a></h2>
-<h3 id="phase-1-code-fixes-on-linux-a-the-source-host">Phase 1: Code fixes (on FECv3, the source host)<a class="headerlink" href="#phase-1-code-fixes-on-linux-a-the-source-host" title="Permanent link">&para;</a></h3>
+<h3 id="phase-1-code-fixes-on-peer-linux-a-the-source-host">Phase 1: Code fixes (on peer-linux-a, the source host)<a class="headerlink" href="#phase-1-code-fixes-on-peer-linux-a-the-source-host" title="Permanent link">&para;</a></h3>
 <ol>
 <li>Patch <code>bs-protocol.h</code>:</li>
 <li>Fix <code>cua_helper_rpc()</code> wire format (token prefix)</li>
@@ -2096,27 +2096,27 @@
 <li>Rebuild all platform binaries</li>
 <li>Update <code>dist/SHA256SUMS</code> + <code>SBOM-binaries.json</code></li>
 </ol>
-<h3 id="phase-2-macos-menubar-app-on-macbook-where-xcodeswift-is-available">Phase 2: macOS menubar app (on macbook, where Xcode/Swift is available)<a class="headerlink" href="#phase-2-macos-menubar-app-on-macbook-where-xcodeswift-is-available" title="Permanent link">&para;</a></h3>
+<h3 id="phase-2-macos-menubar-app-on-peer-mac-b-where-xcodeswift-is-available">Phase 2: macOS menubar app (on peer-mac-b, where Xcode/Swift is available)<a class="headerlink" href="#phase-2-macos-menubar-app-on-peer-mac-b-where-xcodeswift-is-available" title="Permanent link">&para;</a></h3>
 <ol>
 <li>Create <code>BSMenubar/</code> Swift project</li>
 <li>Implement: StatusItemController, FleetStatusController, SettingsController, HelperProcessManager</li>
 <li>Build <code>BSMenubar.app</code> (release config, adhoc-signed with stable bundle ID)</li>
-<li>Test on macbook: double-click → menubar icon → fleet status → settings</li>
+<li>Test on peer-mac-b: double-click → menubar icon → fleet status → settings</li>
 </ol>
 <h3 id="phase-3-deploy-to-fleet">Phase 3: Deploy to fleet<a class="headerlink" href="#phase-3-deploy-to-fleet" title="Permanent link">&para;</a></h3>
 <ol>
-<li>Deploy fixed binary to macos-peer, macbook (scp + swap)</li>
+<li>Deploy fixed binary to peer-mac, peer-mac-b (scp + swap)</li>
 <li>Copy <code>BSMenubar.app</code> to <code>/Applications/</code> on both</li>
 <li>Launch menubar app</li>
 <li>Grant TCC permissions (one-time, manual in System Settings)</li>
-<li>Verify: <code>bs cua capture macos-peer -o /tmp/test.png</code> produces a real screenshot</li>
+<li>Verify: <code>bs cua capture peer-mac -o /tmp/test.png</code> produces a real screenshot</li>
 </ol>
 <h3 id="phase-4-verify-end-to-end">Phase 4: Verify end-to-end<a class="headerlink" href="#phase-4-verify-end-to-end" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a><span class="c1"># From FECv3:</span>
-<a id="__codelineno-21-2" name="__codelineno-21-2" href="#__codelineno-21-2"></a>bs<span class="w"> </span>cua<span class="w"> </span>screen<span class="w"> </span>macos-peer<span class="w">       </span><span class="c1"># → real dimensions (e.g., 2560x1080)</span>
-<a id="__codelineno-21-3" name="__codelineno-21-3" href="#__codelineno-21-3"></a>bs<span class="w"> </span>cua<span class="w"> </span>capture<span class="w"> </span>macos-peer<span class="w"> </span>-o<span class="w"> </span>/tmp/macos-peer.png<span class="w">  </span><span class="c1"># → real PNG file</span>
-<a id="__codelineno-21-4" name="__codelineno-21-4" href="#__codelineno-21-4"></a>bs<span class="w"> </span>cua<span class="w"> </span>click<span class="w"> </span>macos-peer<span class="w"> </span>--x<span class="w"> </span><span class="m">100</span><span class="w"> </span>--y<span class="w"> </span><span class="m">100</span><span class="w">        </span><span class="c1"># → real mouse click</span>
-<a id="__codelineno-21-5" name="__codelineno-21-5" href="#__codelineno-21-5"></a>bs<span class="w"> </span>cua<span class="w"> </span><span class="nb">type</span><span class="w"> </span>macos-peer<span class="w"> </span>--text<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w">          </span><span class="c1"># → real keyboard input</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a><span class="c1"># From peer-linux-a:</span>
+<a id="__codelineno-21-2" name="__codelineno-21-2" href="#__codelineno-21-2"></a>bs<span class="w"> </span>cua<span class="w"> </span>screen<span class="w"> </span>peer-mac<span class="w">       </span><span class="c1"># → real dimensions (e.g., 2560x1080)</span>
+<a id="__codelineno-21-3" name="__codelineno-21-3" href="#__codelineno-21-3"></a>bs<span class="w"> </span>cua<span class="w"> </span>capture<span class="w"> </span>peer-mac<span class="w"> </span>-o<span class="w"> </span>/tmp/peer-mac.png<span class="w">  </span><span class="c1"># → real PNG file</span>
+<a id="__codelineno-21-4" name="__codelineno-21-4" href="#__codelineno-21-4"></a>bs<span class="w"> </span>cua<span class="w"> </span>click<span class="w"> </span>peer-mac<span class="w"> </span>--x<span class="w"> </span><span class="m">100</span><span class="w"> </span>--y<span class="w"> </span><span class="m">100</span><span class="w">        </span><span class="c1"># → real mouse click</span>
+<a id="__codelineno-21-5" name="__codelineno-21-5" href="#__codelineno-21-5"></a>bs<span class="w"> </span>cua<span class="w"> </span><span class="nb">type</span><span class="w"> </span>peer-mac<span class="w"> </span>--text<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w">          </span><span class="c1"># → real keyboard input</span>
 </code></pre></div>
 <hr />
 <h2 id="appendix-a-current-binary-hash-inventory">Appendix A: Current binary hash inventory<a class="headerlink" href="#appendix-a-current-binary-hash-inventory" title="Permanent link">&para;</a></h2>
@@ -2132,60 +2132,60 @@
 </thead>
 <tbody>
 <tr>
-<td>FECv3</td>
+<td>peer-linux-a</td>
 <td><code>~/.local/bin/bridgesessions</code></td>
 <td><code>d3381364...</code></td>
 <td>dynamic Linux</td>
 <td>Old, needs swap to static</td>
 </tr>
 <tr>
-<td>FECv3</td>
+<td>peer-linux-a</td>
 <td><code>build-static/bridgesessions</code></td>
 <td><code>6b12a64c...</code></td>
 <td>static Linux</td>
-<td>Latest, deployed to linux-c/linux-d/linux-db</td>
+<td>Latest, deployed to linux-c/linux-d/peer-db</td>
 </tr>
 <tr>
-<td>FECv3</td>
+<td>peer-linux-a</td>
 <td><code>dist/bridgesessions-macos-arm64</code></td>
 <td><code>da4fa0be...</code></td>
 <td>static macOS</td>
 <td>Not deployed anywhere</td>
 </tr>
 <tr>
-<td>macos-peer</td>
+<td>peer-mac</td>
 <td><code>~/.local/bin/bridgesessions</code></td>
 <td><code>9a8b229c...</code></td>
 <td>dynamic macOS</td>
 <td><strong>Built from lost source</strong> — has helper code not in repo</td>
 </tr>
 <tr>
-<td>macos-peer</td>
+<td>peer-mac</td>
 <td><code>~/bridgesessions/build/bridgesessions</code></td>
 <td><code>a60b9de5...</code></td>
 <td>dynamic macOS</td>
 <td>Build dir, not installed</td>
 </tr>
 <tr>
-<td>macos-peer</td>
+<td>peer-mac</td>
 <td><code>~/.bridgesessions/received/bridgesessions-macos-arm64</code></td>
 <td><code>0db44ca6...</code></td>
 <td>?</td>
 <td>Received via bs file send, not our build</td>
 </tr>
 <tr>
-<td>macbook</td>
+<td>peer-mac-b</td>
 <td><code>~/.local/bin/bridgesessions</code></td>
 <td><code>a5c8603f...</code></td>
 <td>dynamic macOS</td>
-<td>Different from macos-peer</td>
+<td>Different from peer-mac</td>
 </tr>
 <tr>
-<td>macbook</td>
+<td>peer-mac-b</td>
 <td><code>~/bridgesessions/dist/bridgesessions-macos-arm64</code></td>
 <td><code>100afede...</code></td>
 <td>?</td>
-<td>Different from FECv3 dist</td>
+<td>Different from peer-linux-a dist</td>
 </tr>
 </tbody>
 </table>
@@ -2206,7 +2206,7 @@
 <a id="__codelineno-22-13" name="__codelineno-22-13" href="#__codelineno-22-13"></a>
 <a id="__codelineno-22-14" name="__codelineno-22-14" href="#__codelineno-22-14"></a># Result: helper gets &#39;{&#39; as the &quot;token&quot; prefix → auth failure
 </code></pre></div>
-<h2 id="appendix-c-tcc-database-state-macos-peer">Appendix C: TCC database state (macos-peer)<a class="headerlink" href="#appendix-c-tcc-database-state-macos-peer" title="Permanent link">&para;</a></h2>
+<h2 id="appendix-c-tcc-database-state-peer-mac">Appendix C: TCC database state (peer-mac)<a class="headerlink" href="#appendix-c-tcc-database-state-peer-mac" title="Permanent link">&para;</a></h2>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a>$ sqlite3 ~/Library/Application\ Support/com.apple.TCC/TCC.db \
 <a id="__codelineno-23-2" name="__codelineno-23-2" href="#__codelineno-23-2"></a>    &quot;SELECT service, client, auth_value FROM access WHERE service IN 
 <a id="__codelineno-23-3" name="__codelineno-23-3" href="#__codelineno-23-3"></a>     (&#39;kTCCServiceScreenCapture&#39;,&#39;kTCCServiceAccessibility&#39;)&quot;
@@ -2248,7 +2248,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 9, 2026 20:19:06 UTC">August 9, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 12, 2026 15:06:43 UTC">August 12, 2026</span>
   </span>
 
     
