@@ -6029,9 +6029,9 @@ inline bool socket_selectable(SOCKET fd) {
 #ifdef _WIN32
     return true;
 #else
-    // Main event loop uses poll() (no FD_SETSIZE). Paths that still call
-    // select() must keep the classic limit so FD_SET is defined behavior.
-    return fd >= 0;
+    // Main event loop uses poll() (no FD_SETSIZE ceiling). Many helper paths
+    // still use select(); reject fds >= FD_SETSIZE so FD_SET stays defined.
+    return fd >= 0 && static_cast<int>(fd) < FD_SETSIZE;
 #endif
 }
 

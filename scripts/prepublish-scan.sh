@@ -70,8 +70,9 @@ scan_dist() {
   for b in dist/*; do
     [ -f "$b" ] || continue
     case "$b" in *.json|*.txt|SHA256SUMS) continue ;; esac
-    hits=$(strings "$b" 2>/dev/null | grep -E '/home/[a-z]+/|/Users/[a-z]+/' | head -3)
-    [ -n "$hits" ] && { echo "BLOCK: build-path bake-in in $b:"; echo "$hits" | sed 's/^/  /'; FAILED=1; }
+    # Flag personal homes; allow generic CI/build accounts (agent, runner, builder, github).
+    hits=$(strings "$b" 2>/dev/null | grep -E '/home/[a-z]+/|/Users/[a-z]+/'       | grep -Ev '/home/(agent|runner|builder|github|ubuntu|root)/|/Users/(builder|runner)/'       | head -3 || true)
+    [ -n "$hits" ] && { echo "BLOCK: personal build-path bake-in in $b:"; echo "$hits" | sed 's/^/  /'; FAILED=1; }
     if [ -f "$BLOCKLIST" ]; then
       while IFS= read -r pat; do
         case "$pat" in ''|'#'*) continue ;; esac

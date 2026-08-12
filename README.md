@@ -6,7 +6,7 @@
 
 ### One binary. Every machine. Zero SSH.
 
-[![Version](https://img.shields.io/badge/version-26.08.10--beta2-00d9ff?style=flat-square)](https://github.com/MindDragonLabs/BridgeSessions/releases)
+[![Version](https://img.shields.io/badge/version-26.08.12--beta3-00d9ff?style=flat-square)](https://github.com/MindDragonLabs/BridgeSessions/releases)
 [![License](https://img.shields.io/badge/license-BSL--1.1-6c7086?style=flat-square)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20Windows%20%7C%20macOS-00d9ff?style=flat-square)](#install)
 [![Language](https://img.shields.io/badge/C%2B%2B-23-00599C?style=flat-square&logo=c%2B%2B&logoColor=white)](https://en.cppreference.com/)
@@ -71,10 +71,10 @@ Each tool has its own auth, escaping rules, failure modes, and security surface.
 - **Cross-platform** — Linux (xdotool), Windows (SendInput), macOS (CGEvent)
 
 ```bash
-bs cua screen peer-win           # → 1920x1080
-bs cua capture peer-win -o shot.png
-bs cua click peer-win --x 500 --y 300
-bs cua type peer-win --text "Hello World"
+bs cua screen win-desktop          # → 1920x1080
+bs cua capture win-desktop -o shot.png
+bs cua click win-desktop --x 500 --y 300
+bs cua type win-desktop --text "Hello World"
 ```
 
 ### 📜 Script Library
@@ -84,14 +84,14 @@ bs cua type peer-win --text "Hello World"
 
 ```bash
 bs script add deploy.sh --name deploy
-bs script push deploy --peer peer-linux
-bs script run deploy --peer peer-linux -- --env prod
+bs script push deploy --peer linux-hub
+bs script run deploy --peer linux-hub -- --env prod
 ```
 
 ### 🔍 Smart Peer Resolution
-- **4-tier fuzzy matching** — exact → suffix → Levenshtein → suggestions
-- **Alias support** — short names resolve to longer peer ids (e.g. `win` → `peer-win`)
-- **"Did you mean...?"** — never leaves you guessing
+- **4-tier fuzzy matching** — exact → suffix/prefix → Levenshtein → suggestions
+- **Alias support** — short queries resolve to longer peer names (e.g. `desktop` → `win-desktop`)
+- **"Did you mean…?"** — ambiguous matches return suggestions instead of guessing
 
 ### 🛡️ Built for AI Agents
 - **SKILL.md + AGENTS.md** — multi-harness agent instructions (Hermes, Claude, Codex, Cursor, OpenCode)
@@ -123,7 +123,7 @@ git clone https://github.com/MindDragonLabs/BridgeSessions.git
 cd BridgeSessions
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --parallel
-./build/bridgesessions --version   # → 26.08.10-beta2
+./build/bridgesessions --version   # → 26.08.12-beta3
 ```
 
 <details>
@@ -149,11 +149,11 @@ bridgesessions keygen
 bridgesessions --daemon --config ~/.bridgesessions/config
 
 # 3. From any other machine — connect, run, transfer
-bs health peer-linux                 # → healthy (data-plane ok)
-bs shell peer-linux --cmd 'uname -a' # → Linux …
-bs file send peer-linux ./app.tar.gz # → OK sent app.tar.gz SHA256:…
-bs shell peer-win --cmd 'hostname'   # → WIN-…
-bs cua capture peer-mac -o screen.png # → screenshot from macOS peer
+bs health linux-hub                    # → healthy (data-plane ok)
+bs shell linux-hub --cmd 'uname -a'    # → Linux …
+bs file send linux-hub ./app.tar.gz    # → OK sent app.tar.gz SHA256:…
+bs shell win-desktop --cmd 'hostname'  # → WIN-…
+bs cua capture mac-desktop -o screen.png  # → screenshot from macOS peer
 ```
 
 <details>

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Install whatisit-nl2sh + Q4_K_M weights on a fleet hub (peer-linux-a / peer-linux-b).
+# Install whatisit-nl2sh + Q4_K_M weights on a fleet hub (linux-a / linux-b).
 # NL → single shell command only. Run outputs via `bs job` / `bs run-script`.
 #
 # Usage (on hub):
@@ -159,5 +159,5 @@ echo "Done. Test from this host:"
 echo "  curl -sS 127.0.0.1:$PORT/health"
 echo "  curl -sS 127.0.0.1:$PORT/v1/nl2sh -H 'Content-Type: application/json' -d '{\"q\":\"list open ports\",\"os\":\"linux\"}'"
 echo "From Mac via mesh:"
-echo "  bs shell peer-linux-a --cmd 'curl -sS 127.0.0.1:$PORT/v1/nl2sh -H Content-Type:application/json -d \"{\\\"q\\\":\\\"disk free\\\",\\\"os\\\":\\\"linux\\\"}\"'"
+echo "  bs shell linux-a --cmd 'curl -sS 127.0.0.1:$PORT/v1/nl2sh -H Content-Type:application/json -d \"{\\\"q\\\":\\\"disk free\\\",\\\"os\\\":\\\"linux\\\"}\"'"
 echo "Execute results only via: bs job run <peer> job.json   (never raw stacked &&)"

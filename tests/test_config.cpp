@@ -774,7 +774,10 @@ TEST_CASE("release and mesh Hello share the canonical version",
     MeshConfig cfg;
     cfg.node_name = "version-test";
     MeshController controller(cfg, root.string());
-    REQUIRE(controller.hello_version_for_test() == kBridgeSessionsVersion);
+    // Hello.version is canonical + capability tags (e.g. "…+frm2").
+    const std::string hello_ver = controller.hello_version_for_test();
+    REQUIRE(hello_ver.rfind(std::string(kBridgeSessionsVersion), 0) == 0);
+    REQUIRE(version_has_cap(hello_ver, kCapFrm2));
     fs::remove_all(root);
 }
 

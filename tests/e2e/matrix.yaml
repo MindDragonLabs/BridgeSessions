@@ -1,6 +1,5 @@
 # BridgeSessions e2e matrix — run on work completion (not nightly)
-# Peer names are placeholders. Override for a real lab with:
-#   BS_E2E_PEERS, BS_E2E_PEER_WIN, BS_E2E_PEER_MAC
+# Override peers with BS_E2E_PEERS / BS_E2E_PEER_WIN / BS_E2E_PEER_MAC / BS_E2E_LINUX_HOST.
 version: 1
 expected_version: "26.08.12-beta3"
 
@@ -13,17 +12,17 @@ layers:
     required: true
   L4:
     description: Foreground installer on clean guest
-    required: false  # enable when clean VM snapshot ready
+    required: false
 
 peers:
   mesh:
-    - peer-linux-a
-    - peer-linux-b
-    - peer-mac
-    - peer-win
-  linux_desktop: bs-qa-ubuntu   # KVM guest (when joined)
-  windows_desktop: peer-win
-  macos_desktop: peer-mac
+    - linux-b
+    - linux-a
+    - macos-peer
+    - windows-peer
+  linux_desktop: bs-qa-ubuntu
+  windows_desktop: windows-peer
+  macos_desktop: macos-peer
 
 suites:
   mesh_core:
@@ -39,12 +38,12 @@ suites:
     layer: L3
     required: true
     needs: [windows_session1_helper]
-    peer: peer-win
+    peer: windows-peer
   cua_macos:
     layer: L3
     required: true
     needs: [macos_cua_helper]
-    peer: peer-mac
+    peer: macos-peer
   tray_linux:
     layer: L3
     required: true
@@ -54,11 +53,11 @@ suites:
     layer: L3
     required: true
     needs: [windows_session1]
-    peer: peer-win
+    peer: windows-peer
   menubar_macos:
     layer: L3
     required: true
-    peer: peer-mac
+    peer: macos-peer
   installer_linux:
     layer: L4
     required: false
