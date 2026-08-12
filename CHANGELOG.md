@@ -32,6 +32,14 @@ All notable public releases are documented here.
   user session (Session 1) for real pixels.
 - **Windows helper**: soft-cap capture to 1920×1080 via StretchBlt so Session-0 /
   multi-monitor virtual desktops cannot allocate multi-GB bitmaps or hang the helper.
+- **Windows helper (P0)**: capture is **GDI-only** (CreateDIBSection + StretchBlt +
+  hand-rolled BMP). GDI+ `FromHBITMAP`/`Save` AVs (0xc0000005 in gdiplus.dll) on
+  recent Win11 builds are gone; response format=3 (BMP). CLI sniffs BM/JPEG/PNG magic.
+- **Windows daemon (P1/P2)**: when helper fails, surface its error; Session 0 skips
+  PowerShell GDI fallback (cannot see the interactive desktop); Forms assembly load fixed.
+- **Windows helper (P3)**: single-instance mutex + exclusive bind (no SO_REUSEADDR);
+  **token is written only after listen succeeds** so a second helper cannot overwrite
+  the IPC token and brick auth for the primary.
 - **macOS helper + in-process**: ScreenCaptureKit failure falls back to
   `screencapture(1)` before erroring; empty-success status=0 with no data fixed
   (status defaults to failure until bytes are present). Prefer Dev ID-signed

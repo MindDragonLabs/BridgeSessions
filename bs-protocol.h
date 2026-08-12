@@ -61,8 +61,8 @@
 #include <windows.h>
 #include <fcntl.h>
 #include <process.h>
-// MSVC does not provide POSIX pid_t; MinGW does. Unify for both.
-#ifndef _PID_T_DEFINED
+// MSVC does not provide POSIX pid_t; MinGW (sys/types.h) does.
+#if defined(_MSC_VER) && !defined(_PID_T_DEFINED)
 typedef int pid_t;
 #define _PID_T_DEFINED
 #endif
@@ -3356,15 +3356,29 @@ extern "C" int bs_macos_capture_png(const char*, unsigned, char*, size_t);
 #ifdef _WIN32
     // Prefer cua-helper for ALL actions (including capture). Session 0 daemons
     // cannot reliably GDI-capture the interactive desktop; the helper (user
-    // session or co-located) owns GDI+/BitBlt capture.
+    // session) owns BitBlt + BMP encode (no GDI+ — crashes on recent Win11).
     {
         auto helper_resp = cua_helper_rpc(req, app_home);
         if (helper_resp.status == 0) return helper_resp;
-        // Keep helper error for diagnostics when no fallback applies
+        // P1: always retain helper error for the outer message
         if (!helper_resp.error.empty()) resp.error = helper_resp.error;
     }
-    // Fallback: PowerShell GDI capture for action 6 only (interactive session)
+    // Fallback: PowerShell GDI capture for action 6 only, and only when this
+    // process is already in an interactive session (Session != 0). Session 0
+    // PowerShell cannot see the desktop — skipping avoids a misleading path.
     if (req.action == 6) {
+        DWORD sid = 0;
+        ProcessIdToSessionId(GetCurrentProcessId(), &sid);
+        if (sid == 0) {
+            resp.status = 1;
+            if (resp.error.empty()) {
+                resp.error = "windows CUA capture requires --cua-helper in Session 1 "
+                             "(daemon is Session 0; PowerShell GDI fallback skipped)";
+            } else {
+                resp.error += "; PowerShell GDI fallback skipped (Session 0)";
+            }
+            return resp;
+        }
         std::string tmp_path;
         char tmpl[MAX_PATH];
         char tmpPathBuf[MAX_PATH];
@@ -3372,9 +3386,15 @@ extern "C" int bs_macos_capture_png(const char*, unsigned, char*, size_t);
         GetTempFileNameA(tmpPathBuf, "bsc", 0, tmpl);
         tmp_path = std::string(tmpl) + ".png";
         ::unlink(tmpl);
+        // P2: load System.Windows.Forms (VirtualScreen) + System.Drawing.
+        // Escape single quotes in path for PowerShell single-quoted -Command.
+        std::string ps_path = tmp_path;
+        for (size_t i = 0; i < ps_path.size(); ++i) {
+            if (ps_path[i] == '\'') { ps_path.insert(i, "'"); ++i; }
+        }
         std::string ps_cmd =
             "powershell -NoProfile -Command \""
-            "Add-Type -AssemblyName System.Drawing;"
+            "Add-Type -AssemblyName System.Drawing,System.Windows.Forms;"
             "$b=[System.Drawing.Rectangle]::FromLTRB("
             "[System.Windows.Forms.SystemInformation]::VirtualScreen.Left,"
             "[System.Windows.Forms.SystemInformation]::VirtualScreen.Top,"
@@ -3383,19 +3403,25 @@ extern "C" int bs_macos_capture_png(const char*, unsigned, char*, size_t);
             "$img=New-Object System.Drawing.Bitmap($b.Width,$b.Height);"
             "$g=[System.Drawing.Graphics]::FromImage($img);"
             "$g.CopyFromScreen($b.Location,[System.Drawing.Point]::Empty,$b.Size);"
-            "$g.Dispose();$img.Save('" + tmp_path + "',[System.Drawing.Imaging.ImageFormat]::Png);"
+            "$g.Dispose();$img.Save('" + ps_path + "',[System.Drawing.Imaging.ImageFormat]::Png);"
             "$img.Dispose()\" 2>nul";
         int rc = std::system(ps_cmd.c_str());
         if (rc != 0 || !std::filesystem::exists(tmp_path)) {
             resp.status = 1;
-            if (resp.error.empty())
-                resp.error = "windows screen capture failed (helper + PowerShell GDI)";
-            ::unlink(tmpl);
+            // P1: never drop the helper error under a generic message
+            if (resp.error.empty()) {
+                resp.error = "windows screen capture failed (helper unreachable; "
+                             "PowerShell GDI fallback also failed)";
+            } else {
+                resp.error += "; PowerShell GDI fallback also failed";
+            }
             return resp;
         }
         std::ifstream cap(tmp_path, std::ios::binary | std::ios::ate);
         if (!cap) {
-            resp.status = 1; resp.error = "failed to open capture file";
+            resp.status = 1;
+            resp.error = (resp.error.empty() ? "" : resp.error + "; ") +
+                         "failed to open capture file";
             ::unlink(tmp_path.c_str()); return resp;
         }
         auto cap_size = cap.tellg();
@@ -3403,11 +3429,14 @@ extern "C" int bs_macos_capture_png(const char*, unsigned, char*, size_t);
             resp.data.resize(static_cast<size_t>(cap_size));
             cap.seekg(0);
             cap.read(reinterpret_cast<char*>(resp.data.data()), cap_size);
-            resp.format = 1; resp.status = 0;
+            resp.format = 0; resp.status = 0;  // PNG
             resp.screen_w = GetSystemMetrics(SM_CXVIRTUALSCREEN);
             resp.screen_h = GetSystemMetrics(SM_CYVIRTUALSCREEN);
+            resp.error.clear();
         } else {
-            resp.status = 1; resp.error = "capture empty or exceeds 50MB";
+            resp.status = 1;
+            resp.error = (resp.error.empty() ? "" : resp.error + "; ") +
+                         "capture empty or exceeds 50MB";
         }
         ::unlink(tmp_path.c_str());
         return resp;

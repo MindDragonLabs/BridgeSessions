@@ -1458,17 +1458,28 @@ int main(int argc, char** argv) {
             auto resp = mc.send_cua_request(cua_peer, 6, 0, 0, 0, 0, 0, fmt_param);
             if (resp.status != 0) { std::cerr << "ERROR: " << resp.error << "\n"; return 1; }
             if (resp.data.empty()) { std::cerr << "ERROR: no capture data returned\n"; return 1; }
-            const char* ext = resp.format == 2 ? "jpg" : "png";
+            // Sniff magic so BMP (helper) / JPEG / PNG all save correctly regardless
+            // of format field history (0=PNG, 1=legacy, 2=JPEG, 3=BMP).
+            auto sniff_kind = [](const std::vector<uint8_t>& d, uint8_t fmt) -> const char* {
+                if (d.size() >= 2 && d[0] == 'B' && d[1] == 'M') return "bmp";
+                if (d.size() >= 2 && d[0] == 0xFF && d[1] == 0xD8) return "jpeg";
+                if (d.size() >= 8 && d[0] == 0x89 && d[1] == 'P' && d[2] == 'N' && d[3] == 'G')
+                    return "png";
+                if (fmt == 2) return "jpeg";
+                if (fmt == 3) return "bmp";
+                return "png";
+            };
+            const char* kind = sniff_kind(resp.data, resp.format);
             if (!cua_output.empty()) {
                 std::ofstream f(cua_output, std::ios::binary);
                 f.write(reinterpret_cast<const char*>(resp.data.data()),
                         static_cast<std::streamsize>(resp.data.size()));
-                std::cout << "Saved " << resp.data.size() << " bytes to " << cua_output << "\n";
+                std::cout << "Saved " << resp.data.size() << " bytes (" << kind
+                          << ") to " << cua_output << "\n";
             } else {
                 // Binary to stdout for piping
                 std::fwrite(resp.data.data(), 1, resp.data.size(), stdout);
-                std::string chosen_ext = resp.format == 2 ? "jpeg" : "png";
-                std::cerr << resp.data.size() << " bytes (" << chosen_ext << ")\n";
+                std::cerr << resp.data.size() << " bytes (" << kind << ")\n";
             }
             return 0;
         }

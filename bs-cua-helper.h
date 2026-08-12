@@ -54,16 +54,12 @@ extern "C" {
 
 #ifdef _WIN32
 
-// Order matters for MinGW: windows.h / objidl before gdiplus.
-#ifndef WIN32_LEAN_AND_MEAN
-// Do not define WIN32_LEAN_AND_MEAN here — GDI+ needs full COM types.
-#endif
+// GDI only (no GDI+): BitBlt/StretchBlt + hand-rolled BMP. GDI+ FromHBITMAP /
+// Save AVs (0xc0000005 in gdiplus.dll) on recent Win11 builds during Session-1
+// helper capture (see RCA 2026-08-12 win11-vm1).
 #include <windows.h>
-#include <objidl.h>
-#include <gdiplus.h>
-// GDI+ linkage: gdiplus.lib — ensure build system links it
-#pragma comment(lib, "gdiplus.lib")
-
+#include <vector>
+#include <cstdint>
 // Minimal HID usage → Win32 VK table for control keys. Letters/digits are
 // computed (HID 0x04..0x1D = A..Z, 0x1E..0x27 = 1..9,0). Text entry never
 // uses this — it goes through KEYEVENTF_UNICODE.
@@ -155,14 +151,8 @@ inline CuaResponseMsg cua_helper_execute(const CuaRequestMsg& req) {
             resp.status = 0;
             return resp;
         }
-        case 6: {  // capture — native GDI BitBlt + GDI+ JPEG (user session → real pixels).
-            // 2.0.20: replaced PowerShell Add-Type (1-3s latency) with in-process GDI.
-            // Cap resolution so multi-monitor virtual desktops cannot allocate
-            // multi-GB bitmaps or hang the helper (CLI then times out with
-            // "cua-helper no response").
-            // Session 0 services have no interactive desktop — GDI capture can
-            // AV/crash the helper. Fail closed with a clear error so the daemon
-            // can fall back and the operator knows to run --cua-helper in Session 1.
+        case 6: {  // capture — GDI StretchBlt + hand-rolled BMP (no GDI+).
+            // Session 0 has no interactive desktop — fail closed.
             DWORD sid = 0;
             if (ProcessIdToSessionId(GetCurrentProcessId(), &sid) && sid == 0) {
                 resp.status = 1;
@@ -183,7 +173,7 @@ inline CuaResponseMsg cua_helper_execute(const CuaRequestMsg& req) {
                 resp.status = 1; resp.error = "capture: invalid screen metrics";
                 return resp;
             }
-            // Soft cap 1920x1080 equivalent pixels for helper response size
+            // Soft cap 1920x1080 equivalent for helper response size
             const int max_w = 1920, max_h = 1080;
             int cap_w = vw, cap_h = vh;
             if (cap_w > max_w || cap_h > max_h) {
@@ -195,150 +185,74 @@ inline CuaResponseMsg cua_helper_execute(const CuaRequestMsg& req) {
                 if (cap_w < 1) cap_w = 1;
                 if (cap_h < 1) cap_h = 1;
             }
+            // 24bpp DIB, top-down (negative biHeight) so bits[] starts at top row.
+            const int row_stride = (cap_w * 3 + 3) & ~3;
+            BITMAPINFO bmi{};
+            bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+            bmi.bmiHeader.biWidth = cap_w;
+            bmi.bmiHeader.biHeight = -cap_h;
+            bmi.bmiHeader.biPlanes = 1;
+            bmi.bmiHeader.biBitCount = 24;
+            bmi.bmiHeader.biCompression = BI_RGB;
+            void* bits = nullptr;
             HDC screen_dc = GetDC(NULL);
             if (!screen_dc) { resp.status = 1; resp.error = "GetDC failed"; return resp; }
             HDC mem_dc = CreateCompatibleDC(screen_dc);
-            HBITMAP bmp = CreateCompatibleBitmap(screen_dc, cap_w, cap_h);
-            if (!mem_dc || !bmp) {
+            HBITMAP dib = CreateDIBSection(screen_dc, &bmi, DIB_RGB_COLORS, &bits, NULL, 0);
+            if (!mem_dc || !dib || !bits) {
+                if (dib) DeleteObject(dib);
                 if (mem_dc) DeleteDC(mem_dc);
-                if (bmp) DeleteObject(bmp);
                 ReleaseDC(NULL, screen_dc);
-                resp.status = 1; resp.error = "capture: CreateCompatible failed";
+                resp.status = 1; resp.error = "capture: CreateDIBSection failed";
                 return resp;
             }
-            HBITMAP old = (HBITMAP)SelectObject(mem_dc, bmp);
-            // COLORONCOLOR avoids HALFTONE palette issues on headless DCs.
+            HBITMAP old = (HBITMAP)SelectObject(mem_dc, dib);
             SetStretchBltMode(mem_dc, COLORONCOLOR);
-            if (!StretchBlt(mem_dc, 0, 0, cap_w, cap_h, screen_dc, vx, vy, vw, vh, SRCCOPY)) {
-                SelectObject(mem_dc, old);
-                DeleteObject(bmp);
-                DeleteDC(mem_dc);
-                ReleaseDC(NULL, screen_dc);
-                resp.status = 1; resp.error = "capture: StretchBlt failed";
-                return resp;
-            }
-            // Deselect before wrapping HBITMAP — GDI+ owns a view of the bitmap.
+            BOOL ok = StretchBlt(mem_dc, 0, 0, cap_w, cap_h, screen_dc, vx, vy, vw, vh, SRCCOPY);
             SelectObject(mem_dc, old);
             DeleteDC(mem_dc);
             ReleaseDC(NULL, screen_dc);
-
-            // Encode as JPEG via GDI+. Prefer FromHBITMAP over the
-            // Bitmap(scan0, PixelFormat32bppRGB) ctor — that path AVs in
-            // gdiplus.dll (0xc0000005) on recent Windows 11 builds when
-            // handed GetDIBits BI_RGB buffers (observed Session-1 helper
-            // dumps on windows-peer 26.08.10-beta2).
-            // MinGW: token must be ULONG_PTR (not ULONG) for GdiplusStartup.
-            ULONG_PTR gdiplus_token = 0;
-            Gdiplus::GdiplusStartupInput gdiplus_input;
-            if (Gdiplus::GdiplusStartup(&gdiplus_token, &gdiplus_input, NULL) != Gdiplus::Ok) {
-                DeleteObject(bmp);
-                resp.status = 1; resp.error = "capture: GDI+ init failed";
+            if (!ok) {
+                DeleteObject(dib);
+                resp.status = 1; resp.error = "capture: StretchBlt failed";
                 return resp;
             }
-            // Keep HBITMAP alive until GDI+ Bitmap is destroyed — FromHBITMAP
-            // may reference the GDI object (deleting early → Save fails / AV).
-            std::unique_ptr<Gdiplus::Bitmap> bitmap(Gdiplus::Bitmap::FromHBITMAP(bmp, NULL));
-            if (!bitmap || bitmap->GetLastStatus() != Gdiplus::Ok) {
-                bitmap.reset();
-                DeleteObject(bmp);
-                Gdiplus::GdiplusShutdown(gdiplus_token);
-                resp.status = 1; resp.error = "capture: Bitmap::FromHBITMAP failed";
+            // Build a standard bottom-up BMP (positive biHeight) without GDI+.
+            const size_t pixel_bytes = (size_t)row_stride * (size_t)cap_h;
+            const size_t header_bytes = sizeof(BITMAPFILEHEADER) + sizeof(BITMAPINFOHEADER);
+            const size_t bmp_size = header_bytes + pixel_bytes;
+            if (bmp_size == 0 || bmp_size > MAX_IMAGE_BYTES) {
+                DeleteObject(dib);
+                resp.status = 1; resp.error = "capture: BMP empty/oversize";
                 return resp;
             }
-            // Clone into a JPEG-friendly 24bpp buffer (screen HBITMAPs are often
-            // 32bpp with an awkward format that ImageFormatJPEG rejects).
-            std::unique_ptr<Gdiplus::Bitmap> enc_bmp(
-                bitmap->Clone(0, 0, bitmap->GetWidth(), bitmap->GetHeight(),
-                              PixelFormat24bppRGB));
-            bitmap.reset();
-            DeleteObject(bmp);
-            bmp = NULL;
-            if (!enc_bmp || enc_bmp->GetLastStatus() != Gdiplus::Ok) {
-                enc_bmp.reset();
-                Gdiplus::GdiplusShutdown(gdiplus_token);
-                resp.status = 1; resp.error = "capture: Bitmap clone 24bpp failed";
-                return resp;
+            resp.data.resize(bmp_size);
+            auto* out = resp.data.data();
+            BITMAPFILEHEADER fh{};
+            fh.bfType = 0x4D42;  // 'BM'
+            fh.bfSize = (DWORD)bmp_size;
+            fh.bfOffBits = (DWORD)header_bytes;
+            BITMAPINFOHEADER ih{};
+            ih.biSize = sizeof(BITMAPINFOHEADER);
+            ih.biWidth = cap_w;
+            ih.biHeight = cap_h;  // positive = bottom-up in file
+            ih.biPlanes = 1;
+            ih.biBitCount = 24;
+            ih.biCompression = BI_RGB;
+            ih.biSizeImage = (DWORD)pixel_bytes;
+            std::memcpy(out, &fh, sizeof(fh));
+            std::memcpy(out + sizeof(fh), &ih, sizeof(ih));
+            // Flip top-down DIB rows into bottom-up BMP order.
+            auto* src = static_cast<const uint8_t*>(bits);
+            auto* dst = out + header_bytes;
+            for (int y = 0; y < cap_h; ++y) {
+                const uint8_t* src_row = src + (size_t)y * (size_t)row_stride;
+                uint8_t* dst_row = dst + (size_t)(cap_h - 1 - y) * (size_t)row_stride;
+                std::memcpy(dst_row, src_row, (size_t)row_stride);
             }
-            // quality 70 — ~30-50KB per screenshot, fits mesh frame limit
-            CLSID jpg_clsid;
-            UINT num = 0, size = 0;
-            Gdiplus::GetImageEncodersSize(&num, &size);
-            bool got_encoder = false;
-            if (size > 0) {
-                std::vector<uint8_t> enc_buf(size);
-                auto* encoders = reinterpret_cast<Gdiplus::ImageCodecInfo*>(enc_buf.data());
-                if (Gdiplus::GetImageEncoders(num, size, encoders) == Gdiplus::Ok) {
-                    for (UINT i = 0; i < num; ++i) {
-                        if (encoders[i].FormatID == Gdiplus::ImageFormatJPEG) {
-                            jpg_clsid = encoders[i].Clsid;
-                            got_encoder = true;
-                            break;
-                        }
-                    }
-                }
-            }
-            if (!got_encoder) {
-                enc_bmp.reset();
-                Gdiplus::GdiplusShutdown(gdiplus_token);
-                resp.status = 1; resp.error = "capture: JPEG encoder not found";
-                return resp;
-            }
-            IStream* stream = nullptr;
-            if (CreateStreamOnHGlobal(NULL, TRUE, &stream) != S_OK || !stream) {
-                enc_bmp.reset();
-                Gdiplus::GdiplusShutdown(gdiplus_token);
-                resp.status = 1; resp.error = "capture: CreateStream failed";
-                return resp;
-            }
-            // EncoderParameter requires NumberOfValues; omitting it yields
-            // Gdiplus::InvalidParameter (status=2) on Save.
-            Gdiplus::EncoderParameters params;
-            params.Count = 1;
-            params.Parameter[0].Guid = Gdiplus::EncoderQuality;
-            params.Parameter[0].NumberOfValues = 1;
-            params.Parameter[0].Type = Gdiplus::EncoderParameterValueTypeLong;
-            ULONG quality = 70;
-            params.Parameter[0].Value = &quality;
-            auto save_status = enc_bmp->Save(stream, &jpg_clsid, &params);
-            if (save_status != Gdiplus::Ok) {
-                // Retry without quality params (some codecs reject EncoderQuality).
-                LARGE_INTEGER zero{};
-                stream->Seek(zero, STREAM_SEEK_SET, nullptr);
-                ULARGE_INTEGER unused{};
-                stream->SetSize(unused);
-                save_status = enc_bmp->Save(stream, &jpg_clsid, nullptr);
-            }
-            enc_bmp.reset();
-            if (save_status != Gdiplus::Ok) {
-                stream->Release();
-                Gdiplus::GdiplusShutdown(gdiplus_token);
-                resp.status = 1;
-                resp.error = "capture: GdipSaveImageToStream failed status=" +
-                             std::to_string((int)save_status);
-                return resp;
-            }
-            LARGE_INTEGER seek_pos{};
-            ULARGE_INTEGER large_pos{};
-            stream->Seek(seek_pos, STREAM_SEEK_SET, &large_pos);
-            STATSTG stat{};
-            stream->Stat(&stat, STATFLAG_NONAME);
-            size_t jpeg_size = (size_t)stat.cbSize.QuadPart;
-            if (jpeg_size == 0 || jpeg_size > MAX_IMAGE_BYTES) {
-                stream->Release();
-                Gdiplus::GdiplusShutdown(gdiplus_token);
-                resp.status = 1; resp.error = "capture: JPEG empty/oversize";
-                return resp;
-            }
-            resp.data.resize(jpeg_size);
-            ULONG bytes_read = 0;
-            stream->Read(resp.data.data(), (ULONG)jpeg_size, &bytes_read);
-            stream->Release();
-            Gdiplus::GdiplusShutdown(gdiplus_token);
-            if (bytes_read != jpeg_size) {
-                resp.status = 1; resp.error = "capture: JPEG stream read short";
-                return resp;
-            }
-            resp.format = 2; resp.status = 0;  // JPEG
+            DeleteObject(dib);
+            resp.format = 3;  // BMP (CLI sniffs magic; 0=PNG 1=legacy 2=JPEG 3=BMP)
+            resp.status = 0;
             resp.screen_w = (int16_t)cap_w;
             resp.screen_h = (int16_t)cap_h;
             return resp;
@@ -526,7 +440,7 @@ inline int run_cua_helper(const std::string& app_home_in) {
 #else
     std::string app_home = app_home_in.empty()
         ? (expand_home("~") + "/.bridgesessions") : app_home_in;
-    make_app_paths(app_home);  // ensure root exists
+    (void)make_app_paths(app_home);  // ensure root exists
 
 #ifdef __APPLE__
     // ── TCC permission bootstrap ────────────────────────────────────
@@ -562,42 +476,42 @@ inline int run_cua_helper(const std::string& app_home_in) {
     }
 #endif
 
-    // Token: generate fresh each start, owner-only. The daemon reads the
-    // same file — rotate-on-start means a stale daemon-side cache can't
-    // exist (client reads per-RPC).
-    std::string token;
-    try { token = generate_ipc_token(); }
-    catch (const std::exception& e) {
-        std::cerr << "cua-helper: token generation failed: " << e.what() << "\n";
-        return 1;
-    }
-    if (!write_private_text_file(cua_helper_token_path(app_home), token)) {
-        std::cerr << "cua-helper: cannot write " << cua_helper_token_path(app_home) << "\n";
-        return 1;
-    }
-
+    // P3 order is critical: claim exclusive listen FIRST, then rotate the
+    // IPC token. A second helper that writes a new token and then fails to
+    // bind leaves the primary helper with a stale in-memory token while the
+    // daemon reads the overwritten file → "ERROR: auth" on every RPC.
 #ifdef _WIN32
     WSADATA wsa; WSAStartup(MAKEWORD(2, 2), &wsa);
-#endif
-    // P2 security: POSIX uses a Unix domain socket (filesystem perms protect the
-    // token from loopback sniffing). Windows keeps TCP loopback (named pipes are
-    // the alternative but need a separate code path).
-#ifdef _WIN32
+    // Local\ mutex is per-session; exclusive bind is the cross-session lock.
+    HANDLE single = CreateMutexW(nullptr, FALSE, L"Local\\BridgeSessions-CuaHelper-v1");
+    if (!single) {
+        std::cerr << "cua-helper: CreateMutex failed\n";
+        return 1;
+    }
+    if (GetLastError() == ERROR_ALREADY_EXISTS) {
+        std::cerr << "cua-helper: another instance is already running "
+                     "(only one --cua-helper per user session)\n";
+        CloseHandle(single);
+        return 1;
+    }
     SOCKET lfd = socket(AF_INET, SOCK_STREAM, 0);
-    if (lfd == INVALID_SOCKET) { std::cerr << "cua-helper: socket failed\n"; return 1; }
-    int one = 1;
-    setsockopt(lfd, SOL_SOCKET, SO_REUSEADDR, (const char*)&one, sizeof(one));
+    if (lfd == INVALID_SOCKET) {
+        std::cerr << "cua-helper: socket failed\n";
+        CloseHandle(single);
+        return 1;
+    }
+    // No SO_REUSEADDR: exclusive bind so a second helper cannot steal the port.
     sockaddr_in sa{};
     sa.sin_family = AF_INET;
     sa.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
     sa.sin_port = htons(kCuaHelperPort);
     if (bind(lfd, (sockaddr*)&sa, sizeof(sa)) == SOCKET_ERROR || listen(lfd, 4) == SOCKET_ERROR) {
-        std::cerr << "cua-helper: bind/listen 127.0.0.1:" << kCuaHelperPort << " failed\n";
-        CLOSESOCK(lfd); return 1;
+        std::cerr << "cua-helper: bind/listen 127.0.0.1:" << kCuaHelperPort
+                  << " failed (another helper already owns the port?)\n";
+        CLOSESOCK(lfd);
+        CloseHandle(single);
+        return 1;
     }
-    std::cout << "cua-helper: listening on 127.0.0.1:" << kCuaHelperPort
-              << " (token " << cua_helper_token_path(app_home) << ")\n" << std::flush;
-    bs::log::get("cua-helper")->info("Listening on 127.0.0.1:{}", kCuaHelperPort);
 #else
     const std::string sock_path = cua_helper_socket_path(app_home);
     // Remove a stale socket left by a previously killed helper — a live socket
@@ -613,17 +527,42 @@ inline int run_cua_helper(const std::string& app_home_in) {
     }
     std::strncpy(su.sun_path, sock_path.c_str(), sizeof(su.sun_path) - 1);
     if (bind(lfd, (sockaddr*)&su, sizeof(su)) == SOCKET_ERROR || listen(lfd, 4) == SOCKET_ERROR) {
-        std::cerr << "cua-helper: bind/listen " << sock_path << " failed\n";
+        std::cerr << "cua-helper: bind/listen " << sock_path
+                  << " failed (another helper already owns the socket?)\n";
         CLOSESOCK(lfd); return 1;
     }
     // Restrict the socket file to the owner — the token is now protected by
     // filesystem permissions instead of loopback anonymity.
     ::chmod(sock_path.c_str(), 0600);
-    std::cout << "cua-helper: listening on " << sock_path
-              << " (token " << cua_helper_token_path(app_home) << ")\n" << std::flush;
-    bs::log::get("cua-helper")->info("Listening on {}", sock_path);
 #endif
 
+    // Token only after exclusive listen is held (see order note above).
+    std::string token;
+    try { token = generate_ipc_token(); }
+    catch (const std::exception& e) {
+        std::cerr << "cua-helper: token generation failed: " << e.what() << "\n";
+        CLOSESOCK(lfd);
+#ifdef _WIN32
+        CloseHandle(single);
+#endif
+        return 1;
+    }
+    if (!write_private_text_file(cua_helper_token_path(app_home), token)) {
+        std::cerr << "cua-helper: cannot write " << cua_helper_token_path(app_home) << "\n";
+        CLOSESOCK(lfd);
+#ifdef _WIN32
+        CloseHandle(single);
+#endif
+        return 1;
+    }
+
+    std::cout << "cua-helper: listening (token " << cua_helper_token_path(app_home) << ")\n"
+              << std::flush;
+#ifdef _WIN32
+    bs::log::get("cua-helper")->info("Listening on 127.0.0.1:{}", kCuaHelperPort);
+#else
+    bs::log::get("cua-helper")->info("Listening on {}", cua_helper_socket_path(app_home));
+#endif
     for (;;) {
         SOCKET cfd = accept(lfd, nullptr, nullptr);
         if (cfd == INVALID_SOCKET) continue;
