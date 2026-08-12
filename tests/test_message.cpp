@@ -305,6 +305,7 @@ TEST_CASE("FileMetaMsg defaults and equality", "[message][file]") {
         REQUIRE(m.checksum.empty());
         REQUIRE(m.total_chunks == 0);
         REQUIRE(m.chunk_size == 0);
+        REQUIRE(m.dest_path.empty());
     }
 
     SECTION("equality") {
@@ -314,6 +315,7 @@ TEST_CASE("FileMetaMsg defaults and equality", "[message][file]") {
         a.checksum = "abc123";
         a.total_chunks = 4;
         a.chunk_size = 49152;
+        a.dest_path = "subdir/test.bin";
 
         FileMetaMsg b;
         b.filename = "test.bin";
@@ -321,6 +323,7 @@ TEST_CASE("FileMetaMsg defaults and equality", "[message][file]") {
         b.checksum = "abc123";
         b.total_chunks = 4;
         b.chunk_size = 49152;
+        b.dest_path = "subdir/test.bin";
 
         REQUIRE(a == b);
         b.filesize = 2048;
@@ -342,6 +345,24 @@ TEST_CASE("FileMetaMsg defaults and equality", "[message][file]") {
         REQUIRE(b.filesize == 100000);
         REQUIRE(b.total_chunks == 3);
         REQUIRE(b.chunk_size == 32768);
+        REQUIRE(b.dest_path.empty());
+    }
+
+    SECTION("dest_path wire round-trip (scp-style)") {
+        FileMetaMsg a;
+        a.filename = "bs_tray.ps1";
+        a.filesize = 42;
+        a.checksum = "cafebabe";
+        a.total_chunks = 1;
+        a.chunk_size = 65536;
+        a.dest_path = "C:/Users/user/bridgesessions/bs_tray.ps1";
+        auto frame = encode(Message{a}, 0);
+        Message decoded = decode(frame);
+        REQUIRE(std::holds_alternative<FileMetaMsg>(decoded));
+        auto& b = std::get<FileMetaMsg>(decoded);
+        REQUIRE(b.filename == "bs_tray.ps1");
+        REQUIRE(b.dest_path == a.dest_path);
+        REQUIRE(b.chunk_size == 65536);
     }
 }
 

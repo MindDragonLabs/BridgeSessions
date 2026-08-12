@@ -27,11 +27,22 @@
 #include <sys/stat.h>
 #ifdef __linux__
 #include <sys/syscall.h>
+#include <sys/sysinfo.h>
 #endif
 #ifdef __APPLE__
 #include <util.h>
+#include <mach/mach.h>
+#include <mach/mach_host.h>
+#include <sys/sysctl.h>
 #else
+#ifndef _WIN32
 #include <pty.h>
+#endif
+#endif
+#ifndef _WIN32
+#include <sys/statvfs.h>
+#include <ifaddrs.h>
+#include <net/if.h>
 #endif
 #endif
 #include <cstdint>
@@ -95,6 +106,7 @@ typedef int pid_t;
 #include <condition_variable>
 #include <shared_mutex>
 #include <unordered_map>
+#include <unordered_set>
 #include <queue>
 #include <filesystem>
 #ifdef _WIN32
@@ -298,10 +310,13 @@ struct SessionListMsg {
 struct ServerInfoMsg {
     std::string hostname;
     std::string version;
-    double load = 0.0;
+    double load = 0.0;                 // 1-min load average (Unix) or cpu_pct/100 (Windows)
     std::string sessions_summary_json; // 2.0.8: trailing, optional. JSON array of
                                         // {name,state,command,bytes} for this node's
                                         // sessions. Capped (~4 KiB); empty = no data.
+    // Optional trailing (v26.08.12+): compact host metrics JSON for `bs fleet`.
+    // Keys: cpu, mem, disk (pct), load, os, arch, ncpu, mem_mb, disk_gb.
+    std::string host_stats_json;
 };
 
 struct ScrollbackMsg {
@@ -463,7 +478,7 @@ struct SessionSearchMsg {
 // ── File Transfer Message Structs (v1.5, P1) ────────────────────
 
 struct FileMetaMsg {
-    std::string filename;       // basename only
+    std::string filename;       // basename only (compat / display)
     uint64_t filesize = 0;      // total file size in bytes
     std::string checksum;       // SHA-256 hex of entire file
     uint32_t total_chunks = 0;  // total number of chunks
@@ -471,6 +486,10 @@ struct FileMetaMsg {
     // 0 = peer omitted field → use kTransferChunkRawSizeDefault.
     // Enables mixed-fleet negotiation without compile-time lockstep.
     uint32_t chunk_size = 0;
+    // Optional trailing field (v26.08.12+): remote destination path for
+    // scp-style file send. Empty = default receive_dir/basename behavior.
+    // Relative paths are under receive_dir; absolute/~ are constrained.
+    std::string dest_path;
     bool operator==(const FileMetaMsg&) const = default;
 };
 
@@ -777,7 +796,14 @@ void serialize_msg(Serializer& s, const PingMsg&)          {}
 void serialize_msg(Serializer& s, const PongMsg&)          {}
 void serialize_msg(Serializer& s, const ScrollbackAckMsg&) {}
 void serialize_msg(Serializer& s, const SessionListMsg&  m) { for (auto& si : m.sessions) { s.str_prefixed(si.name); s.str_prefixed(si.state); s.u32be(si.uptime_seconds); } }
-void serialize_msg(Serializer& s, const ServerInfoMsg&   m) { s.str_prefixed_u16(m.hostname); s.str_prefixed_u16(m.version); s.bytes(reinterpret_cast<const uint8_t*>(&m.load), 8); s.str_prefixed_u16(m.sessions_summary_json); }
+void serialize_msg(Serializer& s, const ServerInfoMsg&   m) {
+    s.str_prefixed_u16(m.hostname);
+    s.str_prefixed_u16(m.version);
+    s.bytes(reinterpret_cast<const uint8_t*>(&m.load), 8);
+    s.str_prefixed_u16(m.sessions_summary_json);
+    // Optional host metrics (new peers only; old peers stop after sessions).
+    if (!m.host_stats_json.empty()) s.str_prefixed_u16(m.host_stats_json);
+}
 void serialize_msg(Serializer& s, const ScrollbackMsg&   m) { s.u32be(m.total_lines); s.u32be(m.chunk_index); s.str(m.data); }
 void serialize_msg(Serializer& s, const SignalMsg&       m) { s.u8(static_cast<uint8_t>(m.signal)); s.str_prefixed_u16(m.process); }
 void serialize_msg(Serializer& s, const ExitCodeMsg&     m) { s.u32be(static_cast<uint32_t>(m.code)); }
@@ -830,6 +856,8 @@ void serialize_msg(Serializer& s, const FileMetaMsg& m) {
     // Always emit chunk_size so new receivers can negotiate; old peers stop
     // reading after total_chunks and ignore trailing payload bytes.
     s.u32be(m.chunk_size);
+    // Optional scp-style dest (new peers only; old peers ignore trailing).
+    if (!m.dest_path.empty()) s.str_prefixed_u16(m.dest_path);
 }
 void serialize_msg(Serializer& s, const FileChunkMsg& m) {
     s.u32be(m.chunk_index);
@@ -1549,6 +1577,8 @@ Message decode(std::span<const uint8_t> raw) {
                 if (d.ok(8)) { std::memcpy(&m.load, d.p, 8); d.p += 8; }
                 /* sessions_summary_json is optional (2.0.8+, str_prefixed_u16). Legacy peers don't send it. */
                 m.sessions_summary_json = d.ok(2) ? d.str_prefixed_u16() : std::string{};
+                /* host_stats_json optional (v26.08.12+). */
+                m.host_stats_json = d.ok(2) ? d.str_prefixed_u16() : std::string{};
                 return m;
             }
         }
@@ -1559,6 +1589,8 @@ Message decode(std::span<const uint8_t> raw) {
         if (d.ok(8)) { std::memcpy(&m.load, d.p, 8); d.p += 8; }
         /* sessions_summary_json is optional (2.0.8+, str_prefixed_u16). Legacy peers don't send it. */
         m.sessions_summary_json = d.ok(2) ? d.str_prefixed_u16() : std::string{};
+        /* host_stats_json optional (v26.08.12+). */
+        m.host_stats_json = d.ok(2) ? d.str_prefixed_u16() : std::string{};
         return m;
     }
     case 0x0A: return PingMsg{};
@@ -1666,6 +1698,8 @@ Message decode(std::span<const uint8_t> raw) {
         m.total_chunks = d.u32be();
         // Optional trailing chunk_size (new peers). Absent → 0 → default.
         m.chunk_size = d.ok(4) ? d.u32be() : 0u;
+        // Optional scp-style dest_path (v26.08.12+). Absent → empty.
+        m.dest_path = d.ok(2) ? d.str_prefixed_u16() : std::string{};
         return m;
     }
     case 0x1D: {
@@ -4732,6 +4766,377 @@ struct OutboundPeerVerifyResult {
            cand_s.rfind(root_s, 0) == 0;
 }
 
+// Resolve scp-style file-send destination on the receiver.
+// - empty → nullopt (caller uses receive_dir/basename)
+// - relative → receive_dir / dest
+// - ~/… or absolute → expand, then require containment under home, receive_dir,
+//   or temp. Rejects ".." segments and escapes.
+[[nodiscard]] inline std::optional<std::string> resolve_file_send_dest(
+    std::string_view dest_req,
+    const std::string& receive_dir) {
+    if (dest_req.empty()) return std::nullopt;
+    if (dest_req.size() > 1024) return std::nullopt;
+    for (unsigned char c : dest_req) {
+        if (c < 32 || c == 127) return std::nullopt;
+    }
+    {
+        std::string scan(dest_req);
+        for (char& c : scan) if (c == '\\') c = '/';
+        size_t i = 0;
+        while (i < scan.size()) {
+            while (i < scan.size() && scan[i] == '/') ++i;
+            size_t j = i;
+            while (j < scan.size() && scan[j] != '/') ++j;
+            std::string_view part(scan.data() + i, j - i);
+            if (part == "..") return std::nullopt;
+            i = j;
+        }
+    }
+    namespace fs = std::filesystem;
+    std::string dest(dest_req);
+    std::string candidate;
+    const bool abs =
+        (!dest.empty() && (dest[0] == '/' || dest[0] == '\\')) ||
+        (dest.size() >= 2 && std::isalpha(static_cast<unsigned char>(dest[0])) &&
+         dest[1] == ':');
+    if (!dest.empty() && dest[0] == '~') {
+        candidate = expand_home(dest);
+    } else if (abs) {
+        candidate = dest;
+    } else {
+        candidate = (fs::path(receive_dir) / dest).lexically_normal().string();
+    }
+    std::vector<std::string> roots;
+    roots.push_back(expand_home(receive_dir));
+    roots.push_back(expand_home("~"));
+#ifdef _WIN32
+    if (const char* t = std::getenv("TEMP")) roots.emplace_back(t);
+    if (const char* t = std::getenv("TMP")) roots.emplace_back(t);
+    roots.emplace_back("C:\\Windows\\Temp");
+#else
+    roots.emplace_back("/tmp");
+#endif
+    for (const auto& root : roots) {
+        if (root.empty()) continue;
+        if (path_is_inside_directory(candidate, root)) return candidate;
+    }
+    return std::nullopt;
+}
+
+// ── Host metrics (for `bs fleet` + ServerInfo gossip) ─────────────
+struct HostStats {
+    double load1 = -1.0;       // 1-min loadavg; -1 = N/A
+    double cpu_pct = -1.0;     // 0–100; -1 until second sample
+    double mem_pct = -1.0;
+    double disk_pct = -1.0;
+    uint64_t mem_used_mb = 0;
+    uint64_t mem_total_mb = 0;
+    uint64_t disk_used_gb = 0;
+    uint64_t disk_total_gb = 0;
+    int ncpu = 0;
+    std::string os;
+    std::string arch;
+    bool cua_helper = false;   // local CUA helper reachable
+    std::string primary_addr;  // best non-loopback advertise IP (no port)
+};
+
+// Best-effort primary IPv4 for fleet "self" row (prefer 100.x Tailscale).
+[[nodiscard]] inline std::string primary_advertise_ip() {
+#if defined(_WIN32)
+    // Prefer GetAdaptersAddresses; fall back to empty (CLI shows listen).
+    return {};
+#else
+    struct ifaddrs* ifa = nullptr;
+    if (getifaddrs(&ifa) != 0 || !ifa) return {};
+    std::string ts, other;
+    for (auto* p = ifa; p; p = p->ifa_next) {
+        if (!p->ifa_addr || p->ifa_addr->sa_family != AF_INET) continue;
+        if (!(p->ifa_flags & IFF_UP) || (p->ifa_flags & IFF_LOOPBACK)) continue;
+        char buf[INET_ADDRSTRLEN] = {};
+        auto* sin = reinterpret_cast<sockaddr_in*>(p->ifa_addr);
+        if (!inet_ntop(AF_INET, &sin->sin_addr, buf, sizeof(buf))) continue;
+        std::string ip(buf);
+        if (ip.rfind("100.", 0) == 0) { ts = ip; break; }
+        if (other.empty() && ip.rfind("127.", 0) != 0) other = ip;
+    }
+    freeifaddrs(ifa);
+    return !ts.empty() ? ts : other;
+#endif
+}
+
+// True when local CUA helper token+socket/port responds (quick connect probe).
+[[nodiscard]] inline bool cua_helper_reachable(const std::string& app_home) {
+    if (app_home.empty()) return false;
+    namespace fs = std::filesystem;
+#ifdef _WIN32
+    // Token file present + TCP connect to helper port.
+    if (!fs::exists(cua_helper_token_path(app_home))) return false;
+    SOCKET s = socket(AF_INET, SOCK_STREAM, 0);
+    if (s == INVALID_SOCKET) return false;
+    sockaddr_in sa{};
+    sa.sin_family = AF_INET;
+    sa.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    sa.sin_port = htons(kCuaHelperPort);
+    u_long nb = 1;
+    ioctlsocket(s, FIONBIO, &nb);
+    int rc = connect(s, reinterpret_cast<sockaddr*>(&sa), sizeof(sa));
+    bool ok = false;
+    if (rc == 0) ok = true;
+    else if (WSAGetLastError() == WSAEWOULDBLOCK || WSAGetLastError() == WSAEINPROGRESS) {
+        fd_set wfds; FD_ZERO(&wfds); FD_SET(s, &wfds);
+        timeval tv{0, 200000};
+        ok = select(0, nullptr, &wfds, nullptr, &tv) > 0;
+    }
+    closesocket(s);
+    return ok;
+#else
+    std::string sock = cua_helper_socket_path(app_home);
+    if (!fs::exists(sock)) return false;
+    int fd = socket(AF_UNIX, SOCK_STREAM, 0);
+    if (fd < 0) return false;
+    sockaddr_un sa{};
+    sa.sun_family = AF_UNIX;
+    if (sock.size() >= sizeof(sa.sun_path)) { close(fd); return false; }
+    std::strncpy(sa.sun_path, sock.c_str(), sizeof(sa.sun_path) - 1);
+    // Short connect timeout via nonblock + select
+    int flags = fcntl(fd, F_GETFL, 0);
+    fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+    int rc = connect(fd, reinterpret_cast<sockaddr*>(&sa), sizeof(sa));
+    bool ok = false;
+    if (rc == 0) ok = true;
+    else if (errno == EINPROGRESS) {
+        fd_set wfds; FD_ZERO(&wfds); FD_SET(fd, &wfds);
+        timeval tv{0, 200000};
+        ok = select(fd + 1, nullptr, &wfds, nullptr, &tv) > 0;
+    }
+    close(fd);
+    return ok;
+#endif
+}
+
+[[nodiscard]] inline std::string host_stats_platform_os() {
+#if defined(_WIN32)
+    return "windows";
+#elif defined(__APPLE__)
+    return "macos";
+#elif defined(__linux__)
+    return "linux";
+#else
+    return "unix";
+#endif
+}
+
+[[nodiscard]] inline std::string host_stats_platform_arch() {
+#if defined(__aarch64__) || defined(_M_ARM64)
+    return "arm64";
+#elif defined(__x86_64__) || defined(_M_X64)
+    return "x86_64";
+#elif defined(__i386__) || defined(_M_IX86)
+    return "x86";
+#else
+    return "unknown";
+#endif
+}
+
+// Compact JSON for wire + fleet table. Omits unknown (-1) pct fields as null.
+[[nodiscard]] inline std::string host_stats_to_json(const HostStats& h) {
+    auto num_or_null = [](double v) -> std::string {
+        if (v < 0) return "null";
+        char buf[32];
+        std::snprintf(buf, sizeof(buf), "%.1f", v);
+        return buf;
+    };
+    std::ostringstream o;
+    o << "{\"cpu\":" << num_or_null(h.cpu_pct)
+      << ",\"mem\":" << num_or_null(h.mem_pct)
+      << ",\"disk\":" << num_or_null(h.disk_pct)
+      << ",\"load\":" << num_or_null(h.load1)
+      << ",\"os\":\"" << h.os << "\""
+      << ",\"arch\":\"" << h.arch << "\""
+      << ",\"ncpu\":" << h.ncpu
+      << ",\"mem_mb\":" << h.mem_total_mb
+      << ",\"disk_gb\":" << h.disk_total_gb
+      << ",\"cua\":" << (h.cua_helper ? "true" : "false")
+      << "}";
+    return o.str();
+}
+
+// Sample host CPU / mem / disk. CPU uses a static previous tick so the first
+// call may return cpu_pct=-1; subsequent calls (gossip ~30s) are accurate.
+// app_home: optional path for CUA helper probe (default ~/.bridgesessions).
+[[nodiscard]] inline HostStats collect_host_stats(const std::string& app_home = {}) {
+    HostStats h;
+    h.os = host_stats_platform_os();
+    h.arch = host_stats_platform_arch();
+    h.ncpu = static_cast<int>(std::thread::hardware_concurrency());
+    h.primary_addr = primary_advertise_ip();
+    {
+        std::string home = app_home.empty() ? expand_home("~/.bridgesessions") : app_home;
+        h.cua_helper = cua_helper_reachable(home);
+    }
+
+#if !defined(_WIN32)
+    {
+        double la[3] = {0, 0, 0};
+        if (getloadavg(la, 3) > 0) h.load1 = la[0];
+    }
+    // Memory
+#if defined(__APPLE__)
+    {
+        mach_msg_type_number_t count = HOST_VM_INFO64_COUNT;
+        vm_statistics64_data_t vm;
+        if (host_statistics64(mach_host_self(), HOST_VM_INFO64,
+                              reinterpret_cast<host_info64_t>(&vm), &count) == KERN_SUCCESS) {
+            int64_t pagesize = sysconf(_SC_PAGESIZE);
+            if (pagesize <= 0) pagesize = 4096;
+            uint64_t total_pages = 0;
+            size_t len = sizeof(total_pages);
+            int mib[2] = {CTL_HW, HW_MEMSIZE};
+            uint64_t memsize = 0;
+            size_t mlen = sizeof(memsize);
+            if (sysctl(mib, 2, &memsize, &mlen, nullptr, 0) == 0 && memsize > 0) {
+                // free + inactive + speculative ≈ available
+                uint64_t free_pages = static_cast<uint64_t>(vm.free_count) +
+                                      static_cast<uint64_t>(vm.inactive_count) +
+                                      static_cast<uint64_t>(vm.speculative_count);
+                uint64_t free_b = free_pages * static_cast<uint64_t>(pagesize);
+                h.mem_total_mb = memsize / (1024 * 1024);
+                h.mem_used_mb = (memsize > free_b)
+                    ? (memsize - free_b) / (1024 * 1024) : 0;
+                if (h.mem_total_mb > 0)
+                    h.mem_pct = 100.0 * static_cast<double>(h.mem_used_mb) /
+                                static_cast<double>(h.mem_total_mb);
+            }
+            (void)total_pages;
+        }
+        // CPU via host_statistics
+        {
+            host_cpu_load_info_data_t cpuinfo{};
+            mach_msg_type_number_t ccount = HOST_CPU_LOAD_INFO_COUNT;
+            if (host_statistics(mach_host_self(), HOST_CPU_LOAD_INFO,
+                                reinterpret_cast<host_info_t>(&cpuinfo),
+                                &ccount) == KERN_SUCCESS) {
+                static uint64_t prev_user = 0, prev_system = 0, prev_idle = 0, prev_nice = 0;
+                uint64_t user = cpuinfo.cpu_ticks[CPU_STATE_USER];
+                uint64_t system = cpuinfo.cpu_ticks[CPU_STATE_SYSTEM];
+                uint64_t idle = cpuinfo.cpu_ticks[CPU_STATE_IDLE];
+                uint64_t nice = cpuinfo.cpu_ticks[CPU_STATE_NICE];
+                uint64_t total = user + system + idle + nice;
+                uint64_t prev_total = prev_user + prev_system + prev_idle + prev_nice;
+                if (prev_total > 0 && total > prev_total) {
+                    uint64_t d_total = total - prev_total;
+                    uint64_t d_idle = idle - prev_idle;
+                    if (d_total > 0)
+                        h.cpu_pct = 100.0 * (1.0 - static_cast<double>(d_idle) /
+                                                     static_cast<double>(d_total));
+                }
+                prev_user = user; prev_system = system; prev_idle = idle; prev_nice = nice;
+            }
+        }
+    }
+#elif defined(__linux__)
+    {
+        std::ifstream mf("/proc/meminfo");
+        uint64_t mem_total_kb = 0, mem_avail_kb = 0, mem_free_kb = 0;
+        std::string key;
+        uint64_t val = 0;
+        std::string unit;
+        while (mf >> key >> val >> unit) {
+            if (key == "MemTotal:") mem_total_kb = val;
+            else if (key == "MemAvailable:") mem_avail_kb = val;
+            else if (key == "MemFree:") mem_free_kb = val;
+        }
+        if (mem_avail_kb == 0) mem_avail_kb = mem_free_kb;
+        if (mem_total_kb > 0) {
+            h.mem_total_mb = mem_total_kb / 1024;
+            h.mem_used_mb = (mem_total_kb > mem_avail_kb)
+                ? (mem_total_kb - mem_avail_kb) / 1024 : 0;
+            h.mem_pct = 100.0 * static_cast<double>(mem_total_kb - mem_avail_kb) /
+                        static_cast<double>(mem_total_kb);
+        }
+        // CPU from /proc/stat
+        std::ifstream sf("/proc/stat");
+        std::string cpu_label;
+        uint64_t user = 0, nice = 0, system = 0, idle = 0, iowait = 0,
+                 irq = 0, softirq = 0, steal = 0;
+        if (sf >> cpu_label >> user >> nice >> system >> idle >> iowait >> irq >> softirq >> steal) {
+            static uint64_t prev_idle = 0, prev_total = 0;
+            uint64_t idle_all = idle + iowait;
+            uint64_t non_idle = user + nice + system + irq + softirq + steal;
+            uint64_t total = idle_all + non_idle;
+            if (prev_total > 0 && total > prev_total) {
+                uint64_t d_total = total - prev_total;
+                uint64_t d_idle = idle_all - prev_idle;
+                if (d_total > 0)
+                    h.cpu_pct = 100.0 * (1.0 - static_cast<double>(d_idle) /
+                                                 static_cast<double>(d_total));
+            }
+            prev_idle = idle_all;
+            prev_total = total;
+        }
+    }
+#endif
+    // Disk: root filesystem
+    {
+        struct statvfs st{};
+        if (statvfs("/", &st) == 0 && st.f_blocks > 0) {
+            uint64_t total = static_cast<uint64_t>(st.f_blocks) * st.f_frsize;
+            uint64_t freeb = static_cast<uint64_t>(st.f_bavail) * st.f_frsize;
+            uint64_t used = total > freeb ? total - freeb : 0;
+            h.disk_total_gb = total / (1024ULL * 1024ULL * 1024ULL);
+            h.disk_used_gb = used / (1024ULL * 1024ULL * 1024ULL);
+            h.disk_pct = 100.0 * static_cast<double>(used) / static_cast<double>(total);
+        }
+    }
+#else  // _WIN32
+    {
+        MEMORYSTATUSEX ms{};
+        ms.dwLength = sizeof(ms);
+        if (GlobalMemoryStatusEx(&ms)) {
+            h.mem_total_mb = ms.ullTotalPhys / (1024ULL * 1024ULL);
+            h.mem_used_mb = (ms.ullTotalPhys - ms.ullAvailPhys) / (1024ULL * 1024ULL);
+            h.mem_pct = static_cast<double>(ms.dwMemoryLoad);
+        }
+        ULARGE_INTEGER freeb{}, total{}, dummy{};
+        if (GetDiskFreeSpaceExA("C:\\", &freeb, &total, &dummy) && total.QuadPart > 0) {
+            uint64_t used = total.QuadPart > freeb.QuadPart
+                ? total.QuadPart - freeb.QuadPart : 0;
+            h.disk_total_gb = total.QuadPart / (1024ULL * 1024ULL * 1024ULL);
+            h.disk_used_gb = used / (1024ULL * 1024ULL * 1024ULL);
+            h.disk_pct = 100.0 * static_cast<double>(used) /
+                         static_cast<double>(total.QuadPart);
+        }
+        // CPU via GetSystemTimes
+        FILETIME idle_ft{}, kernel_ft{}, user_ft{};
+        if (GetSystemTimes(&idle_ft, &kernel_ft, &user_ft)) {
+            auto ft64 = [](const FILETIME& ft) -> uint64_t {
+                return (static_cast<uint64_t>(ft.dwHighDateTime) << 32) | ft.dwLowDateTime;
+            };
+            static uint64_t prev_idle = 0, prev_kernel = 0, prev_user = 0;
+            uint64_t idle = ft64(idle_ft), kernel = ft64(kernel_ft), user = ft64(user_ft);
+            // kernel includes idle on Windows
+            uint64_t total = kernel + user;
+            uint64_t prev_total = prev_kernel + prev_user;
+            if (prev_total > 0 && total > prev_total) {
+                uint64_t d_total = total - prev_total;
+                uint64_t d_idle = idle - prev_idle;
+                if (d_total > 0)
+                    h.cpu_pct = 100.0 * (1.0 - static_cast<double>(d_idle) /
+                                                 static_cast<double>(d_total));
+            }
+            prev_idle = idle; prev_kernel = kernel; prev_user = user;
+        }
+        // Approximate "load" as cpu fraction so existing load field is useful
+        if (h.cpu_pct >= 0) h.load1 = h.cpu_pct / 100.0 * std::max(1, h.ncpu);
+    }
+#endif
+    if (h.cpu_pct > 100.0) h.cpu_pct = 100.0;
+    if (h.mem_pct > 100.0) h.mem_pct = 100.0;
+    if (h.disk_pct > 100.0) h.disk_pct = 100.0;
+    if (h.cpu_pct < 0 && h.cpu_pct != -1.0) h.cpu_pct = 0;
+    return h;
+}
+
 // ── App home isolation (--config-dir) ─────────────────────────────
 // When --config-dir is set, ALL identity/config/receive/state live under that
 // directory (not under $HOME/.bridgesessions). Audit residual R1.
@@ -5724,32 +6129,71 @@ public:
 
     std::string summary() const {
         std::shared_lock lock(mutex_);
-        std::ostringstream out;
-        bool wrote = false;
         auto now = std::chrono::steady_clock::now();
+        struct Row {
+            std::string scope, name, state, pid, peer, up, bytes, exitc;
+        };
+        std::vector<Row> rows;
         for (auto& [key, s] : sessions_) {
-            auto uptime = std::chrono::duration_cast<std::chrono::seconds>(now - s->created_at).count();
-            if (wrote) out << " | ";
-            out << "live " << s->name
-                << " state=" << session_state_str(s->state)
-                << " pid=" << session_pid_string(*s)
-                << " peer=" << (s->peer_ids.empty() ? "-" : s->peer_ids.front().substr(0, 16))
-                << " uptime=" << uptime << "s"
-                << " bytes=" << s->scrollback.total_written();
-            wrote = true;
+            auto uptime = std::chrono::duration_cast<std::chrono::seconds>(
+                now - s->created_at).count();
+            Row r;
+            r.scope = "live";
+            r.name = s->name;
+            r.state = session_state_str(s->state);
+            r.pid = session_pid_string(*s);
+            r.peer = s->peer_ids.empty() ? "-" : s->peer_ids.front().substr(0, 12);
+            r.up = std::to_string(uptime) + "s";
+            r.bytes = std::to_string(s->scrollback.total_written());
+            r.exitc = "-";
+            rows.push_back(std::move(r));
         }
         for (auto it = recent_.rbegin(); it != recent_.rend(); ++it) {
-            if (wrote) out << " | ";
-            out << "recent " << it->name
-                << " state=" << it->state
-                << " pid=" << it->pid
-                << " peer=" << it->peer
-                << " runtime=" << it->runtime_seconds << "s"
-                << " exit=" << it->exit_code
-                << " bytes=" << it->bytes;
-            wrote = true;
+            Row r;
+            r.scope = "recent";
+            r.name = it->name;
+            r.state = it->state;
+            r.pid = it->pid;
+            r.peer = it->peer.empty() ? "-" : (it->peer.size() > 12 ? it->peer.substr(0, 12) : it->peer);
+            r.up = std::to_string(it->runtime_seconds) + "s";
+            r.bytes = std::to_string(it->bytes);
+            r.exitc = std::to_string(it->exit_code);
+            rows.push_back(std::move(r));
         }
-        return wrote ? out.str() : "No sessions.";
+        if (rows.empty()) return "No sessions.\n";
+        size_t w_sc = 5, w_nm = 4, w_st = 5, w_pid = 3, w_peer = 4, w_up = 2,
+               w_b = 5, w_ex = 4;
+        for (const auto& r : rows) {
+            w_sc = std::max(w_sc, r.scope.size());
+            w_nm = std::max(w_nm, r.name.size());
+            w_st = std::max(w_st, r.state.size());
+            w_pid = std::max(w_pid, r.pid.size());
+            w_peer = std::max(w_peer, r.peer.size());
+            w_up = std::max(w_up, r.up.size());
+            w_b = std::max(w_b, r.bytes.size());
+            w_ex = std::max(w_ex, r.exitc.size());
+        }
+        auto pad = [](const std::string& s, size_t w) {
+            return s.size() >= w ? s : s + std::string(w - s.size(), ' ');
+        };
+        auto rpad = [](const std::string& s, size_t w) {
+            return s.size() >= w ? s : std::string(w - s.size(), ' ') + s;
+        };
+        std::ostringstream out;
+        out << pad("SCOPE", w_sc) << "  " << pad("NAME", w_nm) << "  "
+            << pad("STATE", w_st) << "  " << pad("PID", w_pid) << "  "
+            << pad("PEER", w_peer) << "  " << rpad("UP", w_up) << "  "
+            << rpad("BYTES", w_b) << "  " << rpad("EXIT", w_ex) << "\n";
+        size_t total = w_sc + w_nm + w_st + w_pid + w_peer + w_up + w_b + w_ex + 2 * 7;
+        out << std::string(total, '-') << "\n";
+        for (const auto& r : rows) {
+            out << pad(r.scope, w_sc) << "  " << pad(r.name, w_nm) << "  "
+                << pad(r.state, w_st) << "  " << pad(r.pid, w_pid) << "  "
+                << pad(r.peer, w_peer) << "  " << rpad(r.up, w_up) << "  "
+                << rpad(r.bytes, w_b) << "  " << rpad(r.exitc, w_ex) << "\n";
+        }
+        out << rows.size() << " session row(s)\n";
+        return out.str();
     }
 
     void record_finished(Session& s, int32_t exit_code, const std::string& state) {
@@ -7018,6 +7462,10 @@ public:
         std::optional<HelloMsg> initial_hello;
         // Remote peer version, populated from Hello or ServerInfo gossip.
         std::string remote_version;
+        // Last host metrics from ServerInfo (cpu/mem/disk JSON); empty if peer
+        // has not advertised them yet (older builds).
+        std::string remote_host_stats_json;
+        double remote_load = -1.0;
         // ── 2.0.8 P3 per-connection output queue ──────────────────────
         // When a fanout write fails (slow client, full socket buffer), the
         // OutputMsg is enqueued here instead of silently dropped. The event
@@ -7671,11 +8119,13 @@ private:
 
             // A seed is trusted only when its configured pin exactly matches.
             // Never learn a missing seed pin from gossip/Hello.
+            // Do NOT overwrite seed.addr from gossip/Hello: inbound peers often
+            // present an ephemeral source port, which used to corrupt the
+            // configured listen address (broke fleet display + redials).
             bool is_seed = false;
             for (auto& s : config_.seeds) {
                 if (!s.pubkey_hex.empty() && s.pubkey_hex == p.pubkey_hex) {
                     is_seed = true;
-                    if (!p.addr.empty() && s.addr != p.addr) { s.addr = p.addr; changed = true; }
                     s.last_seen = now_unix_seconds();
                     break;
                 }
@@ -8554,12 +9004,41 @@ private:
             state.active = false;
         }
 
-        std::string out_path = (fs::path(recv_dir) / *safe_name).string();
-        if (!path_is_inside_directory(out_path, recv_dir)) {
-            std::string err = "path escapes receive directory";
-            log_event("file_recv_rejected", *safe_name + " reason=path_escape");
-            try { write_frame(c.ssl.get(), FileAckMsg{0, 0, true, err}, CONTROL_STREAM_ID); } catch (...) {}
-            return;
+        // scp-style dest: optional absolute/relative path from FileMeta.dest_path.
+        // Empty → classic receive_dir/basename behavior.
+        std::string out_path;
+        if (!m.dest_path.empty()) {
+            auto resolved = resolve_file_send_dest(m.dest_path, recv_dir);
+            if (!resolved) {
+                std::string err = "rejected dest path (escape or invalid)";
+                log_event("file_recv_rejected", m.dest_path + " reason=dest_escape");
+                try { write_frame(c.ssl.get(), FileAckMsg{0, 0, true, err}, CONTROL_STREAM_ID); } catch (...) {}
+                return;
+            }
+            out_path = *resolved;
+            // If dest is a directory (or ends with separator), append basename.
+            if (!out_path.empty() &&
+                (out_path.back() == '/' || out_path.back() == '\\' ||
+                 (fs::exists(out_path) && fs::is_directory(out_path)))) {
+                out_path = (fs::path(out_path) / *safe_name).string();
+            }
+            std::error_code pec;
+            auto parent = fs::path(out_path).parent_path();
+            if (!parent.empty()) fs::create_directories(parent, pec);
+            if (pec) {
+                std::string err = "cannot create dest parent directory";
+                log_event("file_recv_failed", out_path + " reason=" + pec.message());
+                try { write_frame(c.ssl.get(), FileAckMsg{0, 0, true, err}, CONTROL_STREAM_ID); } catch (...) {}
+                return;
+            }
+        } else {
+            out_path = (fs::path(recv_dir) / *safe_name).string();
+            if (!path_is_inside_directory(out_path, recv_dir)) {
+                std::string err = "path escapes receive directory";
+                log_event("file_recv_rejected", *safe_name + " reason=path_escape");
+                try { write_frame(c.ssl.get(), FileAckMsg{0, 0, true, err}, CONTROL_STREAM_ID); } catch (...) {}
+                return;
+            }
         }
         // Resume candidate: existing .part for this basename with matching sidecar
         // checksum. Prefer that path over inventing suffix.N (avoids restart-from-0
@@ -8598,17 +9077,17 @@ private:
             }
         }
         if (!resume) {
-            int suffix = 1;
-            while (fs::exists(out_path) || fs::exists(out_path + ".part")) {
-                // Keep resume-compatible part if checksum matches; otherwise suffix.
-                if (fs::exists(out_path + ".part") && fs::exists(out_path + ".part.bsmeta")) {
-                    // already considered above for exact basename
+            // Only auto-suffix collisions under default receive_dir (inbox) mode.
+            // scp-style dest overwrites/resumes the exact path requested.
+            if (m.dest_path.empty()) {
+                int suffix = 1;
+                while (fs::exists(out_path) || fs::exists(out_path + ".part")) {
+                    std::string alt = (fs::path(recv_dir) /
+                                       (*safe_name + "." + std::to_string(suffix))).string();
+                    if (!path_is_inside_directory(alt, recv_dir)) break;
+                    out_path = alt;
+                    ++suffix;
                 }
-                std::string alt = (fs::path(recv_dir) /
-                                   (*safe_name + "." + std::to_string(suffix))).string();
-                if (!path_is_inside_directory(alt, recv_dir)) break;
-                out_path = alt;
-                ++suffix;
             }
             part_path = out_path + ".part";
             meta_path = out_path + ".part.bsmeta";
@@ -8648,12 +9127,14 @@ private:
             try { write_frame(c.ssl.get(), FileAckMsg{0, 0, true, err}, CONTROL_STREAM_ID); } catch (...) {}
             return;
         }
-        // next_requested = first chunk we still need (0 for fresh, N for resume)
+        // next_requested = first chunk we still need (0 for fresh, N for resume).
+        // error_msg carries path=<resolved> so senders can confirm scp-style dest
+        // (legacy peers leave this empty → sender warns that dest was not confirmed).
         try {
             write_frame(c.ssl.get(),
                         FileAckMsg{resume ? (resume_chunks > 0 ? resume_chunks - 1 : 0)
                                           : 0,
-                                   resume_chunks, false, ""},
+                                   resume_chunks, false, "path=" + out_path},
                         CONTROL_STREAM_ID);
         } catch (...) {}
     }
@@ -8733,8 +9214,9 @@ private:
                 fs::remove(final_path + ".part.bsmeta", mec);
             }
             state.active = false;
-            // Send final ack
-            try { write_frame(c.ssl.get(), FileAckMsg{m.chunk_index, m.total_chunks, !complete_ok, final_error}, CONTROL_STREAM_ID); } catch (...) {}
+            // Final ack: on success include path= so sender can prove scp dest.
+            std::string final_msg = complete_ok ? ("path=" + final_path) : final_error;
+            try { write_frame(c.ssl.get(), FileAckMsg{m.chunk_index, m.total_chunks, !complete_ok, final_msg}, CONTROL_STREAM_ID); } catch (...) {}
         } else {
             // Request next chunk
             try { write_frame(c.ssl.get(), FileAckMsg{m.chunk_index, m.chunk_index + 1, false, ""}, CONTROL_STREAM_ID); } catch (...) {}
@@ -8805,7 +9287,8 @@ private:
     // protocol as daemon_file_send). Falls back when daemon IPC is unavailable.
     std::string direct_connect_file_send(const std::string& peer_name,
                                          const std::string& local_path,
-                                         bool wait_for_completion = true) {
+                                         bool wait_for_completion = true,
+                                         const std::string& dest_path = {}) {
         std::string addr = find_peer_addr(peer_name);
         if (addr.empty()) return "ERROR peer not found: " + peer_name;
         std::string expected_pubkey = trusted_peer_pubkey(config_, peer_name);
@@ -8849,7 +9332,7 @@ private:
             uint32_t resume_hint = start_chunk;
             std::string result = file_send_wait_on_transport(
                 sc.ssl.get(), sc.sfd, local_path, {}, {}, nullptr, peer_name,
-                sc.hello.version, start_chunk, &resume_hint);
+                sc.hello.version, start_chunk, &resume_hint, dest_path);
             if (result.rfind("ERROR", 0) != 0) return result;  // success
 
             last_err = result;
@@ -8903,7 +9386,8 @@ private:
             const std::string& peer_name = {},
             std::string_view peer_version = {},
             uint32_t start_chunk = 0,
-            uint32_t* resume_out = nullptr) {
+            uint32_t* resume_out = nullptr,
+            const std::string& dest_path = {}) {
         if (!socket_selectable(sock_fd)) return "ERROR socket exceeds select limit";
         // v2.0.12c: temporarily set blocking mode for the duration of the transfer.
         // Mesh sockets are non-blocking; SSL_write_ex on non-blocking sockets
@@ -8964,6 +9448,7 @@ private:
             meta.filename = filename; meta.filesize = filesize;
             meta.checksum = checksum; meta.total_chunks = total_chunks;
             meta.chunk_size = static_cast<uint32_t>(chunk_raw);
+            meta.dest_path = dest_path;
             write_frame(ssl, meta, CONTROL_STREAM_ID, allow_large);
         } catch (const std::exception& e) {
             return "ERROR send meta: " + std::string(e.what());
@@ -8974,9 +9459,18 @@ private:
                              std::chrono::seconds(kTransferIdleTimeoutSec);
 
         uint32_t last_acked = start_chunk;  // first chunk not yet fully acked
+        // Remote path confirmed by peer via FileAck.error_msg "path=…".
+        // Empty after transfer + non-empty dest_path ⇒ peer likely ignored dest.
+        std::string remote_path_confirmed;
 
         auto mark_resume = [&](uint32_t at) {
             if (resume_out) *resume_out = at;
+        };
+
+        auto note_ack_path = [&](const FileAckMsg& ack) {
+            if (ack.error) return;
+            if (ack.error_msg.rfind("path=", 0) == 0 && ack.error_msg.size() > 5)
+                remote_path_confirmed = ack.error_msg.substr(5);
         };
 
         auto wait_ack = [&](uint32_t expected_next) -> std::string {
@@ -8994,6 +9488,7 @@ private:
                     if (std::holds_alternative<FileAckMsg>(resp)) {
                         auto& ack = std::get<FileAckMsg>(resp);
                         if (ack.error) return "ERROR remote: " + ack.error_msg;
+                        note_ack_path(ack);
                         if (ack.next_requested >= expected_next) {
                             last_acked = ack.next_requested;
                             idle_deadline = std::chrono::steady_clock::now() +
@@ -9107,7 +9602,21 @@ private:
             telemetry_ring->append(make_telemetry_entry(timing, filename, filesize,
                 peer_name, "send"));
         log_event("file_send_wait_complete", filename + " " + std::to_string(filesize) + " bytes");
-        return "OK sent " + filename + " " + std::to_string(filesize) + " bytes sha256:" + checksum;
+        std::string ok = "OK sent " + filename + " " + std::to_string(filesize)
+                       + " bytes sha256:" + checksum;
+        if (!dest_path.empty()) {
+            if (remote_path_confirmed.empty()) {
+                // Peer never echoed path= — almost always an older build that
+                // ignored FileMeta.dest_path and wrote to receive_dir/basename.
+                ok += " WARNING dest not confirmed by peer"
+                      " (likely landed in receive_dir; upgrade peer for scp-style dest)";
+            } else {
+                ok += " dest=" + remote_path_confirmed;
+            }
+        } else if (!remote_path_confirmed.empty()) {
+            ok += " dest=" + remote_path_confirmed;
+        }
+        return ok;
     }
 
     // v2.0.6: transport-agnostic remote file request fulfillment. Peer asked us
@@ -9338,7 +9847,7 @@ private:
         target->exec_last_progress_at->store(
             std::chrono::steady_clock::now().time_since_epoch().count());
         return file_send_wait_on_transport(target->ssl.get(), target->sock_fd, local_path, {}, on_progress,
-                                           &transfer_telemetry_, peer_name);
+                                           &transfer_telemetry_, peer_name, {}, 0, nullptr, {});
     }
 
     // v2.0.6: dispatch entry point for long-operation worker pool.
@@ -9363,7 +9872,7 @@ private:
             auto is_cancelled = [&]() { return task.cancelled && task.cancelled->load(); };
             std::string result = file_send_wait_on_transport(
                 task.ssl, task.sock_fd, task.path1, is_cancelled, progress_to_ipc,
-                &transfer_telemetry_, task.peer_name);
+                &transfer_telemetry_, task.peer_name, {}, 0, nullptr, task.path2);
             if (task.ipc_fd != INVALID_SOCKET) {
                 result += "\n";
                 send(task.ipc_fd, result.data(), (int)result.size(), 0);
@@ -9804,19 +10313,77 @@ private:
         auto uptime = std::chrono::duration_cast<std::chrono::seconds>(now - started_at_).count();
         size_t live_conns = 0;
         uint64_t bytes_in = 0, bytes_out = 0;
+        struct PRow {
+            std::string name, addr, dir, up, pong, bin, bout, sess;
+        };
+        std::vector<PRow> prows;
+        auto fresh = std::chrono::seconds(config_.pong_timeout_secs > 0
+                                          ? config_.pong_timeout_secs : 30);
         for (const auto& c : conns_) {
             if (c.sock_fd == INVALID_SOCKET) continue;
             ++live_conns;
             bytes_in += c.bytes_in;
             bytes_out += c.bytes_out;
+            PRow r;
+            r.name = c.peer_name.empty() ? "-" : c.peer_name;
+            r.addr = peer_listen_addr_for(c.peer_name, c.peer_pubkey);
+            if (r.addr.empty()) r.addr = c.peer_addr;
+            r.dir = c.is_outbound ? "out" : "in";
+            auto up_s = std::chrono::duration_cast<std::chrono::seconds>(
+                now - c.connected_at).count();
+            auto pong_s = std::chrono::duration_cast<std::chrono::seconds>(
+                now - c.last_pong).count();
+            r.up = std::to_string(up_s) + "s";
+            r.pong = (now - c.last_pong) <= fresh
+                ? (std::to_string(pong_s) + "s") : ("stale " + std::to_string(pong_s) + "s");
+            r.bin = std::to_string(c.bytes_in);
+            r.bout = std::to_string(c.bytes_out);
+            r.sess = c.attached_session ? c.attached_session->name : "-";
+            prows.push_back(std::move(r));
         }
         auto live_sessions = sessions_.list();
-        return "node=" + config_.node_name
-             + " uptime=" + std::to_string(uptime) + "s"
-             + " peers=" + std::to_string(live_conns) + "/" + std::to_string(config_.max_peers)
-             + " active_sessions=" + std::to_string(live_sessions.size())
-             + " bytes_in=" + std::to_string(bytes_in)
-             + " bytes_out=" + std::to_string(bytes_out);
+        std::ostringstream out;
+        out << "node     " << config_.node_name << "\n"
+            << "uptime   " << uptime << "s\n"
+            << "peers    " << live_conns << " / " << config_.max_peers << "\n"
+            << "sessions " << live_sessions.size() << "\n"
+            << "bytes_in " << bytes_in << "\n"
+            << "bytes_out " << bytes_out << "\n";
+        if (prows.empty()) {
+            out << "(no live connections)\n";
+            return out.str();
+        }
+        size_t w_n = 4, w_a = 7, w_d = 3, w_u = 2, w_p = 4, w_i = 2, w_o = 3, w_s = 4;
+        for (const auto& r : prows) {
+            w_n = std::max(w_n, r.name.size());
+            w_a = std::max(w_a, r.addr.size());
+            w_d = std::max(w_d, r.dir.size());
+            w_u = std::max(w_u, r.up.size());
+            w_p = std::max(w_p, r.pong.size());
+            w_i = std::max(w_i, r.bin.size());
+            w_o = std::max(w_o, r.bout.size());
+            w_s = std::max(w_s, r.sess.size());
+        }
+        auto pad = [](const std::string& s, size_t w) {
+            return s.size() >= w ? s : s + std::string(w - s.size(), ' ');
+        };
+        auto rpad = [](const std::string& s, size_t w) {
+            return s.size() >= w ? s : std::string(w - s.size(), ' ') + s;
+        };
+        out << "\n"
+            << pad("PEER", w_n) << "  " << pad("ADDRESS", w_a) << "  "
+            << pad("DIR", w_d) << "  " << rpad("UP", w_u) << "  "
+            << pad("PONG", w_p) << "  " << rpad("IN", w_i) << "  "
+            << rpad("OUT", w_o) << "  " << pad("SESS", w_s) << "\n";
+        size_t total = w_n + w_a + w_d + w_u + w_p + w_i + w_o + w_s + 2 * 7;
+        out << std::string(total, '-') << "\n";
+        for (const auto& r : prows) {
+            out << pad(r.name, w_n) << "  " << pad(r.addr, w_a) << "  "
+                << pad(r.dir, w_d) << "  " << rpad(r.up, w_u) << "  "
+                << pad(r.pong, w_p) << "  " << rpad(r.bin, w_i) << "  "
+                << rpad(r.bout, w_o) << "  " << pad(r.sess, w_s) << "\n";
+        }
+        return out.str();
     }
 
     // ── Daemon edit download: request file, receive to temp, return path+checksum ──
@@ -10178,6 +10745,14 @@ private:
         else if (std::holds_alternative<ServerInfoMsg>(msg)) {
             auto& info = std::get<ServerInfoMsg>(msg);
             if (!info.version.empty()) c.remote_version = info.version;
+            c.remote_load = info.load;
+            if (!info.host_stats_json.empty()) {
+                // Object shape; sessions use array shape. Both MoA-gated.
+                if (host_stats_json_shape_ok(info.host_stats_json))
+                    c.remote_host_stats_json = std::move(info.host_stats_json);
+                else
+                    log_event("gossip_host_stats_rejected_bad_json", c.peer_name);
+            }
             if (!info.sessions_summary_json.empty() && !c.peer_name.empty()) {
                 // 2.0.8 MoA fix: validate at the trust boundary. The payload is
                 // re-interpolated VERBATIM into MESH_TREE output — a malformed
@@ -10264,6 +10839,41 @@ public:
             }
         }
         return false; // outermost array never closed
+    }
+
+    // Object-shape validator for ServerInfo.host_stats_json ({…}). Same MoA
+    // rules as gossip_json_shape_ok but for a single JSON object.
+    static bool host_stats_json_shape_ok(const std::string& v) {
+        if (v.size() < 2 || v.front() != '{' || v.back() != '}') return false;
+        if (v.size() > 2048) return false;
+        int depth_square = 0, depth_curly = 0;
+        bool in_str = false, esc = false;
+        for (size_t i = 0; i < v.size(); ++i) {
+            char ch = v[i];
+            if (static_cast<unsigned char>(ch) < 0x20 && ch != '\t') return false;
+            if (in_str) {
+                if (esc) { esc = false; continue; }
+                if (ch == '\\') { esc = true; continue; }
+                if (ch == '"') in_str = false;
+                continue;
+            }
+            switch (ch) {
+                case '"': in_str = true; break;
+                case '{': ++depth_curly; break;
+                case '}':
+                    if (--depth_curly < 0) return false;
+                    if (depth_curly == 0) {
+                        for (size_t j = i + 1; j < v.size(); ++j)
+                            if (!std::isspace(static_cast<unsigned char>(v[j]))) return false;
+                        return depth_square == 0;
+                    }
+                    break;
+                case '[': ++depth_square; break;
+                case ']': if (--depth_square < 0) return false; break;
+                default: break;
+            }
+        }
+        return false;
     }
 
     // Remove this transport's attachment while leaving the server-owned PTY alive.
@@ -11542,10 +12152,13 @@ private:
     // its last_gossip_generation. First contact (gen 0) gets a full snapshot.
     void broadcast_gossip() {
         uint32_t cur_gen = gossip_generation_.load();
+        HostStats hs = collect_host_stats(home_dir_);
         ServerInfoMsg info;
         info.hostname = config_.node_name;
         info.version = std::string(kBridgeSessionsVersion);
+        info.load = hs.load1 >= 0 ? hs.load1 : 0.0;
         info.sessions_summary_json = build_sessions_summary_json();
+        info.host_stats_json = host_stats_to_json(hs);
 
         for (auto& c : conns_) {
             if (c.sock_fd == INVALID_SOCKET) continue;
@@ -12134,30 +12747,144 @@ public:
                 response = out.str();
             }
             else if (line == "FLEET") {
-                // JSON fleet directory: name, addr, version, status, uptime_s
+                // JSON fleet directory: self + live mesh peers + configured seeds
+                // that are not connected (status=offline). Host metrics only when
+                // known — never invent load1=0.0 from legacy ServerInfo defaults.
+                auto emit_host_fields = [](std::ostringstream& out, const HostStats& hs) {
+                    auto num_or_null = [](double v) -> std::string {
+                        if (v < 0) return "null";
+                        char buf[32];
+                        std::snprintf(buf, sizeof(buf), "%.1f", v);
+                        return buf;
+                    };
+                    out << ",\"cpu_pct\":" << num_or_null(hs.cpu_pct)
+                        << ",\"mem_pct\":" << num_or_null(hs.mem_pct)
+                        << ",\"disk_pct\":" << num_or_null(hs.disk_pct)
+                        << ",\"load1\":" << num_or_null(hs.load1)
+                        << ",\"os\":\"" << gossip_json_escape(hs.os) << "\""
+                        << ",\"arch\":\"" << gossip_json_escape(hs.arch) << "\""
+                        << ",\"ncpu\":" << hs.ncpu
+                        << ",\"mem_used_mb\":" << hs.mem_used_mb
+                        << ",\"mem_total_mb\":" << hs.mem_total_mb
+                        << ",\"disk_used_gb\":" << hs.disk_used_gb
+                        << ",\"disk_total_gb\":" << hs.disk_total_gb
+                        << ",\"cua\":" << (hs.cua_helper ? "true" : "false")
+                        << ",\"metrics\":true";
+                };
+                // Only emit metrics when peer advertised host_stats_json.
+                // Do NOT fall back to ServerInfo.load — legacy peers leave it 0.
+                auto emit_host_from_json = [&](std::ostringstream& out,
+                                               const std::string& js) {
+                    if (js.empty()) {
+                        out << ",\"metrics\":false";
+                        return;
+                    }
+                    try {
+                        auto j = nlohmann::json::parse(js);
+                        auto getd = [&](const char* k) -> std::string {
+                            if (!j.contains(k) || j[k].is_null()) return "null";
+                            if (j[k].is_number()) {
+                                char buf[32];
+                                std::snprintf(buf, sizeof(buf), "%.1f", j[k].get<double>());
+                                return buf;
+                            }
+                            return "null";
+                        };
+                        out << ",\"cpu_pct\":" << getd("cpu")
+                            << ",\"mem_pct\":" << getd("mem")
+                            << ",\"disk_pct\":" << getd("disk")
+                            << ",\"load1\":" << getd("load")
+                            << ",\"os\":\"" << gossip_json_escape(j.value("os", "")) << "\""
+                            << ",\"arch\":\"" << gossip_json_escape(j.value("arch", "")) << "\""
+                            << ",\"ncpu\":" << j.value("ncpu", 0)
+                            << ",\"mem_total_mb\":" << j.value("mem_mb", 0)
+                            << ",\"disk_total_gb\":" << j.value("disk_gb", 0)
+                            << ",\"cua\":" << (j.value("cua", false) ? "true" : "false")
+                            << ",\"metrics\":true";
+                    } catch (...) {
+                        out << ",\"metrics\":false";
+                    }
+                };
+                auto seed_addr_for = [&](const std::string& name) -> std::string {
+                    for (const auto& s : config_.seeds)
+                        if (peer_name_eq(s.name, name) && !s.addr.empty()) return s.addr;
+                    return {};
+                };
+
                 std::ostringstream out;
                 out << "{";
                 auto now = std::chrono::steady_clock::now();
                 auto fresh = std::chrono::seconds(config_.pong_timeout_secs > 0
                                                   ? config_.pong_timeout_secs : 30);
-                // 2.0.20: include local node first
+                // Seed CPU tick counter so the first FLEET query after daemon
+                // start is not stuck at cpu_pct=-1.
+                (void)collect_host_stats(home_dir_);
+                HostStats self_hs = collect_host_stats(home_dir_);
+                std::unordered_set<std::string> listed; // lowercased names
+                auto mark = [&](const std::string& n) {
+                    std::string k = n;
+                    for (char& c : k) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+                    listed.insert(k);
+                };
+                auto listed_has = [&](const std::string& n) {
+                    std::string k = n;
+                    for (char& c : k) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+                    return listed.count(k) > 0;
+                };
+
+                // Self: prefer real advertise IP over 0.0.0.0 listen bind.
+                std::string self_host = self_hs.primary_addr;
+                if (self_host.empty() || self_host == "0.0.0.0" || self_host == "::")
+                    self_host = config_.listen_addr;
+                if (self_host.empty() || self_host == "0.0.0.0" || self_host == "::")
+                    self_host = "127.0.0.1";
+                std::string self_addr = self_host + ":" + std::to_string(config_.listen_port);
                 out << "\"" << gossip_json_escape(config_.node_name) << "\":{\"name\":\""
                     << gossip_json_escape(config_.node_name)
                     << "\",\"addr\":\""
-                    << gossip_json_escape(config_.listen_addr + ":" + std::to_string(config_.listen_port))
+                    << gossip_json_escape(self_addr)
                     << "\",\"version\":\"" << gossip_json_escape(std::string(kBridgeSessionsVersion))
-                    << "\",\"status\":\"self\"}";
-                // then live mesh peers
+                    << "\",\"status\":\"self\"";
+                emit_host_fields(out, self_hs);
+                out << "}";
+                mark(config_.node_name);
+
+                // Live mesh peers
                 for (auto& c : conns_) {
                     if (c.purpose != ConnectionPurpose::Mesh || c.sock_fd == INVALID_SOCKET) continue;
+                    if (c.peer_name.empty()) continue;
                     bool ok = (now - c.last_pong) <= fresh;
-                    auto uptime = std::chrono::duration_cast<std::chrono::seconds>(now - c.connected_at).count();
+                    auto uptime = std::chrono::duration_cast<std::chrono::seconds>(
+                        now - c.connected_at).count();
+                    // Prefer configured seed listen addr (stable) over conn
+                    // peer_addr (often an ephemeral inbound source port).
+                    std::string addr = peer_listen_addr_for(c.peer_name, c.peer_pubkey);
+                    if (addr.empty()) addr = seed_addr_for(c.peer_name);
+                    if (addr.empty()) addr = c.peer_addr;
                     out << ",\"" << gossip_json_escape(c.peer_name) << "\":{";
-                    out << "\"addr\":\"" << gossip_json_escape(c.peer_addr) << "\",";
+                    out << "\"addr\":\"" << gossip_json_escape(addr) << "\",";
                     out << "\"version\":\"" << gossip_json_escape(c.remote_version) << "\",";
                     out << "\"status\":\"" << (ok ? "healthy" : "no-pong") << "\",";
                     out << "\"uptime_s\":" << uptime;
+                    emit_host_from_json(out, c.remote_host_stats_json);
                     out << "}";
+                    mark(c.peer_name);
+                }
+
+                // Configured seeds with no live conn → offline (full fleet directory)
+                for (const auto& s : config_.seeds) {
+                    if (s.name.empty()) continue;
+                    if (peer_name_eq(s.name, config_.node_name)) continue;
+                    if (listed_has(s.name)) continue;
+                    out << ",\"" << gossip_json_escape(s.name) << "\":{";
+                    out << "\"name\":\"" << gossip_json_escape(s.name) << "\",";
+                    out << "\"addr\":\"" << gossip_json_escape(s.addr) << "\",";
+                    out << "\"version\":\"\",";
+                    out << "\"status\":\"offline\",";
+                    out << "\"source\":\"seed\",";
+                    out << "\"metrics\":false";
+                    out << "}";
+                    mark(s.name);
                 }
                 out << "}\n";
                 response = out.str();
@@ -12346,13 +13073,22 @@ public:
                 }
             }
             else if (line.rfind("FILE_SEND_WAIT_B64 ", 0) == 0) {
+                // FILE_SEND_WAIT_B64 <peer> <b64-local-path> [b64-dest-path]
                 auto rest = line.substr(19);
                 auto sp = rest.find(' ');
                 if (sp == std::string::npos) {
-                    response = "ERROR usage: FILE_SEND_WAIT_B64 <peer> <b64-local-path>\n";
+                    response = "ERROR usage: FILE_SEND_WAIT_B64 <peer> <b64-local-path> [b64-dest]\n";
                 } else {
                     std::string peer_name = rest.substr(0, sp);
-                    std::string path = b64dec(rest.substr(sp + 1));
+                    std::string rest2 = rest.substr(sp + 1);
+                    auto sp2 = rest2.find(' ');
+                    std::string path, dest;
+                    if (sp2 == std::string::npos) {
+                        path = b64dec(rest2);
+                    } else {
+                        path = b64dec(rest2.substr(0, sp2));
+                        dest = b64dec(rest2.substr(sp2 + 1));
+                    }
                     // v2.0.6: offload the long transfer to a worker thread. The
                     // worker owns the IPC socket and streams PROGRESS + final response.
                     Conn* target = nullptr;
@@ -12373,6 +13109,7 @@ public:
                         task.type = LongOperationTask::Type::FileSendWait;
                         task.peer_name = peer_name;
                         task.path1 = path;
+                        task.path2 = dest;  // scp-style remote dest (optional)
                         task.ssl = target->ssl.get();
                         task.sock_fd = target->sock_fd;
                         task.exec_busy = target->exec_busy;
@@ -12661,7 +13398,8 @@ public:
     // CLI-side: send a file via daemon IPC (reads local file, sends FILE_SEND command,
     // blocks for response with longer wait_ms to cover transfer time).
     std::string daemon_send_via_ipc(const std::string& peer_name, const std::string& path,
-                                    int wait_ms, bool wait_for_completion = false) {
+                                    int wait_ms, bool wait_for_completion = false,
+                                    const std::string& dest_path = {}) {
         std::string token = load_ipc_token(home_dir_);
         if (token.empty()) return "";
         SOCKET sfd = socket(AF_INET, SOCK_STREAM, 0);
@@ -12675,7 +13413,9 @@ public:
         if (connect(sfd, (sockaddr*)&sa, sizeof(sa)) == SOCKET_ERROR) {
             CLOSESOCK(sfd); return "";
         }
-        std::string cmd = token + " FILE_SEND_WAIT_B64 " + peer_name + " " + b64enc(path) + "\n";
+        std::string cmd = token + " FILE_SEND_WAIT_B64 " + peer_name + " " + b64enc(path);
+        if (!dest_path.empty()) cmd += " " + b64enc(dest_path);
+        cmd += "\n";
         send(sfd, cmd.data(), (int)cmd.size(), 0);
         std::string pending;
         char buf[8192];
@@ -14350,24 +15090,30 @@ public:
     }
 
     // ── CLI: file_send ──────────────────────────────────────────
+    // dest_path: optional scp-style remote destination (absolute, ~/…, or
+    // relative under peer receive_dir). Empty → classic receive_dir/basename.
     std::string file_send(const std::string& peer_name, const std::string& local_path,
-                          bool wait_for_completion) {
+                          bool wait_for_completion,
+                          const std::string& dest_path = {}) {
         namespace fs = std::filesystem;
         if (!fs::exists(local_path) || fs::is_directory(local_path)) {
             return "ERROR file not found or is a directory: " + local_path;
         }
         // Try daemon IPC first (reuses existing mesh conns)
-        std::string ipc = daemon_send_via_ipc(peer_name, local_path, 120000, wait_for_completion);
+        std::string ipc = daemon_send_via_ipc(peer_name, local_path, 120000,
+                                              wait_for_completion, dest_path);
         if (!ipc.empty()) {
             // If daemon IPC failed with "no conn", fall back to direct TLS
             if (ipc.rfind("ERROR no conn", 0) == 0 || ipc.rfind("ERROR no daemon", 0) == 0) {
-                std::string direct = direct_connect_file_send(peer_name, local_path);
+                std::string direct = direct_connect_file_send(
+                    peer_name, local_path, wait_for_completion, dest_path);
                 if (!direct.empty()) return direct;
             }
             return ipc;
         }
         // No daemon at all — try direct TLS
-        std::string direct = direct_connect_file_send(peer_name, local_path);
+        std::string direct = direct_connect_file_send(
+            peer_name, local_path, wait_for_completion, dest_path);
         if (!direct.empty()) return direct;
         return "ERROR no daemon running and direct TLS file send failed — cannot send";
     }
@@ -14972,24 +15718,10 @@ public:
 
     // ── CLI: show_stats ───────────────────────────────────────
     void show_stats() const {
-        auto now = std::chrono::steady_clock::now();
-        std::cout << "=== bridgesessions stats ===\n";
-        std::cout << "node: " << config_.node_name << "  pubkey: " << our_pubkey_.substr(0,16) << "...\n";
-        std::cout << "listen: " << config_.listen_addr << ":" << config_.listen_port << "\n";
-        std::cout << "connections: " << conns_.size() << " / " << config_.max_peers << "\n";
-        for (auto& cn : conns_) {
-            if (cn.sock_fd == INVALID_SOCKET) continue;
-            auto pong_age = std::chrono::duration_cast<std::chrono::seconds>(now - cn.last_pong).count();
-            auto uptime = std::chrono::duration_cast<std::chrono::seconds>(now - cn.connected_at).count();
-            std::cout << "  " << cn.peer_name << "  " << cn.peer_addr
-                      << "  " << (cn.is_outbound ? "outbound" : "inbound")
-                      << "  uptime=" << uptime << "s"
-                      << "  last_pong=" << pong_age << "s ago"
-                      << "  bytes_in=" << cn.bytes_in << "  bytes_out=" << cn.bytes_out;
-            if (cn.attached_session) std::cout << "  session=" << cn.attached_session->name;
-            std::cout << "\n";
-        }
-        std::cout << "sessions: " << sessions_.list().size() << "\n";
+        // Same table layout as daemon STATS IPC (local / no-daemon fallback).
+        std::cout << daemon_stats_summary();
+        if (!our_pubkey_.empty())
+            std::cout << "pubkey   " << our_pubkey_.substr(0, 16) << "...\n";
     }
 
     // ── CLI: show_peers_detail — live connection status ──────────

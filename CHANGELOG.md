@@ -9,7 +9,44 @@ All notable public releases are documented here.
 > `26.08.05-beta1`. The scheme encodes year, month, day, and a per-day beta
 > counter — e.g. `26.08.10-beta2` is the second beta cut on 2026-08-10.
 
-## Unreleased
+## 26.08.12-beta4
+
+### Fleet host metrics
+- `bs fleet` shows **CPU / MEM / DISK / LOAD / OS / CUA** in a fixed-width table
+  (not markdown pipes). Self node samples live; peers advertise metrics via
+  `ServerInfo.host_stats_json` on the existing gossip cadence (~30s).
+- `bs fleet --json` prints the full daemon FLEET JSON (includes absolute
+  mem_mb / disk_gb when known). Older peers show `-` until upgraded.
+- **Load unknown:** never show `LOAD 0.0` for peers that did not advertise
+  host metrics (legacy ServerInfo.load defaults are ignored).
+- **Offline seeds:** configured seeds with no live conn appear as
+  `status=offline` so the table is a full fleet directory, not only connected
+  peers. Summary line: listed / connected / offline / metrics N/M.
+- Display address prefers configured seed listen addr over ephemeral source ports;
+  self row uses primary non-loopback IP (prefer Tailscale 100.x) instead of
+  `0.0.0.0`.
+- **Seed addr stability:** gossip/Hello no longer overwrites configured
+  `seed … addr` with ephemeral connection source ports (that corrupted fleet
+  addresses and redial targets).
+- **CUA column:** self/peers report whether the local CUA helper is reachable.
+
+### File send dest honesty
+- Receiver FileAck carries `path=<resolved>` after meta + final success.
+- Sender prints `dest=<path>` when confirmed; if scp-style dest was requested but
+  the peer never confirmed path, prints
+  `WARNING dest not confirmed by peer (likely landed in receive_dir; upgrade peer)`.
+
+### Stats / sessions / peers / doctor
+- `bs stats` and `bs sessions`: fixed-width tables (not pipe-glued lines).
+- `bs peers list`: status/version from live FLEET when daemon is up.
+- `bs doctor`: platform-aware service check (launchd on macOS, systemd on Linux);
+  CUA helper reachability probe.
+
+### File send (scp-style dest)
+- `bs file send <peer> <local> [<remote>]` and `--dest <remote>` place the file at
+  an explicit remote path (absolute, `~/…`, or relative under `receive_dir`).
+  Empty dest keeps classic inbox (`receive_dir`/basename) behavior. Dest is
+  constrained to home, receive_dir, or temp (no `..` escapes).
 
 ### Mesh auto-upgrade
 - When a peer reconnects with an older `Hello.version`, the local daemon can

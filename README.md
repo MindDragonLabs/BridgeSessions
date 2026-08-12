@@ -123,7 +123,7 @@ git clone https://github.com/MindDragonLabs/BridgeSessions.git
 cd BridgeSessions
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --parallel
-./build/bridgesessions --version   # → 26.08.12-beta3
+./build/bridgesessions --version   # → 26.08.12-beta4
 ```
 
 <details>
@@ -151,7 +151,8 @@ bridgesessions --daemon --config ~/.bridgesessions/config
 # 3. From any other machine — connect, run, transfer
 bs health linux-hub                    # → healthy (data-plane ok)
 bs shell linux-hub --cmd 'uname -a'    # → Linux …
-bs file send linux-hub ./app.tar.gz    # → OK sent app.tar.gz SHA256:…
+bs file send linux-hub ./app.tar.gz --wait
+bs file send linux-hub ./app.tar.gz /tmp/app.tar.gz --wait   # scp-style dest
 bs shell win-desktop --cmd 'hostname'  # → WIN-…
 bs cua capture mac-desktop -o screen.png  # → screenshot from macOS peer
 ```
@@ -288,7 +289,7 @@ BridgeSessions ships multi-harness agent instructions:
 | Windows x86_64 | `bridgesessions-windows-x86_64.exe` |
 | macOS arm64 | `bridgesessions-macos-arm64` |
 
-Current release: **`26.08.12-beta3`** on [GitHub Releases](https://github.com/MindDragonLabs/BridgeSessions/releases).
+Current release: **`26.08.12-beta4`** on [GitHub Releases](https://github.com/MindDragonLabs/BridgeSessions/releases).
 
 ```bash
 # Verify checksums

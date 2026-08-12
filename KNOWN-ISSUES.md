@@ -12,7 +12,7 @@ monitoring or session management.
 ```bash
 bs peers list          # connected peers
 bs health <peer>       # data-plane health check
-bs fleet               # mesh-wide fleet table (name, addr, version, status)
+bs fleet               # mesh-wide fleet table (name, addr, version, status, cpu/mem/disk)
 bs ctl sessions        # active sessions on local daemon
 bs ctl peers           # live peer connectivity
 ```

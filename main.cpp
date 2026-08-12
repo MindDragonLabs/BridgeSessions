@@ -209,15 +209,45 @@ int cmd_doctor(const std::string& config_path, const std::string& app_home) {
         else warn(std::string("dir ") + name, p.string());
     }
 
-#ifndef _WIN32
-    fs::path unit = fs::path(resolve_home("~/.config/systemd/user")) / "bridgesessions.service";
-    if (fs::exists(unit) && fs::is_regular_file(unit)) pass("systemd unit", unit.string());
-    else warn("systemd unit", unit.string());
+#if defined(__APPLE__)
+    {
+        fs::path plist = fs::path(resolve_home("~/Library/LaunchAgents")) /
+                         "com.bridgesessions.mesh.plist";
+        if (fs::exists(plist) && fs::is_regular_file(plist))
+            pass("launchd agent", plist.string());
+        else
+            warn("launchd agent", plist.string() + " (missing — mesh may not auto-start)");
+        // Loaded?
+        int lc = std::system("launchctl print gui/$(id -u)/com.bridgesessions.mesh >/dev/null 2>&1");
+        if (lc == 0) pass("launchd loaded", "com.bridgesessions.mesh");
+        else warn("launchd loaded", "com.bridgesessions.mesh not loaded");
+    }
+#elif defined(_WIN32)
+    // Optional: scheduled task presence is environment-specific — skip hard fail.
+    warn("windows service", "check Task Scheduler / service for bridgesessions mesh");
+#else
+    {
+        fs::path unit = fs::path(resolve_home("~/.config/systemd/user")) /
+                        "bridgesessions.service";
+        if (fs::exists(unit) && fs::is_regular_file(unit))
+            pass("systemd unit", unit.string());
+        else
+            warn("systemd unit", unit.string());
+    }
 #endif
 
     std::string ipc = daemon_simple_ipc("HEALTH __doctor_nonexistent__", 1500, app_home);
     if (!ipc.empty()) pass("daemon IPC", "port 19980 answered");
     else warn("daemon IPC", "port 19980 did not answer");
+
+    // CUA helper (user-session input/capture)
+    {
+        std::string home = app_home.empty() ? resolve_home("~/.bridgesessions") : app_home;
+        if (bs::mesh::cua_helper_reachable(home))
+            pass("cua helper", "reachable");
+        else
+            warn("cua helper", "not running (bs cua needs --cua-helper in user session)");
+    }
 
     // ── Display self-check (2.0.8 P2) ──────────────────────────────────
     {
@@ -383,7 +413,9 @@ int main(int argc, char** argv) {
 
     // fleet
     bool fleet_json = false;
-    auto* fleet_cmd_app = app.add_subcommand("fleet", "Show live fleet directory with peer names, addresses, versions, and status");
+    auto* fleet_cmd_app = app.add_subcommand(
+        "fleet", "Show live fleet directory (name, addr, version, status, cpu/mem/disk)");
+    fleet_cmd_app->add_flag("--json", fleet_json, "Output raw JSON from daemon");
 
     // upgrade
     bool upgrade_all = false;
@@ -400,11 +432,17 @@ int main(int argc, char** argv) {
     // file
     auto* file_cmd = app.add_subcommand("file", "File transfer operations");
     file_cmd->require_subcommand(1);
-    std::string file_send_peer, file_send_path;
+    std::string file_send_peer, file_send_path, file_send_dest;
     bool file_send_wait = false;
-    auto* file_send_app = file_cmd->add_subcommand("send", "Send file to a peer's receive directory");
+    auto* file_send_app = file_cmd->add_subcommand(
+        "send", "Send file to a peer (optional remote dest — scp-style)");
     file_send_app->add_option("peer", file_send_peer, "Peer name")->required();
     file_send_app->add_option("local", file_send_path, "Local file path")->required();
+    file_send_app->add_option("remote", file_send_dest,
+                              "Optional remote destination path (scp-style). "
+                              "Absolute, ~/…, or relative under receive_dir");
+    file_send_app->add_option("--dest", file_send_dest,
+                              "Remote destination path (alias of positional remote)");
     file_send_app->add_flag("--wait", file_send_wait, "Block until the peer acknowledges transfer completion");
     std::string file_recv_peer, file_recv_remote, file_recv_local, file_recv_to;
     bool file_recv_wait = false;
@@ -674,13 +712,71 @@ int main(int argc, char** argv) {
     }
     if (peers_list->parsed()) {
         bs::mesh::MeshConfig cfg = bs::mesh::load_config(config_path);
-        // Show known peers from config
-        std::cout << "=== Known peers ===\n";
-        for (auto& p : cfg.seeds) std::cout << "  [seed] " << p.name << " " << p.addr << std::endl;
-        for (auto& p : cfg.discovered) std::cout << "  [discovered] " << p.name << " " << p.addr << std::endl;
-        // Show live connection status if daemon is running
-        bs::mesh::MeshController mc(cfg, home_dir);
-        mc.show_peers_detail();
+        // Prefer live fleet snapshot (status + metrics flag) when daemon is up.
+        std::string fleet_ipc = daemon_simple_ipc("FLEET", 3000, home_dir);
+        if (!fleet_ipc.empty() && fleet_ipc.rfind("ERROR", 0) != 0) {
+            try {
+                auto j = nlohmann::json::parse(fleet_ipc);
+                struct Row { std::string name, kind, addr, status, ver; };
+                std::vector<Row> rows;
+                std::unordered_set<std::string> seen;
+                auto lower = [](std::string s) {
+                    for (char& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+                    return s;
+                };
+                for (auto& [key, val] : j.items()) {
+                    Row r;
+                    r.name = key;
+                    r.addr = val.value("addr", "");
+                    r.status = val.value("status", "");
+                    r.ver = val.value("version", "");
+                    if (r.ver.empty()) r.ver = "-";
+                    r.kind = (r.status == "self") ? "self" : "seed";
+                    for (auto& s : cfg.seeds)
+                        if (bs::mesh::config_peer_name_eq(s.name, key)) { r.kind = "seed"; break; }
+                    for (auto& d : cfg.discovered)
+                        if (bs::mesh::config_peer_name_eq(d.name, key) && r.kind != "self")
+                            r.kind = "disc";
+                    rows.push_back(r);
+                    seen.insert(lower(key));
+                }
+                for (auto& s : cfg.seeds) {
+                    if (seen.count(lower(s.name))) continue;
+                    rows.push_back({s.name, "seed", s.addr, "offline", "-"});
+                }
+                std::sort(rows.begin(), rows.end(),
+                          [](const Row& a, const Row& b) { return a.name < b.name; });
+                size_t wn = 4, wk = 4, wa = 7, ws = 6, wv = 7;
+                for (auto& r : rows) {
+                    wn = std::max(wn, r.name.size());
+                    wk = std::max(wk, r.kind.size());
+                    wa = std::max(wa, r.addr.size());
+                    ws = std::max(ws, r.status.size());
+                    wv = std::max(wv, r.ver.size());
+                }
+                auto pad = [](const std::string& s, size_t w) {
+                    return s.size() >= w ? s : s + std::string(w - s.size(), ' ');
+                };
+                std::cout << pad("NAME", wn) << "  " << pad("KIND", wk) << "  "
+                          << pad("ADDRESS", wa) << "  " << pad("STATUS", ws) << "  "
+                          << pad("VERSION", wv) << "\n";
+                std::cout << std::string(wn + wk + wa + ws + wv + 8, '-') << "\n";
+                for (auto& r : rows) {
+                    std::cout << pad(r.name, wn) << "  " << pad(r.kind, wk) << "  "
+                              << pad(r.addr, wa) << "  " << pad(r.status, ws) << "  "
+                              << pad(r.ver, wv) << "\n";
+                }
+                std::cout << rows.size() << " peer(s)  ·  see also: bs fleet\n";
+                return 0;
+            } catch (...) {
+                // fall through to config dump
+            }
+        }
+        std::cout << "=== Known peers (daemon offline — config only) ===\n";
+        for (auto& p : cfg.seeds)
+            std::cout << "  [seed] " << p.name << " " << p.addr << "\n";
+        for (auto& p : cfg.discovered)
+            std::cout << "  [discovered] " << p.name << " " << p.addr << "\n";
         return 0;
     }
     if (peers_add->parsed()) {
@@ -1006,29 +1102,136 @@ int main(int argc, char** argv) {
             std::cerr << "fleet: daemon not running or returned error\n";
             return 1;
         }
+        if (fleet_json) {
+            std::cout << ipc;
+            if (ipc.empty() || ipc.back() != '\n') std::cout << "\n";
+            return 0;
+        }
         try {
             auto j = nlohmann::json::parse(ipc);
-            // Markdown table output
-            std::cout << "| Name | Address | Version | Status | Uptime |\n";
-            std::cout << "|------|---------|---------|--------|--------|\n";
+            auto fmt_pct = [](const nlohmann::json& v, const char* key) -> std::string {
+                if (!v.contains(key) || v[key].is_null()) return "-";
+                try {
+                    double d = v[key].get<double>();
+                    char buf[16];
+                    std::snprintf(buf, sizeof(buf), "%.0f%%", d);
+                    return buf;
+                } catch (...) { return "-"; }
+            };
+            auto fmt_load = [](const nlohmann::json& v) -> std::string {
+                // Only show load when peer/self reported real host metrics.
+                // Bare load1 without metrics is treated as unknown (never print 0.0 lies).
+                bool has_metrics = v.value("metrics", false);
+                if (!has_metrics && !v.contains("os")) return "-";
+                if (!v.contains("load1") || v["load1"].is_null()) return "-";
+                try {
+                    double d = v["load1"].get<double>();
+                    char buf[16];
+                    std::snprintf(buf, sizeof(buf), "%.1f", d);
+                    return buf;
+                } catch (...) { return "-"; }
+            };
+            auto fmt_uptime = [](const nlohmann::json& v, const std::string& status) -> std::string {
+                if (status == "self" || status == "offline" || !v.contains("uptime_s")) return "-";
+                uint64_t s = v.value("uptime_s", 0ULL);
+                if (s >= 86400) return std::to_string(s / 86400) + "d";
+                if (s >= 3600) return std::to_string(s / 3600) + "h";
+                if (s >= 60) return std::to_string(s / 60) + "m";
+                return std::to_string(s) + "s";
+            };
+            // Sort: self, healthy, no-pong, offline — then name within group.
+            auto status_rank = [](const std::string& s) -> int {
+                if (s == "self") return 0;
+                if (s == "healthy") return 1;
+                if (s == "no-pong") return 2;
+                if (s == "offline") return 3;
+                return 4;
+            };
+            struct Row {
+                std::string name, addr, ver, status, up, cpu, mem, disk, load, os, cua;
+                bool metrics = false;
+            };
+            std::vector<Row> rows;
+            int n_connected = 0, n_offline = 0, n_metrics = 0;
             for (auto& [key, val] : j.items()) {
-                std::string name = key;
-                std::string addr = val.value("addr", "");
-                std::string version = val.value("version", "");
-                std::string status = val.value("status", "");
-                std::string uptime;
-                if (val.contains("uptime_s") && status != "self") {
-                    uint64_t s = val.value("uptime_s", 0ULL);
-                    if (s >= 86400) uptime = std::to_string(s / 86400) + "d";
-                    else if (s >= 3600) uptime = std::to_string(s / 3600) + "h";
-                    else if (s >= 60) uptime = std::to_string(s / 60) + "m";
-                    else uptime = std::to_string(s) + "s";
-                }
-                std::cout << "| " << name << " | " << addr << " | " << version
-                          << " | " << status << " | " << uptime << " |\n";
+                Row r;
+                r.name = key;
+                r.addr = val.value("addr", "");
+                r.ver = val.value("version", "");
+                if (r.ver.empty()) r.ver = "-";
+                r.status = val.value("status", "");
+                r.up = fmt_uptime(val, r.status);
+                r.metrics = val.value("metrics", false) ||
+                            (val.contains("os") && !val.value("os", std::string{}).empty());
+                r.cpu = r.metrics ? fmt_pct(val, "cpu_pct") : "-";
+                r.mem = r.metrics ? fmt_pct(val, "mem_pct") : "-";
+                r.disk = r.metrics ? fmt_pct(val, "disk_pct") : "-";
+                r.load = fmt_load(val);
+                r.os = val.value("os", "");
+                if (r.os.empty()) r.os = "-";
+                if (r.metrics && val.contains("cua"))
+                    r.cua = val.value("cua", false) ? "ok" : "-";
+                else
+                    r.cua = "-";
+                if (r.status == "offline") ++n_offline;
+                else if (r.status != "self") ++n_connected;
+                if (r.metrics) ++n_metrics;
+                rows.push_back(std::move(r));
             }
+            std::sort(rows.begin(), rows.end(),
+                      [&](const Row& a, const Row& b) {
+                          int ra = status_rank(a.status), rb = status_rank(b.status);
+                          if (ra != rb) return ra < rb;
+                          return a.name < b.name;
+                      });
+            // Fixed-width aligned table (no markdown pipes).
+            size_t w_name = 4, w_addr = 7, w_ver = 7, w_st = 6, w_up = 2,
+                   w_cpu = 3, w_mem = 3, w_disk = 4, w_load = 4, w_os = 2, w_cua = 3;
+            for (const auto& r : rows) {
+                w_name = std::max(w_name, r.name.size());
+                w_addr = std::max(w_addr, r.addr.size());
+                w_ver = std::max(w_ver, r.ver.size());
+                w_st = std::max(w_st, r.status.size());
+                w_up = std::max(w_up, r.up.size());
+                w_cpu = std::max(w_cpu, r.cpu.size());
+                w_mem = std::max(w_mem, r.mem.size());
+                w_disk = std::max(w_disk, r.disk.size());
+                w_load = std::max(w_load, r.load.size());
+                w_os = std::max(w_os, r.os.size());
+                w_cua = std::max(w_cua, r.cua.size());
+            }
+            auto pad = [](const std::string& s, size_t w) {
+                if (s.size() >= w) return s;
+                return s + std::string(w - s.size(), ' ');
+            };
+            auto rpad = [](const std::string& s, size_t w) {
+                if (s.size() >= w) return s;
+                return std::string(w - s.size(), ' ') + s;
+            };
+            std::cout << pad("NAME", w_name) << "  " << pad("ADDRESS", w_addr) << "  "
+                      << pad("VERSION", w_ver) << "  " << pad("STATUS", w_st) << "  "
+                      << rpad("UP", w_up) << "  " << rpad("CPU", w_cpu) << "  "
+                      << rpad("MEM", w_mem) << "  " << rpad("DISK", w_disk) << "  "
+                      << rpad("LOAD", w_load) << "  " << pad("OS", w_os) << "  "
+                      << pad("CUA", w_cua) << "\n";
+            size_t total = w_name + w_addr + w_ver + w_st + w_up + w_cpu + w_mem +
+                           w_disk + w_load + w_os + w_cua + 2 * 10;
+            std::cout << std::string(total, '-') << "\n";
+            for (const auto& r : rows) {
+                std::cout << pad(r.name, w_name) << "  " << pad(r.addr, w_addr) << "  "
+                          << pad(r.ver, w_ver) << "  " << pad(r.status, w_st) << "  "
+                          << rpad(r.up, w_up) << "  " << rpad(r.cpu, w_cpu) << "  "
+                          << rpad(r.mem, w_mem) << "  " << rpad(r.disk, w_disk) << "  "
+                          << rpad(r.load, w_load) << "  " << pad(r.os, w_os) << "  "
+                          << pad(r.cua, w_cua) << "\n";
+            }
+            // Summary line: connected vs offline, how many report host metrics.
+            int n_live_for_metrics = n_connected + 1; // + self
+            std::cout << rows.size() << " listed  ·  " << n_connected << " connected  ·  "
+                      << n_offline << " offline  ·  host metrics "
+                      << n_metrics << "/" << n_live_for_metrics << "\n";
         } catch (...) {
-            std::cerr << "fleet: failed to parse JSON\\n";
+            std::cerr << "fleet: failed to parse JSON\n";
             return 1;
         }
         return 0;
@@ -1419,7 +1622,8 @@ int main(int argc, char** argv) {
         bs::mesh::MeshConfig cfg = bs::mesh::load_config(config_path);
         bs::mesh::bootstrap_identity(home_dir);
         bs::mesh::MeshController mc(cfg, home_dir);
-        std::string result = mc.file_send(file_send_peer, file_send_path, file_send_wait);
+        std::string result = mc.file_send(file_send_peer, file_send_path, file_send_wait,
+                                          file_send_dest);
         std::cout << result << "\n";
         return result.rfind("ERROR", 0) == 0 ? 1 : 0;
     }

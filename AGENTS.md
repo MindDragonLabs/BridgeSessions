@@ -6,7 +6,7 @@ Task-specific procedures: **`skills/bridgesessions/SKILL.md`** (Agent Skills ope
 ## Product
 
 Mesh terminal + file relay. One C++23 binary (`bridgesessions` / `bs`). Shipping source: `main.cpp` + `bs-protocol.h` + `bs-session.h`; macOS capture backend: `macos-capture.mm`; Windows/macOS CUA helper: `bs-cua-helper.h`.
-Shipping release: **v26.08.12-beta3**. Probe live `--version`.
+Shipping release: **v26.08.12-beta4**. Probe live `--version`.
 
 ## Agent rules
 
@@ -14,7 +14,8 @@ Shipping release: **v26.08.12-beta3**. Probe live `--version`.
 2. Stack remote commands in **one** shell (`&&` / PowerShell `;`) — not N separate `bs shell` calls.
 3. Windows peers: **Windows** commands only. No Linux-default `tar`/apt/`/tmp`. MinGW ≠ Linux.
 4. Use the configured peer name and pinned key; never encode private fleet names or addresses in public instructions.
-5. File transfers: `bs file send|recv … --wait`; parse `PROGRESS …` lines; do not assume 120s timeout (fixed in 2.0.4). Pipelined since 2.0.20-alpha9 (8-chunk batching). `file recv` and `capture-video` use direct TLS to the target peer.
+5. File transfers: `bs file send <peer> <local> [<remote>|--dest <remote>] --wait` (scp-style remote dest); `bs file recv … --wait`. Parse `PROGRESS …` lines; do not assume 120s timeout (fixed in 2.0.4). Pipelined since 2.0.20-alpha9 (8-chunk batching). `file recv` and `capture-video` use direct TLS to the target peer.
+5b. Fleet: `bs fleet` shows name/addr/version/status/uptime plus **cpu/mem/disk/load/os** (peer metrics after gossip; use `bs fleet --json` for full fields).
 6. PowerShell: protect `$_` from bash (`'…'` or `\$_`); v2.0.2+ skips broken cmd wrapping for powershell.exe.
 7. Do not claim "production-secure SSH replacement" (public beta posture; see SECURITY.md / AUDIT).
 8. No secrets in git or chat. English-only operator-facing text unless the user asks otherwise.

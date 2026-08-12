@@ -243,6 +243,23 @@ TEST_CASE("v3 mesh: ServerInfoMsg sessions_summary_json survives encode/decode",
     REQUIRE(m2.version == m.version);
     REQUIRE(m2.load == m.load);
     REQUIRE(m2.sessions_summary_json == m.sessions_summary_json);
+    REQUIRE(m2.host_stats_json.empty());
+}
+
+TEST_CASE("ServerInfoMsg host_stats_json wire round-trip", "[v3][mesh][gossip][codec][fleet]") {
+    ServerInfoMsg m;
+    m.hostname = "node-b";
+    m.version = "26.08.12-beta3";
+    m.load = 1.25;
+    m.sessions_summary_json = "[]";
+    m.host_stats_json = R"({"cpu":12.0,"mem":55.0,"disk":70.0,"load":1.3,"os":"linux","arch":"x86_64","ncpu":8,"mem_mb":16384,"disk_gb":500})";
+    auto wire = encode(Message{m}, CONTROL_STREAM_ID);
+    auto decoded = decode(wire);
+    REQUIRE(std::holds_alternative<ServerInfoMsg>(decoded));
+    auto& m2 = std::get<ServerInfoMsg>(decoded);
+    REQUIRE(m2.host_stats_json == m.host_stats_json);
+    REQUIRE(m2.sessions_summary_json == "[]");
+    REQUIRE(m2.load == m.load);
 }
 
 TEST_CASE("v3 mesh: ServerInfoMsg without trailing summary decodes tolerantly (legacy peer)", "[v3][mesh][gossip][codec]") {

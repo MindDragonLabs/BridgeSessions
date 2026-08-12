@@ -502,6 +502,49 @@ TEST_CASE("authoritative seed pin overrides stale discovered key after rotation"
         cfg, "old-key", "old-key", "peer-a").ok);
 }
 
+TEST_CASE("collect_host_stats returns platform metrics", "[config][fleet][host]") {
+    auto a = collect_host_stats();
+    REQUIRE_FALSE(a.os.empty());
+    REQUIRE_FALSE(a.arch.empty());
+    REQUIRE(a.ncpu > 0);
+    // Mem/disk should be readable on developer machines.
+    REQUIRE(a.mem_total_mb > 0);
+    REQUIRE(a.mem_pct >= 0.0);
+    REQUIRE(a.disk_total_gb > 0);
+    REQUIRE(a.disk_pct >= 0.0);
+    // CPU is a tick delta — first sample is often -1; after a short pause
+    // the second sample should land in range when the host advanced ticks.
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    auto b = collect_host_stats();
+    if (b.cpu_pct >= 0.0) {
+        REQUIRE(b.cpu_pct <= 100.0);
+    }
+    auto js = host_stats_to_json(b);
+    REQUIRE(js.front() == '{');
+    REQUIRE(js.back() == '}');
+    REQUIRE(js.find("\"os\"") != std::string::npos);
+    REQUIRE(MeshController::host_stats_json_shape_ok(js));
+    REQUIRE_FALSE(MeshController::host_stats_json_shape_ok("[]"));
+    REQUIRE_FALSE(MeshController::host_stats_json_shape_ok("{\"a\":1}{\"b\":2}"));
+}
+
+TEST_CASE("resolve_file_send_dest supports scp-style paths", "[config][file][security]") {
+    const std::string recv = expand_home("~/.bridgesessions/received");
+    // Relative → under receive_dir
+    auto rel = resolve_file_send_dest("subdir/foo.txt", recv);
+    REQUIRE(rel.has_value());
+    REQUIRE(rel->find("received") != std::string::npos);
+    REQUIRE(rel->find("foo.txt") != std::string::npos);
+    // Reject traversal
+    REQUIRE_FALSE(resolve_file_send_dest("../etc/passwd", recv).has_value());
+    REQUIRE_FALSE(resolve_file_send_dest("a/../../etc/passwd", recv).has_value());
+    // ~ expansion under home is allowed
+    auto home = resolve_file_send_dest("~/.local/bin/bridgesessions", recv);
+    REQUIRE(home.has_value());
+    // Absolute outside allowed roots is rejected
+    REQUIRE_FALSE(resolve_file_send_dest("/etc/passwd", recv).has_value());
+}
+
 TEST_CASE("sanitize_transfer_filename rejects traversal and device names",
           "[config][security][p0]") {
     REQUIRE(sanitize_transfer_filename("ok.txt").value() == "ok.txt");
