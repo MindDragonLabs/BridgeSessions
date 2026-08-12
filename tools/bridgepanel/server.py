@@ -8,11 +8,20 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import parse_qs, urlparse
 
-from .api import build_tree, query_mesh_tree, query_providers, query_fleet, query_registry, query_events, query_scrollback, daemon_create_session, daemon_connect_session
+from .api import build_tree, query_mesh_tree, query_providers, query_fleet, query_registry, query_events, query_scrollback, daemon_create_session, daemon_connect_session, query_remote_session_info, query_remote_scrollback, remote_file_recv, remote_file_send
 from .consts import MAX_UPLOAD, VERSION, APP
 from .files import (markdown_to_html, resolve_file, safe_name,
                     safe_session_name, safe_type, sessions_dir)
 from .panel_html import FAVICON_SVG, INDEX_HTML
+
+
+def mesh_node_name() -> str:
+    """Return the local mesh node name from MESH_TREE (best-effort)."""
+    try:
+        tree = query_mesh_tree()
+        return tree.get("node", "")
+    except Exception:
+        return ""
 
 
 class BridgePanelHandler(BaseHTTPRequestHandler):
@@ -115,6 +124,7 @@ class BridgePanelHandler(BaseHTTPRequestHandler):
             self.send_json(query_events(limit))
         elif path == "/api/output":
             session = params.get("session", [""])[0]
+            machine = params.get("machine", [""])[0]
             try:
                 since = int(params.get("since", ["0"])[0])
             except ValueError:
@@ -122,7 +132,12 @@ class BridgePanelHandler(BaseHTTPRequestHandler):
             if not session:
                 self.reject(HTTPStatus.BAD_REQUEST, "session required")
                 return
-            self.send_json(query_scrollback(session, since))
+            # Route: if machine is specified and it's not the local node,
+            # query remote session info
+            if machine and machine not in ("", "(local)", mesh_node_name()):
+                self.send_json(query_remote_scrollback(machine, session))
+            else:
+                self.send_json(query_scrollback(session, since))
         elif path == "/api/content":
             session = params.get("session", [""])[0]
             dtype = params.get("type", ["documents"])[0]
@@ -150,6 +165,13 @@ class BridgePanelHandler(BaseHTTPRequestHandler):
             peer = machine or "(peer)"
             cmd = daemon_connect_session(peer, session)
             self.send_json({"cmd": cmd, "machine": peer, "session": session})
+        elif path == "/api/remote-file":
+            machine = params.get("machine", [""])[0]
+            remote_path = params.get("path", [""])[0]
+            if not machine or not remote_path:
+                self.reject(HTTPStatus.BAD_REQUEST, "machine and path required")
+                return
+            self.send_json(remote_file_recv(machine, remote_path))
         else:
             self.reject(HTTPStatus.NOT_FOUND, "Not found")
 
@@ -233,6 +255,38 @@ class BridgePanelHandler(BaseHTTPRequestHandler):
                 return
 
             result = daemon_create_session(machine, name, command, cols, rows)
+            self.send_json(result)
+            return
+
+        if path == "/api/upload":
+            try:
+                length = int(self.headers.get("Content-Length", "0") or 0)
+            except ValueError:
+                self.reject(HTTPStatus.BAD_REQUEST, "Invalid Content-Length")
+                return
+            if length < 0 or length > MAX_UPLOAD:
+                self.reject(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, "Content too large")
+                return
+            try:
+                raw_body = self.rfile.read(length) if length else b"{}"
+                body = json.loads(raw_body)
+            except (ValueError, json.JSONDecodeError, OSError):
+                self.reject(HTTPStatus.BAD_REQUEST, "Invalid JSON")
+                return
+
+            machine = body.get("machine", "")
+            remote_path = body.get("path", "")
+            content = body.get("content", "")
+
+            if not machine or not remote_path:
+                self.reject(HTTPStatus.BAD_REQUEST, "Missing machine or path")
+                return
+
+            if len(content.encode("utf-8")) > MAX_UPLOAD:
+                self.reject(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, "Content too large")
+                return
+
+            result = remote_file_send(machine, remote_path, content)
             self.send_json(result)
             return
 

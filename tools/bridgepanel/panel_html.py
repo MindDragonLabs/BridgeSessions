@@ -590,6 +590,42 @@ main { min-width: 0; min-height: 0; display: flex; flex-direction: column; overf
 .check-label input[type=checkbox] { width: auto; accent-color: var(--accent); }
 .modal-box .hint { margin-top: 10px; font-size: 11px; color: var(--text-4); }
 
+/* ── Remote Files ── */
+.remote-files-section { padding: 20px; max-width: 800px; }
+.rf-card {
+  border: 1px solid var(--border-2); border-radius: 8px;
+  padding: 16px; margin-bottom: 16px; background: var(--bg);
+}
+.rf-card-title { font-size: 14px; font-weight: 600; color: var(--text); margin-bottom: 10px; }
+.rf-row { display: flex; gap: 8px; }
+.rf-input {
+  flex: 1; padding: 8px 10px; border: 1px solid var(--border-2);
+  border-radius: 6px; font-size: 14px; font-family: var(--mono);
+  background: var(--bg); outline: none;
+}
+.rf-input:focus { border-color: var(--accent); }
+.rf-textarea {
+  width: 100%; min-height: 120px; padding: 10px; margin-top: 8px;
+  border: 1px solid var(--border-2); border-radius: 6px;
+  font-family: var(--mono); font-size: 13px; resize: vertical;
+  background: var(--bg); outline: none; white-space: pre-wrap;
+}
+.rf-textarea:focus { border-color: var(--accent); }
+.rf-btn {
+  padding: 8px 16px; border: 1px solid var(--border-2); border-radius: 6px;
+  font-size: 13px; font-weight: 500; cursor: pointer; background: var(--bg);
+  white-space: nowrap;
+}
+.rf-btn.primary { background: var(--text); color: var(--bg); border-color: var(--text); }
+.rf-btn:disabled { opacity: 0.5; cursor: default; }
+.rf-hint { font-size: 12px; color: var(--text-4); margin-top: 8px; }
+.rf-result { margin-top: 16px; }
+.rf-loading { padding: 20px; text-align: center; color: var(--text-3); font-size: 14px; }
+.rf-error { padding: 12px; color: #b3261e; font-size: 13px; background: rgba(179,38,30,0.05); border-radius: 6px; }
+.rf-file-header { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--divider); margin-bottom: 12px; }
+.rf-file-header strong { font-size: 14px; color: var(--text); }
+.rf-size { font-family: var(--mono); font-size: 12px; color: var(--text-4); }
+
 /* ── Toast ── */
 #toast {
   position: fixed;
@@ -627,6 +663,7 @@ main { min-width: 0; min-height: 0; display: flex; flex-direction: column; overf
       <button data-tab="output" class="active">Output</button>
       <button data-tab="comms">Comms</button>
       <button data-tab="docs">Docs</button>
+      <button data-tab="files">Files</button>
     </div>
     <div class="toolbar" id="toolbar" style="display:none">
       <div class="btn-group">
@@ -644,6 +681,7 @@ main { min-width: 0; min-height: 0; display: flex; flex-direction: column; overf
         <div id="filelist"></div>
         <div id="content"><div class="empty-state">Select a file</div></div>
       </div>
+      <div id="remoteFilesPane" style="display:none"></div>
       <div class="empty-state" id="welcomePane">
         <div>Select a machine, then a session.</div>
         <div class="hint">machines → sessions → output / comms / docs</div>
@@ -695,6 +733,7 @@ main { min-width: 0; min-height: 0; display: flex; flex-direction: column; overf
   const toolbarEl = document.getElementById('toolbar');
   const outputPane = document.getElementById('outputPane');
   const filePane = document.getElementById('filePane');
+  const remoteFilesPane = document.getElementById('remoteFilesPane');
   const welcomePane = document.getElementById('welcomePane');
   const filelistEl = document.getElementById('filelist');
   const contentEl = document.getElementById('content');
@@ -901,11 +940,14 @@ main { min-width: 0; min-height: 0; display: flex; flex-direction: column; overf
     const isLocal = !machineName || machineName === mesh.node ||
                     machineName === '(local)' || machineName === '';
     const HARNESS_KEYS = /hermes|claude|codex|kimi|commandcode|opencode|cursor/i;
-    const out = live.map(s => ({
-      name: s.name, state: s.state || '', command: s.command || '',
-      bytes: s.bytes || 0, live: true,
-      harness: HARNESS_KEYS.test(s.command || s.name || '')
-    }));
+    const EPHEMERAL = /^cmd-\d+-\d+$|^run-script-[0-9a-f]+$|^health-bs-health-/;
+    const out = live
+      .filter(s => !EPHEMERAL.test(s.name))
+      .map(s => ({
+        name: s.name, state: s.state || '', command: s.command || '',
+        bytes: s.bytes || 0, live: s.state !== 'died' && s.state !== 'exited',
+        harness: HARNESS_KEYS.test(s.command || s.name || '')
+      }));
     if (isLocal) {
       const liveNames = new Set(out.map(s => s.name));
       for (const fs of (fsTree.sessions || [])) {
@@ -989,17 +1031,23 @@ main { min-width: 0; min-height: 0; display: flex; flex-direction: column; overf
     renderBreadcrumb();
     updateTools();
     var has = !!selSession;
-    tabbarEl.style.display = has || !selSession ? '' : 'none';
+    var isFiles = tab === 'files';
+    var hasMachine = !!selMachine;
+    tabbarEl.style.display = has || hasMachine || !selSession ? '' : 'none';
     toolbarEl.style.display = has ? '' : 'none';
-    welcomePane.style.display = has ? 'none' : '';
+    welcomePane.style.display = has || (hasMachine && isFiles) ? 'none' : '';
     outputPane.style.display = (has && tab === 'output') ? '' : 'none';
     filePane.style.display = (has && (tab === 'comms' || tab === 'docs')) ? 'flex' : 'none';
+    remoteFilesPane.style.display = (hasMachine && isFiles) ? '' : 'none';
 
     if (outputTimer) { clearInterval(outputTimer); outputTimer = null; }
     if (has && tab === 'output') {
-      if (selSessionLive) {
+      if (selSessionLive || selMachine !== mesh.node) {
+        outputOffset = 0;
+        outputPane.textContent = '';
+        delete outputPane.dataset.errShown;
         pollOutput();
-        outputTimer = setInterval(pollOutput, 1000);
+        outputTimer = setInterval(pollOutput, 2000);
       } else {
         outputPane.textContent = 'No live output — session is not running on the mesh.\n' +
           'Stored files are under the Comms / Docs tabs.';
@@ -1008,14 +1056,19 @@ main { min-width: 0; min-height: 0; display: flex; flex-direction: column; overf
     if (has && (tab === 'comms' || tab === 'docs')) {
       renderFileList();
     }
+    if (hasMachine && isFiles) {
+      renderRemoteFiles();
+    }
   }
 
   // ── Output plane ──
   async function pollOutput() {
     if (!selSession || tab !== 'output') return;
     try {
-      const d = await api('/api/output?session=' + encodeURIComponent(selSession) +
-                          '&since=' + outputOffset);
+      var url = '/api/output?session=' + encodeURIComponent(selSession) +
+                '&since=' + outputOffset;
+      if (selMachine) url += '&machine=' + encodeURIComponent(selMachine);
+      const d = await api(url);
       if (d.error) {
         if (!outputPane.dataset.errShown) {
           outputPane.textContent = '(output unavailable: ' + d.error + ')';
@@ -1026,11 +1079,121 @@ main { min-width: 0; min-height: 0; display: flex; flex-direction: column; overf
       delete outputPane.dataset.errShown;
       if (d.reset) outputPane.textContent = '';
       if (d.text) {
-        outputPane.textContent += stripAnsi(d.text);
+        // Remote sessions return a full snapshot each time (not incremental)
+        if (d.remote) {
+          outputPane.textContent = stripAnsi(d.text);
+        } else {
+          outputPane.textContent += stripAnsi(d.text);
+        }
         if (outputFollow) outputPane.scrollTop = outputPane.scrollHeight;
       }
       if (typeof d.offset === 'number') outputOffset = d.offset;
     } catch (_) { /* keep last good frame */ }
+  }
+
+  // ── Remote Files pane ──
+  function renderRemoteFiles() {
+    if (!selMachine) {
+      remoteFilesPane.innerHTML = '<div class="empty-state">Select a machine first.</div>';
+      return;
+    }
+    var peer = selMachine || '(local)';
+    var isLocal = peer === mesh.node || peer === '(local)' || peer === '';
+    var html = '<div class="remote-files-section">';
+    html += '<h2 style="font-size:18px;color:var(--text);margin-bottom:14px">Files on ' + esc(peer) + '</h2>';
+
+    // View remote file
+    html += '<div class="rf-card">';
+    html += '<div class="rf-card-title">View a file</div>';
+    html += '<div class="rf-row">';
+    html += '<input type="text" id="rfPath" class="rf-input" placeholder="/path/to/file.md" value="">';
+    html += '<button id="rfFetch" class="rf-btn primary">View</button>';
+    html += '</div>';
+    html += '<div class="rf-hint">Enter a path on ' + esc(peer) + ' to view it here. Markdown renders automatically.</div>';
+    html += '</div>';
+
+    // Upload to remote
+    html += '<div class="rf-card">';
+    html += '<div class="rf-card-title">Upload text to ' + esc(peer) + '</div>';
+    html += '<div class="rf-row">';
+    html += '<input type="text" id="rfUploadPath" class="rf-input" placeholder="report.md (relative to received/)">';
+    html += '</div>';
+    html += '<textarea id="rfUploadContent" class="rf-textarea" placeholder="Type or paste content here..."></textarea>';
+    html += '<div class="rf-row" style="margin-top:8px">';
+    html += '<button id="rfUpload" class="rf-btn primary">Upload</button>';
+    html += '</div>';
+    html += '<div class="rf-hint">Sends via bs file send — file lands under received/ on ' + esc(peer) + '. Use a relative filename (e.g. <code>report.md</code>).</div>';
+    html += '</div>';
+
+    // Result area
+    html += '<div id="rfResult" class="rf-result"></div>';
+    html += '</div>';
+
+    remoteFilesPane.innerHTML = html;
+
+    // Bind view button
+    var fetchBtn = document.getElementById('rfFetch');
+    var pathInput = document.getElementById('rfPath');
+    var resultEl = document.getElementById('rfResult');
+    if (fetchBtn) {
+      fetchBtn.addEventListener('click', function() {
+        var p = pathInput.value.trim();
+        if (!p) return;
+        resultEl.innerHTML = '<div class="rf-loading">Fetching ' + esc(p) + ' from ' + esc(peer) + '...</div>';
+        fetch(base + '/api/remote-file?machine=' + encodeURIComponent(peer) + '&path=' + encodeURIComponent(p))
+          .then(function(r) { return r.json(); })
+          .then(function(d) {
+            if (d.ok) {
+              resultEl.innerHTML = '<div class="rf-file-header"><strong>' + esc(d.name) + '</strong>' +
+                '<span class="rf-size">' + (d.size || 0).toLocaleString() + ' bytes</span></div>';
+              resultEl.innerHTML += '<div class="doc-container">' + (d.html || '') + '</div>';
+            } else {
+              resultEl.innerHTML = '<div class="rf-error">' + esc(d.error || 'Fetch failed') + '</div>';
+            }
+          })
+          .catch(function(err) {
+            resultEl.innerHTML = '<div class="rf-error">Error: ' + esc(String(err.message || err)) + '</div>';
+          });
+      });
+      pathInput.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') fetchBtn.click();
+      });
+    }
+
+    // Bind upload button
+    var uploadBtn = document.getElementById('rfUpload');
+    var uploadPathInput = document.getElementById('rfUploadPath');
+    var uploadContentEl = document.getElementById('rfUploadContent');
+    if (uploadBtn) {
+      uploadBtn.addEventListener('click', function() {
+        var p = uploadPathInput.value.trim();
+        var c = uploadContentEl.value;
+        if (!p || !c) { toast('Path and content required', true); return; }
+        uploadBtn.disabled = true;
+        uploadBtn.textContent = 'Uploading...';
+        fetch(base + '/api/upload', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({machine: peer, path: p, content: c})
+        })
+          .then(function(r) { return r.json(); })
+          .then(function(d) {
+            uploadBtn.disabled = false;
+            uploadBtn.textContent = 'Upload';
+            if (d.ok) {
+              toast('Uploaded to ' + d.dest);
+              uploadContentEl.value = '';
+            } else {
+              toast(d.error || 'Upload failed', true);
+            }
+          })
+          .catch(function(err) {
+            uploadBtn.disabled = false;
+            uploadBtn.textContent = 'Upload';
+            toast(err.message || 'Upload failed', true);
+          });
+      });
+    }
   }
 
   followChip.addEventListener('click', () => {

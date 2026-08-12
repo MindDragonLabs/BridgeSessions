@@ -145,6 +145,204 @@ def daemon_connect_session(machine: str, session: str) -> str:
     return f"bs shell {machine} -n {session}"
 
 
+def _bs_binary() -> str:
+    """Find the bs binary."""
+    for cand in (
+        os.path.expanduser("~/.local/bin/bridgesessions"),
+        os.path.expanduser("~/bridgesessions/build/bridgesessions"),
+        os.path.expanduser("~/bridgesessions/bridgesessions"),
+    ):
+        if os.path.isfile(cand):
+            return cand
+    return "bs"
+
+
+def query_remote_session_info(machine: str, session: str) -> dict:
+    """Get session state/bytes/command from MESH_TREE gossip for a remote peer.
+
+    Returns {state, bytes, command} or empty dict if not found.
+    """
+    mesh = query_mesh_tree()
+    for peer in mesh.get("peers", []):
+        if peer.get("name") != machine:
+            continue
+        for sess in peer.get("sessions", []):
+            if sess.get("name") == session:
+                return {
+                    "state": sess.get("state", ""),
+                    "bytes": sess.get("bytes", 0),
+                    "command": sess.get("command", ""),
+                }
+    return {}
+
+
+def query_remote_scrollback(machine: str, session: str) -> dict:
+    """Peek at a remote session's scrollback via `bs shell --wait`.
+
+    This re-attaches to the named session briefly, captures available output,
+    and returns. Returns {offset, text, reset, error}.
+    """
+    import subprocess, tempfile
+
+    bs_bin = _bs_binary()
+    # Use --detach to create a peek that doesn't disrupt the session,
+    # then --wait to capture output. Actually, simplest: run a no-op command
+    # in the session to get a snapshot of scrollback.
+    # But that modifies the session. Instead, use the MESH_TREE bytes field
+    # to report activity, and give the user the connect command for full output.
+    info = query_remote_session_info(machine, session)
+    if not info:
+        return {"offset": 0, "text": "", "reset": False,
+                "error": f"session not found on {machine}"}
+
+    state = info.get("state", "")
+    nbytes = info.get("bytes", 0)
+    cmd = info.get("command", "")
+
+    # Build an informational snapshot
+    lines = [
+        f"Session: {session}",
+        f"Machine: {machine}",
+        f"State:   {state}",
+        f"Output:  {nbytes:,} bytes",
+    ]
+    if cmd:
+        # Truncate long commands (run-script base64 blobs)
+        display_cmd = cmd if len(cmd) <= 120 else cmd[:117] + "..."
+        lines.append(f"Command: {display_cmd}")
+
+    if state in ("died", "exited"):
+        lines.append("")
+        lines.append("Session has ended. Output buffer retained on remote daemon.")
+        lines.append(f"Connect to view full scrollback: bs shell {machine} -n {session}")
+    elif state in ("live", "attached"):
+        lines.append("")
+        lines.append("Session is active. Connect to interact:")
+        lines.append(f"  bs shell {machine} -n {session}")
+    else:
+        lines.append("")
+        lines.append(f"Connect: bs shell {machine} -n {session}")
+
+    return {
+        "offset": nbytes,
+        "text": "\n".join(lines),
+        "reset": False,
+        "error": "",
+        "remote": True,
+    }
+
+
+def remote_file_recv(machine: str, remote_path: str) -> dict:
+    """Fetch a file from a remote peer via `bs file recv`.
+
+    Returns {ok, raw, html, name, error}.
+    """
+    import subprocess, tempfile
+
+    bs_bin = _bs_binary()
+    tmpdir = tempfile.mkdtemp(prefix="bridgepanel-recv-")
+    local_name = os.path.basename(remote_path.rstrip("/")) or "remote-file"
+    local_path = os.path.join(tmpdir, local_name)
+
+    args = [bs_bin, "file", "recv", machine, remote_path,
+            "--to", local_path, "--wait"]
+    try:
+        result = subprocess.run(
+            args, capture_output=True, text=True, timeout=30.0,
+            env={**os.environ, "HOME": os.path.expanduser("~")},
+        )
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "error": "transfer timed out (30s)"}
+    except FileNotFoundError:
+        return {"ok": False, "error": f"bs binary not found: {bs_bin}"}
+
+    if result.returncode != 0:
+        err = result.stderr.strip() or result.stdout.strip()
+        # Extract just the error line, skip PROGRESS lines
+        for line in err.split("\n"):
+            if line.startswith("ERROR") or "error" in line.lower():
+                err = line
+                break
+        return {"ok": False, "error": err or "transfer failed"}
+
+    try:
+        raw = open(local_path, encoding="utf-8", errors="replace").read()
+    except OSError as e:
+        return {"ok": False, "error": f"cannot read fetched file: {e}"}
+
+    # Render markdown
+    suffix = os.path.splitext(local_name)[1].lower()
+    is_md = suffix in (".md", ".markdown", "")
+    # Use the local markdown renderer
+    from .files import markdown_to_html
+    import html as _html
+    html_body = markdown_to_html(raw) if is_md else (
+        f'<pre style="font-family:var(--mono);font-size:13px;white-space:pre-wrap;word-break:break-all">{_html.escape(raw)}</pre>'
+    )
+
+    # Cleanup
+    try:
+        os.unlink(local_path)
+        os.rmdir(tmpdir)
+    except OSError:
+        pass
+
+    return {
+        "ok": True,
+        "raw": raw,
+        "html": html_body,
+        "name": local_name,
+        "size": len(raw.encode("utf-8")),
+    }
+
+
+def remote_file_send(machine: str, remote_path: str, content: str) -> dict:
+    """Send a file to a remote peer via `bs file send`.
+
+    Returns {ok, error}.
+    """
+    import subprocess, tempfile
+
+    bs_bin = _bs_binary()
+    tmpdir = tempfile.mkdtemp(prefix="bridgepanel-send-")
+    local_name = os.path.basename(remote_path.rstrip("/")) or "upload.txt"
+    local_path = os.path.join(tmpdir, local_name)
+
+    try:
+        open(local_path, "w", encoding="utf-8").write(content)
+    except OSError as e:
+        return {"ok": False, "error": f"cannot write temp file: {e}"}
+
+    args = [bs_bin, "file", "send", machine, local_path,
+            "--dest", remote_path, "--wait"]
+    try:
+        result = subprocess.run(
+            args, capture_output=True, text=True, timeout=30.0,
+            env={**os.environ, "HOME": os.path.expanduser("~")},
+        )
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "error": "transfer timed out (30s)"}
+    except FileNotFoundError:
+        return {"ok": False, "error": f"bs binary not found: {bs_bin}"}
+
+    # Cleanup
+    try:
+        os.unlink(local_path)
+        os.rmdir(tmpdir)
+    except OSError:
+        pass
+
+    if result.returncode != 0:
+        err = result.stderr.strip() or result.stdout.strip()
+        for line in err.split("\n"):
+            if line.startswith("ERROR") or "error" in line.lower():
+                err = line
+                break
+        return {"ok": False, "error": err or "transfer failed"}
+
+    return {"ok": True, "dest": remote_path, "machine": machine}
+
+
 def query_scrollback(session: str, since: int) -> dict:
     """Query SCROLLBACK <session> <since>. Returns {offset, text, reset, error}."""
     raw = bs_ipc(f"SCROLLBACK {session} {int(since)}", timeout=3.0).strip()
