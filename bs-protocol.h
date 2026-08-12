@@ -13963,8 +13963,11 @@ public:
                     timeval sock_tv{0, 1000};  // 1ms poll — was 50ms (caused typing lag)
                     if (!local_stop && transport_alive &&
                         (select(0, &sock_fds, nullptr, nullptr, &sock_tv) > 0 ||
-                         SSL_pending(sc.ssl.get()) > 0))
-                        transport_alive = process_shell_response(sc.ssl.get());
+                         SSL_pending(sc.ssl.get()) > 0)) {
+                        bool session_ended = false;
+                        transport_alive = process_shell_response(sc.ssl.get(), &session_ended);
+                        if (session_ended) local_stop = true;  // exit/SessionDied ≡ double Ctrl-C
+                    }
 #else
                     fd_set read_fds;
                     FD_ZERO(&read_fds);
@@ -13986,7 +13989,9 @@ public:
                     }
                     if (!local_stop && transport_alive &&
                         ((ready > 0 && FD_ISSET((int)sc.sfd, &read_fds)) || SSL_pending(sc.ssl.get()) > 0)) {
-                        transport_alive = process_shell_response(sc.ssl.get());
+                        bool session_ended = false;
+                        transport_alive = process_shell_response(sc.ssl.get(), &session_ended);
+                        if (session_ended) local_stop = true;  // exit/SessionDied ≡ double Ctrl-C
                     }
 #endif
                     if (!local_stop && transport_alive) {
@@ -14076,15 +14081,44 @@ public:
         return true;
     }
 
-    bool process_shell_response(SSL* ssl) {
+    // Interactive shell response pump.
+    // Returns true while the transport should keep reading.
+    // Returns false on transport loss or session end.
+    // If session_ended is non-null and the remote PTY exited cleanly (SessionDied /
+    // ExitCode / server Detach after shell exit), *session_ended is set true so the
+    // client leaves the attach loop instead of auto-reconnecting — same end state
+    // as double Ctrl-C. Typing `exit` in the remote shell produces SessionDied.
+    bool process_shell_response(SSL* ssl, bool* session_ended = nullptr) {
+        if (session_ended) *session_ended = false;
         try {
             Message resp = read_frame(ssl);
-            if (std::holds_alternative<OutputMsg>(resp)) { std::cout << std::get<OutputMsg>(resp).data << std::flush; }
-            else if (std::holds_alternative<ScrollbackMsg>(resp)) { std::cout << std::get<ScrollbackMsg>(resp).data << std::flush; }
-            else if (std::holds_alternative<SessionDiedMsg>(resp)) {
-                return false; // reconnect and let the server resurrect the named PTY
+            if (std::holds_alternative<OutputMsg>(resp)) {
+                std::cout << std::get<OutputMsg>(resp).data << std::flush;
+            } else if (std::holds_alternative<ScrollbackMsg>(resp)) {
+                std::cout << std::get<ScrollbackMsg>(resp).data << std::flush;
+            } else if (std::holds_alternative<SessionDiedMsg>(resp)) {
+                // Remote shell/PTY exited (e.g. user typed `exit`). Do not
+                // resurrect — that would ignore the user's intent to leave.
+                auto& sd = std::get<SessionDiedMsg>(resp);
+                if (session_ended) *session_ended = true;
+                std::cerr << "\r\n[session ended"
+                          << " exit=" << sd.exit_code;
+                if (sd.signal_num != 0)
+                    std::cerr << " signal=" << sd.signal_num;
+                std::cerr << "] — disconnecting...\r\n";
+                return false;
+            } else if (std::holds_alternative<ExitCodeMsg>(resp)) {
+                if (session_ended) *session_ended = true;
+                std::cerr << "\r\n[session ended exit="
+                          << std::get<ExitCodeMsg>(resp).code
+                          << "] — disconnecting...\r\n";
+                return false;
             } else if (std::holds_alternative<DetachMsg>(resp)) {
-                return false; // remote detach is not a local-client exit
+                // Server-initiated detach without death — treat as leave (not
+                // silent reconnect) so the CLI returns to the prompt.
+                if (session_ended) *session_ended = true;
+                std::cerr << "\r\n[detached] — disconnecting...\r\n";
+                return false;
             } else if (std::holds_alternative<PingMsg>(resp)) {
                 write_frame(ssl, PongMsg{}, CONTROL_STREAM_ID);
             }

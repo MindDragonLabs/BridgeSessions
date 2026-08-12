@@ -13,6 +13,12 @@ All notable public releases are documented here.
 
 ## 26.08.12-beta3
 
+### Interactive shell
+- Typing `exit` (remote shell/PTY ends → SessionDied) now **leaves the attach
+  loop** the same way as double Ctrl-C, instead of auto-reconnecting into a
+  resurrected session.
+
+
 ### CUA / Windows capture
 - GDI-only helper capture (CreateDIBSection + BMP); Session 0 skips PS fallback;
   single-instance helper; token written only after exclusive listen.
