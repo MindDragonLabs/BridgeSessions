@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Provision bs-qa-ubuntu desktop guest on linux-a for automated Linux CUA/tray.
-# Run ON linux-a as user agent (libvirt group). Idempotent.
+# Provision bs-qa-ubuntu desktop guest on a Linux lab hop for automated CUA/tray.
+# Run on the libvirt host as the operator user (libvirt group). Idempotent.
 #
 # Guest: Ubuntu 24.04 cloud image + cloud-init (user agent, passwordless sudo,
 #        XFCE auto-login, openssh, xdotool, bridgesessions binary optional).

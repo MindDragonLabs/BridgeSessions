@@ -51,12 +51,12 @@ ctest --test-dir build --output-on-failure
 Cross-platform feature matrix (health, shell, file send/recv, run-script, medium transfer, optional CUA) against live peers:
 
 ```bash
-# Core matrix: Linux (linux-b,linux-a) + macOS (macos-peer) + Windows (windows-peer)
-scripts/e2e-fleet-test.sh
-scripts/e2e-fleet-test.sh --json /tmp/bs-e2e.json
-scripts/e2e-fleet-test.sh --quick linux-b          # health+shell only
-scripts/e2e-fleet-test.sh --all                  # every healthy seed
-BS_E2E_SKIP_CUA=1 scripts/e2e-fleet-test.sh      # skip CUA probes
+# Pass live peer names via args or BS_E2E_PEERS — do not hardcode a private fleet.
+scripts/e2e-fleet-test.sh --all
+scripts/e2e-fleet-test.sh --json /tmp/bs-e2e.json --all
+scripts/e2e-fleet-test.sh --quick linux-peer     # health+shell only
+BS_E2E_PEERS="linux-a,linux-b,macos-peer,windows-peer" scripts/e2e-fleet-test.sh
+BS_E2E_SKIP_CUA=1 scripts/e2e-fleet-test.sh --all
 ```
 
 Requires a working local `bs` on PATH and reachable mesh peers. Exit 0 only if all required tests pass.
@@ -64,11 +64,12 @@ Requires a working local `bs` on PATH and reachable mesh peers. Exit 0 only if a
 **Desktop / CUA / tray / menubar / installer** (L3–L4): see **`docs/E2E-FRAMEWORK.md`** and:
 
 ```bash
-python3 tests/e2e/runner.py --layers L2,L3 --json /tmp/bs-e2e.json
-# Windows Session-1 helper (Hermes or interactive user):
+BS_E2E_PEERS="linux-a,linux-b,macos-peer,windows-peer" \
+  python3 tests/e2e/runner.py --layers L2,L3 --json /tmp/bs-e2e.json
+# Windows Session-1 helper (interactive user):
 #   tests/e2e/harness/win_desktop_setup.ps1 + win_cua_fix_auth.ps1
-# Linux desktop KVM guest on linux-a: tests/e2e/harness/linux_kvm_setup.sh
-# macos-peer (no wipe): tests/e2e/harness/mac_desktop_probe.sh
+# Linux desktop KVM guest: tests/e2e/harness/linux_kvm_setup.sh
+# macOS desktop (no wipe): tests/e2e/harness/mac_desktop_probe.sh
 ```
 
 Run on **work completion**, not nightly.

@@ -22,6 +22,14 @@ TEST_CASE("upgrade tag validation rejects injection tags", "[audit][p1][upgrade]
     REQUIRE_FALSE(bs::mesh::bs_upgrade_tag_valid(""));          // empty
 }
 
+TEST_CASE("upgrade --all peer names must be shell-safe", "[audit][p1][upgrade]") {
+    REQUIRE(bs::mesh::bs_peer_name_shell_safe("linux-peer"));
+    REQUIRE(bs::mesh::bs_peer_name_shell_safe("win-host"));
+    REQUIRE_FALSE(bs::mesh::bs_peer_name_shell_safe("x;rm -rf /"));
+    REQUIRE_FALSE(bs::mesh::bs_peer_name_shell_safe("a'b"));
+    REQUIRE_FALSE(bs::mesh::bs_peer_name_shell_safe(""));
+}
+
 int main(int argc, char* argv[]) {
     return Catch::Session().run(argc, argv);
 }

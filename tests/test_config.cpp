@@ -445,10 +445,10 @@ TEST_CASE("verify_outbound_peer_identity enforces pin/cert/Hello binding",
         "abc", "abc", "fff", "", "", true);
     REQUIRE_FALSE(badhello.ok);
 
-    // Name mismatch
-    auto badname = verify_outbound_peer_identity(
-        "abc", "abc", "abc", "test-pc1", "attacker", true);
-    REQUIRE_FALSE(badname.ok);
+    // Name mismatch with matching pin: outbound rename is accepted.
+    auto rename = verify_outbound_peer_identity(
+        "abc", "abc", "abc", "test-pc1", "windows-peer-2", true);
+    REQUIRE(rename.ok);
 
     // require_pin=false allows empty pin if cert present
     auto loose = verify_outbound_peer_identity(
@@ -514,11 +514,14 @@ TEST_CASE("collect_host_stats returns platform metrics", "[config][fleet][host]"
     REQUIRE(a.disk_pct >= 0.0);
     // CPU is a tick delta — first sample is often -1; after a short pause
     // the second sample should land in range when the host advanced ticks.
-    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    std::this_thread::sleep_for(std::chrono::milliseconds(80));
     auto b = collect_host_stats();
-    if (b.cpu_pct >= 0.0) {
-        REQUIRE(b.cpu_pct <= 100.0);
-    }
+    REQUIRE(b.cpu_pct >= 0.0);
+    REQUIRE(b.cpu_pct <= 100.0);
+    // Immediate third sample must not wipe the reading (zero tick delta).
+    auto c = collect_host_stats();
+    REQUIRE(c.cpu_pct >= 0.0);
+    REQUIRE(c.cpu_pct <= 100.0);
     auto js = host_stats_to_json(b);
     REQUIRE(js.front() == '{');
     REQUIRE(js.back() == '}');
@@ -538,11 +541,31 @@ TEST_CASE("resolve_file_send_dest supports scp-style paths", "[config][file][sec
     // Reject traversal
     REQUIRE_FALSE(resolve_file_send_dest("../etc/passwd", recv).has_value());
     REQUIRE_FALSE(resolve_file_send_dest("a/../../etc/passwd", recv).has_value());
-    // ~ expansion under home is allowed
-    auto home = resolve_file_send_dest("~/.local/bin/bridgesessions", recv);
+    // Default dest is receive_dir only — home/tmp require dest_allow_home
+    REQUIRE_FALSE(resolve_file_send_dest("~/.local/bin/bridgesessions", recv).has_value());
+    auto home = resolve_file_send_dest("~/.local/bin/bridgesessions", recv, true);
     REQUIRE(home.has_value());
     // Absolute outside allowed roots is rejected
     REQUIRE_FALSE(resolve_file_send_dest("/etc/passwd", recv).has_value());
+    REQUIRE_FALSE(resolve_file_send_dest("/etc/passwd", recv, true).has_value());
+}
+
+TEST_CASE("sensitive mesh paths are denied by default", "[config][file][security]") {
+    REQUIRE(is_sensitive_mesh_path("~/.bridgesessions/id_ed25519.pem"));
+    REQUIRE(is_sensitive_mesh_path("~/.bridgesessions/authorized_keys"));
+    REQUIRE(is_sensitive_mesh_path("~/.bridgesessions/config"));
+    REQUIRE(is_sensitive_mesh_path("~/.bridgesessions/ipc-token"));
+    REQUIRE(is_sensitive_mesh_path("secret.pem"));
+    REQUIRE_FALSE(is_sensitive_mesh_path("~/.bridgesessions/received/notes.txt"));
+    REQUIRE_FALSE(is_sensitive_mesh_path("~/.bridgesessions/received/config"));
+    REQUIRE(bs_peer_name_shell_safe("linux-peer"));
+    REQUIRE(bs_peer_name_shell_safe("win-host"));
+    REQUIRE_FALSE(bs_peer_name_shell_safe("evil; reboot"));
+    REQUIRE_FALSE(bs_peer_name_shell_safe("x$(id)"));
+    REQUIRE_FALSE(bs_peer_name_shell_safe("a b"));
+    REQUIRE(const_time_token_match("deadbeef HEALTH", "deadbeef"));
+    REQUIRE_FALSE(const_time_token_match("deadbeefx HEALTH", "deadbeef"));
+    REQUIRE_FALSE(const_time_token_match("deadbeef", "deadbeef"));
 }
 
 TEST_CASE("sanitize_transfer_filename rejects traversal and device names",

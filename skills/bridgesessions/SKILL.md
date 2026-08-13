@@ -4,10 +4,10 @@ description: >-
   Operate and develop BridgeSessions (bs) mesh terminal/file relay across
   Linux, macOS, and Windows. Use when running bs shell/file/health, fleet
   deploy, PowerShell $_ quoting, large file transfer with PROGRESS lines,
-  Windows vs Linux commands, peer pin security, Codeberg publish (id_ed25519 SSH +
+  Windows vs Linux commands, peer pin security, GitHub/Codeberg publish +
   dist/), or release hardening after the 2026-07 security audit. Do NOT use for
   raw SSH/SCP when a healthy bs mesh path exists. Do NOT confuse public Codeberg
-  publish with local private-forge Forgejo.
+  publish with a private Forgejo.
 license: BUSL-1.1
 compatibility: Requires bridgesessions CLI (bs) or build from this repo; OpenSSL; optional WinRM for Windows gameplay Session-1.
 metadata:
@@ -31,7 +31,7 @@ Portable skill for **Hermes**, **OpenAI Codex**, **Claude Code**, **OpenCode**,
 - One C++ binary: mesh daemon + CLI (`bridgesessions` / `bs`).
 - Replaces ad-hoc SSH + SCP + tmux + WinRM for **agent-native** shells and files.
 - Default mesh port **19949**; CLI IPC **19980** (local).
-- **Current version: `26.08.12-beta4`** (main branch on Codeberg).
+- **Current version: `26.08.12-beta4`** (main branch on GitHub).
 - Canonical shipping source: **`bs-protocol.h` + `main.cpp` + `bs-session.h`**
   with macOS capture in `macos-capture.mm`; CUA backends in `bs-cua-helper.h`.
 - Always probe live: `bs --version` / `bridgesessions --version` (do not trust memory alone).
@@ -54,8 +54,8 @@ Portable skill for **Hermes**, **OpenAI Codex**, **Claude Code**, **OpenCode**,
 6. Credentials: never commit secrets; use env / operator vaults.
 7. **Alpha posture:** public alpha is **not** a production-secure SSH replacement.
    See `SECURITY.md` and `docs/AUDIT-2.0.5-alpha2.md`.
-8. **Public forge = Codeberg only** for this product repo. Do **not** route BridgeSessions
-   release/publish through local private-forge **Forgejo** or invent a Forgejo requirement.
+8. **Primary forge = GitHub** (`MindDragonLabs/BridgeSessions`). Codeberg is a
+   mirror. Do **not** invent a private Forgejo requirement for this product.
 9. **Binaries ship in git `dist/`** and are published by **`git push` over SSH**.
    No API token is required to make binaries downloadable.
 
@@ -125,21 +125,17 @@ All three are **portable static** (no runtime dylld/DLL deps beyond OS libs):
 On the operator host that has the **Mind-Dragon** Codeberg key:
 
 ```bash
-# Working identity: ~/.ssh/id_ed25519  (default id_ed25519 is denied for this account)
+# Use the operator deploy key configured for GitHub (and Codeberg mirror).
 export GIT_SSH_COMMAND='ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes -o BatchMode=yes'
-# Or permanent: Host codeberg.org → IdentityFile ~/.ssh/id_ed25519 in ~/.ssh/config
 
-cd /path/to/BridgeSessions   # often ~/bridgesessions
+cd /path/to/BridgeSessions
 git push origin main
 git push origin v26.08.12-beta4
 ```
 
-Probe: `ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes -T git@codeberg.org`  
-→ “Hi there, Mind-Dragon!”
-
 **Do not:**
 
-- Use local private-forge Forgejo for this public product release
+- Use a private Forgejo for this public product release
 - Block on `FORGEJO_TOKEN` / Codeberg “Releases” API for binary delivery
 - Claim binaries missing if `dist/` on the tag is already pushed (raw URLs return 200)
 
@@ -156,7 +152,7 @@ bs fleet --json                       # full metrics JSON
 bs shell <peer> --cmd '…'             # one-shot; exit code propagates
 bs file send <peer> /local/path --wait
 bs file send <peer> /local/path /remote/path --wait   # scp-style dest
-bs file send <peer> ./script.ps1 --dest 'C:/Users/user/bridgesessions/script.ps1' --wait
+bs file send <peer> ./script.ps1 --dest script.ps1 --wait   # under receive_dir
 bs file recv <peer> /remote/path --to ./out --wait
 bs run-script <peer> /local/script.sh # base64-encoded, no escaping issues
 bs cua screen <peer>                  # get remote screen dimensions
@@ -274,8 +270,8 @@ Stacked bash on `bs shell --cmd` fails the whole string on one error and is quot
 #   "job_id": "playwright-probe",
 #   "stop_on_error": false,
 #   "steps": [
-#     {"id": "find", "cmd": "cd /home/agent/workspace/casa-frontend && find . -maxdepth 2 -type f \\( -name 'playwright.config.*' -o -path './e2e/*' \\) -print"},
-#     {"id": "head", "cmd": "sed -n '1,80p' /home/agent/workspace/casa-frontend/playwright.config.ts"}
+#     {"id": "find", "cmd": "cd /path/to/app && find . -maxdepth 2 -type f \\( -name 'playwright.config.*' -o -path './e2e/*' \\) -print"},
+#     {"id": "head", "cmd": "sed -n '1,80p' /path/to/app/playwright.config.ts"}
 #   ]
 # }
 bs job run <peer> job.json
@@ -306,7 +302,7 @@ generated commands through `bs job` / `run-script`, never raw stacked `&&`.
 - If `bs health <name>` returns `Peer not found`, run `bs peers list` and prompt
   the user. Do NOT silently fall back to SSH/WinRM.
 - Peer name aliases resolve via `bs peers list`. Use canonical names from that
-  output in scripts. Common ambiguities (e.g. "shadow" → which one?) should
+  output in scripts. Common ambiguities (two peers sharing a prefix) should
   prompt the user rather than guessing.
 
 - Require a pinned public key for every seed and direct command.

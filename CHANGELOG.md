@@ -11,6 +11,25 @@ All notable public releases are documented here.
 
 ## 26.08.12-beta4
 
+### Audit harden (PII / security / reliability)
+- `file recv` refuses identity/config/token/`*.pem`/`*.key` unless the serving
+  node sets `transfer.allow_sensitive_paths true`.
+- scp `--dest` defaults to `receive_dir` only. Home/tmp dest requires
+  `file.dest_allow_home true`. Overwrite of `config` / `authorized_keys` /
+  `id_ed25519*` is refused unless sensitive paths are opted in.
+- `run-script` uses a random remote temp (`mktemp` under
+  `~/.bridgesessions/tmp`); no user basename in the remote command; does not
+  print the script body.
+- Legacy IPC `CUA_VIDEO_CAPTURE_B64` no longer captures the local host; use
+  `bs capture-video` (direct TLS).
+- `upgrade --all` allowlists peer names and POSIX-quotes them before `system()`.
+- Capture / TCC / video / job temps moved to owner-only `~/.bridgesessions/tmp`.
+- Daemon IPC token compare is constant-time. `bs join host:bad` no longer
+  throws. `FLEET` samples host stats once per query.
+- `SECURITY.md` supported version is 26.08.12-beta4.
+- Public tip hygiene: drop leftover Win DLLs / `scratch/` / `SHA256SUMS.beta3`;
+  keep private fleet names and operator key paths out of docs and e2e defaults.
+
 ### Fleet host metrics
 - `bs fleet` shows **CPU / MEM / DISK / LOAD / OS / CUA** in a fixed-width table
   (not markdown pipes). Self node samples live; peers advertise metrics via

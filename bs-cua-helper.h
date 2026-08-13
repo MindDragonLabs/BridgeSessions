@@ -60,7 +60,7 @@ extern "C" {
 
 // GDI only (no GDI+): BitBlt/StretchBlt + hand-rolled BMP. GDI+ FromHBITMAP /
 // Save AVs (0xc0000005 in gdiplus.dll) on recent Win11 builds during Session-1
-// helper capture (see RCA 2026-08-12 win11-vm1).
+// helper capture (see RCA 2026-08-12 Windows guest).
 #include <windows.h>
 #include <vector>
 #include <cstdint>
@@ -362,14 +362,13 @@ inline CuaResponseMsg cua_helper_execute(const CuaRequestMsg& req) {
             return resp;
         }
         case 6: {  // capture — ScreenCaptureKit, with screencapture(1) fallback
-            char tmp[] = "/tmp/bs-cua-helper-XXXXXX.png";
-            int fd = mkstemps(tmp, 4);
-            if (fd < 0) {
+            std::string tmp_owned = create_private_temp_file("cua", ".png");
+            if (tmp_owned.empty()) {
                 resp.status = 1;
-                resp.error = "capture failed: mkstemps failed — cannot create temp file";
+                resp.error = "capture failed: cannot create private temp file";
                 return resp;
             }
-            close(fd);
+            const char* tmp = tmp_owned.c_str();
             char err[1024] = {};
             bool got_png = bs_macos_capture_png(tmp, 0, err, sizeof(err));
             if (!got_png) {
@@ -393,15 +392,14 @@ inline CuaResponseMsg cua_helper_execute(const CuaRequestMsg& req) {
                 return resp;
             }
             // Convert PNG to JPEG, downscale to fit mesh frames (~30-50KB).
-            char jpg[] = "/tmp/bs-cua-helper-XXXXXX.jpg";
-            int jfd = mkstemps(jpg, 4);
-            if (jfd < 0) {
+            std::string jpg_owned = create_private_temp_file("cua", ".jpg");
+            if (jpg_owned.empty()) {
                 ::unlink(tmp);
                 resp.status = 1;
-                resp.error = "capture failed: mkstemps failed — cannot create JPEG temp file";
+                resp.error = "capture failed: cannot create private JPEG temp file";
                 return resp;
             }
-            close(jfd);
+            const char* jpg = jpg_owned.c_str();
             std::string cmd = "/usr/bin/sips -s format jpeg -s formatOptions 40 -Z 800 '";
             cmd += tmp; cmd += "' --out '"; cmd += jpg; cmd += "' 2>/dev/null";
             int rc = std::system(cmd.c_str());
@@ -484,10 +482,12 @@ inline int run_cua_helper(const std::string& app_home_in) {
             if (!sr_ok) {
                 // One-shot SCKit probe — only on first interactive attempt.
                 // (CGRequest alone is often silent for launchd on macOS 15+/26.)
-                std::string probe = "/tmp/.bs-tcc-probe.png";
+                std::string probe = create_private_temp_file("tcc", ".png", app_home);
                 char err[256] = {};
-                bs_macos_capture_png(probe.c_str(), 0, err, sizeof(err));
-                ::unlink(probe.c_str());
+                if (!probe.empty()) {
+                    bs_macos_capture_png(probe.c_str(), 0, err, sizeof(err));
+                    ::unlink(probe.c_str());
+                }
                 sr_ok = CGPreflightScreenCaptureAccess();
             }
         }

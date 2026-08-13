@@ -439,8 +439,8 @@ int main(int argc, char** argv) {
     file_send_app->add_option("peer", file_send_peer, "Peer name")->required();
     file_send_app->add_option("local", file_send_path, "Local file path")->required();
     file_send_app->add_option("remote", file_send_dest,
-                              "Optional remote destination path (scp-style). "
-                              "Absolute, ~/…, or relative under receive_dir");
+                              "Optional remote dest (relative under receive_dir). "
+                              "Home/tmp dest requires peer file.dest_allow_home");
     file_send_app->add_option("--dest", file_send_dest,
                               "Remote destination path (alias of positional remote)");
     file_send_app->add_flag("--wait", file_send_wait, "Block until the peer acknowledges transfer completion");
@@ -872,7 +872,19 @@ int main(int argc, char** argv) {
         auto sep = join_addr.rfind(':');
         std::string host = join_addr.substr(0, sep);
         int port = 19949;
-        if (sep != std::string::npos) port = std::stoi(join_addr.substr(sep + 1));
+        if (sep != std::string::npos) {
+            const std::string port_s = join_addr.substr(sep + 1);
+            try {
+                size_t idx = 0;
+                port = std::stoi(port_s, &idx);
+                if (idx != port_s.size() || port <= 0 || port > 65535)
+                    throw std::out_of_range("port");
+            } catch (...) {
+                std::cerr << "join: invalid address '" << join_addr
+                          << "' (expected host:port)\n";
+                return 1;
+            }
+        }
 
         // Create MeshController for TLS connect (trust established via invite token)
         bs::mesh::MeshController mc(cfg, home_dir);
@@ -1269,14 +1281,27 @@ int main(int argc, char** argv) {
                         continue;
                     }
                     if (name.empty()) continue;
+                    if (!bs::mesh::bs_peer_name_shell_safe(name)) {
+                        std::cout << "  " << name << ": skipped (unsafe peer name)\n";
+                        continue;
+                    }
                     std::cout << "  " << name << ": sending upgrade command...";
                     // Direct TLS shell (daemon IPC never relays SHELL). Remote
                     // upgrade stops the peer daemon — fire-and-forget.
                     std::string remote_cmd = "bridgesessions upgrade";
                     if (!upgrade_tag.empty()) remote_cmd += " --tag " + upgrade_tag;
+                    auto sq = [](const std::string& s) {
+                        std::string o = "'";
+                        for (char c : s) {
+                            if (c == '\'') o += "'\\''";
+                            else o += c;
+                        }
+                        o += "'";
+                        return o;
+                    };
                     std::string shell_cmd =
-                        "bridgesessions shell " + name + " --cmd '" + remote_cmd +
-                        "' >/dev/null 2>&1 &";
+                        "bridgesessions shell " + sq(name) + " --cmd " +
+                        sq(remote_cmd) + " >/dev/null 2>&1 &";
                     std::system(shell_cmd.c_str());
                     std::cout << " dispatched\n";
                 }
@@ -1329,12 +1354,11 @@ int main(int argc, char** argv) {
         std::cout << "→ Downloading " << binary_name << " from " << download_url << "\n";
         bs::log::get("upgrade")->info("downloading {} from {}", binary_name, download_url);
 
-        // Download to temp file
-        std::string tmp_path = "/tmp/bs-upgrade-" + std::to_string(getpid());
-#ifdef _WIN32
-        const char* tmp_env = std::getenv("TEMP");
-        tmp_path = std::string(tmp_env ? tmp_env : "C:\\Windows\\Temp") + "\\bs-upgrade-" + std::to_string(_getpid());
-#endif
+        std::string tmp_path = bs::mesh::create_private_temp_file("upg", "");
+        if (tmp_path.empty()) {
+            std::cerr << "upgrade: cannot create private temp file\n";
+            return 1;
+        }
 
         // Use curl to download
         std::string curl_cmd = "curl -fL -s -o '" + tmp_path + "' '" + download_url + "' 2>/dev/null";
@@ -1351,7 +1375,12 @@ int main(int argc, char** argv) {
         // Verify SHA256 against published SHA256SUMS — MANDATORY.
         // A tampered or corrupted download must never be swapped in.
         {
-            std::string sums_path = "/tmp/bs-upgrade-sums-" + std::to_string(getpid());
+            std::string sums_path = bs::mesh::create_private_temp_file("sum", "");
+            if (sums_path.empty()) {
+                std::cerr << "upgrade: cannot create SHA256SUMS temp file\n";
+                ::unlink(tmp_path.c_str());
+                return 1;
+            }
             std::string sums_cmd = "curl -fL -s -o '" + sums_path + "' '" + sums_url + "' 2>/dev/null";
             if (std::system(sums_cmd.c_str()) != 0) {
                 std::cerr << "upgrade: FAILED to download SHA256SUMS — aborting (hash verification is mandatory)\n";
@@ -1897,13 +1926,11 @@ int main(int argc, char** argv) {
 
         // Write runner to temp and run-script it
         std::string tmp_runner;
-#ifdef _WIN32
-        char tmpdir_buf[MAX_PATH];
-        GetTempPathA(MAX_PATH, tmpdir_buf);
-        tmp_runner = std::string(tmpdir_buf) + "bs-job-" + std::to_string(GetCurrentProcessId()) + ".sh";
-#else
-        tmp_runner = "/tmp/bs-job-" + std::to_string(getpid()) + ".sh";
-#endif
+        tmp_runner = bs::mesh::create_private_temp_file("job", ".sh");
+        if (tmp_runner.empty()) {
+            std::cerr << "ERROR cannot create temp job runner\n";
+            return 1;
+        }
         {
             std::ofstream of(tmp_runner, std::ios::trunc);
             if (!of) {

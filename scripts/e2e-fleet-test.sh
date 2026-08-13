@@ -5,9 +5,9 @@
 # CUA against live mesh peers on Linux / macOS / Windows.
 #
 # Usage:
-#   scripts/e2e-fleet-test.sh                         # default placeholder peers
-#   scripts/e2e-fleet-test.sh linux-b macos-peer windows-peer
-#   BS_E2E_PEERS="linux-b,linux-a" scripts/e2e-fleet-test.sh
+#   scripts/e2e-fleet-test.sh --all
+#   scripts/e2e-fleet-test.sh linux-a macos-peer windows-peer
+#   BS_E2E_PEERS="linux-a,linux-b" scripts/e2e-fleet-test.sh
 #   scripts/e2e-fleet-test.sh --all                   # every healthy seed
 #   scripts/e2e-fleet-test.sh --quick                 # health+shell only
 #   scripts/e2e-fleet-test.sh --json /tmp/e2e.json    # machine-readable summary
@@ -138,8 +138,8 @@ if [[ $ALL_PEERS -eq 1 ]]; then
     [[ -n "$_p" ]] && PEERS+=("$_p")
   done < <(discover_healthy_peers)
 elif [[ ${#PEERS[@]} -eq 0 ]]; then
-  # Placeholder multi-platform matrix (override with args or BS_E2E_PEERS)
-  PEERS=(linux-b linux-a macos-peer windows-peer)
+  echo "error: pass peer names, BS_E2E_PEERS=name,name, or --all" >&2
+  exit 2
 fi
 
 # ── workspace ───────────────────────────────────────────────────────
@@ -425,9 +425,9 @@ has_linux=0 has_mac=0 has_win=0
 linux_peer="" mac_peer="" win_peer=""
 for peer in "${PEERS[@]}"; do
   case "$peer" in
-    linux-*|linux-d|linux-c|mysql*|*linux*) has_linux=1; [[ -z "$linux_peer" ]] && linux_peer=$peer ;;
-    mac*|rana*|*mac*) has_mac=1; [[ -z "$mac_peer" ]] && mac_peer=$peer ;;
-    *shadow*|*win*|nunn-*) has_win=1; [[ -z "$win_peer" ]] && win_peer=$peer ;;
+    *linux*|linux-*) has_linux=1; [[ -z "$linux_peer" ]] && linux_peer=$peer ;;
+    *mac*|macos-*) has_mac=1; [[ -z "$mac_peer" ]] && mac_peer=$peer ;;
+    *win*|windows-*) has_win=1; [[ -z "$win_peer" ]] && win_peer=$peer ;;
   esac
 done
 

@@ -4,15 +4,15 @@
   "steps": [
     {
       "id": "find-configs",
-      "cmd": "cd /home/agent/workspace/casa-frontend && find . -maxdepth 2 -type f \\( -name 'playwright.config.*' -o -path './e2e/*' \\) -print"
+      "cmd": "cd /path/to/app && find . -maxdepth 2 -type f \\( -name 'playwright.config.*' -o -path './e2e/*' \\) -print"
     },
     {
       "id": "head-config",
-      "cmd": "sed -n '1,120p' /home/agent/workspace/casa-frontend/playwright.config.ts 2>/dev/null || true"
+      "cmd": "sed -n '1,120p' /path/to/app/playwright.config.ts 2>/dev/null || true"
     },
     {
       "id": "count-e2e",
-      "argv": ["bash", "-lc", "ls /home/agent/workspace/casa-frontend/e2e 2>/dev/null | wc -l"]
+      "argv": ["bash", "-lc", "ls /path/to/app/e2e 2>/dev/null | wc -l"]
     }
   ]
 }

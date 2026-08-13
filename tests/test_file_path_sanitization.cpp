@@ -164,6 +164,13 @@ TEST_CASE("file_path: nested subdirectory path resolves correctly",
     REQUIRE(resolved == "/home/user/.bridgesessions/received/subdir/deep/file.bin");
 }
 
+TEST_CASE("file_path: identity and pem names are sensitive",
+          "[file_path][sanitization][sensitive]") {
+    REQUIRE(is_sensitive_mesh_path("/home/user/.bridgesessions/id_ed25519.pem"));
+    REQUIRE(is_sensitive_mesh_path("/var/secret.key"));
+    REQUIRE_FALSE(is_sensitive_mesh_path("/home/user/.bridgesessions/received/ok.txt"));
+}
+
 // ── 6. Empty path edge case ────────────────────────────────────────────
 
 TEST_CASE("file_path: empty path rejects",

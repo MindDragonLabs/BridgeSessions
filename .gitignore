@@ -122,6 +122,7 @@ bridgesessions.exe
 *.obj
 
 # ── Publish-hostile / internal (never re-add) ──
+/scratch/
 _archive/
 screenshots/
 /docs/remediation-*/

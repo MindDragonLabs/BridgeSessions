@@ -4,8 +4,8 @@
 
 | Version | Supported |
 |---|---|
-| 26.08.10-beta2 | ✅ current public beta |
-| < 26.08.10 | ❌ superseded |
+| 26.08.12-beta4 | ✅ current public beta |
+| < 26.08.12 | ❌ superseded |
 
 ## Reporting a vulnerability
 
@@ -33,15 +33,20 @@ fix and disclosure timeline with you.
   `~/.bridgesessions/id_ed25519.pem` private key as you would an SSH key.
 - Seed and direct CLI connections require pinned Ed25519 public keys. Do not
   disable `mesh.require_seed_pins` on untrusted networks.
+- File serve/overwrite of identity, `authorized_keys`, tokens, and `*.pem`/`*.key`
+  is denied unless `transfer.allow_sensitive_paths` is set on that node.
+- scp-style `--dest` is confined to `receive_dir` unless `file.dest_allow_home`
+  is set; mesh trust files still cannot be overwritten without the sensitive-path
+  opt-in.
 - mDNS is disabled by default. Enabling it permits address refresh only for
   keys already present in pinned seeds or `authorized_keys`; multicast never
   creates a trust root. Announced addresses are unauthenticated hints and may
   be spoofed for denial of service; TLS key verification still prevents
   impersonation.
 - Peer authorization is host-level, not capability-scoped: an authorized peer
-  can execute shell commands and request any file readable by the daemon
-  account. Treat every authorized peer key as equivalent to interactive host
-  access.
+  can execute shell commands. File serve still denies identity/config/token/PEM
+  paths unless `transfer.allow_sensitive_paths` is set. Treat every authorized
+  peer key as near-equivalent to interactive host access.
 - Daemon CLI IPC remains loopback-only and additionally requires the ephemeral
   owner-only token stored under the active BridgeSessions app home.
 

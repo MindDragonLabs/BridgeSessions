@@ -54,6 +54,7 @@
 #include <deque>
 #include <cstring>
 #include <algorithm>
+#include <cctype>
 #include <span>
 #include <optional>
 #include <expected>
@@ -159,6 +160,70 @@ inline bool bs_upgrade_tag_valid(const std::string& tag) {
     }
     return true;
 }
+
+// Fleet/CLI names interpolated into shells: same alphabet as upgrade tags.
+inline bool bs_peer_name_shell_safe(std::string_view name) {
+    if (name.empty() || name.size() > 128) return false;
+    for (unsigned char c : name) {
+        bool ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+                  (c >= '0' && c <= '9') || c == '.' || c == '-' || c == '_';
+        if (!ok) return false;
+    }
+    return true;
+}
+
+inline bool const_time_token_match(std::string_view line, std::string_view token) {
+    if (token.empty()) return false;
+    const size_t n = token.size();
+    unsigned char acc = 0;
+    for (size_t i = 0; i < n; ++i) {
+        unsigned char lc = (i < line.size()) ? static_cast<unsigned char>(line[i]) : 0;
+        acc |= static_cast<unsigned char>(lc ^ static_cast<unsigned char>(token[i]));
+    }
+    unsigned char sep = 0;
+    if (line.size() > n) {
+        unsigned char c = static_cast<unsigned char>(line[n]);
+        sep = (c == ' ' || c == '\t') ? 1 : 0;
+    }
+    const unsigned char long_enough = (line.size() > n) ? 1 : 0;
+    return acc == 0 && sep && long_enough;
+}
+
+inline std::string transfer_path_basename(std::string_view path) {
+    std::string s(path);
+    for (char& c : s) if (c == '\\') c = '/';
+    auto pos = s.find_last_of('/');
+    return (pos == std::string::npos) ? s : s.substr(pos + 1);
+}
+
+// Identity / trust-store / PEM files: refuse serve+overwrite unless opted in.
+inline bool is_sensitive_mesh_path(std::string_view path) {
+    if (path.empty()) return false;
+    std::string base = transfer_path_basename(path);
+    for (char& c : base) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    if (base == "authorized_keys" || base == "ipc-token" ||
+        base == "cua-helper-token")
+        return true;
+    if (base.rfind("id_ed25519", 0) == 0) return true;
+    if (base.size() >= 4 &&
+        (base.compare(base.size() - 4, 4, ".pem") == 0 ||
+         base.compare(base.size() - 4, 4, ".key") == 0))
+        return true;
+    if (base == "config") {
+        std::string n(path);
+        for (char& c : n) if (c == '\\') c = '/';
+        for (char& c : n) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        if (n.find("/received/") != std::string::npos) return false;
+        if (n.find(".bridgesessions/") != std::string::npos) return true;
+    }
+    return false;
+}
+
+[[nodiscard]] inline std::string private_tmp_dir(const std::string& app_home = {});
+[[nodiscard]] inline std::string create_private_temp_file(
+    const std::string& prefix,
+    const std::string& suffix,
+    const std::string& app_home = {});
 
 // ── Message Type Enum ─────────────────────────────────────────────
 // Original types + mesh types (41 total as of v26.08.10 — see variant below)
@@ -3484,13 +3549,12 @@ extern "C" int bs_macos_capture_png(const char*, unsigned, char*, size_t);
             }
             return resp;
         }
-        std::string tmp_path;
-        char tmpl[MAX_PATH];
-        char tmpPathBuf[MAX_PATH];
-        GetTempPathA(sizeof(tmpPathBuf), tmpPathBuf);
-        GetTempFileNameA(tmpPathBuf, "bsc", 0, tmpl);
-        tmp_path = std::string(tmpl) + ".png";
-        ::unlink(tmpl);
+        std::string tmp_path = create_private_temp_file("bsc", ".png", app_home);
+        if (tmp_path.empty()) {
+            resp.status = 1;
+            resp.error = "failed to allocate private capture temp file";
+            return resp;
+        }
         // P2: load System.Windows.Forms (VirtualScreen) + System.Drawing.
         // Escape single quotes in path for PowerShell single-quoted -Command.
         std::string ps_path = tmp_path;
@@ -3573,9 +3637,12 @@ extern "C" int bs_macos_capture_png(const char*, unsigned, char*, size_t);
         // Default to failure — do not leave status=0 with empty data (CLI then
         // prints "no capture data returned" with a false success).
         resp.status = 1;
-        char tmp[] = "/tmp/bs-cua-XXXXXX.png";
-        int fd = mkstemps(tmp, 4);
-        if (fd >= 0) close(fd);
+        std::string tmp_owned = create_private_temp_file("cua", ".png", app_home);
+        if (tmp_owned.empty()) {
+            resp.error = "macOS capture failed: cannot create private temp file";
+            return resp;
+        }
+        const char* tmp = tmp_owned.c_str();
         char err[1024] = {};
         bool got_png = bs_macos_capture_png(tmp, 0, err, sizeof(err));
         if (!got_png) {
@@ -3701,9 +3768,8 @@ extern "C" int bs_macos_capture_png(const char*, unsigned, char*, size_t);
             for (int i = 0; tools[i]; ++i) {
                 auto bin = find_binary(tools[i]);
                 if (!bin) continue;
-                tmp_path = "/tmp/bs-capture-" +
-                    std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) +
-                    ".png";
+                tmp_path = create_private_temp_file("cap", ".png", app_home);
+                if (tmp_path.empty()) continue;
                 std::string capture_cmd;
                 if (std::string(tools[i]) == "grim") {
                     capture_cmd = *bin + " '" + tmp_path + "' 2>/dev/null";
@@ -3823,19 +3889,22 @@ extern "C" int bs_macos_capture_png(const char*, unsigned, char*, size_t);
     result.status = 1;
 
 #ifdef _WIN32
-    char tmpl[MAX_PATH], tmpbuf[MAX_PATH];
-    GetTempPathA(sizeof(tmpbuf), tmpbuf);
-    GetTempFileNameA(tmpbuf, "bsv", 0, tmpl);
-    std::string tmp_path = std::string(tmpl) + ".mp4";
-    ::unlink(tmpl);
+    std::string tmp_path = create_private_temp_file("bsv", ".mp4");
+    if (tmp_path.empty()) {
+        result.error = "failed to allocate private video temp file";
+        return result;
+    }
     std::string cmd =
         "ffmpeg -y -f gdigrab -framerate " + std::to_string(req.fps) +
         " -t " + std::to_string(req.duration_sec) +
-        " -i desktop -c:v libx264 -preset ultrafast -crf 28 -pix_fmt yuv420p " +
-        tmp_path + " 2>nul";
+        " -i desktop -c:v libx264 -preset ultrafast -crf 28 -pix_fmt yuv420p \"" +
+        tmp_path + "\" 2>nul";
 #elif defined(__APPLE__)
-    std::string tmp_path = "/tmp/bs-video-" + std::to_string(
-        std::chrono::steady_clock::now().time_since_epoch().count()) + ".mp4";
+    std::string tmp_path = create_private_temp_file("bsv", ".mp4");
+    if (tmp_path.empty()) {
+        result.error = "failed to allocate private video temp file";
+        return result;
+    }
     const std::string frames_dir = tmp_path + ".frames";
     std::error_code frames_ec;
     std::filesystem::create_directories(frames_dir, frames_ec);
@@ -3873,20 +3942,24 @@ extern "C" int bs_macos_capture_png(const char*, unsigned, char*, size_t);
     std::string cmd;
     if (ffmpeg) {
         cmd = *ffmpeg + " -hide_banner -loglevel error -y -framerate " +
-              std::to_string(fps) + " -i " + frames_dir +
-              "/frame-%06d.png -c:v libx264 -preset ultrafast -crf 28" +
-              " -pix_fmt yuv420p " + tmp_path + " 2>/tmp/bs-video-ffmpeg.log";
+              std::to_string(fps) + " -i '" + frames_dir +
+              "/frame-%06d.png' -c:v libx264 -preset ultrafast -crf 28" +
+              " -pix_fmt yuv420p '" + tmp_path + "' 2>'" +
+              (private_tmp_dir() + "/bs-video-ffmpeg.log") + "'";
     }
 #else
-    std::string tmp_path = "/tmp/bs-video-" + std::to_string(
-        std::chrono::steady_clock::now().time_since_epoch().count()) + ".mp4";
+    std::string tmp_path = create_private_temp_file("bsv", ".mp4");
+    if (tmp_path.empty()) {
+        result.error = "failed to allocate private video temp file";
+        return result;
+    }
     auto ffmpeg = find_binary("ffmpeg");
     std::string cmd;
     if (ffmpeg) {
         cmd = *ffmpeg + " -y -f x11grab -framerate " + std::to_string(req.fps) +
               " -t " + std::to_string(req.duration_sec) +
-              " -i :0.0 -c:v libx264 -preset ultrafast -crf 28 -pix_fmt yuv420p " +
-              tmp_path + " 2>/dev/null";
+              " -i :0.0 -c:v libx264 -preset ultrafast -crf 28 -pix_fmt yuv420p '" +
+              tmp_path + "' 2>/dev/null";
     }
 #endif
     if (cmd.empty()) {
@@ -4020,6 +4093,10 @@ struct MeshConfig {
     // Hard cap on inbound file transfer size (bytes). 0 = unlimited.
     // Default 8 GiB so 500MB+ agent artifacts work; override with transfer.max_bytes.
     uint64_t transfer_max_bytes = 8ull * 1024ull * 1024ull * 1024ull;
+    // Serve/overwrite identity, authorized_keys, tokens, *.pem/*.key.
+    bool allow_sensitive_paths = false;
+    // scp --dest may target $HOME / temp. Default is receive_dir only.
+    bool dest_allow_home = false;
     std::vector<PeerEntry> seeds;
     std::vector<PeerEntry> discovered;
     std::string authorized_keys_path = "~/.bridgesessions/authorized_keys";
@@ -4252,6 +4329,14 @@ void write_peer_line(std::ostream& os, const std::string& prefix, const PeerEntr
             try {
                 cfg.transfer_max_bytes = static_cast<uint64_t>(std::stoull(std::string(val)));
             } catch (...) {}
+        } else if (key_str == "transfer.allow_sensitive_paths") {
+            std::string_view t = trim(val);
+            cfg.allow_sensitive_paths =
+                (t == "true" || t == "1" || t == "yes" || t == "on");
+        } else if (key_str == "file.dest_allow_home") {
+            std::string_view t = trim(val);
+            cfg.dest_allow_home =
+                (t == "true" || t == "1" || t == "yes" || t == "on");
         }
         // ── transport.<key> (D15 WebRTC) ─────────────────────
         else if (key_str == "transport.webrtc_enabled") {
@@ -4776,11 +4861,13 @@ struct OutboundPeerVerifyResult {
 // Resolve scp-style file-send destination on the receiver.
 // - empty → nullopt (caller uses receive_dir/basename)
 // - relative → receive_dir / dest
-// - ~/… or absolute → expand, then require containment under home, receive_dir,
-//   or temp. Rejects ".." segments and escapes.
+// - ~/… or absolute → expand, then require containment under receive_dir
+//   (default) or, when allow_home_tmp, also $HOME / temp.
+// Rejects ".." segments and escapes.
 [[nodiscard]] inline std::optional<std::string> resolve_file_send_dest(
     std::string_view dest_req,
-    const std::string& receive_dir) {
+    const std::string& receive_dir,
+    bool allow_home_tmp = false) {
     if (dest_req.empty()) return std::nullopt;
     if (dest_req.size() > 1024) return std::nullopt;
     for (unsigned char c : dest_req) {
@@ -4815,14 +4902,16 @@ struct OutboundPeerVerifyResult {
     }
     std::vector<std::string> roots;
     roots.push_back(expand_home(receive_dir));
-    roots.push_back(expand_home("~"));
+    if (allow_home_tmp) {
+        roots.push_back(expand_home("~"));
 #ifdef _WIN32
-    if (const char* t = std::getenv("TEMP")) roots.emplace_back(t);
-    if (const char* t = std::getenv("TMP")) roots.emplace_back(t);
-    roots.emplace_back("C:\\Windows\\Temp");
+        if (const char* t = std::getenv("TEMP")) roots.emplace_back(t);
+        if (const char* t = std::getenv("TMP")) roots.emplace_back(t);
+        roots.emplace_back("C:\\Windows\\Temp");
 #else
-    roots.emplace_back("/tmp");
+        roots.emplace_back("/tmp");
 #endif
+    }
     for (const auto& root : roots) {
         if (root.empty()) continue;
         if (path_is_inside_directory(candidate, root)) return candidate;
@@ -5016,19 +5105,23 @@ struct HostStats {
             }
             (void)total_pages;
         }
-        // CPU via host_statistics
+        // CPU via host_statistics. Tick delta needs two samples; a zero-delta
+        // call (FLEET + gossip racing, or two back-to-back FLEET seeds) must
+        // not wipe a previously good reading.
         {
             host_cpu_load_info_data_t cpuinfo{};
             mach_msg_type_number_t ccount = HOST_CPU_LOAD_INFO_COUNT;
             if (host_statistics(mach_host_self(), HOST_CPU_LOAD_INFO,
                                 reinterpret_cast<host_info_t>(&cpuinfo),
                                 &ccount) == KERN_SUCCESS) {
+                static std::mutex cpu_mu;
                 static uint64_t prev_user = 0, prev_system = 0, prev_idle = 0, prev_nice = 0;
                 uint64_t user = cpuinfo.cpu_ticks[CPU_STATE_USER];
                 uint64_t system = cpuinfo.cpu_ticks[CPU_STATE_SYSTEM];
                 uint64_t idle = cpuinfo.cpu_ticks[CPU_STATE_IDLE];
                 uint64_t nice = cpuinfo.cpu_ticks[CPU_STATE_NICE];
                 uint64_t total = user + system + idle + nice;
+                std::lock_guard<std::mutex> lk(cpu_mu);
                 uint64_t prev_total = prev_user + prev_system + prev_idle + prev_nice;
                 if (prev_total > 0 && total > prev_total) {
                     uint64_t d_total = total - prev_total;
@@ -5141,6 +5234,16 @@ struct HostStats {
     if (h.mem_pct > 100.0) h.mem_pct = 100.0;
     if (h.disk_pct > 100.0) h.disk_pct = 100.0;
     if (h.cpu_pct < 0 && h.cpu_pct != -1.0) h.cpu_pct = 0;
+    // Reuse last good CPU when this sample had no tick delta (common on
+    // macOS: FLEET IPC and gossip both call collect_host_stats; a zero-delta
+    // sample used to publish cpu_pct=null for `self` forever).
+    {
+        static std::mutex last_cpu_mu;
+        static double last_good_cpu = -1.0;
+        std::lock_guard<std::mutex> lk(last_cpu_mu);
+        if (h.cpu_pct >= 0.0) last_good_cpu = h.cpu_pct;
+        else if (last_good_cpu >= 0.0) h.cpu_pct = last_good_cpu;
+    }
     return h;
 }
 
@@ -5177,6 +5280,45 @@ struct AppPaths {
     p.logs = (root_path / "logs").string();
     p.state = (root_path / "state").string();
     return p;
+}
+
+[[nodiscard]] inline std::string private_tmp_dir(const std::string& app_home) {
+    const std::string root = app_home.empty()
+        ? expand_home("~/.bridgesessions") : app_home;
+    const std::string dir =
+        (std::filesystem::path(make_app_paths(root).root) / "tmp").string();
+    (void)ensure_private_directory(dir);
+    return dir;
+}
+
+// Unique file under ~/.bridgesessions/tmp (0700). Empty on failure.
+[[nodiscard]] inline std::string create_private_temp_file(
+        const std::string& prefix,
+        const std::string& suffix,
+        const std::string& app_home) {
+    const std::string dir = private_tmp_dir(app_home);
+#ifdef _WIN32
+    char tmpl[MAX_PATH]{};
+    std::string pfx = prefix.empty() ? "bs" : prefix.substr(0, 3);
+    if (GetTempFileNameA(dir.c_str(), pfx.c_str(), 0, tmpl) == 0) return {};
+    std::string created = tmpl;
+    if (suffix.empty()) return created;
+    std::string renamed = created + suffix;
+    if (std::rename(created.c_str(), renamed.c_str()) != 0) {
+        ::unlink(created.c_str());
+        return {};
+    }
+    return renamed;
+#else
+    std::string tmpl = dir + "/" + (prefix.empty() ? "bs" : prefix) +
+                       "XXXXXX" + suffix;
+    std::vector<char> buf(tmpl.begin(), tmpl.end());
+    buf.push_back('\0');
+    int fd = ::mkstemps(buf.data(), static_cast<int>(suffix.size()));
+    if (fd < 0) return {};
+    ::close(fd);
+    return std::string(buf.data());
+#endif
 }
 
 // Rewrite legacy ~/.bridgesessions/... defaults into an isolated app root.
@@ -5453,6 +5595,9 @@ struct ResolvedSessionCommand {
     f << "mesh.require_seed_pins " << (cfg.require_seed_pins ? "true" : "false") << "\n";
     f << "mesh.mdns_enabled " << (cfg.mdns_enabled ? "true" : "false") << "\n";
     f << "transfer.max_bytes " << cfg.transfer_max_bytes << "\n";
+    f << "transfer.allow_sensitive_paths "
+      << (cfg.allow_sensitive_paths ? "true" : "false") << "\n";
+    f << "file.dest_allow_home " << (cfg.dest_allow_home ? "true" : "false") << "\n";
     f << "transport.webrtc_enabled " << (cfg.webrtc_enabled ? "true" : "false") << "\n";
     f << "dht.enabled " << (cfg.dht_enabled ? "true" : "false") << "\n";
     f << "upnp.enabled " << (cfg.upnp_enabled ? "true" : "false") << "\n";
@@ -9015,7 +9160,8 @@ private:
         // Empty → classic receive_dir/basename behavior.
         std::string out_path;
         if (!m.dest_path.empty()) {
-            auto resolved = resolve_file_send_dest(m.dest_path, recv_dir);
+            auto resolved = resolve_file_send_dest(
+                m.dest_path, recv_dir, config_.dest_allow_home);
             if (!resolved) {
                 std::string err = "rejected dest path (escape or invalid)";
                 log_event("file_recv_rejected", m.dest_path + " reason=dest_escape");
@@ -9035,6 +9181,12 @@ private:
             if (pec) {
                 std::string err = "cannot create dest parent directory";
                 log_event("file_recv_failed", out_path + " reason=" + pec.message());
+                try { write_frame(c.ssl.get(), FileAckMsg{0, 0, true, err}, CONTROL_STREAM_ID); } catch (...) {}
+                return;
+            }
+            if (is_sensitive_mesh_path(out_path) && !config_.allow_sensitive_paths) {
+                std::string err = "refused sensitive dest path";
+                log_event("file_recv_rejected", "reason=sensitive_dest");
                 try { write_frame(c.ssl.get(), FileAckMsg{0, 0, true, err}, CONTROL_STREAM_ID); } catch (...) {}
                 return;
             }
@@ -9668,6 +9820,15 @@ private:
         // Resolve relative paths against receive_dir_ without double-nesting
         // client-supplied `.bridgesessions/received/` / `received/` prefixes.
         std::string resolved_path = resolve_file_request_path(path, receive_dir_);
+        if (!resolved_path.empty() && is_sensitive_mesh_path(resolved_path) &&
+            !config_.allow_sensitive_paths) {
+            log_event("file_request_error", "refused sensitive path");
+            try {
+                write_frame(ssl, FileAckMsg{0, 0, true, "refused sensitive path"},
+                            CONTROL_STREAM_ID);
+            } catch (...) {}
+            return "ERROR refused sensitive path";
+        }
         if (resolved_path.empty() || !fs::exists(resolved_path) || fs::is_directory(resolved_path)) {
             log_event("file_request_error", "not found: " + resolved_path + " (receive_dir=" + receive_dir_ + ")");
             try { write_frame(ssl, FileAckMsg{0, 0, true, "file not found: " + path + " (looked in " + resolved_path + ")"}, CONTROL_STREAM_ID); } catch (...) {}
@@ -12662,10 +12823,7 @@ public:
             std::string line(buf);
             while (!line.empty() && (line.back() == '\r' || line.back() == '\n'))
                 line.pop_back();
-            const bool authorized = !ipc_token_.empty() &&
-                line.size() > ipc_token_.size() &&
-                line.compare(0, ipc_token_.size(), ipc_token_) == 0 &&
-                (line[ipc_token_.size()] == ' ' || line[ipc_token_.size()] == '\t');
+            const bool authorized = const_time_token_match(line, ipc_token_);
             if (!authorized) {
                 log_event("ipc_auth_rejected", "unauthorized local IPC request");
                 response = "ERROR unauthorized\n";
@@ -12823,10 +12981,11 @@ public:
                 auto now = std::chrono::steady_clock::now();
                 auto fresh = std::chrono::seconds(config_.pong_timeout_secs > 0
                                                   ? config_.pong_timeout_secs : 30);
-                // Seed CPU tick counter so the first FLEET query after daemon
-                // start is not stuck at cpu_pct=-1.
-                (void)collect_host_stats(home_dir_);
                 HostStats self_hs = collect_host_stats(home_dir_);
+                if (self_hs.cpu_pct < 0) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(80));
+                    self_hs = collect_host_stats(home_dir_);
+                }
                 std::unordered_set<std::string> listed; // lowercased names
                 auto mark = [&](const std::string& n) {
                     std::string k = n;
@@ -13295,12 +13454,10 @@ public:
                         if (!target) {
                             response = "ERROR no conn to " + peer_name + "\n";
                         } else {
-                            CuaVideoCaptureResultMsg resp = video_capture_execute(req);
-                            if (resp.status == 0) {
-                                response = "OK " + resp.file_path + "\n";
-                            } else {
-                                response = "ERROR " + resp.error + "\n";
-                            }
+                            (void)req;
+                            response =
+                                "ERROR CUA_VIDEO_CAPTURE requires direct TLS; "
+                                "use: bs capture-video " + peer_name + "\n";
                         }
                     }
                 }
@@ -15369,29 +15526,10 @@ public:
                 else if (shebang.find("powershell") != std::string::npos
                          || shebang.find("pwsh") != std::string::npos) ext = ".ps1";
             }
-            // P3: use mkstemp for unpredictable temp file names
-#ifdef _WIN32
-            char tmpdir_buf[MAX_PATH];
-            GetTempPathA(MAX_PATH, tmpdir_buf);
-            std::string tmpdir = tmpdir_buf;
-            char tmpbase[MAX_PATH];
-            snprintf(tmpbase, sizeof(tmpbase), "%sbs-stdin-XXXXXX", tmpdir.c_str());
-            // Windows doesn't have mkstemp; use _mktemp_s + open
-            if (_mktemp_s(tmpbase, strlen(tmpbase) + 1) != 0) {
-                std::cerr << "ERROR cannot create temp file name\n"; return 1;
-            }
-            temp_local = std::string(tmpbase) + ext;
-#else
-            std::string tmpl = "/tmp/bs-stdin-XXXXXX" + ext;
-            std::vector<char> tmpl_buf(tmpl.begin(), tmpl.end());
-            tmpl_buf.push_back('\0');
-            int fd = mkstemps(tmpl_buf.data(), static_cast<int>(ext.size()));
-            if (fd < 0) {
+            temp_local = create_private_temp_file("stdin", ext);
+            if (temp_local.empty()) {
                 std::cerr << "ERROR cannot create temp file\n"; return 1;
             }
-            close(fd);
-            temp_local = std::string(tmpl_buf.data());
-#endif
             std::ofstream tf(temp_local, std::ios::binary | std::ios::trunc);
             if (!tf) { std::cerr << "ERROR cannot write temp file\n"; return 1; }
             tf.write(content.data(), static_cast<std::streamsize>(content.size()));
@@ -15410,50 +15548,61 @@ public:
                                    std::istreambuf_iterator<char>());
         sf.close();
 
-        std::string basename = fs::path(script_path).filename().string();
-
         // 3. Resolve interpreter
         std::string interp = interpreter;
         if (interp == "auto" || interp.empty()) {
             interp = detect_interpreter(script_path);
         }
 
-        // 4. Build exec command that writes the script to a temp file on the
-        //    REMOTE host, then executes it. This avoids daemon file-send entirely —
-        //    the script body is base64-encoded and decoded on the remote side,
-        //    so no escaping issues regardless of content.
+        // 4. Remote temp is a random stem — never the operator filename.
         std::string b64 = base64_encode(script_content);
-        std::string remote_tmp;
+        for (unsigned char c : b64) {
+            const bool ok = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+                            (c >= '0' && c <= '9') || c == '+' || c == '/' || c == '=';
+            if (!ok) {
+                std::cerr << "ERROR run-script: invalid base64 encoding\n";
+                if (!temp_local.empty()) fs::remove(temp_local);
+                return 1;
+            }
+        }
         std::string exec_cmd;
+        std::string session_id = "run-script";
+        if (auto tok = generate_ipc_token(); tok.size() >= 16)
+            session_id += "-" + tok.substr(0, 16);
 
         if (interp == "powershell" || interp == "pwsh") {
-            // PowerShell: decode base64 to temp file, execute, clean up.
-            // IMPORTANT: do not put $env:TEMP inside single quotes — it will not expand
-            // and WriteAllBytes fails with "path's format is not supported".
             std::string exe = (interp == "pwsh") ? "pwsh" : "powershell";
             exec_cmd = exe + " -NoProfile -Command \""
-                "$p = Join-Path $env:TEMP 'bs-script-" + basename + "'; "
+                "$d = Join-Path $env:USERPROFILE '.bridgesessions\\tmp'; "
+                "New-Item -ItemType Directory -Force -Path $d | Out-Null; "
+                "$p = Join-Path $d ([guid]::NewGuid().ToString('N') + '.ps1'); "
                 "[IO.File]::WriteAllBytes($p, [Convert]::FromBase64String('" + b64 + "')); "
                 + exe + " -ExecutionPolicy Bypass -NoProfile -File $p; "
-                "Remove-Item $p -ErrorAction SilentlyContinue\"";
+                "$ec = $LASTEXITCODE; Remove-Item $p -ErrorAction SilentlyContinue; "
+                "exit $ec\"";
         } else if (interp == "cmd" || interp == "bat") {
             exec_cmd = "powershell -NoProfile -Command \""
-                "$p = Join-Path $env:TEMP 'bs-script-" + basename + "'; "
+                "$d = Join-Path $env:USERPROFILE '.bridgesessions\\tmp'; "
+                "New-Item -ItemType Directory -Force -Path $d | Out-Null; "
+                "$p = Join-Path $d ([guid]::NewGuid().ToString('N') + '.cmd'); "
                 "[IO.File]::WriteAllBytes($p, [Convert]::FromBase64String('" + b64 + "')); "
-                "cmd /c $p; "
-                "Remove-Item $p -ErrorAction SilentlyContinue\"";
+                "cmd /c $p; $ec = $LASTEXITCODE; "
+                "Remove-Item $p -ErrorAction SilentlyContinue; exit $ec\"";
         } else {
-            // POSIX (bash/sh/python): use base64 | decode > tmpfile
             std::string runner = (interp == "python" || interp == "python3") ? "python3" : "sh";
-            exec_cmd = "echo '" + b64 + "' | base64 -d > /tmp/bs-script-" + basename + " && "
-                + runner + " /tmp/bs-script-" + basename + "; rm -f /tmp/bs-script-" + basename;
+            exec_cmd =
+                "d=\"${HOME}/.bridgesessions/tmp\"; mkdir -p \"$d\" && chmod 700 \"$d\" && "
+                "f=$(mktemp \"$d/bs-rs.XXXXXX\") && "
+                "printf '%s\\n' '" + b64 + "' | base64 -d > \"$f\" && "
+                + runner + " \"$f\"; rc=$?; rm -f \"$f\"; exit $rc";
         }
 
-        // 6. Execute via direct TLS shell (skip daemon IPC — simpler, no OOM risk)
-        std::cerr << "executing on " << peer_name << ": " << exec_cmd << "\n";
+        std::cerr << "executing run-script on " << peer_name
+                  << ": interpreter=" << interp
+                  << " bytes=" << script_content.size() << "\n";
         if (!temp_local.empty()) fs::remove(temp_local);
         auto [cols, rows] = get_winsize();
-        return shell_peer(peer_name, "run-script-" + basename, exec_cmd,
+        return shell_peer(peer_name, session_id, exec_cmd,
                           cols, rows, "xterm-256color");
     }
 
@@ -15832,9 +15981,7 @@ public:
     std::string ipc_token_for_test() const { return ipc_token_; }
     std::string ipc_token_path_for_test() const { return ipc_token_path_; }
     bool ipc_request_is_authorized_for_test(const std::string& line) const {
-        return !ipc_token_.empty() && line.size() > ipc_token_.size() &&
-               line.compare(0, ipc_token_.size(), ipc_token_) == 0 &&
-               (line[ipc_token_.size()] == ' ' || line[ipc_token_.size()] == '\t');
+        return const_time_token_match(line, ipc_token_);
     }
     bool another_daemon_running_for_test() { return another_daemon_running(); }
     void inject_file_meta_for_test(Conn& c, const FileMetaMsg& m) { handle_file_meta(c, m); }
@@ -16059,9 +16206,10 @@ struct GifMetadata {
         return true;
     }
     // Write image data to temp file, fork chafa
-    std::string tmpl = "/tmp/bs-image-XXXXXX";
-    int tmp_fd = ::mkstemp(tmpl.data());
-    if (tmp_fd < 0) return false;
+    std::string tmpl = create_private_temp_file("img", "");
+    if (tmpl.empty()) return false;
+    int tmp_fd = ::open(tmpl.c_str(), O_WRONLY | O_TRUNC);
+    if (tmp_fd < 0) { ::unlink(tmpl.c_str()); return false; }
     if (!msg.data.empty()) {
         const uint8_t* p = msg.data.data();
         size_t remaining = msg.data.size();
@@ -16115,9 +16263,10 @@ struct GifMetadata {
         }
         return true;
     }
-    std::string tmpl = "/tmp/bs-frame-XXXXXX";
-    int tmp_fd = ::mkstemp(tmpl.data());
-    if (tmp_fd < 0) return false;
+    std::string tmpl = create_private_temp_file("frm", "");
+    if (tmpl.empty()) return false;
+    int tmp_fd = ::open(tmpl.c_str(), O_WRONLY | O_TRUNC);
+    if (tmp_fd < 0) { ::unlink(tmpl.c_str()); return false; }
     if (!msg.data.empty()) {
         const uint8_t* p = msg.data.data();
         size_t remaining = msg.data.size();

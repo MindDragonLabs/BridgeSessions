@@ -258,7 +258,10 @@ def test_mac_desktop(bs: str, peer: str, report: Report) -> None:
 # ── L3 Linux KVM ────────────────────────────────────────────────────
 def setup_linux_kvm(bs: str, report: Report) -> Optional[str]:
     """Run KVM setup on Linux lab hop (BS_E2E_LINUX_HOST); return guest IP if known."""
-    host = os.environ.get("BS_E2E_LINUX_HOST", "linux-a")
+    host = os.environ.get("BS_E2E_LINUX_HOST", "")
+    if not host:
+        rec(report, "SKIP", "linux_kvm", "setup", "set BS_E2E_LINUX_HOST")
+        return None
     print(f"\n== L3 setup: Linux KVM desktop on {host} ==")
     script = HARNESS / "linux_kvm_setup.sh"
     run([bs, "file", "send", host, str(script), "--wait"], timeout=60)
@@ -286,7 +289,10 @@ def setup_linux_kvm(bs: str, report: Report) -> Optional[str]:
 
 def test_linux_desktop_via_linux_hop(bs: str, report: Report) -> None:
     """CUA against KVM guest as seen from Linux hop (virbr0 path)."""
-    host = os.environ.get("BS_E2E_LINUX_HOST", "linux-a")
+    host = os.environ.get("BS_E2E_LINUX_HOST", "")
+    if not host:
+        rec(report, "SKIP", "linux_cua", "hop", "set BS_E2E_LINUX_HOST")
+        return
     print(f"\n== L3 Linux CUA via {host} hop (bs-qa-ubuntu) ==")
     cmd = (
         'export PATH="$HOME/.local/bin:/usr/bin:/bin"; '
@@ -372,17 +378,17 @@ def main() -> int:
     ap.add_argument("--skip-setup", action="store_true", help="Skip KVM/Windows desktop bootstrap")
     ap.add_argument(
         "--peers",
-        default=os.environ.get("BS_E2E_PEERS", "linux-b,linux-a,macos-peer,windows-peer"),
-        help="L2 peers comma-separated (override with BS_E2E_PEERS for lab fleet)",
+        default=os.environ.get("BS_E2E_PEERS", ""),
+        help="L2 peers comma-separated (required; or set BS_E2E_PEERS)",
     )
     ap.add_argument(
         "--peer-win",
-        default=os.environ.get("BS_E2E_PEER_WIN", "windows-peer"),
+        default=os.environ.get("BS_E2E_PEER_WIN", ""),
         help="Windows desktop peer (BS_E2E_PEER_WIN)",
     )
     ap.add_argument(
         "--peer-mac",
-        default=os.environ.get("BS_E2E_PEER_MAC", "macos-peer"),
+        default=os.environ.get("BS_E2E_PEER_MAC", ""),
         help="macOS desktop peer (BS_E2E_PEER_MAC)",
     )
     args = ap.parse_args()
@@ -391,6 +397,9 @@ def main() -> int:
     # Ensure Windows desktop peer is in the L2 matrix when L3 needs it
     if args.peer_win and args.peer_win not in peers:
         peers.append(args.peer_win)
+    if "L2" in layers and not peers:
+        print("error: set --peers or BS_E2E_PEERS", file=sys.stderr)
+        return 2
 
     bs = which_bs()
     report = Report(started=ts(), layers=layers)

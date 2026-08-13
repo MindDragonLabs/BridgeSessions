@@ -14,10 +14,11 @@ layers:
     description: Foreground installer on clean guest
     required: false
 
+# Override with BS_E2E_PEERS / BS_E2E_PEER_WIN / BS_E2E_PEER_MAC.
 peers:
   mesh:
-    - linux-b
     - linux-a
+    - linux-b
     - macos-peer
     - windows-peer
   linux_desktop: bs-qa-ubuntu
