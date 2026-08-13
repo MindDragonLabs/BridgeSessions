@@ -2,7 +2,6 @@ import Cocoa
 
 // MARK: - App Delegate
 
-@main
 class AppDelegate: NSObject, NSApplicationDelegate {
     var statusController: StatusItemController!
     var fleetController: FleetStatusController!

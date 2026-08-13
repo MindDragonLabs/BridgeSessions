@@ -123,7 +123,8 @@ final class StatusItemController: NSObject {
             let pop = NSPopover()
             pop.behavior = .transient
             pop.contentViewController = fleetController.viewController
-            pop.contentViewController?.view.frame.size = NSSize(width: 440, height: 280)
+            pop.contentSize = FleetStatusController.popoverSize
+            pop.contentViewController?.view.frame.size = FleetStatusController.popoverSize
             self.popover = pop
         }
         popover?.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
