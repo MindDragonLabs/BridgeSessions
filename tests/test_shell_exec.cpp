@@ -259,6 +259,23 @@ TEST_CASE("ephemeral cmd session names are unique and non-default",
     REQUIRE(noninteractive_shell_timeout_sec() <= 7200);
 }
 
+TEST_CASE("unnamed quick-connect always starts a new tty session",
+          "[shell][quick-connect]") {
+    REQUIRE(resolve_quick_connect_session_name("work") == "work");
+    REQUIRE(resolve_quick_connect_session_name("shell") == "shell");
+    auto a = resolve_quick_connect_session_name("");
+    auto b = resolve_quick_connect_session_name("");
+    REQUIRE(a.rfind("tty-", 0) == 0);
+    REQUIRE(b.rfind("tty-", 0) == 0);
+    REQUIRE(a != b);
+    REQUIRE(a != "shell");
+    REQUIRE(a != "default");
+    REQUIRE(is_ephemeral_session_name(a));
+    REQUIRE_FALSE(is_ephemeral_session_name("shell"));
+    REQUIRE_FALSE(is_ephemeral_session_name("work"));
+    REQUIRE(is_ephemeral_session_name("cmd-1-2"));
+}
+
 TEST_CASE("ClientOverride force-respawns live default session",
           "[shell][oneshot][attach]") {
     auto cfg = make_shell_test_config("oneshot-node");

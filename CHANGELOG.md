@@ -11,6 +11,13 @@ All notable public releases are documented here.
 
 ## 26.08.12-beta4
 
+### Interactive attach
+- `bs <peer>` with no session name always opens a **new** `tty-*` session.
+  Give a name (`bs <peer> work`) to create or reattach that session.
+- Interactive Ctrl-C is always forwarded to the remote PTY. Double Ctrl-C
+  no longer detaches the client (so nested TUIs such as Claude Code can
+  exit themselves). Leave with `exit`, stdin EOF, or remote SessionDied.
+
 ### Audit harden (PII / security / reliability)
 - `file recv` refuses identity/config/token/`*.pem`/`*.key` unless the serving
   node sets `transfer.allow_sensitive_paths true`.

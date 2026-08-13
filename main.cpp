@@ -324,9 +324,10 @@ int main(int argc, char** argv) {
     // Fast path: `bs dev hermes` (the `bs` executable is a symlink to this binary).
     // Unknown peer names are resolved through `ssh -G` for address discovery only;
     // terminal data still travels exclusively over the BridgeSessions protocol.
-    std::string quick_peer, quick_session = "shell";
+    std::string quick_peer, quick_session;
     app.add_option("peer", quick_peer, "Peer name or SSH Host alias");
-    app.add_option("session", quick_session, "Persistent server session name (default: shell)");
+    app.add_option("session", quick_session,
+                   "Session name (omit to start a new session; give a name to reattach)");
 
     // Subcommand: shell
     std::string shell_peer, shell_session = "default", shell_cmd;
@@ -628,6 +629,11 @@ int main(int argc, char** argv) {
         bs::mesh::bootstrap_identity(home_dir);
         auto [cols, rows] = bs::mesh::get_winsize();
         bs::mesh::MeshController mc(cfg, home_dir);
+        const bool unnamed_session = quick_session.empty();
+        quick_session = bs::mesh::resolve_quick_connect_session_name(quick_session);
+        if (unnamed_session) {
+            std::cerr << "session " << quick_session << "\n";
+        }
         return mc.shell_peer(quick_peer, quick_session, {}, cols, rows,
                              "xterm-256color");
     }

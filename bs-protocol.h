@@ -5813,6 +5813,17 @@ inline void log_event(const std::string& event, const std::string& detail = "") 
 // 10. SESSION REGISTRY — thread-safe session lifecycle manager
 // ────────────────────────────────────────────────────────────────────
 
+// Agent/health/unnamed-tty names. Explicit `bs <peer> <name>` is not ephemeral.
+[[nodiscard]] inline bool is_ephemeral_session_name(std::string_view name) {
+    return name.rfind("health-", 0) == 0
+        || name.rfind("cmd-", 0) == 0
+        || name.rfind("oneshot-", 0) == 0
+        || name.rfind("script-", 0) == 0
+        || name.rfind("hcheck-", 0) == 0
+        || name.rfind("vcheck-", 0) == 0
+        || name.rfind("tty-", 0) == 0;
+}
+
 class SessionRegistry {
     struct SessionHistoryEntry {
         std::string name;
@@ -6474,17 +6485,11 @@ public:
         }
     }
 
-    // Drop finished agent/health one-shot sessions so they cannot pile up
-    // as detached PTYs (peer-linux-b had dozens of leftover /dev/pts entries).
-    // Names: health-*, cmd-*, oneshot-*, script-*.
+    // Drop finished agent/health/unnamed-tty sessions so they cannot pile up
+    // as detached PTYs. Named sessions (bs <peer> <name>) are not pruned.
     void prune_ephemeral_sessions(std::chrono::seconds max_age = std::chrono::seconds(90)) {
         auto is_ephemeral = [](const std::string& name) {
-            return name.rfind("health-", 0) == 0
-                || name.rfind("cmd-", 0) == 0
-                || name.rfind("oneshot-", 0) == 0
-                || name.rfind("script-", 0) == 0
-                || name.rfind("hcheck-", 0) == 0
-                || name.rfind("vcheck-", 0) == 0;
+            return is_ephemeral_session_name(name);
         };
         std::unique_lock lock(mutex_);
         auto now = std::chrono::steady_clock::now();
@@ -7121,14 +7126,33 @@ inline bool stdin_is_terminal() {
 // One-shot --cmd shells must not collide on the shared "default" session name.
 // Hermes/agents always use -n default (CLI default); unique names isolate each
 // invocation even before server-side force-respawn.
-[[nodiscard]] inline std::string make_ephemeral_cmd_session_name() {
+[[nodiscard]] inline std::string make_ephemeral_session_name(std::string_view prefix) {
+    static std::atomic<uint32_t> seq{0};
     const auto now = std::chrono::steady_clock::now().time_since_epoch().count();
 #ifdef _WIN32
     const unsigned pid = static_cast<unsigned>(GetCurrentProcessId());
 #else
     const unsigned pid = static_cast<unsigned>(::getpid());
 #endif
-    return "cmd-" + std::to_string(pid) + "-" + std::to_string(now & 0xffffff);
+    return std::string(prefix) + std::to_string(pid) + "-"
+        + std::to_string(now & 0xffffff) + "-"
+        + std::to_string(seq.fetch_add(1, std::memory_order_relaxed));
+}
+
+[[nodiscard]] inline std::string make_ephemeral_cmd_session_name() {
+    return make_ephemeral_session_name("cmd-");
+}
+
+// `bs <peer>` with no session argument: unique interactive PTY each time.
+[[nodiscard]] inline std::string make_ephemeral_shell_session_name() {
+    return make_ephemeral_session_name("tty-");
+}
+
+// Empty/omitted name → new tty-* session. An explicit name reattaches.
+[[nodiscard]] inline std::string resolve_quick_connect_session_name(
+        std::string_view requested) {
+    if (requested.empty()) return make_ephemeral_shell_session_name();
+    return std::string(requested);
 }
 
 // Bound noninteractive shell waits so agents fail loud instead of spinning
@@ -14877,33 +14901,12 @@ public:
                     pending_input.clear();
                 }
 
-                // Double Ctrl-C disconnect state — persists across reads
-                auto last_ctrl_c_time = std::chrono::steady_clock::now();
-                int ctrl_c_streak = 0;
-                
                 auto forward_local_input = [&](std::string_view input) {
-                    // Double Ctrl-C (0x03) within 1s → disconnect.
-                    // Single Ctrl-C is forwarded to remote PTY as SIGINT.
-                    auto now = std::chrono::steady_clock::now();
-                    bool has_ctrl_c = (input.size() == 1 && input[0] == 0x03);
-                    
-                    if (has_ctrl_c) {
-                        if (ctrl_c_streak >= 1 && 
-                            (now - last_ctrl_c_time) < std::chrono::seconds(1)) {
-                            // Double Ctrl-C → disconnect
-                            std::cerr << "\r\n^C^C — disconnecting...\r\n";
-                            local_stop = true;
-                            return;
-                        }
-                        ctrl_c_streak++;
-                        last_ctrl_c_time = now;
-                    } else {
-                        ctrl_c_streak = 0;
-                    }
-                    // Forward everything to the remote PTY — Ctrl-C (\x03)
-                    // is a normal keystroke the remote child should receive as
-                    // SIGINT.  Only disconnect is handled at the transport level
-                    // (connection loss / remote Detach / SessionDied).
+                    // Every keystroke, including one or more Ctrl-C (0x03), goes
+                    // to the remote PTY. Nested TUIs (Claude Code) use double
+                    // Ctrl-C to quit themselves — the client must not steal it.
+                    // Leave the attach loop only on remote SessionDied / Detach,
+                    // stdin EOF, or Ctrl-C while waiting to reconnect.
                     KeystrokeMsg km;
                     km.data.assign(input.data(), input.size());
                     try {
@@ -14933,7 +14936,7 @@ public:
                          SSL_pending(sc.ssl.get()) > 0)) {
                         bool session_ended = false;
                         transport_alive = process_shell_response(sc.ssl.get(), &session_ended);
-                        if (session_ended) local_stop = true;  // exit/SessionDied ≡ double Ctrl-C
+                        if (session_ended) local_stop = true;  // remote exit / Detach
                     }
 #else
                     fd_set read_fds;
@@ -14958,7 +14961,7 @@ public:
                         ((ready > 0 && FD_ISSET((int)sc.sfd, &read_fds)) || SSL_pending(sc.ssl.get()) > 0)) {
                         bool session_ended = false;
                         transport_alive = process_shell_response(sc.ssl.get(), &session_ended);
-                        if (session_ended) local_stop = true;  // exit/SessionDied ≡ double Ctrl-C
+                        if (session_ended) local_stop = true;  // remote exit / Detach
                     }
 #endif
                     if (!local_stop && transport_alive) {
@@ -15053,8 +15056,8 @@ public:
     // Returns false on transport loss or session end.
     // If session_ended is non-null and the remote PTY exited cleanly (SessionDied /
     // ExitCode / server Detach after shell exit), *session_ended is set true so the
-    // client leaves the attach loop instead of auto-reconnecting — same end state
-    // as double Ctrl-C. Typing `exit` in the remote shell produces SessionDied.
+    // client leaves the attach loop instead of auto-reconnecting. Typing `exit`
+    // in the remote shell produces SessionDied.
     bool process_shell_response(SSL* ssl, bool* session_ended = nullptr) {
         if (session_ended) *session_ended = false;
         try {
