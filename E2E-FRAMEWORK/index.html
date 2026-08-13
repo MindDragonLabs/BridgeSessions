@@ -1123,11 +1123,11 @@
 </tr>
 <tr>
 <td>Linux desktop</td>
-<td><strong>KVM on linux-a</strong> (not operator Mac — macOS has no KVM). Guest: Ubuntu 24.04 cloud + XFCE auto-login for 100% automated CUA/tray.</td>
+<td><strong>KVM on a Linux lab hop</strong> (not operator Mac — macOS has no KVM). Guest: Ubuntu 24.04 cloud + XFCE auto-login for 100% automated CUA/tray.</td>
 </tr>
 <tr>
 <td>macOS</td>
-<td><strong>macos-peer as-is</strong> — no wipe. SSH + launchctl + existing TCC.</td>
+<td><strong>existing macOS peer as-is</strong> — no wipe. launchctl + existing TCC.</td>
 </tr>
 <tr>
 <td>Schedule</td>
@@ -1158,17 +1158,17 @@
 <tr>
 <td>L2</td>
 <td>Mesh (health/shell/file/run-script)</td>
-<td>linux-b, linux-a, macos-peer, windows-peer</td>
+<td>live peers via <code>BS_E2E_PEERS</code></td>
 </tr>
 <tr>
 <td>L3</td>
 <td>Desktop GUI + CUA + tray/menubar</td>
-<td>Linux KVM guest, Windows Session 1, macos-peer</td>
+<td>Linux KVM guest, Windows Session 1, macOS peer</td>
 </tr>
 <tr>
 <td>L4</td>
 <td>Foreground installer (clean)</td>
-<td>disposable KVM guest / Win user profile / macos-peer <em>secondary user only if added later</em></td>
+<td>disposable KVM guest / Win user profile / macOS <em>secondary user only if added later</em></td>
 </tr>
 </tbody>
 </table>
@@ -1199,12 +1199,12 @@
 </tr>
 <tr>
 <td>Linux mesh</td>
-<td>linux-a, linux-b</td>
+<td><code>linux-a</code>, <code>linux-b</code> (set <code>BS_E2E_PEERS</code>)</td>
 <td>headless OK for L2</td>
 </tr>
 <tr>
 <td>Linux desktop QA</td>
-<td><strong>KVM guest on linux-a</strong> (<code>bs-qa-ubuntu</code>)</td>
+<td><strong>KVM guest</strong> (<code>bs-qa-ubuntu</code>)</td>
 <td>XFCE auto-login, DISPLAY set</td>
 </tr>
 <tr>
@@ -1220,7 +1220,7 @@
 </tbody>
 </table>
 <h2 id="hermes-remote-support-windows">Hermes remote support (Windows)<a class="headerlink" href="#hermes-remote-support-windows" title="Permanent link">&para;</a></h2>
-<p>Hermes on Shadow (<code>C:\Users\shadow\AppData\Local\hermes</code>) can:</p>
+<p>Hermes on the Windows desktop peer can:</p>
 <ol>
 <li>Ensure interactive logon tasks for <code>--cua-helper</code> and <code>bs_tray.ps1</code></li>
 <li>Watch helper health and re-run setup scripts under user context</li>
@@ -1229,7 +1229,7 @@
 <p>Bootstrap scripts (idempotent) live in <code>tests/e2e/harness/</code>:</p>
 <ul>
 <li><code>win_desktop_setup.ps1</code> — schtasks for CUA helper + tray at logon; start now if Session 1</li>
-<li><code>linux_kvm_setup.sh</code> — define/start <code>bs-qa-ubuntu</code> on linux-a</li>
+<li><code>linux_kvm_setup.sh</code> — define/start <code>bs-qa-ubuntu</code> on the Linux lab hop</li>
 <li><code>mac_desktop_probe.sh</code> — menubar/cua-helper process checks (no wipe)</li>
 </ul>
 <h2 id="automation-constraints">Automation constraints<a class="headerlink" href="#automation-constraints" title="Permanent link">&para;</a></h2>
@@ -1275,7 +1275,7 @@
 <tr>
 <td>Installer L4</td>
 <td>Yes on clean KVM / disposable Win profile</td>
-<td>not on production macos-peer wipe</td>
+<td>not on a production macOS wipe</td>
 </tr>
 </tbody>
 </table>
@@ -1313,7 +1313,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 12, 2026 15:18:44 UTC">August 12, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 13, 2026 13:31:45 UTC">August 13, 2026</span>
   </span>
 
     
