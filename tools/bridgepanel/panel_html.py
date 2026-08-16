@@ -1,702 +1,264 @@
-"""BridgePanel — HTML/CSS/JS template (single-file SPA)."""
+"""BridgePanel — HTML/CSS/JS template (elegant dark/light SPA, full features)."""
 from __future__ import annotations
 
 # ── SVG Favicon ────────────────────────────────────────────────
 
 FAVICON_SVG = b"""<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
-  <rect x="3" y="3" width="26" height="26" rx="7" fill="#ffffff" stroke="rgba(0,0,0,0.08)" stroke-width="1"/>
-  <rect x="8" y="9" width="11" height="2.5" rx="1.25" fill="#0d0d0d"/>
-  <rect x="8" y="14.75" width="16" height="2.5" rx="1.25" fill="#888888"/>
-  <rect x="8" y="20.5" width="9" height="2.5" rx="1.25" fill="#18E299"/>
+  <rect x="3" y="3" width="26" height="26" rx="7" fill="#1B1F26" stroke="rgba(0,0,0,0.2)" stroke-width="1"/>
+  <rect x="8" y="9" width="11" height="2.5" rx="1.25" fill="#E9EDF2"/>
+  <rect x="8" y="14.75" width="16" height="2.5" rx="1.25" fill="#9BA4B0"/>
+  <rect x="8" y="20.5" width="9" height="2.5" rx="1.25" fill="#3FA9E0"/>
 </svg>"""
-
-
-# ── HTML ───────────────────────────────────────────────────────
-
 
 # ── HTML ───────────────────────────────────────────────────────
 
 INDEX_HTML = r'''<!doctype html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>BridgePanel</title>
-<link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAzMiAzMiIgd2lkdGg9IjMyIiBoZWlnaHQ9IjMyIj48cmVjdCB4PSIzIiB5PSIzIiB3aWR0aD0iMjYiIGhlaWdodD0iMjYiIHJ4PSI3IiBmaWxsPSIjZmZmZmZmIiBzdHJva2U9InJnYmEoMCwwLDAsMC4wOCkiIHN0cm9rZS13aWR0aD0iMSIvPjxyZWN0IHg9IjgiIHk9IjkiIHdpZHRoPSIxMSIgaGVpZ2h0PSIyLjUiIHJ4PSIxLjI1IiBmaWxsPSIjMGQwZDBkIi8+PHJlY3QgeD0iOCIgeT0iMTQuNzUiIHdpZHRoPSIxNiIgaGVpZ2h0PSIyLjUiIHJ4PSIxLjI1IiBmaWxsPSIjODg4ODg4Ii8+PHJlY3QgeD0iOCIgeT0iMjAuNSIgd2lkdGg9IjkiIGhlaWdodD0iMi41IiByeD0iMS4yNSIgZmlsbD0iIzE4RTI5OSIvPjwvc3ZnPg==">
+<title>Bridge Panel</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%233FA9E0'/%3E%3Ctext x='16' y='22' font-size='17' font-family='sans-serif' text-anchor='middle' fill='white'%3EB%3C/text%3E%3C/svg%3E">
 <style>
-:root {
-  --bg: #ffffff;
-  --text: #0d0d0d;
-  --text-2: #333333;
-  --text-3: #666666;
-  --text-4: #888888;
-  --border: rgba(0,0,0,0.05);
-  --border-2: rgba(0,0,0,0.08);
-  --divider: rgba(0,0,0,0.18);
-  --hover: rgba(0,0,0,0.02);
-  --accent: #18E299;
-  --accent-soft: #d4fae8;
-  --accent-deep: #0fa76e;
-  --sans: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-  --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-}
-* { box-sizing: border-box; margin: 0; padding: 0; }
-html, body {
-  height: 100%;
-  font-family: var(--sans);
-  font-size: 15px;
-  color: var(--text-2);
-  background: var(--bg);
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-}
-button, input, textarea, select { font: inherit; color: inherit; }
+  :root {
+    --bg: #14171C; --surface: #1B1F26; --surface2: #232833;
+    --border: #2A303B;
+    --text: #E9EDF2; --muted: #9BA4B0; --faint: #66707E;
+    --accent: #3FA9E0; --accent-soft: rgba(63,169,224,0.13);
+    --ok: #35C77D; --warn: #E2A33D; --danger: #E26D6D;
+    --shadow: 0 1px 2px rgba(0,0,0,0.25), 0 4px 14px rgba(0,0,0,0.18);
+    --sans: 'Inter', -apple-system, system-ui, 'Segoe UI', Roboto, sans-serif;
+    --mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  }
+  [data-theme="light"] {
+    --bg: #F6F7F9; --surface: #FFFFFF; --surface2: #F0F2F5;
+    --border: #E4E8EE;
+    --text: #1B2129; --muted: #5A6472; --faint: #98A1AD;
+    --accent: #2A8BC0; --accent-soft: rgba(42,139,192,0.12);
+    --ok: #1FA864; --warn: #B9831F; --danger: #C94747;
+    --shadow: 0 1px 2px rgba(15,23,42,0.06), 0 4px 14px rgba(15,23,42,0.08);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: var(--sans); font-size: 14px; line-height: 1.5;
+    display: flex; flex-direction: column; overflow: hidden;
+    -webkit-font-smoothing: antialiased; transition: background .2s ease, color .2s ease;
+  }
+  button, input, textarea, select { font: inherit; color: inherit; }
+  ::selection { background: var(--accent-soft); }
 
-/* ── Layout: machines | sessions | work area ── */
-.shell {
-  height: 100vh;
-  display: grid;
-  grid-template-columns: 200px 260px minmax(0, 1fr);
-}
-aside {
-  min-height: 0;
-  overflow-y: auto;
-  background: var(--bg);
-}
-aside.machines { border-right: 1px solid var(--divider); }
-aside.sessions { border-right: 1px solid var(--divider); }
+  header { display: flex; align-items: center; gap: 14px; padding: 0 16px; height: 52px; flex-shrink: 0; background: var(--surface); border-bottom: 1px solid var(--border); }
+  .brand { display: flex; align-items: center; gap: 9px; }
+  .brand .mark { width: 20px; height: 20px; border-radius: 5px; background: var(--accent); color: #fff; display: grid; place-items: center; font-family: var(--mono); font-weight: 700; font-size: 12px; }
+  .brand .name { font-weight: 650; font-size: 14.5px; letter-spacing: -0.01em; }
+  .brand .sub { font-size: 11.5px; color: var(--faint); }
+  .search { flex: 1; max-width: 320px; position: relative; }
+  .search input { width: 100%; height: 32px; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 0 10px 0 30px; font-size: 13px; color: var(--text); outline: none; }
+  .search input:focus { border-color: var(--accent); }
+  .search .icon { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--faint); }
+  .hdr-right { margin-left: auto; display: flex; align-items: center; gap: 12px; }
+  .summary { font-size: 12.5px; color: var(--muted); }
+  .summary b { color: var(--text); font-weight: 600; }
+  .theme-toggle { width: 32px; height: 32px; border-radius: 8px; background: transparent; border: 1px solid var(--border); color: var(--muted); cursor: pointer; font-size: 15px; }
+  .theme-toggle:hover { background: var(--surface2); color: var(--text); }
+  .avatar { width: 28px; height: 28px; border-radius: 50%; background: var(--accent-soft); color: var(--accent); display: grid; place-items: center; font-weight: 600; font-size: 12px; }
 
-/* ── Titlebar ── */
-.titlebar {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  padding: 14px 16px 12px;
-  border-bottom: 1px solid var(--divider);
-  margin-bottom: 6px;
-}
-.titlebar .brand { font-size: 15px; font-weight: 700; letter-spacing: 0.4px; color: var(--text); }
-.titlebar .build { font-family: var(--mono); font-size: 11px; color: var(--text-3); }
+  .shell { flex: 1; display: grid; grid-template-columns: 220px 240px minmax(0,1fr); min-height: 0; }
+  .col { min-height: 0; overflow-y: auto; background: var(--surface); display: flex; flex-direction: column; }
+  .col.machines { border-right: 1px solid var(--border); }
+  .col.sessions { border-right: 1px solid var(--border); }
+  .col-head { padding: 10px 14px 8px; font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--faint); display: flex; align-items: center; justify-content: space-between; }
+  .col-head .count { font-family: var(--mono); font-weight: 400; letter-spacing: 0; }
+  .add-btn { width: 22px; height: 22px; border-radius: 6px; background: var(--accent-soft); color: var(--accent); border: none; cursor: pointer; font-size: 15px; line-height: 1; }
+  .add-btn:hover { background: var(--accent); color: #fff; }
 
-.col-header {
-  padding: 10px 16px 8px;
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--text-4);
-  text-transform: uppercase;
-  letter-spacing: 0.65px;
-}
+  .mrow { display: flex; align-items: center; gap: 10px; padding: 9px 13px; cursor: pointer; border-left: 2px solid transparent; }
+  .mrow:hover { background: var(--surface2); }
+  .mrow.active { background: var(--accent-soft); border-left-color: var(--accent); }
+  .mrow .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; background: var(--faint); }
+  .mrow .dot.up { background: var(--ok); }
+  .mrow .dot.you { background: var(--accent); }
+  .mrow .mi { flex: 1; min-width: 0; }
+  .mrow .mn { font-size: 13.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .mrow .ma { font-family: var(--mono); font-size: 10px; color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .mrow .you { font-size: 10px; color: var(--accent); text-transform: uppercase; letter-spacing: .06em; }
+  .mrow .n { font-family: var(--mono); font-size: 11px; color: var(--faint); }
 
-/* ── Machine rows ── */
-.machine-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 16px;
-  cursor: pointer;
-  user-select: none;
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--text);
-}
-.machine-row:hover { background: var(--hover); }
-.machine-row.active { background: var(--accent-soft); }
-.machine-row > span:nth-child(2) {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  flex: 1;
-}
-.machine-row .dot {
-  width: 6px; height: 6px; border-radius: 50%;
-  background: #c8c8c8; flex-shrink: 0;
-}
-.machine-row .dot.up { background: var(--accent); }
-.machine-row .count {
-  margin-left: auto;
-  font-family: var(--mono); font-size: 11px; color: var(--text-4);
-}
-.machine-row .you {
-  font-family: var(--mono); font-size: 10px; color: var(--text-4);
-}
-.new-session-btn {
-  width: 22px; height: 22px;
-  display: flex; align-items: center; justify-content: center;
-  border: 1px solid var(--border-2);
-  border-radius: 5px;
-  background: var(--bg);
-  color: var(--text-3);
-  font-size: 15px; line-height: 1;
-  cursor: pointer; opacity: 0.7;
-}
-.machine-row:hover .new-session-btn { opacity: 1; }
-.new-session-btn:hover {
-  background: var(--accent-soft); color: var(--accent-deep); border-color: var(--accent);
-}
+  .srow { display: flex; align-items: center; gap: 9px; padding: 9px 13px; cursor: pointer; border-left: 2px solid transparent; }
+  .srow:hover { background: var(--surface2); }
+  .srow.active { background: var(--accent-soft); border-left-color: var(--accent); }
+  .srow .sdot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; background: var(--faint); }
+  .srow .sdot.live { background: var(--ok); }
+  .srow .sname { flex: 1; min-width: 0; font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .srow .sstate { font-family: var(--mono); font-size: 10px; color: var(--faint); }
 
-/* ── Session rows ── */
-.session-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 16px;
-  cursor: pointer;
-  user-select: none;
-  font-size: 14px;
-  color: var(--text);
-}
-.session-row:hover { background: var(--hover); }
-.session-row.active { background: var(--accent-soft); }
-.session-row .hicon { font-size: 12px; opacity: 0.6; width: 16px; text-align: center; }
-.session-row .sname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
-.session-row .sstate { font-family: var(--mono); font-size: 10px; color: var(--text-4); }
-  width: 20px; height: 20px;
-  display: flex; align-items: center; justify-content: center;
-  border: 1px solid var(--border-2);
-  border-radius: 5px;
-  background: var(--bg);
-  color: var(--accent-deep);
-  font-size: 10px;
-  cursor: pointer;
-  opacity: 0;
-  transition: opacity 0.15s ease;
-}
-  width: 6px; height: 6px; border-radius: 50%;
-  background: #c8c8c8; flex-shrink: 0;
-}
-.session-row .dot.live { background: var(--accent); }
+  .work { min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--bg); }
+  .work-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 20px; border-bottom: 1px solid var(--border); }
+  .breadcrumb { font-family: var(--mono); font-size: 12px; color: var(--faint); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .breadcrumb .cur { color: var(--accent); }
+  .breadcrumb .sep { margin: 0 6px; }
+  .toolbar { display: flex; gap: 8px; flex-shrink: 0; }
+  .btn { padding: 6px 13px; border-radius: 8px; font-size: 12.5px; font-weight: 500; background: var(--surface2); color: var(--text); border: 1px solid var(--border); cursor: pointer; }
+  .btn:hover { border-color: var(--muted); }
+  .btn.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .btn.ghost { background: transparent; }
+  .btn:disabled { opacity: .5; cursor: default; }
 
-/* ── Main ── */
-main { min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
-.breadcrumb {
-  padding: 14px 20px 4px;
-  font-size: 12px;
-  font-family: var(--mono);
-  color: var(--text-4);
-}
-.breadcrumb span.sep { opacity: 0.4; margin: 0 4px; }
-.breadcrumb span.current { color: var(--text-2); }
+  .tabbar { display: flex; gap: 4px; padding: 0 20px; border-bottom: 1px solid var(--border); }
+  .tab { padding: 9px 14px; font-size: 13px; font-weight: 500; color: var(--muted); background: none; border: none; border-bottom: 2px solid transparent; cursor: pointer; margin-bottom: -1px; }
+  .tab:hover { color: var(--text); }
+  .tab.active { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
 
-/* ── Tab bar ── */
-.tabbar {
-  display: flex;
-  gap: 2px;
-  padding: 6px 20px 0;
-  border-bottom: 1px solid var(--border);
-}
-.tabbar button {
-  border: none;
-  background: none;
-  padding: 6px 12px;
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--text-4);
-  cursor: pointer;
-  border-bottom: 2px solid transparent;
-}
-.tabbar button:hover { color: var(--text-2); }
-.tabbar button.active {
-  color: var(--text);
-  border-bottom-color: var(--accent);
-}
+  .work-body { flex: 1; min-height: 0; position: relative; }
+  .tab-pane { position: absolute; inset: 0; display: none; }
+  .tab-pane.active { display: flex; }
+  #pane-docs { display: flex; }
+  #pane-docs.active { display: grid; grid-template-columns: 200px minmax(0,1fr); }
+  .filelist { border-right: 1px solid var(--border); overflow-y: auto; padding: 10px 8px; }
+  .filelist .group { font-size: 10.5px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--faint); padding: 10px 8px 6px; }
+  .fitem { display: flex; align-items: center; gap: 8px; padding: 7px 9px; border-radius: 7px; cursor: pointer; font-size: 13px; color: var(--muted); }
+  .fitem:hover { background: var(--surface2); color: var(--text); }
+  .fitem.active { background: var(--accent-soft); color: var(--text); }
+  .fitem .sz { margin-left: auto; font-family: var(--mono); font-size: 10px; color: var(--faint); }
+  .content-wrap { min-width: 0; min-height: 0; overflow-y: auto; padding: 22px 26px; }
+  .content { max-width: 760px; }
+  .content h1 { font-size: 21px; font-weight: 700; letter-spacing: -0.01em; margin: 4px 0 14px; }
+  .content h2 { font-size: 15px; font-weight: 650; margin: 22px 0 8px; }
+  .content h3 { font-size: 13.5px; font-weight: 650; margin: 16px 0 6px; }
+  .content p { color: var(--muted); margin: 8px 0; }
+  .content a { color: var(--accent); text-decoration: none; }
+  .content a:hover { text-decoration: underline; }
+  .content ul, .content ol { margin: 8px 0 8px 22px; color: var(--muted); }
+  .content li { margin: 4px 0; }
+  .content code { font-family: var(--mono); font-size: 12.5px; background: var(--surface2); color: var(--accent); padding: 1px 5px; border-radius: 5px; }
+  .content pre { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 13px 15px; overflow-x: auto; margin: 12px 0; }
+  .content pre code { background: none; color: var(--text); padding: 0; }
+  .content blockquote { border-left: 3px solid var(--accent); padding: 2px 0 2px 14px; margin: 12px 0; color: var(--muted); font-style: italic; }
+  .content table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 13px; }
+  .content th { text-align: left; font-family: var(--mono); font-size: 11px; font-weight: 600; color: var(--faint); padding: 8px 12px; border-bottom: 1px solid var(--border); }
+  .content td { padding: 8px 12px; border-bottom: 1px solid var(--border); color: var(--muted); }
+  .content strong { color: var(--text); }
+  .editor { width: 100%; min-height: 100%; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-family: var(--mono); font-size: 13px; line-height: 1.7; padding: 16px 18px; resize: none; outline: none; }
+  .editor:focus { border-color: var(--accent); }
+  .empty { color: var(--faint); font-size: 13px; padding: 24px 20px; text-align: center; }
 
-/* ── Tools bar ── */
-.toolbar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 20px;
-  background: var(--bg);
-  border-bottom: 1px solid var(--border);
-}
-.btn-group { display: flex; gap: 6px; }
-.btn-group button {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 4px 10px;
-  font-size: 12px;
-  font-weight: 500;
-  border: 1px solid var(--border-2);
-  border-radius: 6px;
-  background: var(--bg);
-  color: var(--text-2);
-  cursor: pointer;
-}
-.btn-group button:hover { background: var(--hover); }
-.btn-group button.primary {
-  background: var(--text);
-  color: var(--bg);
-  border-color: var(--text);
-}
-.btn-group button svg { width: 12px; height: 12px; }
-.toolbar .spacer { flex: 1; }
-.follow-chip {
-  font-family: var(--mono);
-  font-size: 11px;
-  color: var(--text-4);
-  cursor: pointer;
-  user-select: none;
-  padding: 3px 8px;
-  border: 1px solid var(--border-2);
-  border-radius: 10px;
-}
-.follow-chip.on { color: var(--accent-deep); border-color: var(--accent); }
+  .output { font-family: var(--mono); font-size: 12.5px; line-height: 1.65; color: var(--text); padding: 16px 20px; white-space: pre-wrap; word-break: break-word; overflow-y: auto; min-height: 0; }
+  .output-head { display: flex; align-items: center; gap: 10px; padding: 10px 20px; border-bottom: 1px solid var(--border); }
+  .follow { font-family: var(--mono); font-size: 11px; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface2); color: var(--muted); cursor: pointer; }
+  .follow.on { color: var(--accent); border-color: var(--accent); }
 
-/* ── Work area ── */
-#workarea { flex: 1; min-height: 0; display: flex; overflow: hidden; }
-#outputPane {
-  flex: 1;
-  overflow-y: auto;
-  padding: 12px 20px 40px;
-  font-family: var(--mono);
-  font-size: 13px;
-  line-height: 1.45;
-  white-space: pre-wrap;
-  word-break: break-all;
-  color: var(--text-2);
-  background: var(--bg);
-}
-#filePane { flex: 1; min-height: 0; display: flex; overflow: hidden; }
-#filelist {
-  width: 220px;
-  border-right: 1px solid var(--border);
-  overflow-y: auto;
-  padding: 8px 0;
-}
-.file-item {
-  display: flex;
-  align-items: center;
-  padding: 5px 16px;
-  cursor: pointer;
-  font-size: 13px;
-  color: var(--text-2);
-  border-left: 2px solid transparent;
-  overflow: hidden;
-}
-.file-item:hover { background: var(--hover); }
-.file-item.active {
-  background: var(--accent-soft);
-  border-left-color: var(--accent);
-  color: var(--text);
-  font-weight: 500;
-}
-.file-item .file-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
-.file-item .file-time {
-  font-size: 10px; font-family: var(--mono); color: var(--text-4);
-  margin-left: 6px; flex-shrink: 0;
-}
-#content {
-  flex: 1;
-  overflow-y: auto;
-  padding: 12px 20px 60px;
-}
-.doc-container { max-width: 860px; }
-.doc-container h1, .doc-container h2, .doc-container h3 { color: var(--text); margin: 18px 0 8px; }
-.doc-container h1 { font-size: 22px; }
-.doc-container h2 { font-size: 18px; }
-.doc-container h3 { font-size: 16px; }
-.doc-container p { margin: 8px 0; line-height: 1.65; }
-.doc-container code {
-  font-family: var(--mono); font-size: 13px;
-  background: rgba(0,0,0,0.04); padding: 1px 5px; border-radius: 4px;
-}
-.doc-container pre {
-  font-family: var(--mono); font-size: 13px;
-  background: rgba(0,0,0,0.03);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 12px 14px;
-  overflow-x: auto;
-  margin: 10px 0;
-}
-.doc-container pre code { background: none; padding: 0; }
-.doc-container ul, .doc-container ol { margin: 8px 0 8px 22px; line-height: 1.65; }
-.doc-container table { border-collapse: collapse; margin: 10px 0; }
-.doc-container th, .doc-container td {
-  border: 1px solid var(--border-2); padding: 5px 10px; font-size: 13px; text-align: left;
-}
-.doc-container th { background: rgba(0,0,0,0.02); font-weight: 600; }
-.doc-container a { color: var(--accent-deep); text-decoration: none; }
-.doc-container a:hover { text-decoration: underline; }
-.doc-container blockquote {
-  border-left: 3px solid var(--border-2);
-  margin: 10px 0; padding: 2px 14px; color: var(--text-3);
-}
-#editTextarea {
-  width: 100%;
-  min-height: 60vh;
-  font-family: var(--mono);
-  font-size: 13px;
-  line-height: 1.5;
-  padding: 14px;
-  border: 1px solid var(--border-2);
-  border-radius: 8px;
-  resize: vertical;
-  outline: none;
-}
-#editTextarea:focus { border-color: var(--accent); }
+  .files { padding: 20px; overflow-y: auto; }
+  .files h2 { font-size: 16px; font-weight: 650; margin-bottom: 16px; }
+  .rf-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px; margin-bottom: 14px; max-width: 640px; }
+  .rf-card .tt { font-size: 12px; font-weight: 600; margin-bottom: 10px; }
+  .rf-row { display: flex; gap: 8px; }
+  .rf-row input { flex: 1; height: 34px; background: var(--surface2); border: 1px solid var(--border); border-radius: 7px; padding: 0 10px; font-family: var(--mono); font-size: 12.5px; outline: none; }
+  .rf-row input:focus { border-color: var(--accent); }
+  .rf-textarea { width: 100%; min-height: 90px; margin-top: 8px; background: var(--surface2); border: 1px solid var(--border); border-radius: 7px; padding: 10px; font-family: var(--mono); font-size: 12.5px; outline: none; resize: vertical; }
+  .rf-hint { font-size: 11.5px; color: var(--faint); margin-top: 8px; }
+  .rf-hint code { font-family: var(--mono); background: var(--surface2); padding: 1px 5px; border-radius: 4px; }
+  .rf-result { max-width: 640px; }
+  .rf-result .doc { margin-top: 4px; }
 
-.harness-card {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 14px;
-  padding: 12px 14px;
-  border: 1px solid var(--border-2);
-  border-radius: 8px;
-  background: var(--bg);
-}
-.harness-card .harness-info {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 0;
-}
-.harness-card strong { font-size: 14px; color: var(--text); }
-.harness-card code {
-  font-family: var(--mono);
-  font-size: 12px;
-  color: var(--text-2);
-  white-space: pre-wrap;
-  word-break: break-all;
-}
-.harness-card .copy-btn {
-  padding: 5px 12px;
-  font-size: 12px;
-  font-weight: 500;
-  border: 1px solid var(--accent);
-  border-radius: 6px;
-  background: var(--bg);
-  color: var(--accent-deep);
-  cursor: pointer;
-  flex-shrink: 0;
-}
-.harness-card .copy-btn:hover { background: var(--accent-soft); }
-.connect-hint {
-  font-size: 12px;
-  color: var(--text-4);
-  line-height: 1.5;
-}
-.connect-hint code {
-  font-family: var(--mono);
-  font-size: 11px;
-  color: var(--text-3);
-}
+  .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: none; align-items: center; justify-content: center; z-index: 50; }
+  .modal-backdrop.open { display: flex; }
+  .modal { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px; width: 360px; box-shadow: var(--shadow); }
+  .modal h3 { font-size: 15px; font-weight: 650; margin-bottom: 16px; }
+  .modal label { display: block; font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--faint); margin: 12px 0 5px; }
+  .modal input, .modal select { width: 100%; height: 34px; background: var(--surface2); border: 1px solid var(--border); border-radius: 7px; padding: 0 10px; font-size: 13px; outline: none; }
+  .modal input:focus, .modal select:focus { border-color: var(--accent); }
+  .modal select { appearance: none; background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%); background-position: calc(100% - 15px) 14px, calc(100% - 10px) 14px; background-size: 5px 5px; background-repeat: no-repeat; padding-right: 30px; cursor: pointer; }
+  .modal select option { background: var(--surface); color: var(--text); }
+  .modal .field-hint { font-size: 11px; color: var(--faint); margin-top: 5px; line-height: 1.4; }
+  .modal .check { display: flex; align-items: center; gap: 8px; margin: 14px 0 0; cursor: pointer; }
+  .modal .check input[type=checkbox] { width: auto; height: auto; accent-color: var(--accent); }
+  .modal .check span { font-size: 13px; color: var(--muted); }
+  .modal .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
 
-/* ── Providers ── */
-.provider-card {
-  border: 1px solid var(--border-2);
-  border-radius: 10px;
-  padding: 14px 16px;
-  background: var(--bg);
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.provider-card .pc-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.provider-card .pc-name {
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--text);
-}
-.provider-card .pc-tier {
-  font-family: var(--mono);
-  font-size: 10px;
-  color: var(--text-4);
-  margin-left: auto;
-}
-.provider-card .pc-status {
-  width: 8px; height: 8px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-.pc-status.ok { background: var(--accent); }
-.pc-status.warn { background: #f0a020; }
-.pc-status.expired { background: #b3261e; }
-.provider-card .pc-auth {
-  font-family: var(--mono);
-  font-size: 11px;
-  color: var(--text-3);
-  text-transform: uppercase;
-  letter-spacing: 0.4px;
-}
-.provider-card .pc-details {
-  font-size: 12px;
-  color: var(--text-4);
-  line-height: 1.5;
-}
-.provider-card .pc-details code {
-  font-family: var(--mono);
-  font-size: 11px;
-  background: rgba(0,0,0,0.04);
-  padding: 1px 4px;
-  border-radius: 3px;
-}
-.provider-card .pc-actions {
-  display: flex;
-  gap: 6px;
-  margin-top: 4px;
-}
-.provider-card .pc-actions button {
-  padding: 4px 10px;
-  font-size: 11px;
-  font-weight: 500;
-  border: 1px solid var(--border-2);
-  border-radius: 5px;
-  background: var(--bg);
-  color: var(--text-2);
-  cursor: pointer;
-}
-.provider-card .pc-actions button:hover {
-  background: var(--hover);
-}
-.pc-balance {
-  font-family: var(--mono);
-  font-size: 11px;
-  color: var(--text-3);
-}
-.pc-balance .bar-track {
-  height: 4px;
-  background: var(--border);
-  border-radius: 2px;
-  margin-top: 3px;
-}
-/* ── Fleet ── */
-.fleet-stat { border: 1px solid var(--border-2); border-radius: 8px; padding: 12px 14px; text-align: center; }
-.fleet-stat .fs-v { font-size: 28px; font-weight: 700; color: var(--text); }
-.fleet-stat .fs-l { font-size: 11px; color: var(--text-4); text-transform: uppercase; letter-spacing: 0.5px; margin-top: 2px; }
-.fleet-stat .fs-v.ok { color: var(--accent); }
-.fleet-stat .fs-v.warn { color: #f0a020; }
+  .toast { position: fixed; bottom: 22px; left: 50%; transform: translate(-50%, 12px); background: var(--text); color: var(--bg); padding: 9px 16px; border-radius: 9px; font-size: 13px; font-weight: 500; box-shadow: var(--shadow); opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s; z-index: 60; }
+  .toast.show { opacity: 1; transform: translate(-50%, 0); }
+  .toast.err { background: var(--danger); color: #fff; }
 
-.spoke-card { border: 1px solid var(--border-2); border-radius: 10px; padding: 14px 16px; background: var(--bg); }
-.spoke-card .sc-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
-.spoke-card .sc-ip { font-size: 14px; font-weight: 600; color: var(--text); font-family: var(--mono); }
-.spoke-card .sc-status { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-.spoke-card .sc-status.ok { background: var(--accent); }
-.spoke-card .sc-status.warn { background: #f0a020; }
-.spoke-card .sc-meta { font-size: 12px; color: var(--text-4); line-height: 1.6; }
-.spoke-card .sc-meta code { font-family: var(--mono); font-size: 11px; color: var(--text-3); }
-.spoke-card .sc-harness { margin-top: 8px; }
-.spoke-card .sc-harness .sh-row { display: flex; align-items: center; gap: 6px; padding: 3px 0; font-size: 12px; }
-.spoke-card .sc-harness .sh-name { font-weight: 500; color: var(--text-2); width: 80px; flex-shrink: 0; }
-.spoke-card .sc-harness .sh-v { font-family: var(--mono); font-size: 11px; color: var(--text-4); }
-.spoke-card .sc-harness .sh-badge { font-family: var(--mono); font-size: 10px; padding: 1px 6px; border-radius: 4px; }
-.sh-badge.ok { background: var(--accent-soft); color: var(--accent-deep); }
-.sh-badge.missing { background: rgba(0,0,0,0.04); color: var(--text-4); }
-.sh-badge.degraded { background: #fef3e0; color: #c77700; }
-.sh-badge.hil { background: #fce4ec; color: #c62828; }
-
-.event-row { padding: 4px 0; font-size: 12px; border-bottom: 1px solid var(--border); display: flex; gap: 8px; }
-.event-row .ev-time { font-family: var(--mono); color: var(--text-4); width: 60px; flex-shrink: 0; }
-.event-row .ev-type { font-family: var(--mono); font-size: 10px; color: var(--text-3); width: 70px; flex-shrink: 0; text-transform: uppercase; }
-.event-row .ev-msg { color: var(--text-2); }
-.event-row .ev-hil { color: #c62828; font-weight: 600; }
-
-/* ── Models / Registry ── */
-.pc-balance .bar-fill {
-  height: 100%;
-  border-radius: 2px;
-  background: var(--accent);
-}
-.pc-balance .bar-fill.warn { background: #f0a020; }
-.pc-balance .bar-fill.drain { background: #b3261e; }
-.connect-form label {
-  display: block;
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--text-3);
-  margin: 8px 0 5px;
-}
-.connect-form select {
-  width: 100%;
-  padding: 7px 10px;
-  border: 1px solid var(--border-2);
-  border-radius: 6px;
-  background: var(--bg);
-  outline: none;
-  font-size: 14px;
-}
-.connect-form select:focus { border-color: var(--accent); }
-
-.empty-state {
-  padding: 60px 20px;
-  text-align: center;
-  color: var(--text-4);
-  font-size: 14px;
-}
-.empty-state .hint { font-size: 12px; margin-top: 6px; font-family: var(--mono); }
-
-/* ── Modal ── */
-.modal-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0,0,0,0.35);
-  backdrop-filter: blur(2px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 100;
-}
-.modal-box {
-  background: var(--bg);
-  border: 1px solid var(--border-2);
-  border-radius: 12px;
-  padding: 22px;
-  width: min(420px, calc(100vw - 32px));
-  box-shadow: 0 12px 40px rgba(0,0,0,0.12);
-}
-.modal-box h3 { margin: 0 0 16px; font-size: 16px; color: var(--text); }
-.modal-box label { display: block; font-size: 12px; font-weight: 500; color: var(--text-3); margin: 12px 0 5px; }
-.modal-box input, .modal-box select {
-  width: 100%;
-  padding: 8px 10px;
-  border: 1px solid var(--border-2);
-  border-radius: 6px;
-  background: var(--bg);
-  outline: none;
-}
-.modal-box input:focus, .modal-box select:focus { border-color: var(--accent); }
-.modal-box .row { display: flex; gap: 12px; }
-.modal-box .row > div { flex: 1; }
-.modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
-.modal-actions button {
-  padding: 7px 14px;
-  font-size: 13px;
-  font-weight: 500;
-  border-radius: 6px;
-  border: 1px solid var(--border-2);
-  background: var(--bg);
-  cursor: pointer;
-}
-.modal-actions button.primary { background: var(--text); color: var(--bg); border-color: var(--text); }
-.modal-actions button.secondary:hover { background: var(--hover); }
-.checkbox-row { margin-top: 12px; }
-.check-label {
-  display: flex !important;
-  align-items: center;
-  gap: 7px;
-  font-size: 13px !important;
-  font-weight: 400 !important;
-  color: var(--text-2);
-  cursor: pointer;
-  margin: 0 !important;
-}
-.check-label input[type=checkbox] { width: auto; accent-color: var(--accent); }
-.modal-box .hint { margin-top: 10px; font-size: 11px; color: var(--text-4); }
-
-/* ── Remote Files ── */
-.remote-files-section { padding: 20px; max-width: 800px; }
-.rf-card {
-  border: 1px solid var(--border-2); border-radius: 8px;
-  padding: 16px; margin-bottom: 16px; background: var(--bg);
-}
-.rf-card-title { font-size: 14px; font-weight: 600; color: var(--text); margin-bottom: 10px; }
-.rf-row { display: flex; gap: 8px; }
-.rf-input {
-  flex: 1; padding: 8px 10px; border: 1px solid var(--border-2);
-  border-radius: 6px; font-size: 14px; font-family: var(--mono);
-  background: var(--bg); outline: none;
-}
-.rf-input:focus { border-color: var(--accent); }
-.rf-textarea {
-  width: 100%; min-height: 120px; padding: 10px; margin-top: 8px;
-  border: 1px solid var(--border-2); border-radius: 6px;
-  font-family: var(--mono); font-size: 13px; resize: vertical;
-  background: var(--bg); outline: none; white-space: pre-wrap;
-}
-.rf-textarea:focus { border-color: var(--accent); }
-.rf-btn {
-  padding: 8px 16px; border: 1px solid var(--border-2); border-radius: 6px;
-  font-size: 13px; font-weight: 500; cursor: pointer; background: var(--bg);
-  white-space: nowrap;
-}
-.rf-btn.primary { background: var(--text); color: var(--bg); border-color: var(--text); }
-.rf-btn:disabled { opacity: 0.5; cursor: default; }
-.rf-hint { font-size: 12px; color: var(--text-4); margin-top: 8px; }
-.rf-result { margin-top: 16px; }
-.rf-loading { padding: 20px; text-align: center; color: var(--text-3); font-size: 14px; }
-.rf-error { padding: 12px; color: #b3261e; font-size: 13px; background: rgba(179,38,30,0.05); border-radius: 6px; }
-.rf-file-header { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--divider); margin-bottom: 12px; }
-.rf-file-header strong { font-size: 14px; color: var(--text); }
-.rf-size { font-family: var(--mono); font-size: 12px; color: var(--text-4); }
-
-/* ── Toast ── */
-#toast {
-  position: fixed;
-  bottom: 20px;
-  left: 50%;
-  transform: translateX(-50%);
-  background: var(--text);
-  color: var(--bg);
-  padding: 8px 16px;
-  border-radius: 8px;
-  font-size: 13px;
-  opacity: 0;
-  transition: opacity 0.2s ease;
-  pointer-events: none;
-  z-index: 50;
-}
-#toast.show { opacity: 1; }
-#toast.err { background: #b3261e; }
+  @media (max-width: 800px) {
+    .shell { grid-template-columns: 180px minmax(0,1fr); }
+    .col.sessions { display: none; }
+    #pane-docs.active { grid-template-columns: 1fr; }
+    .filelist { display: none; }
+    .search { display: none; }
+  }
 </style>
 </head>
 <body>
+
+<header>
+  <div class="brand"><span class="mark">B</span><span class="name">Bridge Panel</span><span class="sub">__BUILD_TAG__</span></div>
+  <div class="search"><span class="icon">&#8962;</span><input id="search" placeholder="Filter machines…" aria-label="Filter machines"></div>
+  <div class="hdr-right">
+    <span class="summary" id="summary"></span>
+    <button class="theme-toggle" id="themeToggle" title="Toggle theme" aria-label="Toggle theme">&#9680;</button>
+    <div class="avatar" id="nodeAvatar">·</div>
+  </div>
+</header>
+
 <div class="shell">
-  <aside class="machines">
-    <div class="titlebar"><span class="brand">BRIDGE PANEL</span><span class="build">__BUILD_TAG__</span></div>
-    <div class="col-header">Machines</div>
+  <aside class="col machines">
+    <div class="col-head">Machines <span class="count" id="machineCount"></span></div>
     <div id="machines"></div>
   </aside>
-  <aside class="sessions">
-    <div class="col-header" id="sessionsHeader">Sessions</div>
+  <aside class="col sessions">
+    <div class="col-head"><span id="sessionsHead">Sessions</span><button class="add-btn" id="newSessionBtn" title="New session">+</button></div>
     <div id="sessions"></div>
   </aside>
-  <main>
-    <div class="breadcrumb" id="breadcrumb"></div>
-    <div class="tabbar" id="tabbar">
-      <button data-tab="output" class="active">Output</button>
-      <button data-tab="comms">Comms</button>
-      <button data-tab="docs">Docs</button>
-      <button data-tab="files">Files</button>
-    </div>
-    <div class="toolbar" id="toolbar" style="display:none">
-      <div class="btn-group">
-        <button id="editBtn"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M11.3 2.7a1.4 1.4 0 0 1 2 2L5 13H3v-2l8.3-8.3z"/></svg>Edit</button>
-        <button id="saveBtn" class="primary" style="display:none"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M13 3 6 10 3 7"/></svg>Save</button>
-        <button id="cancelBtn" style="display:none"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m4 4 8 8M12 4l-8 8"/></svg>Cancel</button>
-        <button id="copyBtn"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="5" y="5" width="8" height="9" rx="1"/><path d="M11 5V3a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v7a1 1 0 0 0 1 1h1"/></svg>Copy</button>
+  <main class="work">
+    <div class="work-top">
+      <div class="breadcrumb" id="breadcrumb"></div>
+      <div class="toolbar">
+        <button class="btn" id="editBtn" style="display:none">Edit</button>
+        <button class="btn primary" id="saveBtn" style="display:none">Save</button>
+        <button class="btn ghost" id="cancelBtn" style="display:none">Cancel</button>
+        <button class="btn ghost" id="copyBtn" style="display:none">Copy</button>
       </div>
-      <div class="spacer"></div>
-      <span class="follow-chip on" id="followChip" style="display:none">follow ●</span>
     </div>
-    <div id="workarea">
-      <pre id="outputPane" style="display:none"></pre>
-      <div id="filePane" style="display:none">
-        <div id="filelist"></div>
-        <div id="content"><div class="empty-state">Select a file</div></div>
+    <nav class="tabbar" id="tabbar">
+      <button class="tab active" data-tab="docs">Documents</button>
+      <button class="tab" data-tab="output">Output</button>
+      <button class="tab" data-tab="files">Files</button>
+    </nav>
+    <div class="work-body">
+      <div class="tab-pane active" id="pane-docs">
+        <div class="filelist" id="filelist"></div>
+        <div class="content-wrap">
+          <div class="content" id="content"><div class="empty">Select a session to browse documents.</div></div>
+          <textarea class="editor" id="editor" style="display:none" spellcheck="false" aria-label="Markdown editor"></textarea>
+        </div>
       </div>
-      <div id="remoteFilesPane" style="display:none"></div>
-      <div class="empty-state" id="welcomePane">
-        <div>Select a machine, then a session.</div>
-        <div class="hint">machines → sessions → output / comms / docs</div>
+      <div class="tab-pane" id="pane-output">
+        <div class="output-head">
+          <span class="breadcrumb" id="outputLabel">No session selected</span>
+          <span style="flex:1"></span>
+          <button class="follow on" id="followBtn">follow ●</button>
+        </div>
+        <pre class="output" id="output"></pre>
+      </div>
+      <div class="tab-pane" id="pane-files">
+        <div class="files" id="files"><div class="empty">Select a machine to browse its files.</div></div>
       </div>
     </div>
   </main>
 </div>
-<div id="toast"></div>
-<div class="modal-overlay" id="createModal" style="display:none">
-  <div class="modal-box">
-    <h3>New session on <span id="createMachineName"></span></h3>
-    <label for="createName">Session name</label>
-    <input type="text" id="createName" placeholder="my-session">
-    <label for="createHarness">Harness</label>
-    <select id="createHarness">
+
+<div class="modal-backdrop" id="createModal">
+  <div class="modal">
+    <h3>New session</h3>
+    <label for="cmMachine">Machine</label>
+    <input id="cmMachine" readonly>
+    <label for="cmName">Session name</label>
+    <input id="cmName" placeholder="e.g. build">
+    <label for="cmHarness">Harness</label>
+    <select id="cmHarness">
       <option value="bash">Bash</option>
       <option value="hermes">Hermes</option>
       <option value="claude">Claude Code</option>
@@ -706,614 +268,382 @@ main { min-width: 0; min-height: 0; display: flex; flex-direction: column; overf
       <option value="opencode">OpenCode</option>
       <option value="cursor">Cursor</option>
     </select>
-    <label for="createCommand">Command</label>
-    <input type="text" id="createCommand" placeholder="/bin/bash -l" value="/bin/bash -l">
-    <div class="checkbox-row">
-      <label class="check-label">
-        <input type="checkbox" id="createYolo" checked>
-        --yolo / auto-approve
-      </label>
-    </div>
-    <div class="hint">Terminal size auto-detected on connect (like SSH).</div>
-    <div class="modal-actions">
-      <button id="createCancel" class="secondary">Cancel</button>
-      <button id="createSubmit" class="primary">Create</button>
+    <label for="cmCommand">Command</label>
+    <input id="cmCommand" value="/bin/bash -l">
+    <div class="field-hint">Auto-filled from the harness. Terminal size is detected on connect (like SSH).</div>
+    <label class="check"><input type="checkbox" id="cmYolo" checked><span>Auto-approve (--yolo / -p / --auto per harness)</span></label>
+    <div class="actions">
+      <button class="btn ghost" id="cmCancel">Cancel</button>
+      <button class="btn primary" id="cmSubmit">Create</button>
     </div>
   </div>
 </div>
+
+<div class="toast" id="toast"></div>
+
 <script>
 (function(){
   'use strict';
   const base = location.pathname.replace(/\/$/, '');
-  const machinesEl = document.getElementById('machines');
-  const sessionsEl = document.getElementById('sessions');
-  const sessionsHeaderEl = document.getElementById('sessionsHeader');
-  const breadcrumbEl = document.getElementById('breadcrumb');
-  const tabbarEl = document.getElementById('tabbar');
-  const toolbarEl = document.getElementById('toolbar');
-  const outputPane = document.getElementById('outputPane');
-  const filePane = document.getElementById('filePane');
-  const remoteFilesPane = document.getElementById('remoteFilesPane');
-  const welcomePane = document.getElementById('welcomePane');
-  const filelistEl = document.getElementById('filelist');
-  const contentEl = document.getElementById('content');
-  const followChip = document.getElementById('followChip');
-  const editBtn = document.getElementById('editBtn');
-  const saveBtn = document.getElementById('saveBtn');
-  const cancelBtn = document.getElementById('cancelBtn');
-  const copyBtn = document.getElementById('copyBtn');
-  const toastEl = document.getElementById('toast');
-  const createModal = document.getElementById('createModal');
-  const createMachineNameEl = document.getElementById('createMachineName');
-  const createNameEl = document.getElementById('createName');
-  const createHarnessEl = document.getElementById('createHarness');
-  const createCommandEl = document.getElementById('createCommand');
-  const createYoloEl = document.getElementById('createYolo');
-  const createSubmitEl = document.getElementById('createSubmit');
+  let mesh = {node:'', peers:[], sessions:[], offline:true, uptime_s:0};
+  let fsTree = {sessions:[]};
+  let selMachine = null;
+  let selSession = null;
+  let curFile = null, curType = null, curRaw = '', editing = false;
+  let tab = 'docs';
+  let outputOffset = 0, outputFollow = true, outputTimer = null;
+  let query = '';
+  let theme = localStorage.getItem('bp-theme') === 'light' ? 'light' : 'dark';
+
+  const $ = s => document.querySelector(s);
+  const $$ = s => Array.from(document.querySelectorAll(s));
+  const esc = s => String(s).replace(/[&<>"']/g, c =>
+    ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
   const HARNESS_CATALOG = {
-    bash:      { name: 'Bash',        cmd: '/bin/bash -l' },
-    hermes:    { name: 'Hermes',      cmd: 'hermes --tui' },
-    claude:    { name: 'Claude Code', cmd: 'claude' },
-    codex:     { name: 'Codex CLI',   cmd: 'codex' },
-    kimi:      { name: 'Kimi Code',   cmd: 'kimi' },
-    commandcode: { name: 'CommandCode', cmd: 'commandcode' },
-    opencode:  { name: 'OpenCode',    cmd: 'opencode' },
-    cursor:    { name: 'Cursor',      cmd: 'cursor' },
+    bash:       { name: 'Bash',        cmd: '/bin/bash -l' },
+    hermes:     { name: 'Hermes',      cmd: 'hermes --tui' },
+    claude:     { name: 'Claude Code', cmd: 'claude' },
+    codex:      { name: 'Codex CLI',   cmd: 'codex' },
+    kimi:       { name: 'Kimi Code',   cmd: 'kimi' },
+    commandcode:{ name: 'CommandCode', cmd: 'commandcode' },
+    opencode:   { name: 'OpenCode',    cmd: 'opencode' },
+    cursor:     { name: 'Cursor',      cmd: 'cursor' },
   };
   const YOLO_FLAGS = {
     hermes: ' --yolo', claude: ' -p', codex: ' --yolo',
     kimi: ' -p', commandcode: '', opencode: ' --auto',
     cursor: ' --yolo', bash: '',
   };
-
   function buildHarnessCmd(harness, yolo) {
-    var cmd = HARNESS_CATALOG[harness] ? HARNESS_CATALOG[harness].cmd : '/bin/bash -l';
+    let cmd = HARNESS_CATALOG[harness] ? HARNESS_CATALOG[harness].cmd : '/bin/bash -l';
     if (yolo && YOLO_FLAGS[harness]) cmd += YOLO_FLAGS[harness];
     return cmd;
   }
 
-  // ── State ──
-  let mesh = {node:'', peers:[], sessions:[], offline:true};
-  let fsTree = {sessions:[]};
-  let selMachine = null;       // '' = local node
-  let selSession = null;
-  let selSessionLive = false;
-  let selSessionCommand = '';
-  let createMachine = null;
-  let tab = 'output';
-  let outputOffset = 0;
-  let outputFollow = true;
-  let outputTimer = null;
-  let curFile = null, curType = null, curRaw = '', editing = false;
-
-  const esc = s => String(s).replace(/[&<>"']/g, c =>
-    ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-
-  function toast(msg, isErr) {
-    toastEl.textContent = msg;
-    toastEl.className = 'show' + (isErr ? ' err' : '');
-    setTimeout(() => { toastEl.className = ''; }, 1800);
-  }
-
-  async function api(path) {
-    const r = await fetch(base + path);
+  async function api(path, opts) {
+    const r = await fetch(base + path, opts);
     if (!r.ok) throw new Error('HTTP ' + r.status);
     return r.json();
   }
-
-  async function copyToClipboard(text) {
-    try {
-      await navigator.clipboard.writeText(text);
-      toast('Copied');
-    } catch (_) {
-      toast('Copy failed', true);
-    }
-  }
-
-  // Strip ANSI CSI sequences (colors/cursor); OSC52 already stripped server-side.
   function stripAnsi(s) {
-    return s
-      .replace(/\x1b\[[0-9;?]*[A-Za-z@-~]/g, '')
-      .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, '')
-      .replace(/\x1b[@-Z\\-_]/g, '');
+    return s.replace(/\x1b\[[0-9;?]*[A-Za-z@-~]/g, '').replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, '');
   }
 
-  // ── Machines column ──
+  let toastTimer;
+  function toast(msg, isErr) {
+    const t = $('#toast');
+    t.textContent = msg; t.className = 'toast show' + (isErr ? ' err' : '');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { t.className = 'toast'; }, 1800);
+  }
+  function applyTheme(t) {
+    theme = (t === 'light') ? 'light' : 'dark';
+    document.documentElement.setAttribute('data-theme', theme);
+    try { localStorage.setItem('bp-theme', theme); } catch (e) {}
+    $('#themeToggle').textContent = theme === 'dark' ? '\u25D0' : '\u25D1';
+  }
+
+  // ── Machines ──
   function machineList() {
-    // Local node first (marked), then peers sorted by name
     const out = [];
-    out.push({name: mesh.node || '(local)', healthy: !mesh.offline, you: true,
-              sessions: mesh.sessions || []});
-    for (const p of (mesh.peers || [])) {
-      out.push({name: p.name, healthy: !!p.healthy, you: false,
-                sessions: p.sessions || []});
-    }
+    if (mesh.node) out.push({name: mesh.node, addr: '', you: true, healthy: !mesh.offline, sessions: mesh.sessions || []});
+    for (const p of (mesh.peers || [])) out.push({name: p.name, addr: p.addr || '', you: false, healthy: !!p.healthy, sessions: p.sessions || []});
     return out;
   }
-
   function renderMachines() {
-    const list = machineList();
-    if (!list.length || (list.length === 1 && mesh.offline)) {
-      machinesEl.innerHTML = '<div class="machine-row"><span class="dot"></span>' +
-        '<span>(mesh offline)</span></div>';
-      return;
-    }
-    machinesEl.innerHTML = list.map(m =>
-      '<div class="machine-row' + (selMachine === m.name ? ' active' : '') +
-      '" data-machine="' + esc(m.name) + '">' +
-      '<span class="dot' + (m.healthy ? ' up' : '') + '"></span>' +
-      '<span>' + esc(m.name) + '</span>' +
-      (m.you ? '<span class="you">you</span>' : '') +
-      '<span class="count">' + (m.sessions ? m.sessions.length : 0) + '</span>' +
-      '<button class="new-session-btn" data-machine="' + esc(m.name) +
-      '" title="New session on ' + esc(m.name) + '">+</button>' +
-      '</div>'
-    ).join('');
+    const list = machineList().filter(m => !query || m.name.toLowerCase().includes(query));
+    $('#machines').innerHTML = !list.length
+      ? '<div class="empty">No machines match "' + esc(query) + '".</div>'
+      : list.map(m =>
+        '<div class="mrow' + (selMachine === m.name ? ' active' : '') + '" data-machine="' + esc(m.name) + '">' +
+        '<span class="dot ' + (m.you ? 'you' : (m.healthy ? 'up' : '')) + '"></span>' +
+        '<div class="mi"><div class="mn">' + esc(m.name) + '</div>' +
+        '<div class="ma">' + (m.addr ? esc(m.addr) : 'local node') + '</div></div>' +
+        (m.you ? '<span class="you">you</span>' : '') +
+        '<span class="n">' + (m.sessions ? m.sessions.length : 0) + '</span></div>'
+      ).join('');
+    $('#machineCount').textContent = list.length + ' shown';
+    if (mesh.offline && !mesh.node) $('#summary').innerHTML = '<b>mesh offline</b>';
+    else $('#summary').innerHTML = '<b>' + (mesh.peers ? mesh.peers.length : 0) + '</b> peers connected';
+    $('#nodeAvatar').textContent = (mesh.node || '?').charAt(0).toUpperCase();
   }
 
-  machinesEl.addEventListener('click', e => {
-    const plus = e.target.closest('.new-session-btn');
-    if (plus) {
-      e.stopPropagation();
-      openCreateModal(plus.dataset.machine);
-      return;
-    }
-    const row = e.target.closest('.machine-row');
-    if (!row || !row.dataset.machine) return;
-    selMachine = row.dataset.machine;
-    selSession = null;
-    renderMachines();
-    renderSessions();
-    renderWork();
-  });
-
-  // ── New session modal ──
-  function openCreateModal(machineName) {
-    createMachine = machineName;
-    createMachineNameEl.textContent = machineName || '(local)';
-    createNameEl.value = '';
-    createHarnessEl.value = 'bash';
-    updateCreateCommand();
-    createModal.style.display = '';
-    createNameEl.focus();
-  }
-
-  function updateCreateCommand() {
-    createCommandEl.value = buildHarnessCmd(createHarnessEl.value, createYoloEl.checked);
-  }
-
-  createHarnessEl.addEventListener('change', updateCreateCommand);
-  createYoloEl.addEventListener('change', updateCreateCommand);
-
-  function closeCreateModal() {
-    createModal.style.display = 'none';
-  }
-
-  async function createSession() {
-    const body = {
-      machine: createMachine,
-      name: createNameEl.value.trim() || 'default',
-      command: createCommandEl.value,
-    };
-    const originalText = createSubmitEl.textContent;
-    createSubmitEl.disabled = true;
-    createSubmitEl.textContent = 'Creating…';
-    try {
-      const r = await fetch(base + '/api/session/create', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(body)
-      });
-      if (!r.ok) throw new Error('HTTP ' + r.status);
-      const d = await r.json();
-      if (d.ok) {
-        closeCreateModal();
-        toast('Created ' + d.session);
-        await refreshMesh();
-        renderSessions();
-      } else {
-        toast(d.error || 'Create failed', true);
-      }
-    } catch (err) {
-      toast(err.message || 'Create failed', true);
-    } finally {
-      createSubmitEl.disabled = false;
-      createSubmitEl.textContent = originalText;
-    }
-  }
-
-  createModal.addEventListener('click', e => {
-    if (e.target === createModal) closeCreateModal();
-  });
-  document.getElementById('createCancel').addEventListener('click', closeCreateModal);
-  createSubmitEl.addEventListener('click', createSession);
-  document.addEventListener('keydown', e => {
-    if (e.key === 'Escape' && createModal.style.display !== 'none') closeCreateModal();
-  });
-
-  // ── Sessions column ──
-  function sessionsFor(machineName) {
-    const m = machineList().find(x => x.name === machineName);
-    const live = (m && m.sessions) || [];
-    // Merge filesystem sessions for the local node only
-    const isLocal = !machineName || machineName === mesh.node ||
-                    machineName === '(local)' || machineName === '';
-    const HARNESS_KEYS = /hermes|claude|codex|kimi|commandcode|opencode|cursor/i;
-    const EPHEMERAL = /^cmd-\d+-\d+$|^run-script-[0-9a-f]+$|^health-bs-health-/;
-    const out = live
-      .filter(s => !EPHEMERAL.test(s.name))
-      .map(s => ({
-        name: s.name, state: s.state || '', command: s.command || '',
-        bytes: s.bytes || 0, live: s.state !== 'died' && s.state !== 'exited',
-        harness: HARNESS_KEYS.test(s.command || s.name || '')
-      }));
+  // ── Sessions ──
+  function sessionsFor(name) {
+    const isLocal = !name || name === mesh.node || name === '(local)';
+    const EPHEMERAL = /^cmd-\d+-\d+$|^run-script-|^health-bs-health-/;
+    const out = [];
     if (isLocal) {
-      const liveNames = new Set(out.map(s => s.name));
-      for (const fs of (fsTree.sessions || [])) {
-        if (!liveNames.has(fs.name)) {
-          out.push({name: fs.name, state: 'stored', command: '', bytes: 0,
-                    live: !!fs.live, harness: HARNESS_KEYS.test(fs.name)});
-        }
+      const fs = (fsTree.sessions || []).map(s => ({name: s.name, live: !!s.live, local: true, comms: s.comms || [], documents: s.documents || []}));
+      out.push(...fs);
+      const names = new Set(out.map(x => x.name));
+      for (const s of (mesh.sessions || [])) {
+        if (EPHEMERAL.test(s.name)) continue;
+        if (!names.has(s.name)) out.push({name: s.name, live: true, local: true, comms: [], documents: []});
+      }
+    } else {
+      const peer = (mesh.peers || []).find(p => p.name === name);
+      for (const s of (peer ? peer.sessions || [] : [])) {
+        if (EPHEMERAL.test(s.name)) continue;
+        out.push({name: s.name, live: s.state !== 'died' && s.state !== 'exited', local: false, comms: [], documents: [], state: s.state || ''});
       }
     }
     out.sort((a, b) => (b.live - a.live) || a.name.localeCompare(b.name));
     return out;
   }
-
   function renderSessions() {
-    const list = selMachine !== null ? sessionsFor(selMachine) : [];
-    sessionsHeaderEl.textContent = selMachine ? ('Sessions  ' + selMachine) : 'Sessions';
-    if (!selMachine) {
-      sessionsEl.innerHTML = '';
-      return;
-    }
-    if (!list.length) {
-      sessionsEl.innerHTML = '<div class="session-row"><span class="sname" ' +
-        'style="color:var(--text-4)">no sessions</span></div>';
-      return;
-    }
-    sessionsEl.innerHTML = list.map(s =>
-      '<div class="session-row' + (selSession === s.name ? ' active' : '') +
-      '" data-session="' + esc(s.name) + '" data-live="' + (s.live ? '1' : '') +
-      '" data-command="' + esc(s.command || '') + '">' +
-      '<span class="hicon">' + (s.harness ? '⚙' : '⬚') + '</span>' +
-      '<span class="sname">' + esc(s.name) + '</span>' +
-      '<span class="sstate">' + esc(s.state || '') + '</span>' +
+    $('#sessionsHead').textContent = selMachine ? ('Sessions · ' + selMachine) : 'Sessions';
+    if (!selMachine) { $('#sessions').innerHTML = ''; return; }
+    const list = sessionsFor(selMachine);
+    $('#sessions').innerHTML = !list.length
+      ? '<div class="empty">No sessions. Create one with +.</div>'
+      : list.map(s =>
+        '<div class="srow' + (selSession === s.name ? ' active' : '') + '" data-session="' + esc(s.name) + '">' +
+        '<span class="sdot' + (s.live ? ' live' : '') + '"></span>' +
+        '<span class="sname">' + esc(s.name) + '</span>' +
+        '<span class="sstate">' + esc(s.state || (s.local ? (s.live ? 'live' : 'stored') : '')) + '</span></div>'
+      ).join('');
+  }
 
-      '<span class="dot' + (s.live ? ' live' : '') + '"></span>' +
-      '</div>'
+  // ── Files (docs) ──
+  function renderFiles() {
+    if (!selSession) { $('#filelist').innerHTML = ''; return; }
+    const s = sessionsFor(selMachine).find(x => x.name === selSession);
+    const docs = s ? s.documents : [], comms = s ? s.comms : [];
+    if (!docs.length && !comms.length) {
+      $('#filelist').innerHTML = '<div class="empty">' + (s && !s.local ? 'Remote files not exposed here — use Files tab.' : 'No documents.') + '</div>';
+      return;
+    }
+    let html = '';
+    if (comms.length) { html += '<div class="group">Comms</div>'; for (const f of comms) html += fileRow(f, 'comms'); }
+    if (docs.length) { html += '<div class="group">Documents</div>'; for (const f of docs) html += fileRow(f, 'documents'); }
+    $('#filelist').innerHTML = html;
+  }
+  function fileRow(f, type) {
+    const active = (curFile === f.name && curType === type) ? ' active' : '';
+    const kb = f.size != null ? (f.size >= 1024 ? (f.size/1024).toFixed(1) + 'k' : f.size + 'b') : '';
+    return '<div class="fitem' + active + '" data-file="' + esc(f.name) + '" data-type="' + type + '">' +
+      '<span>&#128196;</span><span>' + esc(f.name) + '</span><span class="sz">' + kb + '</span></div>';
+  }
+
+  // ── Content ──
+  async function loadContent() {
+    if (!selSession || !curFile) return;
+    try {
+      const d = await api('/api/content?session=' + encodeURIComponent(selSession) + '&type=' + encodeURIComponent(curType) + '&name=' + encodeURIComponent(curFile));
+      curRaw = d.raw || '';
+      $('#content').innerHTML = d.html || '<div class="empty">(empty document)</div>';
+    } catch (err) { $('#content').innerHTML = '<div class="empty">Could not load document.</div>'; }
+  }
+  function updateTools() {
+    const hasFile = !!curFile;
+    $('#editBtn').style.display = hasFile && !editing ? '' : 'none';
+    $('#saveBtn').style.display = editing ? '' : 'none';
+    $('#cancelBtn').style.display = editing ? '' : 'none';
+    $('#copyBtn').style.display = hasFile && !editing ? '' : 'none';
+    $('#content').style.display = editing ? 'none' : 'block';
+    $('#editor').style.display = editing ? 'block' : 'none';
+  }
+  function renderBreadcrumb() {
+    const parts = [];
+    if (selMachine) parts.push(selMachine);
+    if (selSession) parts.push(selSession);
+    if (curFile) parts.push(curFile);
+    $('#breadcrumb').innerHTML = !parts.length ? '' : parts.map((p, i) =>
+      (i === parts.length - 1) ? '<span class="cur">' + esc(p) + '</span>' : '<span>' + esc(p) + '</span><span class="sep">/</span>'
     ).join('');
   }
 
-  sessionsEl.addEventListener('click', e => {
-    const row = e.target.closest('.session-row');
-    if (!row || !row.dataset.session) return;
-    selSession = row.dataset.session;
-    selSessionLive = row.dataset.live === '1';
-    selSessionCommand = row.dataset.command || '';
-    outputOffset = 0;
-    outputPane.textContent = '';
-    curFile = null; editing = false;
-    renderSessions();
-    renderWork();
-  });
-
   // ── Tabs ──
-  tabbarEl.addEventListener('click', e => {
-    const btn = e.target.closest('button[data-tab]');
-    if (!btn) return;
-    tab = btn.dataset.tab;
-    for (const b of tabbarEl.querySelectorAll('button'))
-      b.classList.toggle('active', b === btn);
-    curFile = null; editing = false;
-    renderWork();
-  });
-  // ── Work area ──
-  function renderBreadcrumb() {
-    if (!selSession) { breadcrumbEl.innerHTML = ''; return; }
-    breadcrumbEl.innerHTML =
-      '<span>' + esc(selMachine || '') + '</span><span class="sep">/</span>' +
-      '<span>' + esc(selSession) + '</span><span class="sep">/</span>' +
-      '<span class="current">' + esc(tab) + '</span>';
-  }
-
-  function updateTools() {
-    const showEditorBtns = (tab === 'comms' || tab === 'docs') && curFile;
-    editBtn.style.display = showEditorBtns && !editing ? '' : 'none';
-    saveBtn.style.display = editing ? '' : 'none';
-    cancelBtn.style.display = editing ? '' : 'none';
-    copyBtn.style.display = showEditorBtns && !editing ? '' : 'none';
-    followChip.style.display = (tab === 'output' && selSessionLive) ? '' : 'none';
-  }
-
-  function renderWork() {
-    renderBreadcrumb();
-    updateTools();
-    var has = !!selSession;
-    var isFiles = tab === 'files';
-    var hasMachine = !!selMachine;
-    tabbarEl.style.display = has || hasMachine || !selSession ? '' : 'none';
-    toolbarEl.style.display = has ? '' : 'none';
-    welcomePane.style.display = has || (hasMachine && isFiles) ? 'none' : '';
-    outputPane.style.display = (has && tab === 'output') ? '' : 'none';
-    filePane.style.display = (has && (tab === 'comms' || tab === 'docs')) ? 'flex' : 'none';
-    remoteFilesPane.style.display = (hasMachine && isFiles) ? '' : 'none';
-
+  function switchTab(name) {
+    tab = name;
+    $$('#tabbar .tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
+    $$('.tab-pane').forEach(p => p.classList.toggle('active', p.id === 'pane-' + name));
     if (outputTimer) { clearInterval(outputTimer); outputTimer = null; }
-    if (has && tab === 'output') {
-      if (selSessionLive || selMachine !== mesh.node) {
-        outputOffset = 0;
-        outputPane.textContent = '';
-        delete outputPane.dataset.errShown;
-        pollOutput();
-        outputTimer = setInterval(pollOutput, 2000);
-      } else {
-        outputPane.textContent = 'No live output — session is not running on the mesh.\n' +
-          'Stored files are under the Comms / Docs tabs.';
-      }
-    }
-    if (has && (tab === 'comms' || tab === 'docs')) {
-      renderFileList();
-    }
-    if (hasMachine && isFiles) {
-      renderRemoteFiles();
-    }
+    if (name === 'output') startOutput();
+    if (name === 'files') renderRemoteFiles();
+    if (name === 'docs') updateTools();
   }
 
-  // ── Output plane ──
+  // ── Output ──
+  function startOutput() {
+    $('#output').textContent = '';
+    outputOffset = 0;
+    delete $('#output').dataset.err;
+    if (selSession) {
+      $('#outputLabel').textContent = (selMachine || '') + ' / ' + selSession;
+      pollOutput();
+      outputTimer = setInterval(pollOutput, 2000);
+    } else {
+      $('#outputLabel').textContent = 'Select a session to see live output';
+      $('#output').textContent = '';
+    }
+  }
   async function pollOutput() {
     if (!selSession || tab !== 'output') return;
     try {
-      var url = '/api/output?session=' + encodeURIComponent(selSession) +
-                '&since=' + outputOffset;
+      let url = '/api/output?session=' + encodeURIComponent(selSession) + '&since=' + outputOffset;
       if (selMachine) url += '&machine=' + encodeURIComponent(selMachine);
       const d = await api(url);
       if (d.error) {
-        if (!outputPane.dataset.errShown) {
-          outputPane.textContent = '(output unavailable: ' + d.error + ')';
-          outputPane.dataset.errShown = '1';
-        }
+        if (!$('#output').dataset.err) { $('#output').textContent = '(output unavailable: ' + d.error + ')'; $('#output').dataset.err = '1'; }
         return;
       }
-      delete outputPane.dataset.errShown;
-      if (d.reset) outputPane.textContent = '';
+      delete $('#output').dataset.err;
+      if (d.reset) $('#output').textContent = '';
       if (d.text) {
-        // Remote sessions return a full snapshot each time (not incremental)
-        if (d.remote) {
-          outputPane.textContent = stripAnsi(d.text);
-        } else {
-          outputPane.textContent += stripAnsi(d.text);
-        }
-        if (outputFollow) outputPane.scrollTop = outputPane.scrollHeight;
+        if (d.remote) $('#output').textContent = stripAnsi(d.text);
+        else $('#output').textContent += stripAnsi(d.text);
+        if (outputFollow) $('#output').scrollTop = $('#output').scrollHeight;
       }
       if (typeof d.offset === 'number') outputOffset = d.offset;
-    } catch (_) { /* keep last good frame */ }
+    } catch (_) {}
   }
 
-  // ── Remote Files pane ──
+  // ── Remote files ──
   function renderRemoteFiles() {
-    if (!selMachine) {
-      remoteFilesPane.innerHTML = '<div class="empty-state">Select a machine first.</div>';
-      return;
-    }
-    var peer = selMachine || '(local)';
-    var isLocal = peer === mesh.node || peer === '(local)' || peer === '';
-    var html = '<div class="remote-files-section">';
-    html += '<h2 style="font-size:18px;color:var(--text);margin-bottom:14px">Files on ' + esc(peer) + '</h2>';
-
-    // View remote file
-    html += '<div class="rf-card">';
-    html += '<div class="rf-card-title">View a file</div>';
-    html += '<div class="rf-row">';
-    html += '<input type="text" id="rfPath" class="rf-input" placeholder="/path/to/file.md" value="">';
-    html += '<button id="rfFetch" class="rf-btn primary">View</button>';
-    html += '</div>';
-    html += '<div class="rf-hint">Enter a path on ' + esc(peer) + ' to view it here. Markdown renders automatically.</div>';
-    html += '</div>';
-
-    // Upload to remote
-    html += '<div class="rf-card">';
-    html += '<div class="rf-card-title">Upload text to ' + esc(peer) + '</div>';
-    html += '<div class="rf-row">';
-    html += '<input type="text" id="rfUploadPath" class="rf-input" placeholder="report.md (relative to received/)">';
-    html += '</div>';
-    html += '<textarea id="rfUploadContent" class="rf-textarea" placeholder="Type or paste content here..."></textarea>';
-    html += '<div class="rf-row" style="margin-top:8px">';
-    html += '<button id="rfUpload" class="rf-btn primary">Upload</button>';
-    html += '</div>';
-    html += '<div class="rf-hint">Sends via bs file send — file lands under received/ on ' + esc(peer) + '. Use a relative filename (e.g. <code>report.md</code>).</div>';
-    html += '</div>';
-
-    // Result area
-    html += '<div id="rfResult" class="rf-result"></div>';
-    html += '</div>';
-
-    remoteFilesPane.innerHTML = html;
-
-    // Bind view button
-    var fetchBtn = document.getElementById('rfFetch');
-    var pathInput = document.getElementById('rfPath');
-    var resultEl = document.getElementById('rfResult');
-    if (fetchBtn) {
-      fetchBtn.addEventListener('click', function() {
-        var p = pathInput.value.trim();
-        if (!p) return;
-        resultEl.innerHTML = '<div class="rf-loading">Fetching ' + esc(p) + ' from ' + esc(peer) + '...</div>';
-        fetch(base + '/api/remote-file?machine=' + encodeURIComponent(peer) + '&path=' + encodeURIComponent(p))
-          .then(function(r) { return r.json(); })
-          .then(function(d) {
-            if (d.ok) {
-              resultEl.innerHTML = '<div class="rf-file-header"><strong>' + esc(d.name) + '</strong>' +
-                '<span class="rf-size">' + (d.size || 0).toLocaleString() + ' bytes</span></div>';
-              resultEl.innerHTML += '<div class="doc-container">' + (d.html || '') + '</div>';
-            } else {
-              resultEl.innerHTML = '<div class="rf-error">' + esc(d.error || 'Fetch failed') + '</div>';
-            }
-          })
-          .catch(function(err) {
-            resultEl.innerHTML = '<div class="rf-error">Error: ' + esc(String(err.message || err)) + '</div>';
-          });
-      });
-      pathInput.addEventListener('keydown', function(e) {
-        if (e.key === 'Enter') fetchBtn.click();
-      });
-    }
-
-    // Bind upload button
-    var uploadBtn = document.getElementById('rfUpload');
-    var uploadPathInput = document.getElementById('rfUploadPath');
-    var uploadContentEl = document.getElementById('rfUploadContent');
-    if (uploadBtn) {
-      uploadBtn.addEventListener('click', function() {
-        var p = uploadPathInput.value.trim();
-        var c = uploadContentEl.value;
-        if (!p || !c) { toast('Path and content required', true); return; }
-        uploadBtn.disabled = true;
-        uploadBtn.textContent = 'Uploading...';
-        fetch(base + '/api/upload', {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({machine: peer, path: p, content: c})
-        })
-          .then(function(r) { return r.json(); })
-          .then(function(d) {
-            uploadBtn.disabled = false;
-            uploadBtn.textContent = 'Upload';
-            if (d.ok) {
-              toast('Uploaded to ' + d.dest);
-              uploadContentEl.value = '';
-            } else {
-              toast(d.error || 'Upload failed', true);
-            }
-          })
-          .catch(function(err) {
-            uploadBtn.disabled = false;
-            uploadBtn.textContent = 'Upload';
-            toast(err.message || 'Upload failed', true);
-          });
-      });
-    }
+    const fl = $('#files');
+    if (!selMachine) { fl.innerHTML = '<div class="empty">Select a machine to browse its files.</div>'; return; }
+    const peer = selMachine;
+    const isLocal = peer === mesh.node || peer === '(local)';
+    if (isLocal) { fl.innerHTML = '<div class="empty">Local files live under Documents. Use Files for remote peers.</div>'; return; }
+    fl.innerHTML =
+      '<h2>Files on ' + esc(peer) + '</h2>' +
+      '<div class="rf-card"><div class="tt">View a file</div>' +
+      '<div class="rf-row"><input id="rfPath" placeholder="/path/to/file.md"><button class="btn primary" id="rfFetch">View</button></div>' +
+      '<div class="rf-hint">Enter a path on ' + esc(peer) + '. Markdown renders automatically.</div></div>' +
+      '<div class="rf-card"><div class="tt">Upload text to ' + esc(peer) + '</div>' +
+      '<div class="rf-row"><input id="rfUploadPath" placeholder="report.md (relative to received/)"></div>' +
+      '<textarea class="rf-textarea" id="rfUploadContent" placeholder="Type or paste content…"></textarea>' +
+      '<div class="rf-row" style="margin-top:8px"><button class="btn primary" id="rfUpload">Upload</button></div>' +
+      '<div class="rf-hint">Sends via <code>bs file send</code> — lands under received/.</div></div>' +
+      '<div class="rf-result" id="rfResult"></div>';
+    $('#rfFetch').addEventListener('click', async () => {
+      const p = $('#rfPath').value.trim(); if (!p) return;
+      const res = $('#rfResult');
+      res.innerHTML = '<div class="rf-hint">Fetching ' + esc(p) + '…</div>';
+      try {
+        const d = await api('/api/remote-file?machine=' + encodeURIComponent(peer) + '&path=' + encodeURIComponent(p));
+        if (d.ok) res.innerHTML = '<div class="rf-card"><div class="tt">' + esc(d.name) + ' · ' + (d.size || 0).toLocaleString() + ' bytes</div><div class="content">' + (d.html || '') + '</div></div>';
+        else res.innerHTML = '<div class="rf-hint">' + esc(d.error || 'Fetch failed') + '</div>';
+      } catch (e) { res.innerHTML = '<div class="rf-hint">Error: ' + esc(String(e.message || e)) + '</div>'; }
+    });
+    $('#rfUpload').addEventListener('click', async () => {
+      const p = $('#rfUploadPath').value.trim(), c = $('#rfUploadContent').value;
+      if (!p || !c) { toast('Path and content required', true); return; }
+      const btn = $('#rfUpload'); btn.disabled = true; btn.textContent = 'Uploading…';
+      try {
+        const d = await api('/api/upload', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({machine: peer, path: p, content: c}) });
+        if (d.ok) { toast('Uploaded to ' + d.dest); $('#rfUploadContent').value = ''; }
+        else toast(d.error || 'Upload failed', true);
+      } catch (e) { toast('Upload failed', true); }
+      finally { btn.disabled = false; btn.textContent = 'Upload'; }
+    });
   }
 
-  followChip.addEventListener('click', () => {
+  // ── Session creation ──
+  function openCreateModal() {
+    if (!selMachine) { toast('Select a machine first', true); return; }
+    $('#cmMachine').value = selMachine;
+    $('#cmName').value = '';
+    $('#cmHarness').value = 'bash';
+    updateCreateCommand();
+    $('#createModal').classList.add('open');
+    $('#cmName').focus();
+  }
+  function updateCreateCommand() {
+    $('#cmCommand').value = buildHarnessCmd($('#cmHarness').value, $('#cmYolo').checked);
+  }
+  async function createSession() {
+    const body = { machine: selMachine, name: $('#cmName').value.trim() || 'default', command: $('#cmCommand').value };
+    const btn = $('#cmSubmit'); const old = btn.textContent;
+    btn.disabled = true; btn.textContent = 'Creating…';
+    try {
+      const d = await api('/api/session/create', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) });
+      if (d.ok) { closeModal(); toast('Created ' + (d.session || body.name)); await refresh(); }
+      else toast(d.error || 'Create failed', true);
+    } catch (e) { toast('Create failed', true); }
+    finally { btn.disabled = false; btn.textContent = old; }
+  }
+  function closeModal() { $('#createModal').classList.remove('open'); }
+
+  // ── Events ──
+  $('#search').addEventListener('input', e => { query = e.target.value.trim().toLowerCase(); renderMachines(); });
+  $('#themeToggle').addEventListener('click', () => applyTheme(theme === 'dark' ? 'light' : 'dark'));
+  $('#newSessionBtn').addEventListener('click', openCreateModal);
+  $('#cmCancel').addEventListener('click', closeModal);
+  $('#cmSubmit').addEventListener('click', createSession);
+  $('#cmHarness').addEventListener('change', updateCreateCommand);
+  $('#cmYolo').addEventListener('change', updateCreateCommand);
+  $('#createModal').addEventListener('click', e => { if (e.target === $('#createModal')) closeModal(); });
+  $('#machines').addEventListener('click', e => {
+    const row = e.target.closest('.mrow'); if (!row || !row.dataset.machine) return;
+    selMachine = row.dataset.machine; selSession = null; curFile = null; curType = null; editing = false;
+    renderMachines(); renderSessions(); renderFiles(); renderBreadcrumb(); updateTools();
+    $('#content').innerHTML = '<div class="empty">Select a session to browse documents.</div>';
+    if (tab === 'files') renderRemoteFiles();
+    if (tab === 'output') startOutput();
+  });
+  $('#sessions').addEventListener('click', e => {
+    const row = e.target.closest('.srow'); if (!row || !row.dataset.session) return;
+    selSession = row.dataset.session; curFile = null; curType = null; editing = false;
+    renderSessions(); renderFiles(); renderBreadcrumb(); updateTools();
+    $('#content').innerHTML = '<div class="empty">Select a document.</div>';
+    if (tab === 'output') startOutput();
+  });
+  $('#tabbar').addEventListener('click', e => { const b = e.target.closest('.tab'); if (b) switchTab(b.dataset.tab); });
+  $('#filelist').addEventListener('click', e => {
+    const item = e.target.closest('.fitem'); if (!item) return;
+    curFile = item.dataset.file; curType = item.dataset.type; editing = false;
+    $$('#filelist .fitem').forEach(f => f.classList.toggle('active', f === item));
+    renderBreadcrumb(); updateTools(); loadContent();
+  });
+  $('#editBtn').addEventListener('click', () => { editing = true; $('#editor').value = curRaw; updateTools(); $('#editor').focus(); });
+  $('#cancelBtn').addEventListener('click', () => { editing = false; updateTools(); });
+  $('#copyBtn').addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText(curRaw); toast('Copied'); } catch (_) { toast('Copy failed', true); }
+  });
+  $('#saveBtn').addEventListener('click', async () => {
+    const btn = $('#saveBtn'); const old = btn.textContent;
+    btn.disabled = true; btn.textContent = 'Saving…';
+    try {
+      const d = await api('/api/save', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({session: selSession, type: curType, name: curFile, content: $('#editor').value}) });
+      curRaw = $('#editor').value;
+      $('#content').innerHTML = d.html || '';
+      editing = false; updateTools(); toast('Saved');
+    } catch (e) { toast('Save failed', true); }
+    finally { btn.disabled = false; btn.textContent = old; }
+  });
+  $('#followBtn').addEventListener('click', () => {
     outputFollow = !outputFollow;
-    followChip.classList.toggle('on', outputFollow);
-    followChip.textContent = outputFollow ? 'follow ●' : 'paused ○';
+    const b = $('#followBtn'); b.classList.toggle('on', outputFollow); b.textContent = outputFollow ? 'follow ●' : 'paused ○';
   });
-  outputPane.addEventListener('scroll', () => {
-    const atBottom = outputPane.scrollTop + outputPane.clientHeight >=
-                     outputPane.scrollHeight - 24;
-    if (!atBottom && outputFollow) followChip.click();
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && editing) { editing = false; updateTools(); }
+    else if (e.key === 'Escape' && $('#createModal').classList.contains('open')) closeModal();
   });
-
-  // ── File list (comms/docs) ──
-  function filesFor(session, dtype) {
-    const fs = (fsTree.sessions || []).find(x => x.name === session);
-    if (!fs) return [];
-    return fs[dtype] || [];
-  }
-
-  function renderFileList() {
-    const files = filesFor(selSession, tab);
-    if (!files.length) {
-      filelistEl.innerHTML = '<div class="file-item"><span class="file-name" ' +
-        'style="color:var(--text-4)">no ' + esc(tab) + ' yet</span></div>';
-      contentEl.innerHTML = '<div class="empty-state">No files in this session yet.<div class="hint">publish with: bs pane publish --session ' +
-        esc(selSession || '') + ' &lt;file&gt;</div></div>';
-      return;
-    }
-    filelistEl.innerHTML = files.map(f =>
-      '<div class="file-item' + (curFile === f.name ? ' active' : '') +
-      '" data-file="' + esc(f.name) + '">' +
-      '<span class="file-name">' + esc(f.name) + '</span>' +
-      '<span class="file-time">' + esc(f.modified_human || '') + '</span>' +
-      '</div>'
-    ).join('');
-    if (!curFile && files.length) openFile(files[0].name);
-  }
-
-  filelistEl.addEventListener('click', e => {
-    const item = e.target.closest('.file-item');
-    if (!item || !item.dataset.file) return;
-    openFile(item.dataset.file);
-  });
-
-  async function openFile(name) {
-    curFile = name;
-    editing = false;
-    renderFileListActiveOnly();
-    try {
-      const d = await api('/api/content?session=' + encodeURIComponent(selSession) +
-                          '&type=' + encodeURIComponent(tab) +
-                          '&name=' + encodeURIComponent(name));
-      curRaw = d.raw || '';
-      contentEl.innerHTML = '<div class="doc-container">' + (d.html || '') + '</div>';
-    } catch (err) {
-      contentEl.innerHTML = '<div class="empty-state">Failed to load file</div>';
-      toast('Load failed', true);
-    }
-    updateTools();
-  }
-  function renderFileListActiveOnly() {
-    for (const el of filelistEl.querySelectorAll('.file-item'))
-      el.classList.toggle('active', el.dataset.file === curFile);
-  }
-
-  // ── Editor ──
-  editBtn.addEventListener('click', () => {
-    if (!curFile) return;
-    editing = true;
-    contentEl.innerHTML = '<textarea id="editTextarea"></textarea>';
-    document.getElementById('editTextarea').value = curRaw;
-    updateTools();
-  });
-  cancelBtn.addEventListener('click', () => { openFile(curFile); });
-  copyBtn.addEventListener('click', async () => {
-    copyToClipboard(curRaw);
-  });
-  saveBtn.addEventListener('click', async () => {
-    const ta = document.getElementById('editTextarea');
-    if (!ta) return;
-    const body = JSON.stringify({session: selSession, type: tab, name: curFile, content: ta.value});
-    try {
-      const r = await fetch(base + '/api/save', {method: 'POST',
-        headers: {'Content-Type': 'application/json'}, body});
-      if (!r.ok) throw new Error('HTTP ' + r.status);
-      curRaw = ta.value;
-      toast('Saved');
-      await refreshFsTree();
-      openFile(curFile);
-    } catch (_) { toast('Save failed', true); }
-  });
-
-  // ── Polling ──
-  async function refreshMesh() {
-    try {
-      mesh = await api('/api/machines');
-      if (selMachine === null && mesh.node) selMachine = mesh.node;
-      renderMachines();
-      if (selMachine !== null) renderSessions();
-    } catch (_) { /* keep last good frame */ }
-  }
-  async function refreshFsTree() {
-    try { fsTree = await api('/api/tree'); } catch (_) {}
-  }
 
   // ── Init ──
-  (async function init() {
-    await Promise.all([refreshMesh(), refreshFsTree()]);
+  async function refresh() {
+    try {
+      const [m, t] = await Promise.all([api('/api/machines'), api('/api/tree')]);
+      mesh = m; fsTree = t;
+    } catch (err) { mesh = {node:'', peers:[], sessions:[], offline:true, uptime_s:0}; }
+    // Auto-select the first machine (local node) on first successful load.
     if (selMachine === null) {
       const list = machineList();
       if (list.length) selMachine = list[0].name;
     }
-    renderMachines();
-    renderSessions();
-    renderWork();
-    setInterval(refreshMesh, 5000);
-    setInterval(refreshFsTree, 5000);
-  })();
+    renderMachines(); renderSessions(); renderFiles();
+    if (tab === 'files') renderRemoteFiles();
+  }
+
+  applyTheme(theme);
+  refresh();
+  setInterval(refresh, 5000);
 })();
 </script>
 </body>
-</html>'''
+</html>
+'''

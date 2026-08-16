@@ -33,7 +33,7 @@ final class StatusItemController: NSObject {
         guard let button = statusItem.button else { return }
         let attrs: [NSAttributedString.Key: Any] = [
             .font: NSFont.menuBarFont(ofSize: 16),
-            .foregroundColor: NSColor.labelColor
+            .foregroundColor: NSColor(calibratedRed: 0.247, green: 0.663, blue: 0.878, alpha: 1.0)
         ]
         button.attributedTitle = NSAttributedString(string: "B", attributes: attrs)
         button.toolTip = "BridgeSessions Helper"
@@ -61,7 +61,7 @@ final class StatusItemController: NSObject {
         menu.addItem(.separator())
 
         // Fleet Status popup
-        let fleetItem = NSMenuItem(title: "Fleet Status…", action: #selector(showFleetPopover), keyEquivalent: "")
+        let fleetItem = NSMenuItem(title: "Fleet Overview…", action: #selector(showFleetPopover), keyEquivalent: "")
         fleetItem.target = self
         menu.addItem(fleetItem)
 

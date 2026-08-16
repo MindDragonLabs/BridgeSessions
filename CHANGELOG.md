@@ -9,6 +9,17 @@ All notable public releases are documented here.
 > `26.08.05-beta1`. The scheme encodes year, month, day, and a per-day beta
 > counter — e.g. `26.08.10-beta2` is the second beta cut on 2026-08-10.
 
+## 26.08.16-beta4
+
+### BridgePanel UI redesign + tray/menubar polish
+- Dark/light theme toggle, machine search, header bar, three-tab layout
+  (Documents / Output / Files), redesigned new-session modal.
+- Restored harness picker (Bash / Hermes / Claude Code / Codex CLI / Kimi Code /
+  CommandCode / OpenCode / Cursor) + auto-approve (--yolo / -p / --auto) toggle.
+- Restored 5s mesh polling and first-machine auto-select on load.
+- Panel version renders from `BUILDTAG` (single `VERSION` source), not hardcoded.
+- Menubar + tray accent unified to `#3FA9E0`; "Fleet Status" → "Fleet Overview".
+
 ## 26.08.12-beta4
 
 ### Interactive attach

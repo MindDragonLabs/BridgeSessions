@@ -261,17 +261,22 @@ class TestHttpSurface(unittest.TestCase):
         status, raw = self._req("GET", f"/{self.token}/")
         self.assertEqual(status, 200)
         raw = raw.decode("utf-8") if isinstance(raw, bytes) else raw
-        # Breadcrumb + three-column shell (v3): machines/sessions headers.
-        self.assertIn('class="col-header">Machines<', raw)
-        self.assertIn('id="sessionsHeader">Sessions<', raw)
+        # Header bar + three-column shell (redesign): machines/sessions columns.
+        self.assertIn('class="col-head">Machines', raw)
+        self.assertIn('id="sessionsHead">Sessions<', raw)
         self.assertIn('id="breadcrumb"', raw)
-        # Exactly one tools bar with a btn-group of 4 actions.
+        # Build tag placeholder is replaced by the panel version, not hardcoded.
+        self.assertNotIn("__BUILD_TAG__", raw)
+        self.assertIn(bp.BUILDTAG, raw)
+        # Exactly one toolbar with the four action buttons.
         self.assertIn('class="toolbar"', raw)
-        self.assertIn('class="btn-group"', raw)
         for btn in ("editBtn", "saveBtn", "cancelBtn", "copyBtn"):
             self.assertIn(f'id="{btn}"', raw)
-        # Edit/Save/Cancel/Copy ship as outlined buttons with icons (no emoji).
-        self.assertIn('id="copyBtn"', raw)
+        # New-session modal keeps the harness picker + auto-approve toggle.
+        self.assertIn('id="cmHarness"', raw)
+        self.assertIn('id="cmYolo"', raw)
+        self.assertIn('value="commandcode"', raw)
+        # Buttons ship as text (no emoji).
         self.assertNotIn("📋", raw)
         self.assertNotIn("✏️", raw)
 

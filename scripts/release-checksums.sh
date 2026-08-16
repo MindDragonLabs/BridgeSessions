@@ -14,15 +14,14 @@ cd "$DIST"
 shopt -s nullglob
 
 candidates=(bridgesessions bridgesessions-*)
-mapfile -t files < <(
-  for file in "${candidates[@]}"; do
-    [[ -f "$file" ]] || continue
-    case "$file" in
-      SHA256SUMS|*.json) continue ;;
-    esac
-    printf '%s\n' "$file"
-  done | LC_ALL=C sort -u
-)
+files=()
+for file in "${candidates[@]}"; do
+  [[ -f "$file" ]] || continue
+  case "$file" in
+    SHA256SUMS|*.json) continue ;;
+  esac
+  files+=("$file")
+done
 
 if [[ ${#files[@]} -eq 0 ]]; then
   printf 'no release binaries in %s\n' "$DIST" >&2

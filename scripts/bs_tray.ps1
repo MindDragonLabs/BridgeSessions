@@ -93,7 +93,7 @@ function Create-TrayIcon {
     $g.TextRenderingHint = [System.Drawing.Text.TextRenderingHint]::AntiAliasGridFit
 
     # Dark blue circle background
-    $brush = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(255, 30, 80, 200))
+    $brush = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(255, 63, 169, 224))
     $g.FillEllipse($brush, 1, 1, 30, 30)
     $brush.Dispose()
 
@@ -352,7 +352,7 @@ function Start-Tray {
     $menu = New-Object System.Windows.Forms.ContextMenuStrip
 
     # Fleet Status
-    $miFleet = New-Object System.Windows.Forms.ToolStripMenuItem("Fleet Status")
+    $miFleet = New-Object System.Windows.Forms.ToolStripMenuItem("Fleet Overview")
     $miFleet.Add_Click({ Show-FleetStatus })
     $menu.Items.Add($miFleet) | Out-Null
 

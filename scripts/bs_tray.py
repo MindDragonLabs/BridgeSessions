@@ -58,7 +58,7 @@ def create_icon_image():
     draw.rounded_rectangle(
         [margin, margin, ICON_SIZE - margin, ICON_SIZE - margin],
         radius=12,
-        fill=(41, 128, 185),
+        fill=(63, 169, 224),
     )
     # Draw "B" centered
     try:
@@ -220,7 +220,7 @@ def main():
     icon_image = create_icon_image()
 
     menu = Menu(
-        MenuItem("Fleet Status", on_fleet_status, default=True),
+        MenuItem("Fleet Overview", on_fleet_status, default=True),
         MenuItem("Restart Daemon", on_restart_daemon),
         MenuItem("Open Logs", on_open_logs),
         MenuItem(autostart_label, on_settings),
