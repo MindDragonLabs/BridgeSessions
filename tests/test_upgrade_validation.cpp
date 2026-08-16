@@ -10,6 +10,14 @@ TEST_CASE("upgrade tag validation accepts valid tags", "[audit][p1][upgrade]") {
     REQUIRE(bs::mesh::bs_upgrade_tag_valid("1.0"));
 }
 
+TEST_CASE("upgrade tag normalization strips leading v", "[audit][p1][upgrade]") {
+    REQUIRE(bs::mesh::bs_upgrade_tag_normalize("26.08.16-beta4") == "26.08.16-beta4");
+    REQUIRE(bs::mesh::bs_upgrade_tag_normalize("v26.08.16-beta4") == "26.08.16-beta4");
+    REQUIRE(bs::mesh::bs_upgrade_tag_normalize("latest") == "latest");
+    REQUIRE(bs::mesh::bs_upgrade_tag_normalize("v") == "v");       // single "v" untouched
+    REQUIRE(bs::mesh::bs_upgrade_tag_normalize("version") == "ersion"); // leading v always stripped
+}
+
 TEST_CASE("upgrade tag validation rejects injection tags", "[audit][p1][upgrade]") {
     // Single quote breaks out of shell quoting in system() calls
     REQUIRE_FALSE(bs::mesh::bs_upgrade_tag_valid("';rm -rf /;'"));

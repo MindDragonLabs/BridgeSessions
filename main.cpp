@@ -1265,6 +1265,9 @@ int main(int argc, char** argv) {
             std::cerr << "upgrade: invalid tag '" << tag << "' — only [A-Za-z0-9._-] allowed\n";
             return 1;
         }
+        // Normalize: the download path prepends "v", so accept both "26.08.16"
+        // and "v26.08.16" by stripping a leading "v" (but never from "latest").
+        tag = bs::mesh::bs_upgrade_tag_normalize(tag);
 
         // If --all, upgrade every healthy peer via mesh shell
         if (upgrade_all) {
@@ -1393,12 +1396,16 @@ int main(int argc, char** argv) {
                 ::unlink(tmp_path.c_str());
                 return 1;
             }
-            // Compare: shasum -a 256 <binary> vs the line for binary_name in sums
+            // Compare: sha256sum (GNU/Linux) or shasum -a 256 (macOS/BSD) vs the
+            // line for binary_name in sums. Arch ships sha256sum only; macOS ships
+            // shasum. Both emit "<hash>  <file>", so awk '{print $1}' works either
+            // way — but detect the tool rather than assume one exists.
             std::string check_cmd =
                 "grep '" + binary_name + "' '" + sums_path +
                 "' | awk '{print $1}' | while read h; do "
-                "  actual=$(shasum -a 256 '" + tmp_path + "' | awk '{print $1}'); "
-                "  [ \"$h\" = \"$actual\" ] && exit 0; exit 1; done";
+                "  actual=$(sha256sum '" + tmp_path + "' 2>/dev/null | awk '{print $1}'); "
+                "  [ -z \"$actual\" ] && actual=$(shasum -a 256 '" + tmp_path + "' 2>/dev/null | awk '{print $1}'); "
+                "  [ -n \"$h\" ] && [ \"$h\" = \"$actual\" ] && exit 0; exit 1; done";
             int verify_rc = std::system(check_cmd.c_str());
             ::unlink(sums_path.c_str());
             if (verify_rc != 0) {

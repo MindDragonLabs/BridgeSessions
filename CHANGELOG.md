@@ -39,6 +39,13 @@ All notable public releases are documented here.
   (default 900s); `seed` peers are exempt. Stale discovered peers render as
   `ephemeral · idle`.
 
+### `bs upgrade` self-update fixes
+- SHA256 verification is now portable: falls back to `sha256sum` (GNU/Linux,
+  Arch) when `shasum` (macOS/BSD) is absent. Previously Arch hosts aborted with
+  `shasum: command not found` → false "SHA256 verification FAILED".
+- `--tag` normalizes a leading `v` (`v26.08.16` and `26.08.16` both work);
+  the download path no longer double-prefixes to `vv26.08.16`.
+
 ## 26.08.12-beta4
 
 ### Interactive attach
