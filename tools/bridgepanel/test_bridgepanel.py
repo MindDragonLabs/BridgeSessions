@@ -155,6 +155,72 @@ class TestPureFunctions(unittest.TestCase):
                 self._restore_ipc()
         self.assertTrue(tree.get("offline"))
 
+    def _fake_ipc_factory(self, payloads):
+        """Install socket.socket as a factory returning a fresh fake per call."""
+        import bridgepanel.api as bp_api
+
+        class FakeSock:
+            def __init__(self, chunk):
+                self.sent = b""
+                self._chunk = chunk
+
+            def settimeout(self, t):
+                pass
+
+            def connect(self, a):
+                pass
+
+            def sendall(self, d):
+                self.sent += d
+
+            def recv(self, n):
+                c, self._chunk = self._chunk, b""
+                return c
+
+            def close(self):
+                pass
+
+        payloads = list(payloads)
+        self._orig_sock = bp_api.socket.socket
+        self._orig_tok = bp_api.bs_ipc_token
+        bp_api.socket.socket = lambda *a, **k: FakeSock(payloads.pop(0) if payloads else b"")
+        bp_api.bs_ipc_token = lambda: "t" * 64
+
+    def test_mesh_tree_merges_offline_seeds_from_fleet(self):
+        # MESH_TREE lists only live peers; FLEET adds offline seeds. The merged
+        # tree must include the offline seed so the panel renders it.
+        mesh_payload = (b'{"node":"macbook","uptime_s":10,'
+                        b'"peers":[{"name":"fecv3","addr":"1.2.3.4:19949","healthy":true,"last_pong_s":1,"sessions":[]}],'
+                        b'"sessions":[]}\n')
+        fleet_payload = (b'{"macbook":{"name":"macbook","addr":"0.0.0.0:19949","status":"self"},'
+                         b'"fecv3":{"name":"fecv3","addr":"1.2.3.4:19949","status":"healthy"},'
+                         b'"ranas-mac-studio":{"name":"ranas-mac-studio","addr":"5.6.7.8:19949","status":"offline","source":"seed"}}\n')
+        self._fake_ipc_factory([mesh_payload, fleet_payload])
+        try:
+            tree = bp.query_mesh_tree()
+        finally:
+                self._restore_ipc()
+        names = {p["name"] for p in tree["peers"]}
+        self.assertIn("fecv3", names)                 # live peer kept
+        self.assertIn("ranas-mac-studio", names)      # offline seed merged in
+        offline = next(p for p in tree["peers"] if p["name"] == "ranas-mac-studio")
+        self.assertFalse(offline["healthy"])
+        self.assertEqual(offline["status"], "offline")
+
+    def test_mesh_tree_does_not_dup_live_peer_from_fleet(self):
+        # A live peer present in both MESH_TREE and FLEET must not be duplicated.
+        mesh_payload = (b'{"node":"macbook","uptime_s":10,'
+                        b'"peers":[{"name":"fecv3","addr":"1.2.3.4:19949","healthy":true,"last_pong_s":1,"sessions":[]}],'
+                        b'"sessions":[]}\n')
+        fleet_payload = (b'{"fecv3":{"name":"fecv3","addr":"1.2.3.4:19949","status":"healthy"}}\n')
+        self._fake_ipc_factory([mesh_payload, fleet_payload])
+        try:
+            tree = bp.query_mesh_tree()
+        finally:
+                self._restore_ipc()
+        fecv3 = [p for p in tree["peers"] if p["name"] == "fecv3"]
+        self.assertEqual(len(fecv3), 1)
+
     def test_scrollback_parse_incremental(self):
         import base64
         chunk = base64.b64encode(b"hello world").rstrip(b"=")  # daemon strips padding
@@ -279,6 +345,12 @@ class TestHttpSurface(unittest.TestCase):
         # Buttons ship as text (no emoji).
         self.assertNotIn("📋", raw)
         self.assertNotIn("✏️", raw)
+        # Session tree: User/Bots groups, harness detection, CUA helper node.
+        self.assertIn("sgroup-head", raw)
+        self.assertIn("function harnessOf", raw)
+        self.assertIn("computer-use helper", raw)
+        # Machines are ordered alphabetically (not live-first).
+        self.assertIn("Alphabetical by machine name", raw)
 
     def test_tree_ok(self):
         status, raw = self._req("GET", f"/{self.token}/api/tree")

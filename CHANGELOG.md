@@ -20,6 +20,25 @@ All notable public releases are documented here.
 - Panel version renders from `BUILDTAG` (single `VERSION` source), not hardcoded.
 - Menubar + tray accent unified to `#3FA9E0`; "Fleet Status" → "Fleet Overview".
 
+### Session reflectiveness — accurate workload display
+- Machine badges now count **live** sessions only (running/detached/attached),
+  so dead `cmd-*`/`health-bs-health-*` probe records no longer inflate a host's
+  apparent session count.
+- Sessions are grouped **User / Bots** by origin; harness detection falls back
+  to command inspection (`hermes`/`claude`/`codex`/`kimi`/`opencode`/`cursor`)
+  when the peer predates the `kind` field.
+- CUA computer-use helper surfaced as a first-class bot row; internal probes
+  are collapsed into a single dim summary ("N internal probes (hidden)").
+- New `kind` field on every session (`user` / `harness` / `probe`), classified
+  server-side at spawn and carried in gossip + `MESH_TREE`; survives respawns.
+
+### Fleet directory — offline + stale peers
+- `FLEET` merged into the panel data path so durable offline seeds (weekend-off
+  Macs) render instead of vanishing; live peers never duplicate.
+- Discovered (ephemeral) peers TTL-prune via `mesh.discovered_ttl_secs`
+  (default 900s); `seed` peers are exempt. Stale discovered peers render as
+  `ephemeral · idle`.
+
 ## 26.08.12-beta4
 
 ### Interactive attach

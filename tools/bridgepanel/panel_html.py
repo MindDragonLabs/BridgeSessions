@@ -81,6 +81,8 @@ INDEX_HTML = r'''<!doctype html>
   .mrow .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; background: var(--faint); }
   .mrow .dot.up { background: var(--ok); }
   .mrow .dot.you { background: var(--accent); }
+  .mrow .dot.offline { background: var(--faint); opacity: 0.55; }
+  .mrow .dot.stale { background: var(--warn); }
   .mrow .mi { flex: 1; min-width: 0; }
   .mrow .mn { font-size: 13.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .mrow .ma { font-family: var(--mono); font-size: 10px; color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -94,6 +96,18 @@ INDEX_HTML = r'''<!doctype html>
   .srow .sdot.live { background: var(--ok); }
   .srow .sname { flex: 1; min-width: 0; font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .srow .sstate { font-family: var(--mono); font-size: 10px; color: var(--faint); }
+  .srow .skind { font-family: var(--mono); font-size: 9px; padding: 1px 6px; border-radius: 999px; flex-shrink: 0; letter-spacing: 0.02em; }
+  .srow .skind.k-harness { background: var(--accent-soft); color: var(--accent); border: 1px solid var(--accent); }
+  .srow .skind.k-probe { background: var(--surface2); color: var(--faint); border: 1px solid var(--border); }
+
+  .sgroup-head { padding: 12px 14px 4px; font-size: 10.5px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--faint); display: flex; align-items: center; }
+  .sgroup-head .cnt { margin-left: auto; font-family: var(--mono); font-weight: 400; }
+  .ssub-head { padding: 8px 14px 2px 24px; font-size: 10.5px; font-weight: 600; color: var(--muted); display: flex; align-items: center; }
+  .ssub-head .cnt { margin-left: auto; font-family: var(--mono); font-weight: 400; color: var(--faint); }
+  .srow.child { padding-left: 28px; }
+  .empty-sub { color: var(--faint); font-size: 11.5px; padding: 4px 14px 4px 24px; }
+  .cua-row { display: flex; align-items: center; gap: 9px; padding: 8px 13px 8px 28px; font-size: 12.5px; color: var(--muted); }
+  .probe-summary { color: var(--faint); font-size: 11px; padding: 10px 14px; border-top: 1px solid var(--border); margin-top: 6px; }
 
   .work { min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--bg); }
   .work-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 20px; border-bottom: 1px solid var(--border); }
@@ -345,24 +359,36 @@ INDEX_HTML = r'''<!doctype html>
   }
 
   // ── Machines ──
+  // status: 'you' | 'healthy' | 'offline' | 'stale'
+  function machineStatus(m) {
+    if (m.you) return 'you';
+    if (m.status === 'stale') return 'stale';
+    if (m.healthy === false || m.status === 'offline' || m.status === 'no-pong') return 'offline';
+    return 'healthy';
+  }
   function machineList() {
     const out = [];
     if (mesh.node) out.push({name: mesh.node, addr: '', you: true, healthy: !mesh.offline, sessions: mesh.sessions || []});
-    for (const p of (mesh.peers || [])) out.push({name: p.name, addr: p.addr || '', you: false, healthy: !!p.healthy, sessions: p.sessions || []});
+    for (const p of (mesh.peers || [])) out.push({name: p.name, addr: p.addr || '', you: false, healthy: !!p.healthy, status: p.status || '', source: p.source || '', sessions: p.sessions || []});
+    // Alphabetical by machine name (stable, predictable ordering).
+    out.sort((a, b) => a.name.localeCompare(b.name, undefined, {sensitivity:'base'}));
     return out;
   }
   function renderMachines() {
     const list = machineList().filter(m => !query || m.name.toLowerCase().includes(query));
     $('#machines').innerHTML = !list.length
       ? '<div class="empty">No machines match "' + esc(query) + '".</div>'
-      : list.map(m =>
-        '<div class="mrow' + (selMachine === m.name ? ' active' : '') + '" data-machine="' + esc(m.name) + '">' +
-        '<span class="dot ' + (m.you ? 'you' : (m.healthy ? 'up' : '')) + '"></span>' +
-        '<div class="mi"><div class="mn">' + esc(m.name) + '</div>' +
-        '<div class="ma">' + (m.addr ? esc(m.addr) : 'local node') + '</div></div>' +
-        (m.you ? '<span class="you">you</span>' : '') +
-        '<span class="n">' + (m.sessions ? m.sessions.length : 0) + '</span></div>'
-      ).join('');
+      : list.map(m => {
+        const st = machineStatus(m);
+        const dotCls = st === 'you' ? 'you' : (st === 'healthy' ? 'up' : st);
+        const sub = st === 'offline' ? 'offline · seed' : (st === 'stale' ? 'ephemeral · idle' : (m.addr ? m.addr : 'local node'));
+        return '<div class="mrow' + (selMachine === m.name ? ' active' : '') + '" data-machine="' + esc(m.name) + '">' +
+          '<span class="dot ' + dotCls + '"></span>' +
+          '<div class="mi"><div class="mn">' + esc(m.name) + '</div>' +
+          '<div class="ma">' + esc(sub) + '</div></div>' +
+          (m.you ? '<span class="you">you</span>' : '') +
+          '<span class="n">' + liveCount(m) + '</span></div>';
+      }).join('');
     $('#machineCount').textContent = list.length + ' shown';
     if (mesh.offline && !mesh.node) $('#summary').innerHTML = '<b>mesh offline</b>';
     else $('#summary').innerHTML = '<b>' + (mesh.peers ? mesh.peers.length : 0) + '</b> peers connected';
@@ -370,23 +396,28 @@ INDEX_HTML = r'''<!doctype html>
   }
 
   // ── Sessions ──
+  function isLiveState(st) {
+    return st === 'running' || st === 'detached' || st === 'attached' || st === 'live';
+  }
+  function liveCount(m) {
+    // Only sessions that are actually alive count as workload. Dead/probe
+    // records must not make a host look busier than it is.
+    return (m.sessions || []).filter(s => isLiveState(s.state)).length;
+  }
   function sessionsFor(name) {
     const isLocal = !name || name === mesh.node || name === '(local)';
-    const EPHEMERAL = /^cmd-\d+-\d+$|^run-script-|^health-bs-health-/;
     const out = [];
     if (isLocal) {
-      const fs = (fsTree.sessions || []).map(s => ({name: s.name, live: !!s.live, local: true, comms: s.comms || [], documents: s.documents || []}));
+      const fs = (fsTree.sessions || []).map(s => ({name: s.name, live: !!s.live, local: true, kind: s.kind || '', comms: s.comms || [], documents: s.documents || []}));
       out.push(...fs);
       const names = new Set(out.map(x => x.name));
       for (const s of (mesh.sessions || [])) {
-        if (EPHEMERAL.test(s.name)) continue;
-        if (!names.has(s.name)) out.push({name: s.name, live: true, local: true, comms: [], documents: []});
+        if (!names.has(s.name)) out.push({name: s.name, live: isLiveState(s.state), local: true, kind: s.kind || '', state: s.state || '', command: s.command || '', comms: [], documents: []});
       }
     } else {
       const peer = (mesh.peers || []).find(p => p.name === name);
       for (const s of (peer ? peer.sessions || [] : [])) {
-        if (EPHEMERAL.test(s.name)) continue;
-        out.push({name: s.name, live: s.state !== 'died' && s.state !== 'exited', local: false, comms: [], documents: [], state: s.state || ''});
+        out.push({name: s.name, live: isLiveState(s.state), local: false, kind: s.kind || '', state: s.state || '', command: s.command || '', comms: [], documents: []});
       }
     }
     out.sort((a, b) => (b.live - a.live) || a.name.localeCompare(b.name));
@@ -396,14 +427,65 @@ INDEX_HTML = r'''<!doctype html>
     $('#sessionsHead').textContent = selMachine ? ('Sessions · ' + selMachine) : 'Sessions';
     if (!selMachine) { $('#sessions').innerHTML = ''; return; }
     const list = sessionsFor(selMachine);
-    $('#sessions').innerHTML = !list.length
-      ? '<div class="empty">No sessions. Create one with +.</div>'
-      : list.map(s =>
-        '<div class="srow' + (selSession === s.name ? ' active' : '') + '" data-session="' + esc(s.name) + '">' +
-        '<span class="sdot' + (s.live ? ' live' : '') + '"></span>' +
-        '<span class="sname">' + esc(s.name) + '</span>' +
-        '<span class="sstate">' + esc(s.state || (s.local ? (s.live ? 'live' : 'stored') : '')) + '</span></div>'
-      ).join('');
+    if (!list.length) { $('#sessions').innerHTML = '<div class="empty">No sessions. Create one with +.</div>'; return; }
+
+    const EPHEMERAL = /^cmd-\d+-\d+$|^run-script-|^health-bs-health-/;
+    const users = [], bots = [], probes = [];
+    for (const s of list) {
+      if (s.kind === 'probe' || EPHEMERAL.test(s.name)) { probes.push(s); continue; }
+      const h = harnessOf(s.command);
+      if (s.kind === 'harness' || h) { s.harness = h || 'other'; bots.push(s); }
+      else { s.harness = shellOf(s.command); users.push(s); }
+    }
+
+    // CUA computer-use helper is a bot service, not a terminal session.
+    const isLocal = !selMachine || selMachine === mesh.node || selMachine === '(local)';
+    const cua = isLocal ? !!mesh.cua : !!((mesh.peers || []).find(p => p.name === selMachine) || {}).cua;
+
+    const groupBy = arr => {
+      const m = new Map();
+      for (const s of arr) { const k = s.harness || 'other'; if (!m.has(k)) m.set(k, []); m.get(k).push(s); }
+      return Array.from(m.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+    };
+    const sessionRow = (s, child) =>
+      '<div class="srow' + (child ? ' child' : '') + (selSession === s.name ? ' active' : '') + '" data-session="' + esc(s.name) + '">' +
+      '<span class="sdot' + (s.live ? ' live' : '') + '"></span>' +
+      '<span class="sname">' + esc(s.name) + '</span>' +
+      '<span class="sstate">' + esc(s.state || (s.live ? 'live' : (s.local ? 'stored' : ''))) + '</span></div>';
+
+    let html = '';
+    const renderGroup = (title, arr) => {
+      const groups = groupBy(arr);
+      html += '<div class="sgroup-head">' + esc(title) + '<span class="cnt">' + arr.length + '</span></div>';
+      if (!groups.length) { html += '<div class="empty-sub">none</div>'; return; }
+      for (const [h, ss] of groups) {
+        ss.sort((a, b) => (b.live - a.live) || a.name.localeCompare(b.name));
+        html += '<div class="ssub-head">' + esc(h) + '<span class="cnt">' + ss.length + '</span></div>';
+        for (const s of ss) html += sessionRow(s, true);
+      }
+    };
+
+    renderGroup('User', users);
+    renderGroup('Bots', bots);
+    if (cua) html += '<div class="ssub-head">cua<span class="cnt">1</span></div>' +
+      '<div class="cua-row"><span style="width:7px;height:7px;border-radius:50%;background:var(--ok);flex-shrink:0"></span>' +
+      '<span>computer-use helper</span><span class="sstate">active</span></div>';
+    if (probes.length) html += '<div class="probe-summary">' + probes.length + ' internal probe' + (probes.length === 1 ? '' : 's') + ' (hidden)</div>';
+
+    $('#sessions').innerHTML = html;
+  }
+  function harnessOf(cmd) {
+    if (!cmd) return null;
+    const base = cmd.trim().split(/\s+/)[0].toLowerCase().split('/').pop();
+    for (const k of ['hermes', 'claude', 'codex', 'kimi', 'commandcode', 'opencode', 'cursor']) {
+      if (base.startsWith(k)) return k;
+    }
+    return null;
+  }
+  function shellOf(cmd) {
+    if (!cmd) return 'shell';
+    const base = cmd.trim().split(/\s+/)[0].toLowerCase().split('/').pop();
+    return /^(bash|zsh|sh|fish|ksh)$/.test(base) ? base : 'shell';
   }
 
   // ── Files (docs) ──

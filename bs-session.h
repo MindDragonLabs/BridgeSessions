@@ -280,6 +280,12 @@ struct Session {
     std::unordered_map<uint32_t, Attachment> attachments;
     std::string command;
     std::string detach_signal; // optional HUP/TERM/INT/KILL requested by the attaching peer
+    // Session origin class. Set at spawn time so the panel can distinguish
+    // operator interactive shells from agent/harness-spawned shells from
+    // internal one-shot probes (health checks, --cmd relays). See
+    // session_class() in bs-protocol.h for the classification helpers.
+    enum class Kind : uint8_t { User, Harness, Probe };
+    Kind kind = Kind::User;
 #ifdef _WIN32
     HANDLE master_fd = nullptr;     // ConPTY output read handle (child stdout -> server)
     HANDLE child_pid = nullptr;     // process handle
@@ -398,6 +404,7 @@ Session::Session(Session&& other) noexcept
     , peer_ids(std::move(other.peer_ids))
     , command(std::move(other.command))
     , detach_signal(std::move(other.detach_signal))
+    , kind(other.kind)
     , master_fd(other.master_fd)
     , child_pid(other.child_pid)
 #ifndef _WIN32
@@ -435,6 +442,7 @@ Session& Session::operator=(Session&& other) noexcept {
         peer_ids = std::move(other.peer_ids);
         command = std::move(other.command);
         detach_signal = std::move(other.detach_signal);
+        kind = other.kind;
         master_fd = other.master_fd;
         child_pid = other.child_pid;
 #ifndef _WIN32

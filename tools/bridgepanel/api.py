@@ -90,7 +90,13 @@ def query_bs_sessions() -> list[dict]:
 
 
 def query_mesh_tree() -> dict:
-    """Query the daemon MESH_TREE verb. Returns parsed JSON or a safe empty shape."""
+    """Query the daemon MESH_TREE verb, merged with FLEET for the full directory.
+
+    MESH_TREE carries live peers + their sessions; FLEET additionally lists
+    configured seeds that are currently offline. Merge so the panel can render
+    durable fleet members that are temporarily away (e.g. a weekend-off Mac)
+    instead of silently dropping them.
+    """
     raw = bs_ipc("MESH_TREE", timeout=3.0).strip()
     if not raw or raw.startswith("ERROR"):
         return {"node": "", "uptime_s": 0, "peers": [], "sessions": [], "offline": True}
@@ -98,11 +104,47 @@ def query_mesh_tree() -> dict:
         tree = _json.loads(raw.split("\n", 1)[0])
         if not isinstance(tree, dict):
             raise ValueError("not a dict")
-        tree.setdefault("peers", [])
-        tree.setdefault("sessions", [])
-        return tree
     except (ValueError, _json.JSONDecodeError):
         return {"node": "", "uptime_s": 0, "peers": [], "sessions": [], "offline": True}
+
+    tree.setdefault("peers", [])
+    tree.setdefault("sessions", [])
+
+    # Merge offline/seed entries from FLEET (best-effort; daemon may be mid-restart).
+    fleet = bs_ipc("FLEET", timeout=3.0).strip()
+    if fleet and not fleet.startswith("ERROR"):
+        try:
+            fleet_obj = _json.loads(fleet.split("\n", 1)[0])
+        except (ValueError, _json.JSONDecodeError):
+            fleet_obj = {}
+        if isinstance(fleet_obj, dict):
+            live_names = {p.get("name") for p in tree["peers"]}
+            for name, entry in fleet_obj.items():
+                if not isinstance(entry, dict):
+                    continue
+                status = entry.get("status", "")
+                # Offline/stale seeds get appended; live peers are already in MESH_TREE.
+                if status in ("offline", "stale", "no-pong") and name not in live_names:
+                    tree["peers"].append({
+                        "name": name,
+                        "addr": entry.get("addr", ""),
+                        "healthy": False,
+                        "last_pong_s": -1,
+                        "status": status,
+                        "source": entry.get("source", "seed"),
+                        "sessions": [],
+                    })
+                # Enrich live peers + self with the CUA helper capability flag so
+                # the panel can surface computer-use sessions in the bot tree.
+                cua = bool(entry.get("cua", False))
+                if status == "self":
+                    tree["cua"] = cua
+                for p in tree["peers"]:
+                    if p.get("name") == name:
+                        p["cua"] = cua
+                        break
+
+    return tree
 
 
 def daemon_create_session(machine: str, name: str, command: str,

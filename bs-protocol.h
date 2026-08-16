@@ -4090,6 +4090,10 @@ struct MeshConfig {
     // post-handshake cert/Hello identity binding. TLS fingerprint TOFU alone is
     // not sufficient for mesh trust (independent review 2026-07-16 P0-1).
     bool require_seed_pins = true;
+    // Seconds a discovered (runtime-learned) peer may stay silent before it is
+    // pruned. Durable `seed` peers are exempt — they persist offline and are
+    // expected to return. 0 = keep discovered peers indefinitely (no pruning).
+    int discovered_ttl_secs = 900;
     // Hard cap on inbound file transfer size (bytes). 0 = unlimited.
     // Default 8 GiB so 500MB+ agent artifacts work; override with transfer.max_bytes.
     uint64_t transfer_max_bytes = 8ull * 1024ull * 1024ull * 1024ull;
@@ -4322,6 +4326,9 @@ void write_peer_line(std::ostream& os, const std::string& prefix, const PeerEntr
             std::string s(val);
             for (char& c : s) if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
             cfg.require_seed_pins = !(s == "false" || s == "0" || s == "no" || s == "off");
+        } else if (key_str == "mesh.discovered_ttl_secs") {
+            auto v = parse_int(val);
+            if (v.has_value() && *v >= 0) cfg.discovered_ttl_secs = *v;
         } else if (key_str == "mesh.mdns_enabled") {
             std::string_view t = trim(val);
             cfg.mdns_enabled = (t == "true" || t == "1" || t == "yes");
@@ -5593,6 +5600,7 @@ struct ResolvedSessionCommand {
     f << "mesh.auto_upgrade " << (cfg.auto_upgrade ? "true" : "false") << "\n";
     f << "mesh.auto_upgrade_cooldown_secs " << cfg.auto_upgrade_cooldown_secs << "\n";
     f << "mesh.require_seed_pins " << (cfg.require_seed_pins ? "true" : "false") << "\n";
+    f << "mesh.discovered_ttl_secs " << cfg.discovered_ttl_secs << "\n";
     f << "mesh.mdns_enabled " << (cfg.mdns_enabled ? "true" : "false") << "\n";
     f << "transfer.max_bytes " << cfg.transfer_max_bytes << "\n";
     f << "transfer.allow_sensitive_paths "
@@ -5824,6 +5832,32 @@ inline void log_event(const std::string& event, const std::string& detail = "") 
         || name.rfind("tty-", 0) == 0;
 }
 
+// Session origin class: `probe` (internal one-shot — health checks, --cmd
+// relays, script runs), `harness` (agent/automation spawns carrying an explicit
+// command override), or `user` (interactive operator shell). The panel uses
+// this to stop reporting probe traffic as real workload.
+[[nodiscard]] inline const char* session_kind_str(Session::Kind k) {
+    switch (k) {
+        case Session::Kind::User:    return "user";
+        case Session::Kind::Harness: return "harness";
+        case Session::Kind::Probe:   return "probe";
+    }
+    return "user";
+}
+
+[[nodiscard]] inline Session::Kind classify_session_kind(
+        std::string_view name, SessionCommandSource source) {
+    // One-shot internal probes win over everything — they are pure noise.
+    if (name.rfind("health-", 0) == 0 || name.rfind("cmd-", 0) == 0
+        || name.rfind("oneshot-", 0) == 0 || name.rfind("script-", 0) == 0
+        || name.rfind("hcheck-", 0) == 0 || name.rfind("vcheck-", 0) == 0)
+        return Session::Kind::Probe;
+    // Harness/agent shells carry an explicit client command override (-x/--cmd).
+    if (source == SessionCommandSource::ClientOverride)
+        return Session::Kind::Harness;
+    return Session::Kind::User;
+}
+
 class SessionRegistry {
     struct SessionHistoryEntry {
         std::string name;
@@ -5869,6 +5903,7 @@ class SessionRegistry {
         const bool auto_restart = target.auto_restart;
         const int restart_failures = target.restart_failures;
         const auto restart_window_start = target.restart_window_start;
+        const Session::Kind kind = target.kind;
 
         // P2 audit fix: the manual destructor + placement-new on a
         // unique_ptr-owned object is a double-free hazard if the Session move
@@ -5889,6 +5924,7 @@ class SessionRegistry {
         target.auto_restart = auto_restart;
         target.restart_failures = restart_failures;
         target.restart_window_start = restart_window_start;
+        target.kind = kind;
         target.history_recorded = false;
         target.state = state;
     }
@@ -5984,6 +6020,7 @@ public:
                 const std::string spawn_command = prepare_session_command(resolved);
                 auto session_result = create_session(name, spawn_command, cols, rows, term);
                 if (!session_result) return 0;
+                session_result->kind = classify_session_kind(name, resolved.source);
                 install_spawned_runtime(*s, std::move(*session_result), SessionState::Attached);
                 if (!peer_pubkey.empty()
                     && std::find(s->peer_ids.begin(), s->peer_ids.end(), peer_pubkey)
@@ -5997,6 +6034,7 @@ public:
             if (!session_result) return 0;
             auto news = std::make_unique<Session>(std::move(*session_result));
             news->state = SessionState::Attached;
+            news->kind = classify_session_kind(name, resolved.source);
             if (!peer_pubkey.empty()) news->peer_ids.push_back(peer_pubkey);
             s = news.get();
             sessions_[name] = std::move(news);
@@ -7841,6 +7879,7 @@ private:
     std::chrono::steady_clock::time_point last_gossip_time_;
     std::chrono::steady_clock::time_point last_mdns_time_;
     std::chrono::steady_clock::time_point last_session_prune_time_{};
+    std::chrono::steady_clock::time_point last_discovered_prune_time_{};
     std::chrono::steady_clock::time_point started_at_ = std::chrono::steady_clock::now();
     // mDNS LAN discovery
     SOCKET mdns_fd_ = INVALID_SOCKET;
@@ -8334,6 +8373,39 @@ private:
             changed = true;  // new peer added
         }
         if (changed) gossip_generation_.fetch_add(1, std::memory_order_relaxed);
+    }
+
+    // Prune runtime-learned (discovered) peers that have been silent past
+    // mesh.discovered_ttl_secs. Durable `seed` peers are exempt — they stay in
+    // the directory offline and reconnect when they return. This is for
+    // ephemeral rentals (4090/5090) that appear, do work, then are destroyed.
+    void prune_stale_discovered_peers() {
+        if (config_.discovered_ttl_secs <= 0) return;  // 0 = keep forever
+        const uint64_t now = now_unix_seconds();
+        const uint64_t cutoff = static_cast<uint64_t>(config_.discovered_ttl_secs);
+        auto has_live_conn = [&](const std::string& pubkey) {
+            for (auto& c : conns_) {
+                if (c.sock_fd == INVALID_SOCKET) continue;
+                if (c.peer_pubkey == pubkey) return true;
+            }
+            return false;
+        };
+        auto& d = config_.discovered;
+        size_t before = d.size();
+        d.erase(std::remove_if(d.begin(), d.end(),
+            [&](const PeerEntry& p) {
+                // Never prune a peer with an active connection, even if its
+                // last_seen is stale (last_seen updates on Hello/gossip only).
+                if (has_live_conn(p.pubkey_hex)) return false;
+                if (p.last_seen == 0) return false;  // never merged properly
+                return (now - p.last_seen) > cutoff;
+            }),
+            d.end());
+        if (d.size() != before) {
+            log_event("prune_stale_discovered",
+                      "removed=" + std::to_string(before - d.size()));
+            gossip_generation_.fetch_add(1, std::memory_order_relaxed);
+        }
     }
 
     // R4.2/R4.3: reload SEED list when config file changes on disk.
@@ -12317,6 +12389,7 @@ private:
             entries.push_back(
                 "{\"name\":\"" + gossip_json_escape(s->name) + "\","
                 "\"state\":\"" + gossip_json_escape(session_state_str(s->state)) + "\","
+                "\"kind\":\"" + gossip_json_escape(session_kind_str(s->kind)) + "\","
                 "\"command\":\"" + gossip_json_escape(s->command) + "\","
                 "\"bytes\":" + std::to_string(s->scrollback.total_written()) + "}");
         }
@@ -13076,6 +13149,25 @@ public:
                     out << "}";
                     mark(s.name);
                 }
+
+                // Runtime-learned (discovered) peers with no live conn → stale
+                // (ephemeral rentals that have not been seen for a while but are
+                // still within mesh.discovered_ttl_secs before auto-prune).
+                for (const auto& d : config_.discovered) {
+                    if (d.name.empty()) continue;
+                    if (peer_name_eq(d.name, config_.node_name)) continue;
+                    if (listed_has(d.name)) continue;
+                    out << ",\"" << gossip_json_escape(d.name) << "\":{";
+                    out << "\"name\":\"" << gossip_json_escape(d.name) << "\",";
+                    out << "\"addr\":\"" << gossip_json_escape(d.addr) << "\",";
+                    out << "\"version\":\"\",";
+                    out << "\"status\":\"stale\",";
+                    out << "\"source\":\"discovered\",";
+                    out << "\"last_seen\":" << d.last_seen << ",";
+                    out << "\"metrics\":false";
+                    out << "}";
+                    mark(d.name);
+                }
                 out << "}\n";
                 response = out.str();
             }
@@ -13163,6 +13255,7 @@ public:
                     first = false;
                     out << "{\"name\":\"" << jesc(s->name) << "\","
                         << "\"state\":\"" << session_state_str(s->state) << "\","
+                        << "\"kind\":\"" << session_kind_str(s->kind) << "\","
                         << "\"command\":\"" << jesc(s->command) << "\","
                         << "\"bytes\":" << s->scrollback.total_written() << "}";
                 }
@@ -14066,6 +14159,10 @@ public:
                 // Always prune agent/health one-shots — they accumulate PTYs otherwise.
                 sessions_.prune_ephemeral_sessions(std::chrono::seconds(90));
                 last_session_prune_time_ = now;
+            }
+            if (now - last_discovered_prune_time_ >= std::chrono::minutes(1)) {
+                prune_stale_discovered_peers();
+                last_discovered_prune_time_ = now;
             }
 #ifndef _WIN32
             if (g_config_reload_requested.exchange(false))
