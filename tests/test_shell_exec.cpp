@@ -241,6 +241,18 @@ TEST_CASE("prune_ephemeral_sessions removes finished health/cmd sessions",
     s->state = SessionState::Detached;
     s->last_attach_at = std::chrono::steady_clock::now() - std::chrono::seconds(120);
     s->last_output_at = s->last_attach_at;
+    // A2 correctness: prune is now state-aware — a session whose child is
+    // still alive must NOT be pruned even when aged (output silence != death).
+    mc.sessions().prune_ephemeral_sessions(std::chrono::seconds(30));
+    REQUIRE(mc.sessions().get("health-testnonce") != nullptr);  // still alive
+    // Drain the PTY so the fast `echo` child's output is consumed and it can
+    // exit (the daemon's pty_output_poller does this continuously in prod).
+    // Then reap the dead child, then prune.
+    for (int i = 0; i < 100 && s->is_valid(); ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        (void)read_available_pty_output(*s);
+        mc.sessions().reap_dead(false);
+    }
     mc.sessions().prune_ephemeral_sessions(std::chrono::seconds(30));
     REQUIRE(mc.sessions().get("health-testnonce") == nullptr);
 }
