@@ -394,6 +394,13 @@ int main(int argc, char** argv) {
     reconnect_cmd_app->add_option("peer", reconnect_peer, "Peer name")->required();
     // invite
     auto* invite_cmd_app = app.add_subcommand("invite", "Generate an invite token for new nodes");
+    // enroll — bootstrap a new member's key mesh-wide via a signed directory entry
+    std::string enroll_name, enroll_pubkey, enroll_addr;
+    auto* enroll_cmd_app = app.add_subcommand(
+        "enroll", "Vouch for a new mesh member (sign + gossip its key to all peers)");
+    enroll_cmd_app->add_option("name", enroll_name, "New member node name")->required();
+    enroll_cmd_app->add_option("pubkey", enroll_pubkey, "New member ed25519 pubkey (64 hex)")->required();
+    enroll_cmd_app->add_option("addr", enroll_addr, "New member addr host:port")->required();
     // join
     std::string join_addr;
     std::string join_token;
@@ -837,6 +844,22 @@ int main(int argc, char** argv) {
             return 1;
         }
         std::cout << result << "\n";
+        return result.rfind("ERROR", 0) == 0 ? 1 : 0;
+    }
+    if (enroll_cmd_app->parsed()) {
+        // Normalize pubkey: strip whitespace; accept optional "pubkey " prefix.
+        std::string pk = enroll_pubkey;
+        while (!pk.empty() && (pk.back() == '\n' || pk.back() == '\r' || pk.back() == ' ')) pk.pop_back();
+        if (pk.rfind("pubkey ", 0) == 0) pk = pk.substr(7);
+        if (pk.size() != 64 || !std::all_of(pk.begin(), pk.end(),
+                [](unsigned char c){ return std::isxdigit(c); })) {
+            std::cerr << "ERROR pubkey must be 64 hex chars (got " << pk.size() << ")\n";
+            return 1;
+        }
+        std::string result = daemon_simple_ipc(
+            "ENROLL " + enroll_name + " " + pk + " " + enroll_addr, 3000, home_dir);
+        std::cout << result;
+        if (!result.empty() && result.back() != '\n') std::cout << "\n";
         return result.rfind("ERROR", 0) == 0 ? 1 : 0;
     }
     if (invite_cmd_app->parsed()) {

@@ -24,12 +24,27 @@ All notable public releases are documented here.
 - **CMake `VERSION` configure dependency.** `VERSION` is now declared via
   `CMAKE_CONFIGURE_DEPENDS`, so bumping it triggers a reconfigure under the Make
   generator (previously the binary kept reporting the old version after a bump).
+- **Windows process-tree kill via Job Object (A3).** Every Windows session now
+  wraps its child in a `CreateJobObjectW` job with
+  `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`, assigned with the child suspended
+  (`CREATE_SUSPENDED` → assign → `ResumeThread`) so it cannot spawn descendants
+  before being tracked. All kill paths (`SignalMsg::Kill`, detach signals, and
+  restart) close the job handle to terminate the ConPTY root + shell + any
+  grandchildren, then `TerminateProcess` the direct child as the fallback. This
+  is the Windows counterpart to the POSIX process-group kill, closing the
+  ConPTY-grandchild leak that `TerminateProcess`-on-direct-child left behind.
+- **Signed mesh-directory enrollment (`bs enroll`).** A trusted member can now
+  vouch for a NEW member without any manual key copying: `bs enroll <name>
+  <pubkey> <addr>` signs `{name,pubkey,addr}` with the issuer's ed25519 key and
+  gossips it mesh-wide (`DirectoryEnrollMsg`, wire type `0x2C`). Every peer
+  verifies the signature against an already-trusted issuer, then auto-appends
+  the new member to `authorized_keys` and seeds it — so a freshly `bs join`-ed
+  host is reachable everywhere. Guards: untrusted issuer, stale (>24h) or
+  malformed signature, and self-vouching are all rejected without mutating
+  state; entries re-gossip transitively with per-entry flood dedupe.
 - **Planned P0/P1 hardening (tracked in `TODO.md`, not yet implemented):**
   join-window hard cap so an unclaimed invite can no longer hold
-  `g_allow_join_connections=true` indefinitely (A1); Windows process-tree
-  kill via Job Object to close the ConPTY-grandchild leak that
-  `TerminateProcess` on the direct child leaves behind, as the Windows
-  counterpart to the POSIX process-group kill above (A3); `parent_id`
+  `g_allow_join_connections=true` indefinitely (A1); `parent_id`
   session lineage as the keystone field unlocking both scoped kill
   enforcement (a watchdog/reaper may only kill sessions it spawned) and a
   future panel session graph (A4/A5); state-aware pruning so the reaper

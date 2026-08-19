@@ -296,6 +296,11 @@ struct Session {
     HANDLE child_pid = nullptr;     // process handle
     HANDLE write_handle = nullptr;  // ConPTY input write handle (server -> child stdin)
     HPCON hpcon = nullptr;          // for ResizePseudoConsole
+    // A3: Job Object wrapping the child + its descendants. Closing this handle
+    // (KILL_ON_JOB_CLOSE) terminates the entire tree — the ConPTY root, the
+    // shell, and any grandchildren it spawned — instead of leaking orphans the
+    // way TerminateProcess on the direct child does.
+    HANDLE job_handle = nullptr;
 #else
     int master_fd = -1;
     int child_pid = -1;
@@ -343,6 +348,10 @@ struct Session {
 #ifdef _WIN32
     bool is_valid() const { return master_fd != nullptr; }
     bool is_pollable() const { return master_fd != nullptr && child_pid != nullptr; }
+    // A3: kill the whole child process tree by closing the Job Object
+    // (KILL_ON_JOB_CLOSE). The direct child handle is left live so the
+    // reaper observes its death through the normal reap_dead path.
+    void kill_tree();
 #else
     bool is_valid() const { return master_fd >= 0; }
     bool is_pollable() const { return master_fd >= 0 && child_pid > 0; }
@@ -372,6 +381,10 @@ Session::~Session() {
     if (write_handle) {
         CloseHandle(write_handle);
         write_handle = nullptr;
+    }
+    if (job_handle) {   // A3: KILL_ON_JOB_CLOSE terminates the whole tree first
+        CloseHandle(job_handle);
+        job_handle = nullptr;
     }
     if (child_pid) {
         TerminateProcess(child_pid, 1);
@@ -435,8 +448,10 @@ Session::Session(Session&& other) noexcept
 #ifdef _WIN32
     write_handle = other.write_handle;
     hpcon = other.hpcon;
+    job_handle = other.job_handle;
     other.write_handle = nullptr;
     other.hpcon = nullptr;
+    other.job_handle = nullptr;
     other.master_fd = nullptr;
     other.child_pid = nullptr;
 #else
@@ -474,8 +489,10 @@ Session& Session::operator=(Session&& other) noexcept {
 #ifdef _WIN32
         write_handle = other.write_handle;
         hpcon = other.hpcon;
+        job_handle = other.job_handle;
         other.write_handle = nullptr;
         other.hpcon = nullptr;
+        other.job_handle = nullptr;
         other.master_fd = nullptr;
         other.child_pid = nullptr;
 #else
@@ -509,6 +526,10 @@ void Session::release_exited_runtime() {
         ClosePseudoConsole(hpcon);
         hpcon = nullptr;
     }
+    if (job_handle) {   // A3: release the job handle (tree already dead at this point)
+        CloseHandle(job_handle);
+        job_handle = nullptr;
+    }
 #else
     if (master_fd >= 0) {
         close(master_fd);
@@ -518,3 +539,15 @@ void Session::release_exited_runtime() {
     input_backpressured = false;
 #endif
 }
+
+#ifdef _WIN32
+// A3: closing the Job Object (KILL_ON_JOB_CLOSE) terminates the ConPTY root,
+// the shell, and every descendant. The direct child handle stays live so
+// reap_dead observes the death and records exit history normally.
+void Session::kill_tree() {
+    if (job_handle) {
+        CloseHandle(job_handle);
+        job_handle = nullptr;
+    }
+}
+#endif

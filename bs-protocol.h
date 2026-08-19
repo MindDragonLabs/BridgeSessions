@@ -281,6 +281,7 @@ enum class MessageType : uint8_t {
     JoinReply      = 0x29,  // server → client: {ok, node_name, seeds_csv, host_pubkey, error}
     CuaVideoCapture       = 0x2A,  // client → server: {fps, duration, quality, max_width}
     CuaVideoCaptureResult = 0x2B,  // server → client: {status, file_path, duration, width, height, format}
+    DirectoryEnroll       = 0x2C,  // bidirectional: signed mesh-directory entry (bootstrap: auto-trust new member)
 };
 
 // ── Empty Message Structs (must be declared before variant) ──────
@@ -513,6 +514,35 @@ struct JoinReplyMsg {
     bool operator==(const JoinReplyMsg&) const = default;
 };
 
+// ── Bootstrap: signed mesh-directory enrollment ──────────────────────
+// A trusted member vouches for a NEW member by signing {name, pubkey, addr}
+// with its own ed25519 key. Receivers verify the signature against a pubkey
+// they already trust, then auto-append the new member to authorized_keys and
+// seed it — so a freshly `bs join`-ed host is reachable mesh-wide with NO
+// manual key copying on any peer.
+struct DirectoryEnrollMsg {
+    std::string name;          // new member node name
+    std::string pubkey_hex;    // new member ed25519 pubkey (64 hex)
+    std::string addr;          // new member reachable addr "host:port"
+    std::string issuer_pubkey; // vouching member's ed25519 pubkey (64 hex)
+    uint64_t issued_at = 0;    // unix seconds
+    std::vector<uint8_t> signature; // ed25519 signature over the canonical payload
+    bool operator==(const DirectoryEnrollMsg&) const = default;
+
+    // Canonical bytes signed = name || '\0' || pubkey_hex || '\0' || addr ||
+    // '\0' || issuer_pubkey || '\0' || decimal(issued_at). Deterministic and
+    // unambiguous so the verifier reconstructs exactly what the issuer signed.
+    std::string signed_payload() const {
+        std::string p;
+        p += name;           p.push_back('\0');
+        p += pubkey_hex;     p.push_back('\0');
+        p += addr;           p.push_back('\0');
+        p += issuer_pubkey;  p.push_back('\0');
+        p += std::to_string(issued_at);
+        return p;
+    }
+};
+
 // ── NEW Mesh Message Structs ────────────────────────────────────
 
 struct PeerInfo {
@@ -662,7 +692,8 @@ using Message = std::variant<
     JoinRequestMsg,    // 37 — 2.0.9-alpha5
     JoinReplyMsg,      // 38 — 2.0.9-alpha5
     CuaVideoCaptureMsg,       // 39 — 2.0.12-alpha5
-    CuaVideoCaptureResultMsg  // 40 — 2.0.12-alpha5
+    CuaVideoCaptureResultMsg, // 40 — 2.0.12-alpha5
+    DirectoryEnrollMsg        // 41 — bootstrap: signed mesh-directory entry
 >;
 
 // ── Frame ──────────────────────────────────────────────────────────
@@ -783,7 +814,8 @@ constexpr MessageType index_to_type[] = {
     MessageType::JoinRequest,       // 37 — 2.0.9-alpha5
     MessageType::JoinReply,          // 38 — 2.0.9-alpha5
     MessageType::CuaVideoCapture,    // 39 — 2.0.12-alpha5
-    MessageType::CuaVideoCaptureResult // 40 — 2.0.12-alpha5
+    MessageType::CuaVideoCaptureResult, // 40 — 2.0.12-alpha5
+    MessageType::DirectoryEnroll      // 41 — bootstrap: signed mesh-directory entry
 };
 
 static_assert(std::size(index_to_type) == std::variant_size_v<Message>,
@@ -1007,6 +1039,14 @@ void serialize_msg(Serializer& s, const JoinReplyMsg& m) {
     } else {
         s.str_prefixed(m.error);
     }
+}
+void serialize_msg(Serializer& s, const DirectoryEnrollMsg& m) {
+    s.str_prefixed(m.name);
+    s.str_prefixed(m.pubkey_hex);
+    s.str_prefixed(m.addr);
+    s.str_prefixed(m.issuer_pubkey);
+    s.u64be(m.issued_at);
+    s.bytes(std::span<const uint8_t>(m.signature.data(), m.signature.size()));
 }
 
 // ── Zstd ──────────────────────────────────────────────────────
@@ -1899,6 +1939,18 @@ Message decode(std::span<const uint8_t> raw) {
         }
         return m;
     }
+    case 0x2C: {
+        DirectoryEnrollMsg m;
+        m.name = d.str_prefixed();
+        m.pubkey_hex = d.str_prefixed();
+        m.addr = d.str_prefixed();
+        m.issuer_pubkey = d.str_prefixed();
+        m.issued_at = d.u64be();
+        // Remaining bytes are the fixed 64-byte ed25519 signature.
+        const size_t sig_len = static_cast<size_t>(d.end - d.p);
+        m.signature = d.bytes_size(sig_len);
+        return m;
+    }
     }
 
     throw std::runtime_error("unknown message type: " + std::to_string(type_byte));
@@ -2050,6 +2102,60 @@ std::vector<uint8_t> hex_decode(const std::string& hex) {
         raw.push_back(static_cast<uint8_t>((hi << 4) | lo));
     }
     return raw;
+}
+
+// ── Bootstrap: ed25519 sign/verify (directory enrollment) ─────────
+// Sign the canonical payload with an ed25519 private key (PEM), returning the
+// 64-byte signature. Returns empty vector on any OpenSSL failure.
+[[nodiscard]] inline std::vector<uint8_t> ed25519_sign(
+    const std::string& key_pem, std::string_view payload) {
+    EVP_PKEY* key = key_from_pem(key_pem);
+    if (!key) return {};
+    EVP_MD_CTX* ctx = EVP_MD_CTX_new();
+    std::vector<uint8_t> sig;
+    if (ctx &&
+        EVP_DigestSignInit(ctx, nullptr, nullptr, nullptr, key) == 1) {
+        size_t sig_len = 0;
+        if (EVP_DigestSign(ctx, nullptr, &sig_len,
+                           reinterpret_cast<const unsigned char*>(payload.data()),
+                           payload.size()) == 1 && sig_len > 0) {
+            sig.resize(sig_len);
+            if (EVP_DigestSign(ctx, sig.data(), &sig_len,
+                               reinterpret_cast<const unsigned char*>(payload.data()),
+                               payload.size()) != 1) {
+                sig.clear();
+            } else {
+                sig.resize(sig_len);
+            }
+        }
+    }
+    if (ctx) EVP_MD_CTX_free(ctx);
+    EVP_PKEY_free(key);
+    return sig;
+}
+
+// Verify a 64-byte ed25519 signature against the canonical payload using the
+// issuer's raw 32-byte public key (hex-decoded).
+[[nodiscard]] inline bool ed25519_verify(
+    const std::string& issuer_pubkey_hex, std::string_view payload,
+    const std::vector<uint8_t>& signature) {
+    if (signature.empty()) return false;
+    std::vector<uint8_t> raw = hex_decode(issuer_pubkey_hex);
+    if (raw.size() != 32) return false;
+    EVP_PKEY* key = EVP_PKEY_new_raw_public_key(EVP_PKEY_ED25519, nullptr,
+                                                raw.data(), raw.size());
+    if (!key) return false;
+    EVP_MD_CTX* ctx = EVP_MD_CTX_new();
+    bool ok = false;
+    if (ctx &&
+        EVP_DigestVerifyInit(ctx, nullptr, nullptr, nullptr, key) == 1) {
+        ok = EVP_DigestVerify(ctx, signature.data(), signature.size(),
+                              reinterpret_cast<const unsigned char*>(payload.data()),
+                              payload.size()) == 1;
+    }
+    if (ctx) EVP_MD_CTX_free(ctx);
+    EVP_PKEY_free(key);
+    return ok;
 }
 
 namespace {
@@ -3031,6 +3137,33 @@ struct PtyError {
 [[nodiscard]] bool is_windows_cli_oneshot_command(const std::string& command);
 [[nodiscard]] bool command_has_direct_windows_exe_token(const std::string& command);
 
+// A3: create a Job Object whose KILL_ON_JOB_CLOSE limit kills the entire
+// child process tree (ConPTY root + shell + grandchildren) when the daemon
+// closes the handle. Replaces the leak-prone TerminateProcess-on-direct-child
+// kill path for Windows sessions.
+[[nodiscard]] HANDLE create_kill_job() {
+    HANDLE job = CreateJobObjectW(nullptr, nullptr);
+    if (!job) return nullptr;
+    JOBOBJECT_EXTENDED_LIMIT_INFORMATION limit{};
+    limit.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+    if (!SetInformationJobObject(job, JobObjectExtendedLimitInformation,
+                                 &limit, sizeof(limit))) {
+        CloseHandle(job);
+        return nullptr;
+    }
+    return job;
+}
+
+// Best-effort: assign a freshly created child to the kill job. If the child is
+// already nested in another job (some launchers pre-nest), log and continue —
+// the direct TerminateProcess fallback still applies for that case.
+inline void assign_to_kill_job(HANDLE job, HANDLE child) {
+    if (!job || !child) return;
+    if (!AssignProcessToJobObject(job, child)) {
+        log_event("job_assign_failed", "err=" + std::to_string(GetLastError()));
+    }
+}
+
 [[nodiscard]] std::expected<Session, PtyError> create_session(
     const std::string& name, const std::string& command,
     uint16_t cols, uint16_t rows, const std::string& term)
@@ -3076,7 +3209,8 @@ struct PtyError {
             mutable_cmdline.data(),
             nullptr, nullptr,
             TRUE,  // inherit the pipe ends we left inheritable
-            CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP | CREATE_UNICODE_ENVIRONMENT,
+            CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP | CREATE_UNICODE_ENVIRONMENT |
+                CREATE_SUSPENDED,   // A3: suspend until job assignment completes
             child_environment.data(), nullptr,
             &si, &pi);
         const DWORD create_error = created ? ERROR_SUCCESS : GetLastError();
@@ -3089,6 +3223,14 @@ struct PtyError {
             return std::unexpected(PtyError{
                 "CreateProcessW(oneshot) failed: " + std::to_string(create_error)});
         }
+
+        // A3: wrap the child in a KILL_ON_JOB_CLOSE job so the whole tree dies
+        // with the session instead of leaking ConPTY/shell grandchildren. The
+        // child is suspended until assignment, so it cannot spawn descendants
+        // before being tracked.
+        HANDLE job = create_kill_job();
+        assign_to_kill_job(job, pi.hProcess);
+        ResumeThread(pi.hThread);
         CloseHandle(pi.hThread);
 
         Session s;
@@ -3099,6 +3241,7 @@ struct PtyError {
         s.write_handle = in_w;
         s.child_pid = pi.hProcess;
         s.hpcon = nullptr;
+        s.job_handle = job;
         s.generation = ++g_session_generation;
         s.state = SessionState::Running;
         log_event("session_oneshot_pipes", name);
@@ -3216,7 +3359,7 @@ struct PtyError {
         nullptr, nullptr,           // process/thread security
         FALSE,                      // ConPTY child inherits no daemon handles
         EXTENDED_STARTUPINFO_PRESENT | CREATE_NEW_PROCESS_GROUP |
-            CREATE_UNICODE_ENVIRONMENT,
+            CREATE_UNICODE_ENVIRONMENT | CREATE_SUSPENDED,  // A3: suspend until job assign
         child_environment.data(),
         nullptr,                    // current directory
         &siEx.StartupInfo,
@@ -3241,6 +3384,10 @@ struct PtyError {
             "CreateProcessW failed: " + std::to_string(create_error)});
     }
 
+    // A3: wrap the ConPTY child in a KILL_ON_JOB_CLOSE job, then resume.
+    HANDLE job = create_kill_job();
+    assign_to_kill_job(job, pi.hProcess);
+    ResumeThread(pi.hThread);
     CloseHandle(pi.hThread);
 
     Session s;
@@ -3251,6 +3398,7 @@ struct PtyError {
     s.write_handle = hPipeInWrite;  // write: server -> child stdin
     s.child_pid = pi.hProcess;      // process handle
     s.hpcon = hPC;                  // for ResizePseudoConsole
+    s.job_handle = job;
     s.generation = ++g_session_generation;
     s.state = SessionState::Running;
     return s;
@@ -6270,6 +6418,7 @@ public:
                     if (sig == 0) {
                         GenerateConsoleCtrlEvent(CTRL_C_EVENT, GetProcessId(s->child_pid));
                     } else {
+                        s->kill_tree();                 // A3: job close kills the whole tree
                         TerminateProcess(s->child_pid, 1);
                     }
                     log_event("session_detach_signal", name + " -> " + s->detach_signal);
@@ -6310,7 +6459,7 @@ public:
                 if (sig >= 0 && s->child_pid) {
 #ifdef _WIN32
                     if (sig == 0) GenerateConsoleCtrlEvent(CTRL_C_EVENT, GetProcessId(s->child_pid));
-                    else TerminateProcess(s->child_pid, 1);
+                    else { s->kill_tree(); TerminateProcess(s->child_pid, 1); }
 #else
                     ::kill(s->child_pid, sig);
 #endif
@@ -6338,7 +6487,7 @@ public:
                 if (sig >= 0) {
 #ifdef _WIN32
                     if (sig == 0) GenerateConsoleCtrlEvent(CTRL_C_EVENT, GetProcessId(s->child_pid));
-                    else TerminateProcess(s->child_pid, 1);
+                    else { s->kill_tree(); TerminateProcess(s->child_pid, 1); }
 #else
                     ::kill(s->child_pid, sig);
 #endif
@@ -6368,6 +6517,7 @@ public:
                     if (sig == 0) {
                         GenerateConsoleCtrlEvent(CTRL_C_EVENT, GetProcessId(s->child_pid));
                     } else {
+                        s->kill_tree();                 // A3: job close kills the whole tree
                         TerminateProcess(s->child_pid, 1);
                     }
 #else
@@ -7926,6 +8076,24 @@ public:
         std::lock_guard lock(invite_mutex_);
         return invite_expired_event_count_;
     }
+    // Bootstrap enrollment test hooks.
+    DirectoryEnrollMsg test_make_enroll(const std::string& name,
+                                        const std::string& pk, const std::string& addr) {
+        return make_directory_enroll(name, pk, addr);
+    }
+    bool test_apply_enroll(const DirectoryEnrollMsg& e) {
+        return apply_directory_enroll(e);
+    }
+    // True if pubkey is present in the authorized_keys file on disk.
+    bool test_authorized_on_disk(const std::string& pubkey_hex) const {
+        std::ifstream f(config_.authorized_keys_path);
+        std::string line;
+        while (std::getline(f, line)) {
+            if (!line.empty() && line.back() == '\r') line.pop_back();
+            if (line == "pubkey " + pubkey_hex || line == pubkey_hex) return true;
+        }
+        return false;
+    }
 #endif
 
 private:
@@ -7945,6 +8113,9 @@ private:
     mutable std::mutex invite_mutex_;
     std::chrono::steady_clock::time_point join_window_opened_at_{};
     uint64_t invite_expired_event_count_ = 0;
+    // ── Bootstrap enrollment dedupe (flood bound) ─────────────────
+    std::unordered_set<std::string> enroll_seen_;
+    std::mutex enroll_seen_mutex_;
     // ── BridgePanel v3 mesh plane ────────────────────────────────
     // Pre-rendered JSON arrays of session summaries per peer, populated by
     // session gossip (ServerInfoMsg trailing field). Empty until gossip lands.
@@ -11257,6 +11428,28 @@ private:
             auto& g = std::get<GossipMsg>(msg);
             merge_peers(g.peers);
         }
+        else if (std::holds_alternative<DirectoryEnrollMsg>(msg)) {
+            // Bootstrap: verify + apply a signed member enrollment, then
+            // re-gossip it so it propagates transitively across the mesh.
+            // Relay only once per entry to bound flood (dedupe below).
+            auto& e = std::get<DirectoryEnrollMsg>(msg);
+            if (apply_directory_enroll(e)) {
+                // Re-broadcast to all OTHER mesh peers (exclude the sender) so
+                // the enrollment reaches peers not directly connected to the
+                // issuer. The signature chains trust transitively.
+                std::lock_guard lock(enroll_seen_mutex_);
+                const std::string key = e.issuer_pubkey + "|" + e.pubkey_hex +
+                                        "|" + std::to_string(e.issued_at);
+                if (enroll_seen_.insert(key).second) {
+                    for (auto& oc : conns_) {
+                        if (&oc == &c) continue;
+                        if (oc.sock_fd == INVALID_SOCKET || oc.purpose != ConnectionPurpose::Mesh) continue;
+                        if (oc.exec_busy && oc.exec_busy->load()) continue;
+                        (void)enqueue_frame(oc, e, CONTROL_STREAM_ID);
+                    }
+                }
+            }
+        }
         else if (std::holds_alternative<ServerInfoMsg>(msg)) {
             auto& info = std::get<ServerInfoMsg>(msg);
             if (!info.version.empty()) c.remote_version = info.version;
@@ -11599,6 +11792,119 @@ public:
         return reply;
     }
 
+    // ── Bootstrap: signed mesh-directory enrollment ──────────────
+    // A trusted member vouches for a NEW member so every peer can auto-trust
+    // it without manual key copying. Issued by `bs enroll <peer>` on a trusted
+    // node, gossiped to all peers, verified + applied on receipt.
+
+    // Sign {name, pubkey, addr} with OUR identity and return the enrollment.
+    [[nodiscard]] DirectoryEnrollMsg make_directory_enroll(
+        const std::string& name, const std::string& pubkey_hex,
+        const std::string& addr) {
+        DirectoryEnrollMsg e;
+        e.name = name;
+        e.pubkey_hex = pubkey_hex;
+        e.addr = addr;
+        e.issuer_pubkey = our_pubkey_;
+        e.issued_at = now_unix_seconds();
+        std::string key_path = make_app_paths(home_dir_).key_pem;
+        std::ifstream kf(key_path, std::ios::binary);
+        std::string key_pem;
+        if (kf.is_open()) {
+            key_pem.assign(std::istreambuf_iterator<char>(kf), {});
+        }
+        e.signature = ed25519_sign(key_pem, e.signed_payload());
+        return e;
+    }
+
+    // Verify an inbound enrollment and, if valid, trust + seed the new member.
+    // Returns false (and does NOT mutate state) on signature failure or issuer
+    // that we do not already trust. Idempotent: re-applying an already-known
+    // member is a no-op.
+    bool apply_directory_enroll(const DirectoryEnrollMsg& e) {
+        // 1. Issuer must already be a trusted pubkey (seed or authorized_keys).
+        //    This is the trust root: an unknown signer cannot bootstrap a member.
+        if (!is_trusted_pubkey(e.issuer_pubkey)) {
+            log_event("enroll_rejected_untrusted_issuer", e.name);
+            return false;
+        }
+        // 2. Freshness guard — reject stale enrollments (clock-skew tolerant).
+        const uint64_t now = now_unix_seconds();
+        if (e.issued_at == 0 || e.issued_at + 86400 < now) {
+            log_event("enroll_rejected_stale", e.name);
+            return false;
+        }
+        // 3. Signature must verify over the canonical payload.
+        if (!ed25519_verify(e.issuer_pubkey, e.signed_payload(), e.signature)) {
+            log_event("enroll_rejected_bad_signature", e.name);
+            return false;
+        }
+        // 4. Reject self-vouching (a member cannot enroll itself).
+        if (e.pubkey_hex == e.issuer_pubkey) {
+            log_event("enroll_rejected_self", e.name);
+            return false;
+        }
+        // 5. Append new member pubkey to authorized_keys (idempotent).
+        std::string auth_path = config_.authorized_keys_path;
+        if (!auth_path.empty()) {
+            bool already = false;
+            {
+                std::ifstream ex(auth_path);
+                std::string line;
+                while (std::getline(ex, line)) {
+                    if (!line.empty() && line.back() == '\r') line.pop_back();
+                    if (line == "pubkey " + e.pubkey_hex || line == e.pubkey_hex) {
+                        already = true;
+                        break;
+                    }
+                }
+            }
+            if (!already) {
+                std::ofstream af(auth_path, std::ios::app);
+                if (af.is_open()) {
+                    af << "pubkey " << e.pubkey_hex << "\n";
+                } else {
+                    log_event("enroll_auth_write_failed", e.name);
+                    return false;
+                }
+            }
+            // Force the in-memory authorized_keys to reload immediately so the
+            // newly-trusted key is honored without waiting for the mtime check.
+            authorized_keys_.load_from_file(auth_path);
+        }
+        // 6. Add the new member as a discovered peer (runtime) so the next
+        //    gossip/Hello advertises it; it becomes a durable seed once it
+        //    actually connects. Skip if already present.
+        bool have = false;
+        for (const auto& s : config_.seeds)
+            if (s.pubkey_hex == e.pubkey_hex) { have = true; break; }
+        if (!have) {
+            for (const auto& d : config_.discovered)
+                if (d.pubkey_hex == e.pubkey_hex) { have = true; break; }
+        }
+        if (!have && !e.name.empty() && !e.addr.empty()) {
+            PeerEntry pe;
+            pe.name = e.name;
+            pe.addr = e.addr;
+            pe.pubkey_hex = e.pubkey_hex;
+            pe.last_seen = now;
+            config_.discovered.push_back(std::move(pe));
+            gossip_generation_.fetch_add(1, std::memory_order_relaxed);
+        }
+        log_event("enroll_applied", e.name + " issuer=" + e.issuer_pubkey.substr(0, 12) + "...");
+        return true;
+    }
+
+    // Broadcast an enrollment to every connected mesh peer so it propagates
+    // transitively (each peer re-gossips the directory entry).
+    void broadcast_enroll(const DirectoryEnrollMsg& e) {
+        for (auto& c : conns_) {
+            if (c.sock_fd == INVALID_SOCKET || c.purpose != ConnectionPurpose::Mesh) continue;
+            if (c.exec_busy && c.exec_busy->load()) continue;
+            (void)enqueue_frame(c, e, CONTROL_STREAM_ID);
+        }
+    }
+
     static constexpr auto kInviteTtl = std::chrono::hours(2);
 
     void open_join_window_locked(std::chrono::steady_clock::time_point now) {
@@ -11894,6 +12200,7 @@ public:
                         case SignalMsg::SignalType::CtrlZ:
                             ctrl_event = CTRL_BREAK_EVENT; break;
                         case SignalMsg::SignalType::Kill:
+                            conn.attached_session->kill_tree();  // A3: whole tree
                             TerminateProcess(conn.attached_session->child_pid, 1); break;
                         default: break;
                     }
@@ -11933,6 +12240,7 @@ public:
                     // installing the replacement handles.
 #ifdef _WIN32
                     if (sess->child_pid) {
+                        sess->kill_tree();               // A3: job close kills the tree
                         TerminateProcess(sess->child_pid, 1);
                         WaitForSingleObject(sess->child_pid, 3000);
                         CloseHandle(sess->child_pid);
@@ -13537,6 +13845,24 @@ public:
                 // present their invite token. Closed after successful join
                 // or naturally expires when invites time out.
                 open_join_window_locked(now);
+            }
+            else if (line.rfind("ENROLL ", 0) == 0) {
+                // "ENROLL <name> <pubkey_hex> <addr>" — issue a signed directory
+                // enrollment for a new member, then gossip it to every peer.
+                std::istringstream es(line.substr(7));
+                std::string name, pubkey_hex, addr;
+                es >> name >> pubkey_hex >> addr;
+                if (name.empty() || pubkey_hex.size() != 64 || addr.empty()) {
+                    response = "ERROR usage: ENROLL <name> <pubkey64hex> <addr>\n";
+                } else {
+                    DirectoryEnrollMsg e = make_directory_enroll(name, pubkey_hex, addr);
+                    if (e.signature.empty()) {
+                        response = "ERROR could not sign enrollment\n";
+                    } else {
+                        broadcast_enroll(e);
+                        response = "OK enrolled " + name + " " + addr + "\n";
+                    }
+                }
             }
             else if (line == "SESSIONS") {
                 response = sessions_.summary() + "\n";
