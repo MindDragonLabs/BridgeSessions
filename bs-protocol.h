@@ -162,7 +162,7 @@ inline bool bs_upgrade_tag_valid(const std::string& tag) {
 }
 
 // Normalize a user-supplied --tag for the download path, which prepends "v".
-// Accepts both "26.08.16-beta4" and "v26.08.16-beta4"; "latest" is untouched.
+// Accepts both "26.09.19-beta5" and "v26.09.19-beta5"; "latest" is untouched.
 // Caller must validate with bs_upgrade_tag_valid() first.
 inline std::string bs_upgrade_tag_normalize(const std::string& tag) {
     if (tag != "latest" && tag.size() > 1 && tag[0] == 'v') return tag.substr(1);

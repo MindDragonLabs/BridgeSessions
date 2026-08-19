@@ -1,10 +1,10 @@
 # BridgeSessions one-line install + upgrade (Windows PowerShell)
 #
-#   irm https://raw.githubusercontent.com/MindDragonLabs/BridgeSessions/v/26.08.16-beta4/scripts/install.ps1 | iex
+#   irm https://raw.githubusercontent.com/MindDragonLabs/BridgeSessions/v/26.09.19-beta5/scripts/install.ps1 | iex
 #
 
 $ErrorActionPreference = "Stop"
-$TAG = if ($env:BRIDGESESSIONS_TAG) { $env:BRIDGESESSIONS_TAG } else { "26.08.16-beta4" }
+$TAG = if ($env:BRIDGESESSIONS_TAG) { $env:BRIDGESESSIONS_TAG } else { "26.09.19-beta5" }
 $BASE = "https://raw.githubusercontent.com/MindDragonLabs/BridgeSessions/v/$TAG/dist"
 $INSTALL_DIR = "$env:LOCALAPPDATA\bridgesessions"
 $BIN_PATH = "$INSTALL_DIR\bridgesessions.exe"

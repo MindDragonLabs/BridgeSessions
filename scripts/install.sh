@@ -2,16 +2,16 @@
 set -eu
 # BridgeSessions one-line install + upgrade (Linux / macOS)
 #
-#   curl -fsSL https://github.com/MindDragonLabs/BridgeSessions/releases/download/26.08.16-beta4/scripts/install.sh | bash
+#   curl -fsSL https://github.com/MindDragonLabs/BridgeSessions/releases/download/26.09.19-beta5/scripts/install.sh | bash
 #
 # Or join a mesh in one command:
 #
 #   curl ... | bash -s -- join <host-addr> <invite-code>
 #
 # On Windows (PowerShell):
-#   irm https://github.com/MindDragonLabs/BridgeSessions/releases/download/26.08.16-beta4/scripts/install.ps1 | iex
+#   irm https://github.com/MindDragonLabs/BridgeSessions/releases/download/26.09.19-beta5/scripts/install.ps1 | iex
 
-TAG="${BRIDGESESSIONS_TAG:-26.08.16-beta4}"
+TAG="${BRIDGESESSIONS_TAG:-26.09.19-beta5}"
 BASE="https://raw.githubusercontent.com/MindDragonLabs/BridgeSessions/v${TAG}/dist"
 INSTALL_DIR="${HOME}/.local/bin"
 VERSION_FILE="${INSTALL_DIR}/.bridgesessions-version"
@@ -459,8 +459,8 @@ EOF
   <key>CFBundleName</key><string>BridgeSessions</string>
   <key>CFBundleDisplayName</key><string>BridgeSessions</string>
   <key>CFBundleIdentifier</key><string>com.minddragon.bridgesessions</string>
-  <key>CFBundleVersion</key><string>26.08.16-beta4</string>
-  <key>CFBundleShortVersionString</key><string>26.08.16</string>
+  <key>CFBundleVersion</key><string>26.09.19-beta5</string>
+  <key>CFBundleShortVersionString</key><string>26.09.19</string>
   <key>CFBundleExecutable</key><string>bridgesessions</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>LSMinimumSystemVersion</key><string>13.0</string>

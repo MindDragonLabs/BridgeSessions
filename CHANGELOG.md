@@ -9,6 +9,14 @@ All notable public releases are documented here.
 > `26.08.05-beta1`. The scheme encodes year, month, day, and a per-day beta
 > counter — e.g. `26.08.10-beta2` is the second beta cut on 2026-08-10.
 
+## 26.09.19-beta5
+
+### Unreleased (dev tip)
+
+- Version bump from `26.08.16-beta4`; no behavioral changes yet.
+- `26.08.16-beta4` remains the current published release (binaries, checksums,
+  and GitHub Release are unchanged).
+
 ## 26.08.16-beta4
 
 ### BridgePanel UI redesign + tray/menubar polish

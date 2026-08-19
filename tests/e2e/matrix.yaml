@@ -1,7 +1,7 @@
 # BridgeSessions e2e matrix — run on work completion (not nightly)
 # Override peers with BS_E2E_PEERS / BS_E2E_PEER_WIN / BS_E2E_PEER_MAC / BS_E2E_LINUX_HOST.
 version: 1
-expected_version: "26.08.16-beta4"
+expected_version: "26.09.19-beta5"
 
 layers:
   L2:

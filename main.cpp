@@ -1265,8 +1265,8 @@ int main(int argc, char** argv) {
             std::cerr << "upgrade: invalid tag '" << tag << "' — only [A-Za-z0-9._-] allowed\n";
             return 1;
         }
-        // Normalize: the download path prepends "v", so accept both "26.08.16"
-        // and "v26.08.16" by stripping a leading "v" (but never from "latest").
+        // Normalize: the download path prepends "v", so accept both "26.09.19"
+        // and "v26.09.19" by stripping a leading "v" (but never from "latest").
         tag = bs::mesh::bs_upgrade_tag_normalize(tag);
 
         // If --all, upgrade every healthy peer via mesh shell

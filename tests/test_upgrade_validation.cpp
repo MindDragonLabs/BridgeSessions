@@ -11,8 +11,8 @@ TEST_CASE("upgrade tag validation accepts valid tags", "[audit][p1][upgrade]") {
 }
 
 TEST_CASE("upgrade tag normalization strips leading v", "[audit][p1][upgrade]") {
-    REQUIRE(bs::mesh::bs_upgrade_tag_normalize("26.08.16-beta4") == "26.08.16-beta4");
-    REQUIRE(bs::mesh::bs_upgrade_tag_normalize("v26.08.16-beta4") == "26.08.16-beta4");
+    REQUIRE(bs::mesh::bs_upgrade_tag_normalize("26.09.19-beta5") == "26.09.19-beta5");
+    REQUIRE(bs::mesh::bs_upgrade_tag_normalize("v26.09.19-beta5") == "26.09.19-beta5");
     REQUIRE(bs::mesh::bs_upgrade_tag_normalize("latest") == "latest");
     REQUIRE(bs::mesh::bs_upgrade_tag_normalize("v") == "v");       // single "v" untouched
     REQUIRE(bs::mesh::bs_upgrade_tag_normalize("version") == "ersion"); // leading v always stripped

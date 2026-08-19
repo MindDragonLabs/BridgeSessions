@@ -6,7 +6,7 @@
 
 ### One binary. Every machine. Zero SSH.
 
-[![Version](https://img.shields.io/badge/version-26.08.16--beta4-00d9ff?style=flat-square)](https://github.com/MindDragonLabs/BridgeSessions/releases)
+[![Version](https://img.shields.io/badge/version-26.09.19--beta5-00d9ff?style=flat-square)](https://github.com/MindDragonLabs/BridgeSessions/releases)
 [![License](https://img.shields.io/badge/license-BSL--1.1-6c7086?style=flat-square)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20Windows%20%7C%20macOS-00d9ff?style=flat-square)](#install)
 [![Language](https://img.shields.io/badge/C%2B%2B-23-00599C?style=flat-square&logo=c%2B%2B&logoColor=white)](https://en.cppreference.com/)
@@ -123,7 +123,7 @@ git clone https://github.com/MindDragonLabs/BridgeSessions.git
 cd BridgeSessions
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --parallel
-./build/bridgesessions --version   # → 26.08.16-beta4
+./build/bridgesessions --version   # → 26.09.19-beta5
 ```
 
 <details>
@@ -289,7 +289,7 @@ BridgeSessions ships multi-harness agent instructions:
 | Windows x86_64 | `bridgesessions-windows-x86_64.exe` |
 | macOS arm64 | `bridgesessions-macos-arm64` |
 
-Current release: **`26.08.16-beta4`** on [GitHub Releases](https://github.com/MindDragonLabs/BridgeSessions/releases).
+Current release: **`26.09.19-beta5`** on [GitHub Releases](https://github.com/MindDragonLabs/BridgeSessions/releases).
 
 ```bash
 # Verify checksums
