@@ -383,8 +383,11 @@ int main(int argc, char** argv) {
     peers_remove->add_option("name", peer_remove_name)->required();
     // health
     std::string health_peer;
+    bool health_latency = false;
     auto* health_cmd_app = app.add_subcommand("health", "Ping/pong health check against a peer");
     health_cmd_app->add_option("peer", health_peer, "Peer name")->required();
+    health_cmd_app->add_flag("--latency", health_latency,
+                             "Report TCP connect RTT + data-plane probe RTT");
     // reconnect
     std::string reconnect_peer;
     auto* reconnect_cmd_app = app.add_subcommand("reconnect", "Tear down and re-handshake one peer via the running daemon");
@@ -818,7 +821,13 @@ int main(int argc, char** argv) {
         bs::mesh::MeshController mc(cfg, home_dir);
         std::string status;
         bool ok = mc.health_check(health_peer, &status);
-        std::cout << health_peer << " " << status << std::endl;
+        std::cout << health_peer << " " << status;
+        if (health_latency) {
+            std::string latency;
+            mc.health_latency_report(health_peer, &latency);
+            if (!latency.empty()) std::cout << "  " << latency;
+        }
+        std::cout << std::endl;
         return ok ? 0 : 1;
     }
     if (reconnect_cmd_app->parsed()) {

@@ -15865,6 +15865,42 @@ public:
         }
     }
 
+    // ── CLI: health_latency_report (C3) ────────────────────────
+    // Measures TCP connect RTT + data-plane probe RTT to a peer and formats a
+    // human-readable latency line. Best-effort: returns empty on any failure so
+    // `bs health --latency` degrades gracefully to the plain status.
+    std::string health_latency_report(const std::string& peer_name, std::string* out = nullptr) {
+        std::string addr = find_peer_addr(peer_name);
+        if (addr.empty()) return {};
+        auto sa = resolve_addr(addr);
+        auto t0 = std::chrono::steady_clock::now();
+        SOCKET sfd = socket(AF_INET, SOCK_STREAM, 0);
+        if (sfd == INVALID_SOCKET) return {};
+        int saved = outbound_connect_timeout_ms_;
+        outbound_connect_timeout_ms_ = kHealthConnectTimeoutMs;
+        auto cr = connect_socket_with_timeout(
+            sfd, reinterpret_cast<sockaddr*>(&sa), sizeof(sa),
+            outbound_connect_timeout_ms_);
+        outbound_connect_timeout_ms_ = saved;
+        auto t1 = std::chrono::steady_clock::now();
+        double connect_ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
+        CLOSESOCK(sfd);
+        if (!cr.connected) return {};
+
+        // Data-plane probe RTT: time the full health check (echo round-trip).
+        auto p0 = std::chrono::steady_clock::now();
+        std::string status;
+        bool ok = health_check(peer_name, &status);
+        auto p1 = std::chrono::steady_clock::now();
+        double probe_ms = std::chrono::duration<double, std::milli>(p1 - p0).count();
+
+        std::string line = "latency: connect=" + std::to_string(static_cast<int>(connect_ms)) +
+                           "ms probe=" + std::to_string(static_cast<int>(probe_ms)) +
+                           "ms (data-plane " + (ok ? "ok" : "degraded") + ")";
+        if (out) *out = line;
+        return line;
+    }
+
     // ── CLI: file_send ──────────────────────────────────────────
     // dest_path: optional scp-style remote destination (absolute, ~/…, or
     // relative under peer receive_dir). Empty → classic receive_dir/basename.
