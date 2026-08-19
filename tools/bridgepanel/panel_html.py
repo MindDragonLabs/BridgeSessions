@@ -711,32 +711,90 @@ INDEX_HTML = r'''<!doctype html>
     fl.innerHTML =
       '<h2>Files on ' + esc(peer) + '</h2>' +
       '<div class="rf-card"><div class="tt">View a file</div>' +
-      '<div class="rf-row"><input id="rfPath" placeholder="/path/to/file.md"><button class="btn primary" id="rfFetch">View</button></div>' +
-      '<div class="rf-hint">Enter a path on ' + esc(peer) + '. Markdown renders automatically.</div></div>' +
-      '<div class="rf-card"><div class="tt">Upload text to ' + esc(peer) + '</div>' +
+      '<div class="rf-row"><input id="rfPath" placeholder="/path/to/file.md"><button class="btn primary" id="rfFetch">View</button><button class="btn" id="rfDownload">Download</button></div>' +
+      '<div class="rf-hint">Enter a path on ' + esc(peer) + '. Text/markdown renders here; other types stream as a download.</div></div>' +
+      '<div class="rf-card"><div class="tt">Upload to ' + esc(peer) + '</div>' +
       '<div class="rf-row"><input id="rfUploadPath" placeholder="report.md (relative to received/)"></div>' +
-      '<textarea class="rf-textarea" id="rfUploadContent" placeholder="Type or paste content…"></textarea>' +
-      '<div class="rf-row" style="margin-top:8px"><button class="btn primary" id="rfUpload">Upload</button></div>' +
-      '<div class="rf-hint">Sends via <code>bs file send</code> — lands under received/.</div></div>' +
+      '<textarea class="rf-textarea" id="rfUploadContent" placeholder="Type or paste text…"></textarea>' +
+      '<div class="rf-row" style="margin-top:8px"><input type="file" id="rfFile"><button class="btn primary" id="rfUpload">Upload</button></div>' +
+      '<div class="rf-hint">Sends via <code>bs file send --wait</code>. Docs save stays 10 MB; file lane default 256 MB (<code>BRIDGEPANEL_MAX_FILE_UPLOAD</code>). PROGRESS lines show after the transfer.</div></div>' +
       '<div class="rf-result" id="rfResult"></div>';
+    function progressHtml(d) {
+      const rows = (d && d.progress) || [];
+      if (!rows.length) return '';
+      const last = rows[rows.length - 1];
+      return '<div class="rf-hint">' + esc(last.raw || ('PROGRESS ' + (last.pct || '') + '%')) + '</div>';
+    }
     $('#rfFetch').addEventListener('click', async () => {
       const p = $('#rfPath').value.trim(); if (!p) return;
       const res = $('#rfResult');
       res.innerHTML = '<div class="rf-hint">Fetching ' + esc(p) + '…</div>';
       try {
-        const d = await api('/api/remote-file?machine=' + encodeURIComponent(peer) + '&path=' + encodeURIComponent(p));
-        if (d.ok) res.innerHTML = '<div class="rf-card"><div class="tt">' + esc(d.name) + ' · ' + (d.size || 0).toLocaleString() + ' bytes</div><div class="content">' + (d.html || '') + '</div></div>';
-        else res.innerHTML = '<div class="rf-hint">' + esc(d.error || 'Fetch failed') + '</div>';
+        const r = await fetch(base + '/api/remote-file?machine=' + encodeURIComponent(peer) + '&path=' + encodeURIComponent(p));
+        const ct = r.headers.get('Content-Type') || '';
+        if (ct.indexOf('application/json') !== -1) {
+          const d = await r.json();
+          if (d.ok) res.innerHTML = '<div class="rf-card"><div class="tt">' + esc(d.name) + ' · ' + (d.size || 0).toLocaleString() + ' bytes</div><div class="content">' + (d.html || '') + '</div>' + progressHtml(d) + '</div>';
+          else res.innerHTML = '<div class="rf-hint">' + esc(d.error || 'Fetch failed') + '</div>' + progressHtml(d);
+        } else {
+          const blob = await r.blob();
+          const href = URL.createObjectURL(blob);
+          const disp = r.headers.get('Content-Disposition') || '';
+          const m = /filename="([^"]+)"/.exec(disp);
+          const name = (m && m[1]) || p.split('/').pop() || 'download';
+          let inner = '<a class="btn primary" href="' + href + '" download="' + esc(name) + '">Download ' + esc(name) + '</a>';
+          if (ct.indexOf('image/') === 0) inner += '<div style="margin-top:12px"><img src="' + href + '" alt="" style="max-width:100%;border-radius:8px"></div>';
+          res.innerHTML = '<div class="rf-card"><div class="tt">' + esc(name) + ' · ' + blob.size.toLocaleString() + ' bytes · ' + esc(ct) + '</div>' + inner + '</div>';
+        }
       } catch (e) { res.innerHTML = '<div class="rf-hint">Error: ' + esc(String(e.message || e)) + '</div>'; }
     });
-    $('#rfUpload').addEventListener('click', async () => {
-      const p = $('#rfUploadPath').value.trim(), c = $('#rfUploadContent').value;
-      if (!p || !c) { toast('Path and content required', true); return; }
-      const btn = $('#rfUpload'); btn.disabled = true; btn.textContent = 'Uploading…';
+    $('#rfDownload').addEventListener('click', async () => {
+      const p = $('#rfPath').value.trim(); if (!p) return;
+      const res = $('#rfResult');
+      res.innerHTML = '<div class="rf-hint">Downloading ' + esc(p) + '…</div>';
       try {
-        const d = await api('/api/upload', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({machine: peer, path: p, content: c}) });
-        if (d.ok) { toast('Uploaded to ' + d.dest); $('#rfUploadContent').value = ''; }
-        else toast(d.error || 'Upload failed', true);
+        const r = await fetch(base + '/api/remote-file?machine=' + encodeURIComponent(peer) + '&path=' + encodeURIComponent(p) + '&download=1');
+        if (!r.ok) { res.innerHTML = '<div class="rf-hint">Download failed (HTTP ' + r.status + ')</div>'; return; }
+        const blob = await r.blob();
+        const href = URL.createObjectURL(blob);
+        const disp = r.headers.get('Content-Disposition') || '';
+        const m = /filename="([^"]+)"/.exec(disp);
+        const name = (m && m[1]) || p.split('/').pop() || 'download';
+        const a = document.createElement('a'); a.href = href; a.download = name; a.click();
+        res.innerHTML = '<div class="rf-hint">Saved ' + esc(name) + ' · ' + blob.size.toLocaleString() + ' bytes</div>';
+      } catch (e) { res.innerHTML = '<div class="rf-hint">Error: ' + esc(String(e.message || e)) + '</div>'; }
+    });
+    function bufToB64(buf) {
+      const bytes = new Uint8Array(buf);
+      let bin = '';
+      const chunk = 0x8000;
+      for (let i = 0; i < bytes.length; i += chunk) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+      return btoa(bin);
+    }
+    $('#rfUpload').addEventListener('click', async () => {
+      const p = $('#rfUploadPath').value.trim();
+      const file = ($('#rfFile') && $('#rfFile').files && $('#rfFile').files[0]) || null;
+      const c = $('#rfUploadContent').value;
+      if (!p || (!c && !file)) { toast('Path and content or file required', true); return; }
+      const btn = $('#rfUpload'); btn.disabled = true; btn.textContent = 'Uploading…';
+      const res = $('#rfResult');
+      try {
+        let body;
+        if (file) {
+          const b64 = bufToB64(await file.arrayBuffer());
+          body = {machine: peer, path: p, content_b64: b64};
+        } else {
+          body = {machine: peer, path: p, content: c};
+        }
+        const d = await api('/api/upload', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) });
+        if (d.ok) {
+          toast('Uploaded to ' + d.dest);
+          $('#rfUploadContent').value = '';
+          res.innerHTML = '<div class="rf-hint">Uploaded ' + esc(d.dest) + (d.size != null ? (' · ' + Number(d.size).toLocaleString() + ' bytes') : '') + '</div>' + progressHtml(d);
+        } else {
+          toast(d.error || 'Upload failed', true);
+          res.innerHTML = '<div class="rf-hint">' + esc(d.error || 'Upload failed') + '</div>' + progressHtml(d);
+        }
       } catch (e) { toast('Upload failed', true); }
       finally { btn.disabled = false; btn.textContent = 'Upload'; }
     });

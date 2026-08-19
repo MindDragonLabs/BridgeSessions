@@ -1,6 +1,7 @@
 """BridgePanel — HTTP handler, routing, API endpoints."""
 from __future__ import annotations
 
+import base64
 import html as _html
 import json
 import sys
@@ -13,7 +14,7 @@ from .api import (build_tree, daemon_connect_session, daemon_create_session,
                   daemon_session_input, query_mesh_tree, query_remote_scrollback,
                   query_remote_session_info, query_scrollback,
                   remote_file_recv, remote_file_send)
-from .consts import MAX_UPLOAD, VERSION, APP
+from .consts import APP, MAX_UPLOAD, VERSION, max_file_upload
 from .files import (markdown_to_html, resolve_file, safe_name,
                     safe_session_name, safe_type, sessions_dir)
 from .panel_html import FAVICON_SVG, INDEX_HTML
@@ -244,7 +245,30 @@ class BridgePanelHandler(BaseHTTPRequestHandler):
             if not machine or not remote_path:
                 self.reject(HTTPStatus.BAD_REQUEST, "machine and path required")
                 return
-            self.send_json(remote_file_recv(machine, remote_path))
+            result = remote_file_recv(machine, remote_path)
+            if not result.get("ok"):
+                self.send_json(result)
+                return
+            download = params.get("download", ["0"])[0].lower() in ("1", "true", "yes")
+            if download or not result.get("is_text"):
+                body = result.get("data") or b""
+                fname = safe_name(result.get("name") or "download")
+                self.send_response(200)
+                self.send_header(
+                    "Content-Type",
+                    result.get("content_type") or "application/octet-stream",
+                )
+                self.send_header(
+                    "Content-Disposition",
+                    f'attachment; filename="{fname}"',
+                )
+                self.send_header("Content-Length", str(len(body)))
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("X-Content-Type-Options", "nosniff")
+                self.end_headers()
+                self.wfile.write(body)
+                return
+            self.send_json({k: v for k, v in result.items() if k != "data"})
         else:
             self.reject(HTTPStatus.NOT_FOUND, "Not found")
 
@@ -364,7 +388,8 @@ class BridgePanelHandler(BaseHTTPRequestHandler):
             except ValueError:
                 self.reject(HTTPStatus.BAD_REQUEST, "Invalid Content-Length")
                 return
-            if length < 0 or length > MAX_UPLOAD:
+            cap = max_file_upload()
+            if length < 0 or length > cap:
                 self.reject(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, "Content too large")
                 return
             try:
@@ -377,16 +402,29 @@ class BridgePanelHandler(BaseHTTPRequestHandler):
             machine = body.get("machine", "")
             remote_path = body.get("path", "")
             content = body.get("content", "")
+            content_b64 = body.get("content_b64")
 
             if not machine or not remote_path:
                 self.reject(HTTPStatus.BAD_REQUEST, "Missing machine or path")
                 return
 
-            if len(content.encode("utf-8")) > MAX_UPLOAD:
+            if content_b64:
+                try:
+                    data = base64.b64decode(content_b64)
+                except (ValueError, TypeError):
+                    self.reject(HTTPStatus.BAD_REQUEST, "Invalid content_b64")
+                    return
+            else:
+                if not isinstance(content, str):
+                    self.reject(HTTPStatus.BAD_REQUEST, "content must be a string")
+                    return
+                data = content.encode("utf-8")
+
+            if len(data) > cap:
                 self.reject(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, "Content too large")
                 return
 
-            result = remote_file_send(machine, remote_path, content)
+            result = remote_file_send(machine, remote_path, data)
             self.send_json(result)
             return
 

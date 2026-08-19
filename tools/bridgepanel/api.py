@@ -8,7 +8,7 @@ import socket
 import time
 from pathlib import Path
 
-from .consts import BS_IPC_PORT, BS_IPC_TIMEOUT
+from .consts import BS_IPC_PORT, BS_IPC_TIMEOUT, file_timeout_sec, max_file_upload
 from .files import safe_session_name, sessions_dir
 
 
@@ -294,84 +294,158 @@ def query_remote_scrollback(machine: str, session: str) -> dict:
     }
 
 
+_TEXT_EXTS = {
+    ".md", ".markdown", ".txt", ".text", ".json", ".py", ".sh", ".ps1",
+    ".js", ".ts", ".css", ".html", ".htm", ".xml", ".yaml", ".yml",
+    ".toml", ".ini", ".cfg", ".log", ".csv", ".rst", ".c", ".h", ".cpp",
+    ".hpp", ".go", ".rs", ".rb", ".php", ".env",
+}
+_BINARY_EXTS = {
+    ".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".pdf", ".zip",
+    ".gz", ".bz2", ".xz", ".7z", ".mp4", ".mp3", ".wav", ".woff",
+    ".woff2", ".exe", ".dll", ".bin", ".dmg", ".wasm",
+}
+
+
+def parse_progress_lines(text: str) -> list[dict]:
+    """Parse `PROGRESS k=v …` lines from `bs file send|recv --wait`."""
+    out: list[dict] = []
+    if not text:
+        return out
+    for line in text.splitlines():
+        if not line.startswith("PROGRESS "):
+            continue
+        rec: dict = {"raw": line}
+        for tok in line.split()[1:]:
+            if "=" in tok:
+                k, v = tok.split("=", 1)
+                rec[k] = v
+        out.append(rec)
+    return out
+
+
+def guess_file_type(name: str, data: bytes) -> tuple[str, bool]:
+    """Return (content_type, is_text) from name + a byte sniff."""
+    import mimetypes
+
+    ext = os.path.splitext(name)[1].lower()
+    guessed, _ = mimetypes.guess_type(name)
+    sniff = data[:8192]
+    if ext in _BINARY_EXTS:
+        return guessed or "application/octet-stream", False
+    if ext in _TEXT_EXTS or ext == "":
+        if b"\x00" in sniff:
+            return "application/octet-stream", False
+        return guessed or "text/plain; charset=utf-8", True
+    if b"\x00" in sniff:
+        return guessed or "application/octet-stream", False
+    try:
+        sniff.decode("utf-8")
+    except UnicodeDecodeError:
+        return guessed or "application/octet-stream", False
+    return guessed or "application/octet-stream", True
+
+
+def _transfer_error(stdout: str, stderr: str) -> str:
+    err = (stderr or "").strip() or (stdout or "").strip()
+    for line in err.split("\n"):
+        if line.startswith("ERROR") or "error" in line.lower():
+            return line
+    return err or "transfer failed"
+
+
 def remote_file_recv(machine: str, remote_path: str) -> dict:
     """Fetch a file from a remote peer via `bs file recv`.
 
-    Returns {ok, raw, html, name, error}.
+    Returns bytes in `data` plus `content_type` / `is_text`. Text files also
+    carry `raw` + `html` for the JSON preview path.
     """
-    import subprocess, tempfile
+    import subprocess
+    import tempfile
 
     bs_bin = _bs_binary()
     tmpdir = tempfile.mkdtemp(prefix="bridgepanel-recv-")
     local_name = os.path.basename(remote_path.rstrip("/")) or "remote-file"
     local_path = os.path.join(tmpdir, local_name)
+    timeout = file_timeout_sec()
 
     args = [bs_bin, "file", "recv", machine, remote_path,
             "--to", local_path, "--wait"]
     try:
         result = subprocess.run(
-            args, capture_output=True, text=True, timeout=30.0,
+            args, capture_output=True, text=True, timeout=timeout,
             env={**os.environ, "HOME": os.path.expanduser("~")},
         )
     except subprocess.TimeoutExpired:
-        return {"ok": False, "error": "transfer timed out (30s)"}
+        return {"ok": False, "error": f"transfer timed out ({int(timeout)}s)"}
     except FileNotFoundError:
         return {"ok": False, "error": f"bs binary not found: {bs_bin}"}
 
+    combined = (result.stdout or "") + "\n" + (result.stderr or "")
+    progress = parse_progress_lines(combined)
     if result.returncode != 0:
-        err = result.stderr.strip() or result.stdout.strip()
-        # Extract just the error line, skip PROGRESS lines
-        for line in err.split("\n"):
-            if line.startswith("ERROR") or "error" in line.lower():
-                err = line
-                break
-        return {"ok": False, "error": err or "transfer failed"}
+        return {"ok": False, "error": _transfer_error(result.stdout, result.stderr),
+                "progress": progress}
 
     try:
-        raw = open(local_path, encoding="utf-8", errors="replace").read()
+        size = os.path.getsize(local_path)
+        if size > max_file_upload():
+            return {"ok": False, "error": f"file too large ({size} bytes)",
+                    "progress": progress}
+        with open(local_path, "rb") as fh:
+            data = fh.read()
     except OSError as e:
-        return {"ok": False, "error": f"cannot read fetched file: {e}"}
+        return {"ok": False, "error": f"cannot read fetched file: {e}",
+                "progress": progress}
+    finally:
+        try:
+            os.unlink(local_path)
+            os.rmdir(tmpdir)
+        except OSError:
+            pass
 
-    # Render markdown
-    suffix = os.path.splitext(local_name)[1].lower()
-    is_md = suffix in (".md", ".markdown", "")
-    # Use the local markdown renderer
-    from .files import markdown_to_html
-    import html as _html
-    html_body = markdown_to_html(raw) if is_md else (
-        f'<pre style="font-family:var(--mono);font-size:13px;white-space:pre-wrap;word-break:break-all">{_html.escape(raw)}</pre>'
-    )
-
-    # Cleanup
-    try:
-        os.unlink(local_path)
-        os.rmdir(tmpdir)
-    except OSError:
-        pass
-
-    return {
+    content_type, is_text = guess_file_type(local_name, data)
+    out = {
         "ok": True,
-        "raw": raw,
-        "html": html_body,
         "name": local_name,
-        "size": len(raw.encode("utf-8")),
+        "size": len(data),
+        "content_type": content_type,
+        "is_text": is_text,
+        "data": data,
+        "progress": progress,
     }
+    if is_text:
+        raw = data.decode("utf-8", errors="replace")
+        suffix = os.path.splitext(local_name)[1].lower()
+        is_md = suffix in (".md", ".markdown", "")
+        from .files import markdown_to_html
+        import html as _html
+        out["raw"] = raw
+        out["html"] = markdown_to_html(raw) if is_md else (
+            f'<pre style="font-family:var(--mono);font-size:13px;white-space:pre-wrap;'
+            f'word-break:break-all">{_html.escape(raw)}</pre>'
+        )
+    return out
 
 
-def remote_file_send(machine: str, remote_path: str, content: str) -> dict:
+def remote_file_send(machine: str, remote_path: str, content: str | bytes) -> dict:
     """Send a file to a remote peer via `bs file send`.
 
-    Returns {ok, error}.
+    Returns {ok, dest, machine, progress, size} or {ok: False, error, progress}.
     """
-    import subprocess, tempfile
+    import subprocess
+    import tempfile
 
     bs_bin = _bs_binary()
     tmpdir = tempfile.mkdtemp(prefix="bridgepanel-send-")
-    local_name = os.path.basename(remote_path.rstrip("/")) or "upload.txt"
+    local_name = os.path.basename(remote_path.rstrip("/")) or "upload.bin"
     local_path = os.path.join(tmpdir, local_name)
+    data = content.encode("utf-8") if isinstance(content, str) else content
+    timeout = file_timeout_sec()
 
     try:
-        open(local_path, "w", encoding="utf-8").write(content)
+        with open(local_path, "wb") as fh:
+            fh.write(data)
     except OSError as e:
         return {"ok": False, "error": f"cannot write temp file: {e}"}
 
@@ -379,30 +453,33 @@ def remote_file_send(machine: str, remote_path: str, content: str) -> dict:
             "--dest", remote_path, "--wait"]
     try:
         result = subprocess.run(
-            args, capture_output=True, text=True, timeout=30.0,
+            args, capture_output=True, text=True, timeout=timeout,
             env={**os.environ, "HOME": os.path.expanduser("~")},
         )
     except subprocess.TimeoutExpired:
-        return {"ok": False, "error": "transfer timed out (30s)"}
+        return {"ok": False, "error": f"transfer timed out ({int(timeout)}s)"}
     except FileNotFoundError:
         return {"ok": False, "error": f"bs binary not found: {bs_bin}"}
+    finally:
+        try:
+            os.unlink(local_path)
+            os.rmdir(tmpdir)
+        except OSError:
+            pass
 
-    # Cleanup
-    try:
-        os.unlink(local_path)
-        os.rmdir(tmpdir)
-    except OSError:
-        pass
-
+    combined = (result.stdout or "") + "\n" + (result.stderr or "")
+    progress = parse_progress_lines(combined)
     if result.returncode != 0:
-        err = result.stderr.strip() or result.stdout.strip()
-        for line in err.split("\n"):
-            if line.startswith("ERROR") or "error" in line.lower():
-                err = line
-                break
-        return {"ok": False, "error": err or "transfer failed"}
+        return {"ok": False, "error": _transfer_error(result.stdout, result.stderr),
+                "progress": progress}
 
-    return {"ok": True, "dest": remote_path, "machine": machine}
+    return {
+        "ok": True,
+        "dest": remote_path,
+        "machine": machine,
+        "size": len(data),
+        "progress": progress,
+    }
 
 
 def query_scrollback(session: str, since: int) -> dict:

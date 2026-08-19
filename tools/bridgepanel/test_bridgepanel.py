@@ -269,6 +269,30 @@ class TestPureFunctions(unittest.TestCase):
         self.assertEqual(d["text"], "")
         self.assertFalse(d["reset"])
 
+    def test_parse_progress_lines(self):
+        import bridgepanel.api as bp_api
+        text = (
+            "PROGRESS phase=send file=x.bin chunks=1/2 bytes=10/20 pct=50 "
+            "rate_mibs=1.2 eta_sec=3\nOK done\n"
+        )
+        rows = bp_api.parse_progress_lines(text)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["pct"], "50")
+        self.assertEqual(rows[0]["phase"], "send")
+        self.assertEqual(rows[0]["file"], "x.bin")
+
+    def test_guess_file_type(self):
+        import bridgepanel.api as bp_api
+        _, is_text = bp_api.guess_file_type("note.md", b"# hi")
+        self.assertTrue(is_text)
+        ctype, is_text = bp_api.guess_file_type("shot.png", b"\x89PNG")
+        self.assertFalse(is_text)
+        self.assertIn("png", ctype)
+
+    def test_docs_lane_cap_unchanged(self):
+        import bridgepanel.consts as consts
+        self.assertEqual(consts.MAX_UPLOAD, 10 * 1024 * 1024)
+
     def test_scrollback_bare_reset(self):
         fake = self._fake_ipc([b"OK 4096 RESET\n"])
         try:
@@ -545,6 +569,133 @@ class TestHttpSurface(unittest.TestCase):
         self.assertIn("/api/stream", html)
         self.assertIn("/api/session/input", html)
         self.assertIn("id=\"outputInput\"", html)
+
+    def test_remote_file_binary_stream(self):
+        import bridgepanel.server as srv
+        orig = srv.remote_file_recv
+        srv.remote_file_recv = lambda machine, path: {
+            "ok": True,
+            "name": "shot.png",
+            "size": 4,
+            "content_type": "image/png",
+            "is_text": False,
+            "data": b"\x89PNG",
+            "progress": [{"raw": "PROGRESS pct=100", "pct": "100"}],
+        }
+        conn = None
+        try:
+            conn = HTTPConnection("127.0.0.1", self.port, timeout=5)
+            conn.request(
+                "GET",
+                f"/{self.token}/api/remote-file?machine=peer&path=/tmp/shot.png",
+            )
+            r = conn.getresponse()
+            self.assertEqual(r.status, 200)
+            self.assertEqual(r.getheader("Content-Type"), "image/png")
+            disp = r.getheader("Content-Disposition") or ""
+            self.assertIn("attachment", disp)
+            self.assertIn("shot.png", disp)
+            self.assertEqual(r.read(), b"\x89PNG")
+        finally:
+            srv.remote_file_recv = orig
+            if conn is not None:
+                conn.close()
+
+    def test_remote_file_text_json(self):
+        import bridgepanel.server as srv
+        orig = srv.remote_file_recv
+        srv.remote_file_recv = lambda machine, path: {
+            "ok": True,
+            "name": "note.md",
+            "size": 7,
+            "content_type": "text/markdown",
+            "is_text": True,
+            "raw": "# Hello",
+            "html": "<h1>Hello</h1>",
+            "data": b"# Hello",
+            "progress": [],
+        }
+        try:
+            status, raw = self._req(
+                "GET",
+                f"/{self.token}/api/remote-file?machine=peer&path=note.md",
+            )
+            self.assertEqual(status, 200)
+            payload = json.loads(raw)
+            self.assertTrue(payload["ok"])
+            self.assertTrue(payload["is_text"])
+            self.assertEqual(payload["raw"], "# Hello")
+            self.assertNotIn("data", payload)
+        finally:
+            srv.remote_file_recv = orig
+
+    def test_remote_file_download_force(self):
+        import bridgepanel.server as srv
+        orig = srv.remote_file_recv
+        srv.remote_file_recv = lambda machine, path: {
+            "ok": True,
+            "name": "note.md",
+            "size": 3,
+            "content_type": "text/markdown",
+            "is_text": True,
+            "raw": "abc",
+            "html": "<p>abc</p>",
+            "data": b"abc",
+            "progress": [],
+        }
+        conn = None
+        try:
+            conn = HTTPConnection("127.0.0.1", self.port, timeout=5)
+            conn.request(
+                "GET",
+                f"/{self.token}/api/remote-file?machine=peer&path=note.md&download=1",
+            )
+            r = conn.getresponse()
+            self.assertEqual(r.status, 200)
+            self.assertIn("attachment", r.getheader("Content-Disposition") or "")
+            self.assertEqual(r.read(), b"abc")
+        finally:
+            srv.remote_file_recv = orig
+            if conn is not None:
+                conn.close()
+
+    def test_upload_file_lane_cap(self):
+        old = os.environ.get("BRIDGEPANEL_MAX_FILE_UPLOAD")
+        os.environ["BRIDGEPANEL_MAX_FILE_UPLOAD"] = "32"
+        try:
+            body = {"machine": "peer", "path": "x.bin", "content": "n" * 200}
+            status, _ = self._req("POST", f"/{self.token}/api/upload", body)
+            self.assertEqual(status, 413)
+        finally:
+            if old is None:
+                os.environ.pop("BRIDGEPANEL_MAX_FILE_UPLOAD", None)
+            else:
+                os.environ["BRIDGEPANEL_MAX_FILE_UPLOAD"] = old
+
+    def test_upload_returns_progress(self):
+        import bridgepanel.server as srv
+        orig = srv.remote_file_send
+        srv.remote_file_send = lambda machine, path, content: {
+            "ok": True,
+            "dest": path,
+            "machine": machine,
+            "size": len(content),
+            "progress": [
+                {"raw": "PROGRESS phase=send pct=100", "phase": "send", "pct": "100"}
+            ],
+        }
+        try:
+            status, raw = self._req(
+                "POST",
+                f"/{self.token}/api/upload",
+                {"machine": "peer", "path": "out.txt", "content": "hello"},
+            )
+            self.assertEqual(status, 200)
+            payload = json.loads(raw)
+            self.assertTrue(payload["ok"])
+            self.assertEqual(payload["progress"][0]["pct"], "100")
+        finally:
+            srv.remote_file_send = orig
 
     def test_9warp_routes_removed(self):
         for path in ("/api/providers", "/api/fleet", "/api/registry", "/api/events"):
