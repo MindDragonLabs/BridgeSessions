@@ -33,15 +33,18 @@ All notable public releases are documented here.
   grandchildren, then `TerminateProcess` the direct child as the fallback. This
   is the Windows counterpart to the POSIX process-group kill, closing the
   ConPTY-grandchild leak that `TerminateProcess`-on-direct-child left behind.
-- **Signed mesh-directory enrollment (`bs enroll`).** A trusted member can now
-  vouch for a NEW member without any manual key copying: `bs enroll <name>
-  <pubkey> <addr>` signs `{name,pubkey,addr}` with the issuer's ed25519 key and
-  gossips it mesh-wide (`DirectoryEnrollMsg`, wire type `0x2C`). Every peer
-  verifies the signature against an already-trusted issuer, then auto-appends
-  the new member to `authorized_keys` and seeds it — so a freshly `bs join`-ed
-  host is reachable everywhere. Guards: untrusted issuer, stale (>24h) or
-  malformed signature, and self-vouching are all rejected without mutating
-  state; entries re-gossip transitively with per-entry flood dedupe.
+- **Signed mesh-directory enrollment — automatic on `join` (Tailscale auth-key model).**
+  A new host no longer needs any manual key copying, and there is NO separate
+  `bs enroll` step. The flow is now: `bs invite` (auth key) → `curl install | bs
+  join <host> <token>` → the host auto-vouches for the joiner by signing
+  `{name,pubkey,addr}` (`DirectoryEnrollMsg`, wire `0x2C`) and gossiping it
+  mesh-wide. Every peer verifies the signature against the already-trusted host,
+  auto-appends the new member to `authorized_keys`, and seeds it. The joiner
+  advertises its own reachable Tailscale endpoint in `JoinRequestMsg` (the host
+  only ever sees the ephemeral source port), so peers can dial back directly.
+  Guards: untrusted issuer, stale (>24h) entry, malformed signature, and
+  self-vouching are all rejected without mutating state; entries re-gossip
+  transitively with per-entry flood dedupe.
 - **Planned P0/P1 hardening (tracked in `TODO.md`, not yet implemented):**
   join-window hard cap so an unclaimed invite can no longer hold
   `g_allow_join_connections=true` indefinitely (A1); `parent_id`

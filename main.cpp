@@ -936,6 +936,26 @@ int main(int argc, char** argv) {
         // Send JoinRequest
         bs::mesh::JoinRequestMsg jr;
         jr.token = join_token;
+        jr.node_name = join_node_name;
+        // Advertise our own reachable listen endpoint (Tailscale model): the
+        // host auto-vouches for us mesh-wide using this addr, so peers can
+        // dial back without ever seeing our ephemeral source port.
+        {
+            FILE* ts = BS_POPEN("tailscale ip -4 2>/dev/null", "r");
+            std::string my_ip;
+            if (ts) {
+                char buf[64] = {};
+                if (fgets(buf, sizeof(buf), ts)) {
+                    my_ip.assign(buf);
+                    while (!my_ip.empty() && (my_ip.back() == '\n' || my_ip.back() == '\r'))
+                        my_ip.pop_back();
+                }
+                BS_PCLOSE(ts);
+            }
+            if (!my_ip.empty()) {
+                jr.listen_addr = my_ip + ":19949";
+            }
+        }
         write_frame(conn.ssl.get(), jr, bs::mesh::CONTROL_STREAM_ID);
 
         // Set a 10s receive timeout so we don't block forever if the

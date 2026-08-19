@@ -137,6 +137,63 @@ TEST_CASE("enroll rejects a bad signature", "[bootstrap][enroll][apply]") {
     fs::remove_all(home);
 }
 
+TEST_CASE("join auto-vouches the new member (Tailscale auth-key model)",
+          "[bootstrap][enroll][join]") {
+    const auto home = unique_temp_dir("join");
+
+    // The HOST is the trusted member running process_join_request.
+    MeshConfig cfg;
+    cfg.authorized_keys_path = (home / "authorized_keys").string();
+
+    // A NEW member identity joins with an invite token + advertised endpoint.
+    auto [member_cert, member_key] = generate_cert_key_pair("joiner");
+    std::string member_pk = pubkey_hex_from_pem(member_key);
+    (void)member_cert;
+
+    MeshController host(cfg, home.string());
+    host.test_add_invite("deadbeefdeadbeefdeadbeefdeadbeef");
+
+    JoinRequestMsg jr;
+    jr.token = "deadbeefdeadbeefdeadbeefdeadbeef";
+    jr.node_name = "my-new-host";
+    jr.listen_addr = "100.9.8.7:19949";
+
+    JoinReplyMsg reply = host.test_process_join(jr, member_pk);
+    REQUIRE(reply.ok);
+    REQUIRE(reply.node_name == "my-new-host");
+
+    // The host must have auto-vouched: the member's key is now trusted on disk.
+    REQUIRE(host.test_authorized_on_disk(member_pk));
+
+    fs::remove_all(home);
+}
+
+TEST_CASE("join without advertised endpoint still joins but skips auto-enroll",
+          "[bootstrap][enroll][join]") {
+    const auto home = unique_temp_dir("join-noaddr");
+
+    MeshConfig cfg;
+    cfg.authorized_keys_path = (home / "authorized_keys").string();
+    auto [member_cert, member_key] = generate_cert_key_pair("joiner2");
+    std::string member_pk = pubkey_hex_from_pem(member_key);
+    (void)member_cert;
+
+    MeshController host(cfg, home.string());
+    host.test_add_invite("feedfacefeedfacefeedfacefeedface");
+
+    JoinRequestMsg jr;
+    jr.token = "feedfacefeedfacefeedfacefeedface";
+    // No node_name, no listen_addr — legacy-style join.
+
+    JoinReplyMsg reply = host.test_process_join(jr, member_pk);
+    REQUIRE(reply.ok);
+    // Still authorized (join always authorizes the direct host link)…
+    REQUIRE(host.test_authorized_on_disk(member_pk));
+    // …but no auto-enroll propagation was possible without an endpoint.
+
+    fs::remove_all(home);
+}
+
 int main(int argc, char* argv[]) {
     return Catch::Session().run(argc, argv);
 }

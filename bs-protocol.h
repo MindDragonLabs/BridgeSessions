@@ -500,6 +500,14 @@ struct CuaVideoCaptureResultMsg {
 
 struct JoinRequestMsg {
     std::string token;
+    // Requested node name (empty = host auto-assigns "node-<token8>"). The
+    // host uses this name when it vouches for the joiner via DirectoryEnrollMsg,
+    // so the mesh directory reflects the operator's chosen identity.
+    std::string node_name;
+    // Joiner's own reachable listen addr ("ip:port"). The host only sees the
+    // ephemeral source port, so the joiner advertises its real endpoint here —
+    // the Tailscale-style endpoint-advertisement that makes auto-enroll possible.
+    std::string listen_addr;
     bool operator==(const JoinRequestMsg&) const = default;
 };
 
@@ -1018,6 +1026,8 @@ void serialize_msg(Serializer& s, const CuaResponseMsg& m) {
 }
 void serialize_msg(Serializer& s, const JoinRequestMsg& m) {
     s.str_prefixed(m.token);
+    s.str_prefixed(m.node_name);    // optional requested name (bootstrap auto-enroll)
+    s.str_prefixed(m.listen_addr);  // joiner's advertised reachable endpoint
 }
 void serialize_msg(Serializer& s, const CuaVideoCaptureMsg& m) {
     s.u32be(m.request_id); s.u8(m.fps); s.u16(m.duration_sec);
@@ -1910,6 +1920,8 @@ Message decode(std::span<const uint8_t> raw) {
     case 0x28: {
         JoinRequestMsg m;
         m.token = d.str_prefixed();
+        if (d.ok(1)) m.node_name = d.str_prefixed();    // optional requested name
+        if (d.ok(1)) m.listen_addr = d.str_prefixed();  // optional advertised endpoint
         return m;
     }
     case 0x2A: {
@@ -11734,7 +11746,9 @@ public:
             } else {
                 it->claimed_by = peer_pubkey;
                 reply.ok = true;
-                reply.node_name = "node-" + jr.token.substr(0, 8);
+                reply.node_name = jr.node_name.empty()
+                    ? ("node-" + jr.token.substr(0, 8))
+                    : jr.node_name;
                 std::ostringstream seeds;
                 for (size_t si = 0; si < config_.seeds.size(); ++si) {
                     if (si) seeds << '|';
@@ -11787,6 +11801,24 @@ public:
                         reply.error = "host could not persist authorization";
                     }
                 }
+            }
+        }
+        // ── Bootstrap auto-enroll: the host vouches for the joiner mesh-wide ──
+        // On a successful join, the host signs a DirectoryEnrollMsg for the new
+        // member and gossips it, so every peer auto-trusts the joiner's key with
+        // NO manual copying — the Tailscale auth-key model. Requires the joiner
+        // to advertise its reachable listen_addr (the host only ever sees the
+        // ephemeral source port, which is undialable); without it we still
+        // complete the join but skip the directory propagation.
+        if (reply.ok && !peer_pubkey.empty() && !jr.listen_addr.empty()) {
+            DirectoryEnrollMsg e = make_directory_enroll(
+                reply.node_name, peer_pubkey, jr.listen_addr);
+            if (!e.signature.empty()) {
+                // Apply locally (already authorized via the join path, but this
+                // also seeds it as discovered) and gossip to all peers.
+                apply_directory_enroll(e);
+                broadcast_enroll(e);
+                log_event("join_auto_enrolled", reply.node_name + " " + jr.listen_addr);
             }
         }
         return reply;
