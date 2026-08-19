@@ -7988,6 +7988,40 @@ private:
     static constexpr int kDeadSeedCooldownThreshold = 3;
     static constexpr int kDeadSeedCooldownBaseSecs = 600; // 10 min
 
+    // B3: per-source-IP hourly counter for non-BS port-scan noise. Key is the
+    // source IP (no port); value is {last_full_log_hour, suppressed_count}.
+    struct NonBsClientBucket {
+        int64_t hour = 0;      // unix hour (wall clock) of last full log
+        uint64_t suppressed = 0;
+    };
+    std::unordered_map<std::string, NonBsClientBucket> nonbs_clients_;
+    static constexpr size_t kMaxNonBsClientBuckets = 4096;
+
+    // B3: classify inbound TLS probe noise. ssl_err=1 without a BS Hello on an
+    // inbound handshake is a non-BS scanner; log first occurrence per IP/hour
+    // in full, suppress the rest to a counter.
+    void note_nonbs_client(const std::string& contact_addr) {
+        std::string ip = contact_addr;
+        auto colon = ip.rfind(':');
+        if (colon != std::string::npos) ip.resize(colon);
+        const int64_t hour = static_cast<int64_t>(std::time(nullptr)) / 3600;
+        auto& b = nonbs_clients_[ip];
+        if (nonbs_clients_.size() > kMaxNonBsClientBuckets && b.hour == 0) {
+            nonbs_clients_.erase(nonbs_clients_.begin());  // bound growth
+        }
+        if (b.hour != hour) {
+            if (b.suppressed > 0) {
+                log_event("tls_nonbs_client", ip + " suppressed=" +
+                          std::to_string(b.suppressed));
+            }
+            b.hour = hour;
+            b.suppressed = 0;
+            log_event("tls_nonbs_client", ip);
+        } else {
+            ++b.suppressed;
+        }
+    }
+
     // Seeded RNG for reconnect jitter (P2 audit fix — replaces global rand()).
     std::mt19937 rng_{std::random_device{}()};
     std::unordered_map<std::string, std::chrono::steady_clock::time_point> accept_only_until_;
@@ -8853,9 +8887,18 @@ private:
                             ph.want_read = err == SSL_ERROR_WANT_READ;
                             ph.want_write = err == SSL_ERROR_WANT_WRITE;
                         } else {
-                            log_event("tls_handshake_failed",
-                                      (ph.server_side ? "inbound ssl_err=" : "outbound ssl_err=") +
-                                      std::to_string(err));
+                            // B3: inbound ssl_err=1 with no BS Hello is almost
+                            // always a non-BS port scanner probing 19949. Log
+                            // the first hit per source-IP per hour in full and
+                            // suppress the rest to a counter so genuine peer
+                            // rejections (ssl_err=5, post-Hello) stay visible.
+                            if (ph.server_side && err == 1) {
+                                note_nonbs_client(ph.contact_addr);
+                            } else {
+                                log_event("tls_handshake_failed",
+                                          (ph.server_side ? "inbound ssl_err=" : "outbound ssl_err=") +
+                                          std::to_string(err));
+                            }
                             ph.state = PendingHandshake::State::Failed;
                             to_erase.push_back(i);
                         }
