@@ -5901,6 +5901,9 @@ class SessionRegistry {
     // P0 UAF fix: fires before a session is erased from the map so callers
     // (MeshController) can null raw attached_session pointers that would dangle.
     std::function<void(const std::string&)> on_session_erased_;
+    size_t ephemeral_pruned_since_log_ = 0;
+    size_t ephemeral_expired_since_log_ = 0;
+    std::chrono::steady_clock::time_point last_ephemeral_prune_log_{};
 
     static ResolvedSessionCommand complete_command(
         const std::string& command) {
@@ -6556,30 +6559,82 @@ public:
         for (auto it = sessions_.begin(); it != sessions_.end(); ) {
             auto* s = it->second.get();
             if (!is_ephemeral(s->name)) { ++it; continue; }
-            const bool terminal =
-                s->state == SessionState::Died
-                || s->state == SessionState::Exited
-                || s->state == SessionState::Killed
-                || s->state == SessionState::Detached;
             const bool aged = (now - s->last_attach_at) > max_age
                            || (now - s->last_output_at) > max_age;
-            // Also reap live attached ephemerals with zero attachments that
-            // finished long ago (child dead but state lagging).
-            bool child_gone = false;
+            if (!aged) { ++it; continue; }
+            ++ephemeral_expired_since_log_;
+
+            // Age/output silence is never proof of death. Probe the child
+            // without blocking and prune only after a definitive dead result.
+            bool child_dead = false;
+            bool liveness_error = false;
 #ifdef _WIN32
-            if (s->child_pid && WaitForSingleObject(s->child_pid, 0) == WAIT_OBJECT_0)
-                child_gone = true;
+            if (!s->child_pid) {
+                child_dead = true;
+            } else {
+                const DWORD wait_result = WaitForSingleObject(s->child_pid, 0);
+                child_dead = wait_result == WAIT_OBJECT_0;
+                liveness_error = wait_result == WAIT_FAILED;
+                if (child_dead) {
+                    DWORD code = 0;
+                    GetExitCodeProcess(s->child_pid, &code);
+                    record_history_locked(*s, static_cast<int32_t>(code), "died");
+                    CloseHandle(s->child_pid);
+                    s->child_pid = nullptr;
+                    s->state = SessionState::Died;
+                    s->release_exited_runtime();
+                }
+            }
 #else
-            if (s->child_pid <= 0) child_gone = true;
+            if (s->child_pid <= 0) {
+                child_dead = true;
+            } else {
+                int status = 0;
+                const pid_t result = waitpid(s->child_pid, &status, WNOHANG);
+                if (result == s->child_pid) {
+                    child_dead = true;
+                    int32_t exit_code = -1;
+                    if (WIFEXITED(status)) exit_code = WEXITSTATUS(status);
+                    else if (WIFSIGNALED(status)) exit_code = 128 + WTERMSIG(status);
+                    record_history_locked(*s, exit_code, "died");
+                    s->child_pid = -1;
+                    s->state = SessionState::Died;
+                    s->release_exited_runtime();
+                } else if (result < 0) {
+                    if (errno == ECHILD) {
+                        child_dead = true;
+                        s->child_pid = -1;
+                    } else {
+                        liveness_error = true;
+                    }
+                }
+            }
 #endif
-            if ((terminal && aged) || (child_gone && s->attachments.empty() && aged)) {
-                log_event("session_prune_ephemeral", s->name);
+            if (liveness_error) {
+                log_event_at(spdlog::level::err,
+                             "session_prune_ephemeral_misprune_prevented", s->name);
+                ++it;
+                continue;
+            }
+            if (child_dead) {
                 record_history_locked(*s, -1, "ephemeral_pruned");
                 if (on_session_erased_) on_session_erased_(s->name);
                 it = sessions_.erase(it);
+                ++ephemeral_pruned_since_log_;
                 continue;
             }
             ++it;
+        }
+        if ((ephemeral_pruned_since_log_ > 0 || ephemeral_expired_since_log_ > 0) &&
+            (last_ephemeral_prune_log_ == std::chrono::steady_clock::time_point{} ||
+             now - last_ephemeral_prune_log_ >= std::chrono::minutes(1))) {
+            log_event("session_prune_ephemeral",
+                      "pruned " + std::to_string(ephemeral_pruned_since_log_) +
+                      " ephemeral, " + std::to_string(ephemeral_expired_since_log_) +
+                      " expired");
+            ephemeral_pruned_since_log_ = 0;
+            ephemeral_expired_since_log_ = 0;
+            last_ephemeral_prune_log_ = now;
         }
     }
 
@@ -12620,6 +12675,33 @@ private:
                 last_activity = c.exec_started_at;
             if (last_activity == std::chrono::steady_clock::time_point{}) continue;
             if (now - last_activity > kExecWatchdogSecs) {
+                // A quiet attached session is not a hung operation. Check the
+                // child without blocking before cancelling its transport.
+                if (c.attached_session) {
+                    auto* session = c.attached_session;
+                    bool child_alive = false;
+#ifdef _WIN32
+                    if (session->child_pid) {
+                        child_alive =
+                            WaitForSingleObject(session->child_pid, 0) == WAIT_TIMEOUT;
+                    }
+#else
+                    if (session->child_pid > 0) {
+                        int status = 0;
+                        const pid_t result = waitpid(session->child_pid, &status, WNOHANG);
+                        if (result == 0) {
+                            child_alive = true;
+                        } else if (result == session->child_pid) {
+                            session->child_pid = -1;
+                            session->state = SessionState::Died;
+                            session->release_exited_runtime();
+                        } else if (result < 0 && errno == ECHILD) {
+                            session->child_pid = -1;
+                        }
+                    }
+#endif
+                    if (child_alive) continue;
+                }
                 log_event("exec_watchdog_timeout", c.peer_name);
                 if (c.exec_cancelled) c.exec_cancelled->store(true);
                 // Shut down the socket so the blocking worker thread gets an
