@@ -4,8 +4,8 @@
 
 | Version | Supported |
 |---|---|
-| 26.08.12-beta4 | ✅ current public beta |
-| < 26.08.12 | ❌ superseded |
+| 26.08.16-beta4 | ✅ current public beta |
+| < 26.08.16 | ❌ superseded |
 
 ## Reporting a vulnerability
 

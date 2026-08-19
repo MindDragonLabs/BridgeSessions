@@ -194,7 +194,7 @@ otool -L dist/bridgesessions-macos-arm64     # only libc++.1.dylib + libSystem
 # Windows
 x86_64-w64-mingw32-objdump -p dist/bridgesessions-windows-x86_64.exe | grep "DLL Name"
 # all
-dist/<bin> --version                         # → 26.08.12-beta3
+dist/<bin> --version                         # → 26.08.16-beta4
 ```
 
 Binaries live in `dist/`. The named release binaries are committed to git (`.gitignore`
@@ -204,6 +204,6 @@ gitignored by design (the downloader regenerates them). After changing `dist/`:
 ```bash
 git add -f dist/bridgesessions-{linux-x86_64,macos-arm64,windows-x86_64.exe}
 git commit -m "dist: rebuild portable static binaries"
-git tag -f v26.08.12-beta3 HEAD
-git push --force codeberg main && git push --force codeberg v26.08.12-beta3
+git tag -f v26.08.16-beta4 HEAD
+git push --force codeberg main && git push --force codeberg v26.08.16-beta4
 ```
