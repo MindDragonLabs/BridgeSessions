@@ -187,6 +187,26 @@ def daemon_connect_session(machine: str, session: str) -> str:
     return f"bs shell {machine} -n {session}"
 
 
+def daemon_session_input(session: str, data: str) -> dict:
+    """Send keystrokes to a local attached session.
+
+    The daemon IPC surface exposes SESSIONS / MESH_TREE / SCROLLBACK but has
+    no PTY-write / SESSION_INPUT verb — keystrokes travel on an attached
+    TLS shell, not the control socket. Stub until a daemon change owns that
+    verb. Do not invent an IPC command here.
+    """
+    return {
+        "ok": False,
+        "wired": False,
+        "error": (
+            "not wired: daemon IPC has no keystroke verb "
+            "(no SESSION_INPUT / PTY_WRITE); attach with `bs shell` to type"
+        ),
+        "session": session,
+        "bytes": len(data.encode("utf-8")) if isinstance(data, str) else 0,
+    }
+
+
 def _bs_binary() -> str:
     """Find the bs binary."""
     for cand in (

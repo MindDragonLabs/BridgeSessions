@@ -481,6 +481,71 @@ class TestHttpSurface(unittest.TestCase):
         status, _ = self._req("GET", f"/{self.token}/api/session/connect?machine=test-pc2")
         self.assertEqual(status, 400)
 
+    def test_session_input_not_wired(self):
+        status, raw = self._req(
+            "POST",
+            f"/{self.token}/api/session/input",
+            {"session": "hermes", "data": "ls\n"},
+        )
+        self.assertEqual(status, 200)
+        payload = json.loads(raw)
+        self.assertFalse(payload["ok"])
+        self.assertFalse(payload["wired"])
+        self.assertIn("not wired", payload["error"])
+
+    def test_session_input_requires_session(self):
+        status, _ = self._req(
+            "POST", f"/{self.token}/api/session/input", {"data": "x"}
+        )
+        self.assertEqual(status, 400)
+
+    def test_stream_requires_session(self):
+        status, _ = self._req("GET", f"/{self.token}/api/stream")
+        self.assertEqual(status, 400)
+
+    def test_stream_sse_once(self):
+        import bridgepanel.server as srv
+
+        orig = srv.query_scrollback
+        srv.query_scrollback = lambda session, since: {
+            "offset": 4,
+            "text": "ping",
+            "reset": False,
+            "error": "",
+        }
+        conn = None
+        try:
+            conn = HTTPConnection("127.0.0.1", self.port, timeout=5)
+            conn.request(
+                "GET",
+                f"/{self.token}/api/stream?session=hermes&since=0&once=1",
+            )
+            r = conn.getresponse()
+            self.assertEqual(r.status, 200)
+            ctype = r.getheader("Content-Type") or ""
+            self.assertIn("text/event-stream", ctype)
+            body = r.read().decode("utf-8")
+            self.assertIn("data: ", body)
+            self.assertIn("ping", body)
+            line = [ln for ln in body.splitlines() if ln.startswith("data: ")][0]
+            payload = json.loads(line[len("data: "):])
+            self.assertEqual(payload["text"], "ping")
+            self.assertEqual(payload["offset"], 4)
+        finally:
+            srv.query_scrollback = orig
+            if conn is not None:
+                conn.close()
+
+    def test_index_has_session_graph_and_stream(self):
+        status, raw = self._req("GET", f"/{self.token}/")
+        self.assertEqual(status, 200)
+        html = raw.decode("utf-8") if isinstance(raw, bytes) else raw
+        self.assertIn("parent_id will drive true hierarchy", html)
+        self.assertIn("function nestByPrefix", html)
+        self.assertIn("/api/stream", html)
+        self.assertIn("/api/session/input", html)
+        self.assertIn("id=\"outputInput\"", html)
+
     def test_9warp_routes_removed(self):
         for path in ("/api/providers", "/api/fleet", "/api/registry", "/api/events"):
             status, _ = self._req("GET", f"/{self.token}{path}")

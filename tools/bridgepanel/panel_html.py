@@ -99,12 +99,14 @@ INDEX_HTML = r'''<!doctype html>
   .srow .skind { font-family: var(--mono); font-size: 9px; padding: 1px 6px; border-radius: 999px; flex-shrink: 0; letter-spacing: 0.02em; }
   .srow .skind.k-harness { background: var(--accent-soft); color: var(--accent); border: 1px solid var(--accent); }
   .srow .skind.k-probe { background: var(--surface2); color: var(--faint); border: 1px solid var(--border); }
+  .srow .skind.k-user { background: var(--surface2); color: var(--muted); border: 1px solid var(--border); }
 
   .sgroup-head { padding: 12px 14px 4px; font-size: 10.5px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--faint); display: flex; align-items: center; }
   .sgroup-head .cnt { margin-left: auto; font-family: var(--mono); font-weight: 400; }
   .ssub-head { padding: 8px 14px 2px 24px; font-size: 10.5px; font-weight: 600; color: var(--muted); display: flex; align-items: center; }
   .ssub-head .cnt { margin-left: auto; font-family: var(--mono); font-weight: 400; color: var(--faint); }
   .srow.child { padding-left: 28px; }
+  .srow.subagent { padding-left: 44px; }
   .empty-sub { color: var(--faint); font-size: 11.5px; padding: 4px 14px 4px 24px; }
   .cua-row { display: flex; align-items: center; gap: 9px; padding: 8px 13px 8px 28px; font-size: 12.5px; color: var(--muted); }
   .probe-summary { color: var(--faint); font-size: 11px; padding: 10px 14px; border-top: 1px solid var(--border); margin-top: 6px; }
@@ -159,10 +161,14 @@ INDEX_HTML = r'''<!doctype html>
   .editor:focus { border-color: var(--accent); }
   .empty { color: var(--faint); font-size: 13px; padding: 24px 20px; text-align: center; }
 
-  .output { font-family: var(--mono); font-size: 12.5px; line-height: 1.65; color: var(--text); padding: 16px 20px; white-space: pre-wrap; word-break: break-word; overflow-y: auto; min-height: 0; }
-  .output-head { display: flex; align-items: center; gap: 10px; padding: 10px 20px; border-bottom: 1px solid var(--border); }
+  .output { font-family: var(--mono); font-size: 12.5px; line-height: 1.65; color: var(--text); padding: 16px 20px; white-space: pre-wrap; word-break: break-word; overflow-y: auto; min-height: 0; flex: 1; }
+  .output-head { display: flex; align-items: center; gap: 10px; padding: 10px 20px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
   .follow { font-family: var(--mono); font-size: 11px; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface2); color: var(--muted); cursor: pointer; }
   .follow.on { color: var(--accent); border-color: var(--accent); }
+  #pane-output.active { flex-direction: column; }
+  .output-input { display: flex; gap: 8px; padding: 10px 20px; border-top: 1px solid var(--border); flex-shrink: 0; }
+  .output-input input { flex: 1; height: 34px; background: var(--surface2); border: 1px solid var(--border); border-radius: 7px; padding: 0 10px; font-family: var(--mono); font-size: 12.5px; outline: none; }
+  .output-input input:focus { border-color: var(--accent); }
 
   .files { padding: 20px; overflow-y: auto; }
   .files h2 { font-size: 16px; font-weight: 650; margin-bottom: 16px; }
@@ -256,6 +262,10 @@ INDEX_HTML = r'''<!doctype html>
           <button class="follow on" id="followBtn">follow ●</button>
         </div>
         <pre class="output" id="output"></pre>
+        <div class="output-input">
+          <input id="outputInput" placeholder="Type to local session…" autocomplete="off" aria-label="Session input">
+          <button class="btn" id="outputSend">Send</button>
+        </div>
       </div>
       <div class="tab-pane" id="pane-files">
         <div class="files" id="files"><div class="empty">Select a machine to browse its files.</div></div>
@@ -305,7 +315,7 @@ INDEX_HTML = r'''<!doctype html>
   let selSession = null;
   let curFile = null, curType = null, curRaw = '', editing = false;
   let tab = 'docs';
-  let outputOffset = 0, outputFollow = true, outputTimer = null;
+  let outputOffset = 0, outputFollow = true, outputTimer = null, outputSource = null;
   let query = '';
   let theme = localStorage.getItem('bp-theme') === 'light' ? 'light' : 'dark';
 
@@ -407,21 +417,76 @@ INDEX_HTML = r'''<!doctype html>
   function sessionsFor(name) {
     const isLocal = !name || name === mesh.node || name === '(local)';
     const out = [];
+    const meshSessions = isLocal
+      ? (mesh.sessions || [])
+      : (((mesh.peers || []).find(p => p.name === name) || {}).sessions || []);
+    const meta = {};
+    for (const s of meshSessions) if (s && s.name) meta[s.name] = s;
+    function stamp(row) {
+      const m = meta[row.name] || {};
+      if (m.kind) row.kind = m.kind;
+      if (m.state) row.state = m.state;
+      if (m.command) row.command = m.command;
+      if (m.bytes != null) row.bytes = m.bytes;
+      if (m.last_output_s != null) row.last_output_s = m.last_output_s;
+      else if (m.last_output_age_s != null) row.last_output_s = m.last_output_age_s;
+      else if (m.idle_s != null) row.last_output_s = m.idle_s;
+      return row;
+    }
     if (isLocal) {
-      const fs = (fsTree.sessions || []).map(s => ({name: s.name, live: !!s.live, local: true, kind: s.kind || '', comms: s.comms || [], documents: s.documents || []}));
+      const fs = (fsTree.sessions || []).map(s => stamp({name: s.name, live: !!s.live, local: true, kind: s.kind || '', comms: s.comms || [], documents: s.documents || []}));
       out.push(...fs);
       const names = new Set(out.map(x => x.name));
-      for (const s of (mesh.sessions || [])) {
-        if (!names.has(s.name)) out.push({name: s.name, live: isLiveState(s.state), local: true, kind: s.kind || '', state: s.state || '', command: s.command || '', comms: [], documents: []});
+      for (const s of meshSessions) {
+        if (!names.has(s.name)) out.push(stamp({name: s.name, live: isLiveState(s.state), local: true, kind: s.kind || '', state: s.state || '', command: s.command || '', comms: [], documents: []}));
       }
     } else {
-      const peer = (mesh.peers || []).find(p => p.name === name);
-      for (const s of (peer ? peer.sessions || [] : [])) {
-        out.push({name: s.name, live: isLiveState(s.state), local: false, kind: s.kind || '', state: s.state || '', command: s.command || '', comms: [], documents: []});
+      for (const s of meshSessions) {
+        out.push(stamp({name: s.name, live: isLiveState(s.state), local: false, kind: s.kind || '', state: s.state || '', command: s.command || '', comms: [], documents: []}));
       }
     }
     out.sort((a, b) => (b.live - a.live) || a.name.localeCompare(b.name));
     return out;
+  }
+  function nestByPrefix(arr) {
+    // TODO: parent_id will drive true hierarchy once the daemon emits it on
+    // MESH_TREE. Until then, nest by kind + name prefix (child name starts
+    // with a sibling's name plus '-' or '_'). Do not fabricate parent_id.
+    const names = arr.map(s => s.name);
+    const parentOf = {};
+    for (const s of arr) {
+      let best = '';
+      for (const other of names) {
+        if (other === s.name || s.name.length <= other.length) continue;
+        if (!s.name.startsWith(other)) continue;
+        const sep = s.name.charAt(other.length);
+        if (sep !== '-' && sep !== '_' && sep !== '/') continue;
+        if (other.length > best.length) best = other;
+      }
+      if (best) parentOf[s.name] = best;
+    }
+    const children = {};
+    const roots = [];
+    for (const s of arr) {
+      const p = parentOf[s.name];
+      if (p) { if (!children[p]) children[p] = []; children[p].push(s); }
+      else roots.push(s);
+    }
+    return { roots, children };
+  }
+  function fmtBytes(n) {
+    if (n == null || n === '' || !isFinite(Number(n))) return '';
+    n = Number(n);
+    if (n < 1024) return n + ' B';
+    if (n < 1048576) return (n / 1024).toFixed(1) + ' KB';
+    return (n / 1048576).toFixed(1) + ' MB';
+  }
+  function fmtAge(s) {
+    if (s == null || s === '' || !isFinite(Number(s)) || Number(s) < 0) return '';
+    s = Math.floor(Number(s));
+    if (s < 60) return s + 's';
+    if (s < 3600) return Math.floor(s / 60) + 'm';
+    return Math.floor(s / 3600) + 'h';
   }
   function renderSessions() {
     $('#sessionsHead').textContent = selMachine ? ('Sessions · ' + selMachine) : 'Sessions';
@@ -430,11 +495,11 @@ INDEX_HTML = r'''<!doctype html>
     if (!list.length) { $('#sessions').innerHTML = '<div class="empty">No sessions. Create one with +.</div>'; return; }
 
     const EPHEMERAL = /^cmd-\d+-\d+$|^run-script-|^health-bs-health-/;
-    const users = [], bots = [], probes = [];
+    const users = [], harnesses = [], probes = [];
     for (const s of list) {
       if (s.kind === 'probe' || EPHEMERAL.test(s.name)) { probes.push(s); continue; }
       const h = harnessOf(s.command);
-      if (s.kind === 'harness' || h) { s.harness = h || 'other'; bots.push(s); }
+      if (s.kind === 'harness' || h) { s.harness = h || 'other'; harnesses.push(s); }
       else { s.harness = shellOf(s.command); users.push(s); }
     }
 
@@ -447,30 +512,46 @@ INDEX_HTML = r'''<!doctype html>
       for (const s of arr) { const k = s.harness || 'other'; if (!m.has(k)) m.set(k, []); m.get(k).push(s); }
       return Array.from(m.entries()).sort((a, b) => a[0].localeCompare(b[0]));
     };
-    const sessionRow = (s, child) =>
-      '<div class="srow' + (child ? ' child' : '') + (selSession === s.name ? ' active' : '') + '" data-session="' + esc(s.name) + '">' +
-      '<span class="sdot' + (s.live ? ' live' : '') + '"></span>' +
-      '<span class="sname">' + esc(s.name) + '</span>' +
-      '<span class="sstate">' + esc(s.state || (s.live ? 'live' : (s.local ? 'stored' : ''))) + '</span></div>';
+    const sessionRow = (s, cls) => {
+      const kind = (s.kind || '').toLowerCase();
+      const kindCls = kind === 'harness' ? 'k-harness' : (kind === 'probe' ? 'k-probe' : (kind === 'user' ? 'k-user' : ''));
+      const bits = [
+        s.state || (s.live ? 'live' : (s.local ? 'stored' : '')),
+        fmtBytes(s.bytes),
+        fmtAge(s.last_output_s) ? (fmtAge(s.last_output_s) + ' ago') : ''
+      ].filter(Boolean);
+      return '<div class="srow' + (cls ? ' ' + cls : '') + (selSession === s.name ? ' active' : '') + '" data-session="' + esc(s.name) + '">' +
+        '<span class="sdot' + (s.live ? ' live' : '') + '"></span>' +
+        '<span class="sname">' + esc(s.name) + '</span>' +
+        (kindCls ? '<span class="skind ' + kindCls + '">' + esc(kind) + '</span>' : '') +
+        '<span class="sstate">' + esc(bits.join(' · ')) + '</span></div>';
+    };
 
     let html = '';
+    html += '<div class="sgroup-head">Host<span class="cnt">' + esc(selMachine) + '</span></div>';
     const renderGroup = (title, arr) => {
-      const groups = groupBy(arr);
+      const nested = nestByPrefix(arr);
+      const groups = groupBy(nested.roots.length ? nested.roots : arr);
       html += '<div class="sgroup-head">' + esc(title) + '<span class="cnt">' + arr.length + '</span></div>';
-      if (!groups.length) { html += '<div class="empty-sub">none</div>'; return; }
+      if (!arr.length) { html += '<div class="empty-sub">none</div>'; return; }
       for (const [h, ss] of groups) {
         ss.sort((a, b) => (b.live - a.live) || a.name.localeCompare(b.name));
         html += '<div class="ssub-head">' + esc(h) + '<span class="cnt">' + ss.length + '</span></div>';
-        for (const s of ss) html += sessionRow(s, true);
+        for (const s of ss) {
+          html += sessionRow(s, 'child');
+          const kids = (nested.children[s.name] || []).slice().sort((a, b) => (b.live - a.live) || a.name.localeCompare(b.name));
+          for (const k of kids) html += sessionRow(k, 'subagent');
+        }
       }
     };
 
     renderGroup('User', users);
-    renderGroup('Bots', bots);
+    renderGroup('Harness', harnesses);
     if (cua) html += '<div class="ssub-head">cua<span class="cnt">1</span></div>' +
       '<div class="cua-row"><span style="width:7px;height:7px;border-radius:50%;background:var(--ok);flex-shrink:0"></span>' +
       '<span>computer-use helper</span><span class="sstate">active</span></div>';
-    if (probes.length) html += '<div class="probe-summary">' + probes.length + ' internal probe' + (probes.length === 1 ? '' : 's') + ' (hidden)</div>';
+    if (probes.length) html += '<div class="probe-summary" id="probeToggle">' + probes.length + ' internal probe' + (probes.length === 1 ? '' : 's') + ' (hidden)</div>' +
+      '<div id="probeList" style="display:none">' + probes.map(s => sessionRow(s, 'child')).join('') + '</div>';
 
     $('#sessions').innerHTML = html;
   }
@@ -543,23 +624,58 @@ INDEX_HTML = r'''<!doctype html>
     $$('#tabbar .tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
     $$('.tab-pane').forEach(p => p.classList.toggle('active', p.id === 'pane-' + name));
     if (outputTimer) { clearInterval(outputTimer); outputTimer = null; }
+    if (outputSource) { outputSource.close(); outputSource = null; }
     if (name === 'output') startOutput();
     if (name === 'files') renderRemoteFiles();
     if (name === 'docs') updateTools();
   }
 
   // ── Output ──
-  function startOutput() {
-    $('#output').textContent = '';
-    outputOffset = 0;
+  function stopOutput() {
+    if (outputTimer) { clearInterval(outputTimer); outputTimer = null; }
+    if (outputSource) { outputSource.close(); outputSource = null; }
+  }
+  function applyOutputDelta(d) {
+    if (!d) return;
+    if (d.error) {
+      if (!$('#output').dataset.err) { $('#output').textContent = '(output unavailable: ' + d.error + ')'; $('#output').dataset.err = '1'; }
+      return;
+    }
     delete $('#output').dataset.err;
-    if (selSession) {
-      $('#outputLabel').textContent = (selMachine || '') + ' / ' + selSession;
+    if (d.reset) $('#output').textContent = '';
+    if (d.text) {
+      if (d.remote) $('#output').textContent = stripAnsi(d.text);
+      else $('#output').textContent += stripAnsi(d.text);
+      if (outputFollow) $('#output').scrollTop = $('#output').scrollHeight;
+    }
+    if (typeof d.offset === 'number') outputOffset = d.offset;
+  }
+  function startOutput(reset) {
+    if (reset !== false) {
+      $('#output').textContent = '';
+      outputOffset = 0;
+      delete $('#output').dataset.err;
+    }
+    stopOutput();
+    if (!selSession) {
+      $('#outputLabel').textContent = 'Select a session to see live output';
+      return;
+    }
+    $('#outputLabel').textContent = (selMachine || '') + ' / ' + selSession;
+    const isLocal = !selMachine || selMachine === mesh.node || selMachine === '(local)';
+    if (isLocal && typeof EventSource !== 'undefined') {
+      const url = base + '/api/stream?session=' + encodeURIComponent(selSession) + '&since=' + outputOffset;
+      outputSource = new EventSource(url);
+      outputSource.onmessage = (ev) => { try { applyOutputDelta(JSON.parse(ev.data)); } catch (_) {} };
+      outputSource.onerror = () => {
+        if (outputSource) { outputSource.close(); outputSource = null; }
+        if (tab !== 'output' || !selSession) return;
+        pollOutput();
+        outputTimer = setInterval(pollOutput, 2000);
+      };
+    } else {
       pollOutput();
       outputTimer = setInterval(pollOutput, 2000);
-    } else {
-      $('#outputLabel').textContent = 'Select a session to see live output';
-      $('#output').textContent = '';
     }
   }
   async function pollOutput() {
@@ -568,19 +684,21 @@ INDEX_HTML = r'''<!doctype html>
       let url = '/api/output?session=' + encodeURIComponent(selSession) + '&since=' + outputOffset;
       if (selMachine) url += '&machine=' + encodeURIComponent(selMachine);
       const d = await api(url);
-      if (d.error) {
-        if (!$('#output').dataset.err) { $('#output').textContent = '(output unavailable: ' + d.error + ')'; $('#output').dataset.err = '1'; }
-        return;
-      }
-      delete $('#output').dataset.err;
-      if (d.reset) $('#output').textContent = '';
-      if (d.text) {
-        if (d.remote) $('#output').textContent = stripAnsi(d.text);
-        else $('#output').textContent += stripAnsi(d.text);
-        if (outputFollow) $('#output').scrollTop = $('#output').scrollHeight;
-      }
-      if (typeof d.offset === 'number') outputOffset = d.offset;
+      applyOutputDelta(d);
     } catch (_) {}
+  }
+  async function sendSessionInput() {
+    const box = $('#outputInput');
+    const typed = box ? box.value : '';
+    if (!typed || !selSession) return;
+    const isLocal = !selMachine || selMachine === mesh.node || selMachine === '(local)';
+    if (!isLocal) { toast('Remote input is not wired', true); return; }
+    const data = typed.endsWith('\n') ? typed : typed + '\n';
+    try {
+      const d = await api('/api/session/input', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({session: selSession, data: data}) });
+      if (d.ok) { box.value = ''; toast('Sent'); }
+      else toast(d.error || 'not wired', true);
+    } catch (_) { toast('Send failed', true); }
   }
 
   // ── Remote files ──
@@ -668,11 +786,21 @@ INDEX_HTML = r'''<!doctype html>
     if (tab === 'output') startOutput();
   });
   $('#sessions').addEventListener('click', e => {
+    const probe = e.target.closest('.probe-summary');
+    if (probe) {
+      const list = $('#probeList');
+      if (list) list.style.display = list.style.display === 'none' ? '' : 'none';
+      return;
+    }
     const row = e.target.closest('.srow'); if (!row || !row.dataset.session) return;
     selSession = row.dataset.session; curFile = null; curType = null; editing = false;
     renderSessions(); renderFiles(); renderBreadcrumb(); updateTools();
     $('#content').innerHTML = '<div class="empty">Select a document.</div>';
     if (tab === 'output') startOutput();
+  });
+  $('#outputSend').addEventListener('click', sendSessionInput);
+  $('#outputInput').addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); sendSessionInput(); }
   });
   $('#tabbar').addEventListener('click', e => { const b = e.target.closest('.tab'); if (b) switchTab(b.dataset.tab); });
   $('#filelist').addEventListener('click', e => {

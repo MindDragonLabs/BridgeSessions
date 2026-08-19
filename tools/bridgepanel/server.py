@@ -4,12 +4,13 @@ from __future__ import annotations
 import html as _html
 import json
 import sys
+import time
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import parse_qs, urlparse
 
 from .api import (build_tree, daemon_connect_session, daemon_create_session,
-                  query_mesh_tree, query_remote_scrollback,
+                  daemon_session_input, query_mesh_tree, query_remote_scrollback,
                   query_remote_session_info, query_scrollback,
                   remote_file_recv, remote_file_send)
 from .consts import MAX_UPLOAD, VERSION, APP
@@ -71,6 +72,85 @@ class BridgePanelHandler(BaseHTTPRequestHandler):
     def reject(self, status: int, message: str) -> None:
         self.send_bytes(message.encode("utf-8"), "text/plain; charset=utf-8", status)
 
+    def _origin_allowed(self) -> bool:
+        origin = self.headers.get("Origin", "")
+        if not origin:
+            return True
+        host = (urlparse(origin).hostname or "").strip("[]")
+        return host in ("127.0.0.1", "localhost", "::1") or host.startswith("127.")
+
+    def _sse_write(self, payload: dict | None = None, comment: str | None = None) -> None:
+        if comment is not None:
+            self.wfile.write(f": {comment}\n\n".encode("utf-8"))
+        else:
+            self.wfile.write(b"data: " + json.dumps(payload).encode("utf-8") + b"\n\n")
+        self.wfile.flush()
+
+    def handle_stream(self, params: dict) -> None:
+        """SSE scrollback for a local session. Reuses query_scrollback(read_since)."""
+        session = params.get("session", [""])[0]
+        machine = params.get("machine", [""])[0]
+        try:
+            since = int(params.get("since", ["0"])[0])
+        except ValueError:
+            since = 0
+        if not session:
+            self.reject(HTTPStatus.BAD_REQUEST, "session required")
+            return
+        if not self._origin_allowed():
+            self.reject(HTTPStatus.FORBIDDEN, "origin not allowed")
+            return
+
+        once = params.get("once", ["0"])[0].lower() in ("1", "true", "yes")
+        try:
+            interval = float(params.get("interval", ["0.5"])[0])
+        except ValueError:
+            interval = 0.5
+        interval = min(max(interval, 0.1), 5.0)
+
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Connection", "keep-alive")
+        self.send_header("X-Accel-Buffering", "no")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Referrer-Policy", "no-referrer")
+        self.end_headers()
+
+        is_remote = bool(machine) and machine not in ("", "(local)", mesh_node_name())
+        try:
+            if is_remote:
+                payload = query_remote_scrollback(machine, session)
+                self._sse_write(payload)
+                return
+            idle = 0
+            first = True
+            while True:
+                d = query_scrollback(session, since)
+                emit = first or bool(d.get("text") or d.get("reset") or d.get("error"))
+                if emit:
+                    self._sse_write(d)
+                    first = False
+                    if d.get("error") or once:
+                        break
+                    idle = 0
+                else:
+                    idle += 1
+                    if idle % 20 == 0:
+                        self._sse_write(comment="keepalive")
+                    if once:
+                        self._sse_write(d)
+                        break
+                try:
+                    since = int(d.get("offset", since) or since)
+                except (TypeError, ValueError):
+                    pass
+                time.sleep(interval)
+        except (BrokenPipeError, ConnectionResetError, TimeoutError, OSError):
+            return
+        finally:
+            self.close_connection = True
+
     def authorized_path(self, *, require_token: bool = False) -> tuple[str, str] | None:
         parsed = urlparse(self.path)
         parts = parsed.path.split("/")
@@ -113,6 +193,8 @@ class BridgePanelHandler(BaseHTTPRequestHandler):
             self.send_json(build_tree())
         elif path == "/api/machines":
             self.send_json(query_mesh_tree())
+        elif path == "/api/stream":
+            self.handle_stream(params)
         elif path == "/api/output":
             session = params.get("session", [""])[0]
             machine = params.get("machine", [""])[0]
@@ -217,6 +299,33 @@ class BridgePanelHandler(BaseHTTPRequestHandler):
 
             target.write_text(content, encoding="utf-8")
             self.send_json({"ok": True, "html": markdown_to_html(content)})
+            return
+
+        if path == "/api/session/input":
+            try:
+                length = int(self.headers.get("Content-Length", "0") or 0)
+            except ValueError:
+                self.reject(HTTPStatus.BAD_REQUEST, "Invalid Content-Length")
+                return
+            if length < 0 or length > 65536:
+                self.reject(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, "Content too large")
+                return
+            try:
+                raw_body = self.rfile.read(length) if length else b"{}"
+                body = json.loads(raw_body)
+            except (ValueError, json.JSONDecodeError, OSError):
+                self.reject(HTTPStatus.BAD_REQUEST, "Invalid JSON")
+                return
+            raw_session = body.get("session", "")
+            data = body.get("data", "")
+            if not str(raw_session).strip():
+                self.reject(HTTPStatus.BAD_REQUEST, "session required")
+                return
+            session = safe_session_name(raw_session)
+            if not isinstance(data, str):
+                self.reject(HTTPStatus.BAD_REQUEST, "data must be a string")
+                return
+            self.send_json(daemon_session_input(session, data))
             return
 
         if path == "/api/session/create":
