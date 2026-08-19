@@ -50,7 +50,7 @@ Portable skill for **Hermes**, **OpenAI Codex**, **Claude Code**, **OpenCode**,
 2. **Pinned peers:** seeds need `pubkey=…`; `mesh.require_seed_pins` defaults true.
 3. **CLI health** = data-plane (`healthy (data-plane ok)`). IPC HEALTH alone is not enough.
 4. **Windows peers are Windows** — not Linux, not “MinGW ≈ Linux”.
-5. **Stack commands** in one shell; do not open one `bs shell` per micro-step.
+5. **Stack commands** in one shell (`&&`/`;`) or use `bs run-script` for longer work; do not open one `bs shell` per micro-step — each call pays a full mesh round-trip (100-500ms+ on WAN peers), so N single-command calls cost N round-trips for work one stacked call or script would do in one.
 6. Credentials: never commit secrets; use env / operator vaults.
 7. **Alpha posture:** public alpha is **not** a production-secure SSH replacement.
    See `SECURITY.md` and `docs/AUDIT-2.0.5-alpha2.md`.
@@ -173,7 +173,22 @@ bs shell windows-peer --cmd 'powershell -NoProfile -Command "Get-Process | Selec
 bs shell linux-peer --cmd "bash -lc 'hostname && df -h && uptime'"
 ```
 
-**Bad:** three separate `bs shell` calls for dependent steps.
+**Do this:**
+
+```bash
+bs shell linux-peer --cmd "bash -lc 'cd /app && npm install && npm test'"
+bs run-script windows-peer deploy.ps1   # 4+ steps or PowerShell-heavy: script, not --cmd chain
+```
+
+**Not that:** three separate `bs shell` calls for dependent steps —
+
+```bash
+bs shell linux-peer --cmd "cd /app"      # 1st round-trip, and cd doesn't persist anyway
+bs shell linux-peer --cmd "npm install"  # 2nd round-trip
+bs shell linux-peer --cmd "npm test"     # 3rd round-trip
+```
+
+3 WAN round-trips instead of 1; on a peer with 200ms RTT that's ~0.6s wasted for nothing gained.
 
 ### One-shot shell notes (Hermes / agents)
 

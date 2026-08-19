@@ -11,7 +11,9 @@ Shipping release: **v26.09.19-beta5**. Probe live `--version`.
 ## Agent rules
 
 1. Prefer `bs` mesh over raw SSH/SCP when the peer is on the mesh.
-2. Stack remote commands in **one** shell (`&&` / PowerShell `;`) — not N separate `bs shell` calls.
+2. Stack remote commands in **one** shell (`&&` / PowerShell `;`) — not N separate `bs shell` calls. For anything beyond 2-3 chained commands, or multi-line/PowerShell-heavy work, use `bs run-script` instead of `--cmd` chains. One `bs shell <peer> --cmd` per micro-step is an anti-pattern: each round-trip costs a full mesh RTT (100-500ms+ on WAN peers), so 5 sequential single-command calls burn 5x the latency of one stacked call for no benefit.
+   - **Do:** `bs shell peer --cmd "bash -lc 'cd /app && npm install && npm test'"` or `bs run-script peer deploy.sh` for anything longer.
+   - **Not that:** `bs shell peer --cmd "cd /app"` then `bs shell peer --cmd "npm install"` then `bs shell peer --cmd "npm test"` (3 round-trips, and `cd` doesn't even persist across calls).
 3. Windows peers: **Windows** commands only. No Linux-default `tar`/apt/`/tmp`. MinGW ≠ Linux.
 4. Use the configured peer name and pinned key; never encode private fleet names or addresses in public instructions.
 5. File transfers: `bs file send <peer> <local> [<remote>|--dest <remote>] --wait` (scp-style remote dest); `bs file recv … --wait`. Parse `PROGRESS …` lines; do not assume 120s timeout (fixed in 2.0.4). Pipelined since 2.0.20-alpha9 (8-chunk batching). `file recv` and `capture-video` use direct TLS to the target peer.

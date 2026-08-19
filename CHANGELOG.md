@@ -24,6 +24,23 @@ All notable public releases are documented here.
 - **CMake `VERSION` configure dependency.** `VERSION` is now declared via
   `CMAKE_CONFIGURE_DEPENDS`, so bumping it triggers a reconfigure under the Make
   generator (previously the binary kept reporting the old version after a bump).
+- **Planned P0/P1 hardening (tracked in `TODO.md`, not yet implemented):**
+  join-window hard cap so an unclaimed invite can no longer hold
+  `g_allow_join_connections=true` indefinitely (A1); Windows process-tree
+  kill via Job Object to close the ConPTY-grandchild leak that
+  `TerminateProcess` on the direct child leaves behind, as the Windows
+  counterpart to the POSIX process-group kill above (A3); `parent_id`
+  session lineage as the keystone field unlocking both scoped kill
+  enforcement (a watchdog/reaper may only kill sessions it spawned) and a
+  future panel session graph (A4/A5); state-aware pruning so the reaper
+  accounts for session state before culling.
+  Also planned: BridgePanel live-stream slice (SSE `/api/stream` + input POST,
+  token in `Authorization` header, Origin check) and a panel hygiene pass
+  (dead code + installer fixes) — tracked as F1/F4 in `TODO.md`, not shipped.
+- **Panel auth/pairing design doc.** Added `docs/panel-auth-pairing.md`: a
+  design (not yet implemented) for moving BridgePanel beyond loopback via
+  per-device mTLS pairing that reuses the existing ed25519 pin infrastructure.
+  Loopback + bearer token stays authoritative for beta5.
 - Version bump from `26.08.16-beta4`.
 - `26.08.16-beta4` remains the current published release (binaries, checksums,
   and GitHub Release are unchanged).
