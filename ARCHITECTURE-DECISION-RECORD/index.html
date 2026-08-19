@@ -2724,7 +2724,7 @@ the deployed reality.</p>
 <a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>  4. If hash differs from last sent: send ClipboardPut{text, hash, timestamp}
 <a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>  5. Server injects text into session PTY (bracketed-paste)
 <a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a>  6. Server sends ClipboardEcho{hash} to confirm receipt
-<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a>  7. Client records last-acked hash — won&#39;t re-send this content
+<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a>  7. Client records last-acked hash — won't re-send this content
 <a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a>
 <a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a>SERVER → MACOS (copy from session):
 <a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a>  1. hermes --tui emits OSC 52 sequence
@@ -2732,7 +2732,7 @@ the deployed reality.</p>
 <a id="__codelineno-3-13" name="__codelineno-3-13" href="#__codelineno-3-13"></a>  3. bs-server strips it from terminal stream (never rendered)
 <a id="__codelineno-3-14" name="__codelineno-3-14" href="#__codelineno-3-14"></a>  4. bs-server sends ClipboardGet{text, hash} as protocol message
 <a id="__codelineno-3-15" name="__codelineno-3-15" href="#__codelineno-3-15"></a>  5. bs-client calls pbcopy — text lands in macOS clipboard
-<a id="__codelineno-3-16" name="__codelineno-3-16" href="#__codelineno-3-16"></a>  6. bs-client records this hash as last-acked (won&#39;t re-send back)
+<a id="__codelineno-3-16" name="__codelineno-3-16" href="#__codelineno-3-16"></a>  6. bs-client records this hash as last-acked (won't re-send back)
 </code></pre></div>
 <p><strong>ADR-005: Clipboard race prevention via hash echo</strong>
 <strong>ADR-006: Clipboard compression enabled</strong> (zstd level 3 for payloads &gt;256 bytes)</p>
@@ -2764,16 +2764,16 @@ OS-agnostic — any node may be any OS.</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>User connects:       bs-client --server=dev.example.com --name=hms
 <a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>                       │
 <a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>                       ▼
-<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>bs-server receives:  Attach{session_name: &quot;hms&quot;}
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>bs-server receives:  Attach{session_name: "hms"}
 <a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>                       │
 <a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a>                       ▼
-<a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a>Session &quot;hms&quot; exists? ──No──► Auto-spawn: hermes --tui
+<a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a>Session "hms" exists? ──No──► Auto-spawn: hermes --tui
 <a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a>                       │
 <a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a>                      Yes
 <a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a>                       │
 <a id="__codelineno-5-11" name="__codelineno-5-11" href="#__codelineno-5-11"></a>                       ▼
 <a id="__codelineno-5-12" name="__codelineno-5-12" href="#__codelineno-5-12"></a>                    Attach client to existing PTY
-<a id="__codelineno-5-13" name="__codelineno-5-13" href="#__codelineno-5-13"></a>                    Send scrollback buffer (chunked, client-ACK&#39;d)
+<a id="__codelineno-5-13" name="__codelineno-5-13" href="#__codelineno-5-13"></a>                    Send scrollback buffer (chunked, client-ACK'd)
 <a id="__codelineno-5-14" name="__codelineno-5-14" href="#__codelineno-5-14"></a>                    Send ClipboardGet for latest clipboard
 </code></pre></div>
 <p><strong>ADR-007: Command resolution order</strong>
@@ -2889,7 +2889,7 @@ unique-pubkey view for persistence compatibility.</p>
 <a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a>         ├── 2. Resolve --server via DNS A/AAAA
 <a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a>         ├── 3. TCP dial to &lt;resolved&gt;:19949 (mesh)
 <a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a>         ├── 4. TLS 1.3 handshake (mutual auth via ed25519)
-<a id="__codelineno-7-10" name="__codelineno-7-10" href="#__codelineno-7-10"></a>         ├── 5. Send Attach{session_name: &quot;hms&quot;, cols, rows, term: &quot;xterm-kitty&quot;}
+<a id="__codelineno-7-10" name="__codelineno-7-10" href="#__codelineno-7-10"></a>         ├── 5. Send Attach{session_name: "hms", cols, rows, term: "xterm-kitty"}
 <a id="__codelineno-7-11" name="__codelineno-7-11" href="#__codelineno-7-11"></a>         ├── 6. Receive scrollback buffer in chunks → write each chunk to stdout
 <a id="__codelineno-7-12" name="__codelineno-7-12" href="#__codelineno-7-12"></a>         │      After each chunk: send ScrollbackAck
 <a id="__codelineno-7-13" name="__codelineno-7-13" href="#__codelineno-7-13"></a>         └── 7. Enter relay loop:
@@ -2936,8 +2936,8 @@ unique-pubkey view for persistence compatibility.</p>
 <a id="__codelineno-9-11" name="__codelineno-9-11" href="#__codelineno-9-11"></a>    ├── Yes: Attach{session_name} → resume where you left off
 <a id="__codelineno-9-12" name="__codelineno-9-12" href="#__codelineno-9-12"></a>    │         (server has buffered output during disconnection)
 <a id="__codelineno-9-13" name="__codelineno-9-13" href="#__codelineno-9-13"></a>    └── No:  Exit with message:
-<a id="__codelineno-9-14" name="__codelineno-9-14" href="#__codelineno-9-14"></a>              &quot;Session &#39;hms&#39; survived — reattach with:
-<a id="__codelineno-9-15" name="__codelineno-9-15" href="#__codelineno-9-15"></a>               bs-client --server=dev --name=hms&quot;
+<a id="__codelineno-9-14" name="__codelineno-9-14" href="#__codelineno-9-14"></a>              "Session 'hms' survived — reattach with:
+<a id="__codelineno-9-15" name="__codelineno-9-15" href="#__codelineno-9-15"></a>               bs-client --server=dev --name=hms"
 </code></pre></div>
 <p><strong>ADR-010: Server restart = full TLS handshake.</strong> TLS session tickets are ephemeral. Server restart → full handshake (same as SSH reconnect).</p>
 <hr />
@@ -2971,7 +2971,7 @@ unique-pubkey view for persistence compatibility.</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>bs-client<span class="w"> </span>--server<span class="o">=</span>dev.example.com<span class="w">                    </span><span class="c1"># connect</span>
 <a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a>bs-client<span class="w"> </span>--server<span class="o">=</span>dev.example.com<span class="w"> </span>--name<span class="o">=</span>hms<span class="w">          </span><span class="c1"># specific session</span>
 <a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a>bs-client<span class="w"> </span>--server<span class="o">=</span>dev.example.com<span class="w"> </span>--name<span class="o">=</span>logs<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a><span class="w">          </span>--cmd<span class="o">=</span><span class="s2">&quot;journalctl -f&quot;</span><span class="w">                        </span><span class="c1"># custom command</span>
+<a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a><span class="w">          </span>--cmd<span class="o">=</span><span class="s2">"journalctl -f"</span><span class="w">                        </span><span class="c1"># custom command</span>
 <a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a>bs-client<span class="w"> </span>--server<span class="o">=</span>dev.example.com<span class="w"> </span>--list<span class="w">              </span><span class="c1"># list sessions</span>
 <a id="__codelineno-12-6" name="__codelineno-12-6" href="#__codelineno-12-6"></a>bs-client<span class="w"> </span>--server<span class="o">=</span>dev.example.com<span class="w"> </span>--name<span class="o">=</span>hms<span class="w"> </span>--kill<span class="w">   </span><span class="c1"># kill session</span>
 </code></pre></div>
@@ -2983,10 +2983,10 @@ unique-pubkey view for persistence compatibility.</p>
 <h2 id="6-bridgespace-integration">6. BridgeSpace Integration<a class="headerlink" href="#6-bridgespace-integration" title="Permanent link">&para;</a></h2>
 <h3 id="61-pane-session-mapping">6.1 Pane ↔ Session Mapping<a class="headerlink" href="#61-pane-session-mapping" title="Permanent link">&para;</a></h3>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>BridgeSpace window
-<a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a>├── Pane: &quot;dev:hms&quot;     ← bs-client --server=dev --name=hms
-<a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a>├── Pane: &quot;dev:work&quot;    ← bs-client --server=dev --name=work
-<a id="__codelineno-14-4" name="__codelineno-14-4" href="#__codelineno-14-4"></a>├── Pane: &quot;prod:hms&quot;    ← bs-client --server=prod --name=hms
-<a id="__codelineno-14-5" name="__codelineno-14-5" href="#__codelineno-14-5"></a>└── Pane: &quot;dev:logs&quot;    ← bs-client --server=dev --name=logs --cmd=&quot;journalctl -f&quot;
+<a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a>├── Pane: "dev:hms"     ← bs-client --server=dev --name=hms
+<a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a>├── Pane: "dev:work"    ← bs-client --server=dev --name=work
+<a id="__codelineno-14-4" name="__codelineno-14-4" href="#__codelineno-14-4"></a>├── Pane: "prod:hms"    ← bs-client --server=prod --name=hms
+<a id="__codelineno-14-5" name="__codelineno-14-5" href="#__codelineno-14-5"></a>└── Pane: "dev:logs"    ← bs-client --server=dev --name=logs --cmd="journalctl -f"
 </code></pre></div>
 <p><strong>ADR-011: v1 BridgeSpace integration is minimal</strong>
 1. BridgeSpace spawns bs-client as child process with correct args
@@ -3001,7 +3001,7 @@ unique-pubkey view for persistence compatibility.</p>
 <a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a>
 <a id="__codelineno-15-4" name="__codelineno-15-4" href="#__codelineno-15-4"></a><span class="c1"># Bootstrap</span>
 <a id="__codelineno-15-5" name="__codelineno-15-5" href="#__codelineno-15-5"></a>mkdir<span class="w"> </span>-p<span class="w"> </span>~/.bridgesessions
-<a id="__codelineno-15-6" name="__codelineno-15-6" href="#__codelineno-15-6"></a><span class="nb">echo</span><span class="w"> </span><span class="s2">&quot;&lt;hex-pubkey&gt;&quot;</span><span class="w"> </span>&gt;&gt;<span class="w"> </span>~/.bridgesessions/authorized_keys
+<a id="__codelineno-15-6" name="__codelineno-15-6" href="#__codelineno-15-6"></a><span class="nb">echo</span><span class="w"> </span><span class="s2">"&lt;hex-pubkey&gt;"</span><span class="w"> </span>&gt;&gt;<span class="w"> </span>~/.bridgesessions/authorized_keys
 <a id="__codelineno-15-7" name="__codelineno-15-7" href="#__codelineno-15-7"></a>
 <a id="__codelineno-15-8" name="__codelineno-15-8" href="#__codelineno-15-8"></a><span class="c1"># systemd user service</span>
 <a id="__codelineno-15-9" name="__codelineno-15-9" href="#__codelineno-15-9"></a>bs-server<span class="w"> </span>install<span class="w"> </span>--user
@@ -3018,9 +3018,9 @@ unique-pubkey view for persistence compatibility.</p>
 </code></pre></div>
 <h3 id="74-monitoring">7.4 Monitoring<a class="headerlink" href="#74-monitoring" title="Permanent link">&para;</a></h3>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a>bs-server<span class="w"> </span>status<span class="w"> </span>--json
-<a id="__codelineno-18-2" name="__codelineno-18-2" href="#__codelineno-18-2"></a><span class="c1"># { &quot;hostname&quot;: &quot;dev&quot;, &quot;version&quot;: &quot;1.0.0&quot;, &quot;uptime_seconds&quot;: 86400,</span>
-<a id="__codelineno-18-3" name="__codelineno-18-3" href="#__codelineno-18-3"></a><span class="c1">#   &quot;sessions&quot;: [...], &quot;bytes_in&quot;: 1234567, &quot;bytes_out&quot;: 9876543,</span>
-<a id="__codelineno-18-4" name="__codelineno-18-4" href="#__codelineno-18-4"></a><span class="c1">#   &quot;compression_ratio&quot;: 3.2, &quot;connections&quot;: 2 }</span>
+<a id="__codelineno-18-2" name="__codelineno-18-2" href="#__codelineno-18-2"></a><span class="c1"># { "hostname": "dev", "version": "1.0.0", "uptime_seconds": 86400,</span>
+<a id="__codelineno-18-3" name="__codelineno-18-3" href="#__codelineno-18-3"></a><span class="c1">#   "sessions": [...], "bytes_in": 1234567, "bytes_out": 9876543,</span>
+<a id="__codelineno-18-4" name="__codelineno-18-4" href="#__codelineno-18-4"></a><span class="c1">#   "compression_ratio": 3.2, "connections": 2 }</span>
 </code></pre></div>
 <hr />
 <h2 id="8-compression-encryption-stack">8. Compression &amp; Encryption Stack<a class="headerlink" href="#8-compression-encryption-stack" title="Permanent link">&para;</a></h2>

@@ -78,7 +78,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#cua-computer-use-automation-bridgesessions-260812-beta3" class="md-skip">
+        <a href="#cua-computer-use-automation-bridgesessions-260816-beta4" class="md-skip">
           Skip to content
         </a>
       
@@ -1602,7 +1602,7 @@
   
 
 
-<h1 id="cua-computer-use-automation-bridgesessions-260812-beta3">CUA — Computer-Use Automation (BridgeSessions 26.08.12-beta3)<a class="headerlink" href="#cua-computer-use-automation-bridgesessions-260812-beta3" title="Permanent link">&para;</a></h1>
+<h1 id="cua-computer-use-automation-bridgesessions-260816-beta4">CUA — Computer-Use Automation (BridgeSessions 26.08.16-beta4)<a class="headerlink" href="#cua-computer-use-automation-bridgesessions-260816-beta4" title="Permanent link">&para;</a></h1>
 <p>Remote desktop automation over the <code>bs://</code> mesh. Seven subcommands: screen query,
 screenshot capture, mouse click/move/scroll, text typing, and HID key press.
 No VNC/RDP/streaming server required — input injection and capture happen in the
@@ -1668,8 +1668,8 @@ Startup folder):</p>
 <a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="n">bridgesessions</span> <span class="p">-</span><span class="n">-cua-helper</span>
 <a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>
 <a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="c"># As a scheduled task at logon (production)</span>
-<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="n">schtasks</span> <span class="p">/</span><span class="n">create</span> <span class="p">/</span><span class="n">tn</span> <span class="s2">&quot;BS-CUA-Helper&quot;</span> <span class="p">/</span><span class="n">tr</span> <span class="s2">&quot;bridgesessions --cua-helper&quot;</span> <span class="p">/</span><span class="nb">sc </span><span class="n">onlogon</span> <span class="p">/</span><span class="n">rl</span> <span class="n">highest</span>
-<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="n">schtasks</span> <span class="p">/</span><span class="n">run</span> <span class="p">/</span><span class="n">tn</span> <span class="s2">&quot;BS-CUA-Helper&quot;</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="n">schtasks</span> <span class="p">/</span><span class="n">create</span> <span class="p">/</span><span class="n">tn</span> <span class="s2">"BS-CUA-Helper"</span> <span class="p">/</span><span class="n">tr</span> <span class="s2">"bridgesessions --cua-helper"</span> <span class="p">/</span><span class="nb">sc </span><span class="n">onlogon</span> <span class="p">/</span><span class="n">rl</span> <span class="n">highest</span>
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="n">schtasks</span> <span class="p">/</span><span class="n">run</span> <span class="p">/</span><span class="n">tn</span> <span class="s2">"BS-CUA-Helper"</span>
 </code></pre></div>
 <p>The helper:
 - Listens on <code>127.0.0.1:19986</code> (localhost only — not exposed to the network).
@@ -1782,7 +1782,7 @@ clicking.</p>
 <p>Moves the cursor without clicking. Useful before a <code>click</code> or to position for
 hover-based UI.</p>
 <h3 id="5-cua-type-type-text">5. <code>cua type</code> — Type text<a class="headerlink" href="#5-cua-type-type-text" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>$<span class="w"> </span>bs<span class="w"> </span>cua<span class="w"> </span><span class="nb">type</span><span class="w"> </span>test-pc1<span class="w"> </span>--text<span class="w"> </span><span class="s2">&quot;hello world&quot;</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>$<span class="w"> </span>bs<span class="w"> </span>cua<span class="w"> </span><span class="nb">type</span><span class="w"> </span>test-pc1<span class="w"> </span>--text<span class="w"> </span><span class="s2">"hello world"</span>
 <a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>Typed<span class="w"> </span><span class="m">11</span><span class="w"> </span>chars
 </code></pre></div>
 <p>Types UTF-8 text at the current cursor position. Use for form fields, terminal
@@ -1792,7 +1792,7 @@ input, and text editors.</p>
 <a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>$<span class="w"> </span>bs<span class="w"> </span>cua<span class="w"> </span>key<span class="w"> </span>test-pc1<span class="w"> </span>--code<span class="w"> </span><span class="m">40</span>
 <a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>Pressed<span class="w"> </span>HID<span class="w"> </span>key<span class="w"> </span>0x28
 <a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a>
-<a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a><span class="c1"># Ctrl+S (HID usage 0x16 = 22 = &#39;s&#39;)</span>
+<a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a><span class="c1"># Ctrl+S (HID usage 0x16 = 22 = 's')</span>
 <a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a>$<span class="w"> </span>bs<span class="w"> </span>cua<span class="w"> </span>key<span class="w"> </span>test-pc1<span class="w"> </span>--code<span class="w"> </span><span class="m">22</span><span class="w"> </span>--modifiers<span class="w"> </span>ctrl
 <a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a>Pressed<span class="w"> </span>HID<span class="w"> </span>key<span class="w"> </span>0x16
 </code></pre></div>
@@ -1936,9 +1936,9 @@ input, and text editors.</p>
 </code></pre></div>
 <h3 id="fill-a-form">Fill a form<a class="headerlink" href="#fill-a-form" title="Permanent link">&para;</a></h3>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>bs<span class="w"> </span>cua<span class="w"> </span>click<span class="w"> </span>test-pc1<span class="w"> </span>--x<span class="w"> </span><span class="m">300</span><span class="w"> </span>--y<span class="w"> </span><span class="m">200</span><span class="w">          </span><span class="c1"># focus name field</span>
-<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a>bs<span class="w"> </span>cua<span class="w"> </span><span class="nb">type</span><span class="w"> </span>test-pc1<span class="w"> </span>--text<span class="w"> </span><span class="s2">&quot;Jefferson&quot;</span>
+<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a>bs<span class="w"> </span>cua<span class="w"> </span><span class="nb">type</span><span class="w"> </span>test-pc1<span class="w"> </span>--text<span class="w"> </span><span class="s2">"Jefferson"</span>
 <a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a>bs<span class="w"> </span>cua<span class="w"> </span>key<span class="w"> </span>test-pc1<span class="w"> </span>--code<span class="w"> </span><span class="m">43</span><span class="w">                   </span><span class="c1"># Tab to next field</span>
-<a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a>bs<span class="w"> </span>cua<span class="w"> </span><span class="nb">type</span><span class="w"> </span>test-pc1<span class="w"> </span>--text<span class="w"> </span><span class="s2">&quot;jeff@example.com&quot;</span>
+<a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a>bs<span class="w"> </span>cua<span class="w"> </span><span class="nb">type</span><span class="w"> </span>test-pc1<span class="w"> </span>--text<span class="w"> </span><span class="s2">"jeff@example.com"</span>
 <a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a>bs<span class="w"> </span>cua<span class="w"> </span>key<span class="w"> </span>test-pc1<span class="w"> </span>--code<span class="w"> </span><span class="m">40</span><span class="w">                   </span><span class="c1"># Enter to submit</span>
 </code></pre></div>
 <h3 id="scroll-and-re-capture">Scroll and re-capture<a class="headerlink" href="#scroll-and-re-capture" title="Permanent link">&para;</a></h3>
@@ -2072,7 +2072,7 @@ helper-side implementation.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 12, 2026 14:58:27 UTC">August 12, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 19, 2026 16:07:00 UTC">August 19, 2026</span>
   </span>
 
     

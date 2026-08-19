@@ -1085,7 +1085,7 @@ modes, plus the <code>--signal-forward</code> / <code>--signal-on-detach</code> 
 <p>Verified by: <code>tests/test_cua_signal.cpp</code> —
 <code>Interactive Ctrl-C delivers SIGINT to child, session survives</code>.</p>
 <h2 id="2-non-interactive-cmd-ctrl-c-kills-the-local-cli">2. Non-interactive <code>--cmd</code> — Ctrl-C kills the local CLI<a class="headerlink" href="#2-non-interactive-cmd-ctrl-c-kills-the-local-cli" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>bs shell &lt;peer&gt; &lt;session&gt; --cmd &quot;make&quot;
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>bs shell &lt;peer&gt; &lt;session&gt; --cmd "make"
 <a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a># in another terminal: kill -INT &lt;bs-pid&gt;
 </code></pre></div>
 <ul>

@@ -1168,13 +1168,13 @@ move it back out of git). Build from the repo root:</p>
 </code></pre></div>
 <p>To rebuild against <strong>current source without re-baking the image</strong>, mount the repo over
 <code>/src</code> and build in a side dir (keeps your host <code>build/</code> untouched):</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>docker<span class="w"> </span>run<span class="w"> </span>--rm<span class="w"> </span>--user<span class="w"> </span><span class="k">$(</span>id<span class="w"> </span>-u<span class="k">)</span>:<span class="k">$(</span>id<span class="w"> </span>-g<span class="k">)</span><span class="w"> </span>-v<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$PWD</span><span class="s2">&quot;</span>:/src<span class="w"> </span>-w<span class="w"> </span>/src<span class="w"> </span>bs-static-builder<span class="w"> </span>bash<span class="w"> </span>-c<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">  </span><span class="s1">&#39;cmake -GNinja -DCMAKE_BUILD_TYPE=Release \</span>
-<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="s1">     -DCMAKE_PREFIX_PATH=&quot;/opt/ossl;/opt/zstd;/opt/fmt;/opt/spdlog;/opt/catch2&quot; \</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>docker<span class="w"> </span>run<span class="w"> </span>--rm<span class="w"> </span>--user<span class="w"> </span><span class="k">$(</span>id<span class="w"> </span>-u<span class="k">)</span>:<span class="k">$(</span>id<span class="w"> </span>-g<span class="k">)</span><span class="w"> </span>-v<span class="w"> </span><span class="s2">"</span><span class="nv">$PWD</span><span class="s2">"</span>:/src<span class="w"> </span>-w<span class="w"> </span>/src<span class="w"> </span>bs-static-builder<span class="w"> </span>bash<span class="w"> </span>-c<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">  </span><span class="s1">'cmake -GNinja -DCMAKE_BUILD_TYPE=Release \</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="s1">     -DCMAKE_PREFIX_PATH="/opt/ossl;/opt/zstd;/opt/fmt;/opt/spdlog;/opt/catch2" \</span>
 <a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="s1">     -DOPENSSL_ROOT_DIR=/opt/ossl -DZSTD_ROOT=/opt/zstd -DSPDLOG_ROOT=/opt/spdlog \</span>
 <a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="s1">     -DCMAKE_FIND_PACKAGE_PREFER_CONFIG=ON \</span>
-<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="s1">     -DCMAKE_EXE_LINKER_FLAGS=&quot;-static-libstdc++ -static-libgcc&quot; \</span>
-<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="s1">     -B build-static . &amp;&amp; cmake --build build-static -j&quot;$(nproc)&quot; --target bridgesessions&#39;</span>
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="s1">     -DCMAKE_EXE_LINKER_FLAGS="-static-libstdc++ -static-libgcc" \</span>
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="s1">     -B build-static . &amp;&amp; cmake --build build-static -j"$(nproc)" --target bridgesessions'</span>
 <a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>cp<span class="w"> </span>build-static/bridgesessions<span class="w"> </span>dist/bridgesessions-linux-x86_64
 </code></pre></div>
 <p>Container essentials (traps baked in):
@@ -1199,7 +1199,7 @@ portable CMake, build static deps into <code>~/local</code>, compile.</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="c1"># 1) portable CMake (no sudo)</span>
 <a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>curl<span class="w"> </span>-fsSL<span class="w"> </span>-o<span class="w"> </span>cmake.tar.gz<span class="w"> </span>https://github.com/Kitware/CMake/releases/download/v3.28.3/cmake-3.28.3-macos-universal.tar.gz
 <a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>tar<span class="w"> </span>xf<span class="w"> </span>cmake.tar.gz<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>mv<span class="w"> </span>cmake-3.28.3-macos-universal<span class="w"> </span>~/cmake
-<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="nb">export</span><span class="w"> </span><span class="nv">PATH</span><span class="o">=</span><span class="s2">&quot;</span><span class="nv">$HOME</span><span class="s2">/cmake/CMake.app/Contents/bin:</span><span class="nv">$PATH</span><span class="s2">&quot;</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="nb">export</span><span class="w"> </span><span class="nv">PATH</span><span class="o">=</span><span class="s2">"</span><span class="nv">$HOME</span><span class="s2">/cmake/CMake.app/Contents/bin:</span><span class="nv">$PATH</span><span class="s2">"</span>
 <a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="nb">export</span><span class="w"> </span><span class="nv">CC</span><span class="o">=</span>clang<span class="w"> </span><span class="nv">CXX</span><span class="o">=</span>clang++
 <a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>
 <a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="c1"># 2) header-only deps (nlohmann_json, CLI11) — fetch single headers</span>
@@ -1216,10 +1216,10 @@ portable CMake, build static deps into <code>~/local</code>, compile.</p>
 <a id="__codelineno-2-18" name="__codelineno-2-18" href="#__codelineno-2-18"></a><span class="c1"># 4) configure + build</span>
 <a id="__codelineno-2-19" name="__codelineno-2-19" href="#__codelineno-2-19"></a><span class="nb">cd</span><span class="w"> </span>~/bridgesessions<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>rm<span class="w"> </span>-rf<span class="w"> </span>build
 <a id="__codelineno-2-20" name="__codelineno-2-20" href="#__codelineno-2-20"></a>cmake<span class="w"> </span>-DCMAKE_BUILD_TYPE<span class="o">=</span>Release<span class="w"> </span>-DCMAKE_OSX_ARCHITECTURES<span class="o">=</span>arm64<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-2-21" name="__codelineno-2-21" href="#__codelineno-2-21"></a><span class="w">      </span>-DCMAKE_PREFIX_PATH<span class="o">=</span><span class="s2">&quot;</span><span class="nv">$HOME</span><span class="s2">/local&quot;</span><span class="w"> </span>-DCMAKE_FIND_PACKAGE_PREFER_CONFIG<span class="o">=</span>ON<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-2-21" name="__codelineno-2-21" href="#__codelineno-2-21"></a><span class="w">      </span>-DCMAKE_PREFIX_PATH<span class="o">=</span><span class="s2">"</span><span class="nv">$HOME</span><span class="s2">/local"</span><span class="w"> </span>-DCMAKE_FIND_PACKAGE_PREFER_CONFIG<span class="o">=</span>ON<span class="w"> </span><span class="se">\</span>
 <a id="__codelineno-2-22" name="__codelineno-2-22" href="#__codelineno-2-22"></a><span class="w">      </span>-DOPENSSL_ROOT_DIR<span class="o">=</span><span class="nv">$HOME</span>/local<span class="w"> </span>-DZSTD_ROOT<span class="o">=</span><span class="nv">$HOME</span>/local<span class="w"> </span>-DSPDLOG_ROOT<span class="o">=</span><span class="nv">$HOME</span>/local<span class="w"> </span><span class="se">\</span>
 <a id="__codelineno-2-23" name="__codelineno-2-23" href="#__codelineno-2-23"></a><span class="w">      </span>-B<span class="w"> </span>build<span class="w"> </span>.
-<a id="__codelineno-2-24" name="__codelineno-2-24" href="#__codelineno-2-24"></a>cmake<span class="w"> </span>--build<span class="w"> </span>build<span class="w"> </span>-j<span class="s2">&quot;</span><span class="k">$(</span>sysctl<span class="w"> </span>-n<span class="w"> </span>hw.ncpu<span class="k">)</span><span class="s2">&quot;</span>
+<a id="__codelineno-2-24" name="__codelineno-2-24" href="#__codelineno-2-24"></a>cmake<span class="w"> </span>--build<span class="w"> </span>build<span class="w"> </span>-j<span class="s2">"</span><span class="k">$(</span>sysctl<span class="w"> </span>-n<span class="w"> </span>hw.ncpu<span class="k">)</span><span class="s2">"</span>
 </code></pre></div>
 <p>Traps:
 - <strong>Do NOT pass <code>-GNinja</code></strong> — the macOS host has no Ninja; default Unix Makefiles only. A stale
@@ -1249,7 +1249,7 @@ has a flat <code>CLI11.hpp</code> plus an <code>nlohmann/</code> tree. One-time:
 <a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a>
 <a id="__codelineno-4-11" name="__codelineno-4-11" href="#__codelineno-4-11"></a>mkdir<span class="w"> </span>-p<span class="w"> </span>build-win
 <a id="__codelineno-4-12" name="__codelineno-4-12" href="#__codelineno-4-12"></a><span class="nv">$TRIPLE</span>-g++<span class="w"> </span>-static<span class="w"> </span>-std<span class="o">=</span>c++23<span class="w"> </span>-O3<span class="w"> </span>-DNDEBUG<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-4-13" name="__codelineno-4-13" href="#__codelineno-4-13"></a><span class="w">  </span>-DBS_VERSION<span class="o">=</span><span class="se">\&quot;</span><span class="k">$(</span>cat<span class="w"> </span>VERSION<span class="k">)</span><span class="se">\&quot;</span><span class="w"> </span>-DBS_NO_NAT<span class="w"> </span>-DBS_NO_WEBRTC<span class="w"> </span>-DBS_NO_DHT<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-4-13" name="__codelineno-4-13" href="#__codelineno-4-13"></a><span class="w">  </span>-DBS_VERSION<span class="o">=</span><span class="se">\"</span><span class="k">$(</span>cat<span class="w"> </span>VERSION<span class="k">)</span><span class="se">\"</span><span class="w"> </span>-DBS_NO_NAT<span class="w"> </span>-DBS_NO_WEBRTC<span class="w"> </span>-DBS_NO_DHT<span class="w"> </span><span class="se">\</span>
 <a id="__codelineno-4-14" name="__codelineno-4-14" href="#__codelineno-4-14"></a><span class="w">  </span>-isystem<span class="w"> </span><span class="nv">$PREFIX</span>/include<span class="w"> </span>-isystem<span class="w"> </span>/tmp/bs-win-shim<span class="w"> </span><span class="se">\</span>
 <a id="__codelineno-4-15" name="__codelineno-4-15" href="#__codelineno-4-15"></a><span class="w">  </span>main.cpp<span class="w"> </span>-o<span class="w"> </span>build-win/bridgesessions.exe<span class="w"> </span><span class="se">\</span>
 <a id="__codelineno-4-16" name="__codelineno-4-16" href="#__codelineno-4-16"></a><span class="w">  </span><span class="nv">$PREFIX</span>/lib/libspdlog.a<span class="w"> </span><span class="nv">$PREFIX</span>/lib/libfmt.a<span class="w"> </span><span class="se">\</span>
@@ -1271,14 +1271,14 @@ Tailscale IP, then <code>curl.exe</code> it from a WinRM PowerShell session:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="c1"># build host: serve the PE (bind TS IP only)</span>
 <a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="nb">cd</span><span class="w"> </span>~/bridgesessions/dist<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>python3<span class="w"> </span>-m<span class="w"> </span>http.server<span class="w"> </span><span class="m">8800</span><span class="w"> </span>--bind<span class="w"> </span>&lt;build-host-tailscale-ip&gt;<span class="w"> </span><span class="p">&amp;</span>
 <a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="c1"># WinRM push (run from the build host):</span>
-<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>python3<span class="w"> </span>-<span class="w"> </span><span class="s">&lt;&lt;&#39;PY&#39;</span>
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>python3<span class="w"> </span>-<span class="w"> </span><span class="s">&lt;&lt;'PY'</span>
 <a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="s">import winrm</span>
-<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="s">s = winrm.Session(&#39;&lt;windows-host-ip&gt;&#39;, auth=(&#39;&lt;windows-user&gt;&#39;,&#39;&lt;winrm-password&gt;&#39;), transport=&#39;ntlm&#39;)</span>
-<a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="s">ps = (r&#39;$url=&quot;http://&lt;build-host-tailscale-ip&gt;:8800/bridgesessions-windows-x86_64.exe&quot;;&#39;</span>
-<a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a><span class="s">      r&#39;$d=&quot;$env:USERPROFILE\.local\bin\bridgesessions.exe&quot;;&#39;</span>
-<a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a><span class="s">      r&#39;New-Item -ItemType Directory -Force -Path (Split-Path $d) | Out-Null;&#39;</span>
-<a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a><span class="s">      r&#39;curl.exe -fL -o $d $url; &amp; $d --version&#39;)</span>
-<a id="__codelineno-5-11" name="__codelineno-5-11" href="#__codelineno-5-11"></a><span class="s">print(s.run_ps(ps).std_out.decode(errors=&#39;replace&#39;))</span>
+<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="s">s = winrm.Session('&lt;windows-host-ip&gt;', auth=('&lt;windows-user&gt;','&lt;winrm-password&gt;'), transport='ntlm')</span>
+<a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="s">ps = (r'$url="http://&lt;build-host-tailscale-ip&gt;:8800/bridgesessions-windows-x86_64.exe";'</span>
+<a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a><span class="s">      r'$d="$env:USERPROFILE\.local\bin\bridgesessions.exe";'</span>
+<a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a><span class="s">      r'New-Item -ItemType Directory -Force -Path (Split-Path $d) | Out-Null;'</span>
+<a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a><span class="s">      r'curl.exe -fL -o $d $url; &amp; $d --version')</span>
+<a id="__codelineno-5-11" name="__codelineno-5-11" href="#__codelineno-5-11"></a><span class="s">print(s.run_ps(ps).std_out.decode(errors='replace'))</span>
 <a id="__codelineno-5-12" name="__codelineno-5-12" href="#__codelineno-5-12"></a><span class="s">PY</span>
 <a id="__codelineno-5-13" name="__codelineno-5-13" href="#__codelineno-5-13"></a><span class="nb">kill</span><span class="w"> </span>%1<span class="w">   </span><span class="c1"># stop the temp server</span>
 </code></pre></div>
@@ -1289,17 +1289,17 @@ Tailscale IP, then <code>curl.exe</code> it from a WinRM PowerShell session:</p>
 <a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="c1"># macOS</span>
 <a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a>otool<span class="w"> </span>-L<span class="w"> </span>dist/bridgesessions-macos-arm64<span class="w">     </span><span class="c1"># only libc++.1.dylib + libSystem</span>
 <a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="c1"># Windows</span>
-<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a>x86_64-w64-mingw32-objdump<span class="w"> </span>-p<span class="w"> </span>dist/bridgesessions-windows-x86_64.exe<span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span><span class="s2">&quot;DLL Name&quot;</span>
+<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a>x86_64-w64-mingw32-objdump<span class="w"> </span>-p<span class="w"> </span>dist/bridgesessions-windows-x86_64.exe<span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span><span class="s2">"DLL Name"</span>
 <a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="c1"># all</span>
-<a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a>dist/&lt;bin&gt;<span class="w"> </span>--version<span class="w">                         </span><span class="c1"># → 26.08.12-beta3</span>
+<a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a>dist/&lt;bin&gt;<span class="w"> </span>--version<span class="w">                         </span><span class="c1"># → 26.08.16-beta4</span>
 </code></pre></div>
 <p>Binaries live in <code>dist/</code>. The named release binaries are committed to git (<code>.gitignore</code>
 ignores only the dev <code>bridgesessions.exe</code> + <code>*.o</code>/<code>*.obj</code>); <code>SHA256SUMS</code>/<code>SBOM</code> are
 gitignored by design (the downloader regenerates them). After changing <code>dist/</code>:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>git<span class="w"> </span>add<span class="w"> </span>-f<span class="w"> </span>dist/bridgesessions-<span class="o">{</span>linux-x86_64,macos-arm64,windows-x86_64.exe<span class="o">}</span>
-<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>git<span class="w"> </span>commit<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;dist: rebuild portable static binaries&quot;</span>
-<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>git<span class="w"> </span>tag<span class="w"> </span>-f<span class="w"> </span>v26.08.12-beta3<span class="w"> </span>HEAD
-<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>git<span class="w"> </span>push<span class="w"> </span>--force<span class="w"> </span>codeberg<span class="w"> </span>main<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>git<span class="w"> </span>push<span class="w"> </span>--force<span class="w"> </span>codeberg<span class="w"> </span>v26.08.12-beta3
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>git<span class="w"> </span>commit<span class="w"> </span>-m<span class="w"> </span><span class="s2">"dist: rebuild portable static binaries"</span>
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>git<span class="w"> </span>tag<span class="w"> </span>-f<span class="w"> </span>v26.08.16-beta4<span class="w"> </span>HEAD
+<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>git<span class="w"> </span>push<span class="w"> </span>--force<span class="w"> </span>codeberg<span class="w"> </span>main<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>git<span class="w"> </span>push<span class="w"> </span>--force<span class="w"> </span>codeberg<span class="w"> </span>v26.08.16-beta4
 </code></pre></div>
 
 
@@ -1323,7 +1323,7 @@ gitignored by design (the downloader regenerates them). After changing <code>dis
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 12, 2026 15:18:44 UTC">August 12, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 19, 2026 16:07:00 UTC">August 19, 2026</span>
   </span>
 
     

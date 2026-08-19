@@ -1229,12 +1229,12 @@
 diagnostic tool. Older <code>bs-client</code>/<code>bs-server</code> modular documents are historical.</p>
 <h2 id="connect-to-a-session">Connect to a session<a class="headerlink" href="#connect-to-a-session" title="Permanent link">&para;</a></h2>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>bridgesessions<span class="w"> </span>shell<span class="w"> </span>&lt;server&gt;<span class="w">                  </span><span class="c1"># attach to default session</span>
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>bridgesessions<span class="w"> </span>shell<span class="w"> </span>&lt;server&gt;<span class="w"> </span>--name<span class="w"> </span>hms<span class="w">       </span><span class="c1"># attach to session &quot;hms&quot;</span>
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>bridgesessions<span class="w"> </span>shell<span class="w"> </span>&lt;server&gt;<span class="w"> </span>--name<span class="w"> </span>logs<span class="w"> </span>--cmd<span class="o">=</span><span class="s2">&quot;journalctl -f&quot;</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>bridgesessions<span class="w"> </span>shell<span class="w"> </span>&lt;server&gt;<span class="w"> </span>--name<span class="w"> </span>hms<span class="w">       </span><span class="c1"># attach to session "hms"</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>bridgesessions<span class="w"> </span>shell<span class="w"> </span>&lt;server&gt;<span class="w"> </span>--name<span class="w"> </span>logs<span class="w"> </span>--cmd<span class="o">=</span><span class="s2">"journalctl -f"</span>
 </code></pre></div>
 <p>The short form reuses your SSH <code>Host</code> aliases for address discovery only:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>bs<span class="w"> </span>shell<span class="w"> </span>dev<span class="w">            </span><span class="c1"># short alias for bridgesessions shell dev</span>
-<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>bs<span class="w"> </span>dev<span class="w"> </span>hms<span class="w">              </span><span class="c1"># positional quick-connect to session &quot;hms&quot;</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>bs<span class="w"> </span>dev<span class="w"> </span>hms<span class="w">              </span><span class="c1"># positional quick-connect to session "hms"</span>
 </code></pre></div>
 <h2 id="list-manage-sessions">List / manage sessions<a class="headerlink" href="#list-manage-sessions" title="Permanent link">&para;</a></h2>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>bridgesessions<span class="w"> </span>sessions<span class="w"> </span>&lt;server&gt;

@@ -1421,14 +1421,14 @@
 <hr />
 <h2 id="shell">Shell<a class="headerlink" href="#shell" title="Permanent link">&para;</a></h2>
 <h3 id="one-shot-command">One-shot command<a class="headerlink" href="#one-shot-command" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>$<span class="w"> </span>bs<span class="w"> </span>shell<span class="w"> </span>test-pc1<span class="w"> </span>-x<span class="w"> </span><span class="s1">&#39;whoami &amp;&amp; hostname &amp;&amp; uname -r&#39;</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>$<span class="w"> </span>bs<span class="w"> </span>shell<span class="w"> </span>test-pc1<span class="w"> </span>-x<span class="w"> </span><span class="s1">'whoami &amp;&amp; hostname &amp;&amp; uname -r'</span>
 <a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>agent
 <a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>test-pc1
 <a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="m">6</span>.8.0-test1
 </code></pre></div>
 <p>Exit code propagates. Stdout/stderr streamed live.</p>
 <h3 id="named-persistent-session-tmux-built-in">Named persistent session (tmux built in)<a class="headerlink" href="#named-persistent-session-tmux-built-in" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>$<span class="w"> </span>bs<span class="w"> </span>shell<span class="w"> </span>test-pc1<span class="w"> </span>-n<span class="w"> </span>hermes<span class="w"> </span>-x<span class="w"> </span><span class="s1">&#39;bash -lc &quot;echo START; sleep 30; echo DONE&quot;&#39;</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>$<span class="w"> </span>bs<span class="w"> </span>shell<span class="w"> </span>test-pc1<span class="w"> </span>-n<span class="w"> </span>hermes<span class="w"> </span>-x<span class="w"> </span><span class="s1">'bash -lc "echo START; sleep 30; echo DONE"'</span>
 <a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>START
 <a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="c1"># ... disconnect, reconnect ...</span>
 <a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>$<span class="w"> </span>bs<span class="w"> </span>shell<span class="w"> </span>test-pc1<span class="w"> </span>-n<span class="w"> </span>hermes<span class="w">    </span><span class="c1"># reattach — EXACT SAME PTY, child still running</span>
@@ -1437,7 +1437,7 @@
 <p>The session survives disconnection. The PTY keeps running. Any peer can reattach.</p>
 <h3 id="named-profile-daemon-config">Named profile (daemon config)<a class="headerlink" href="#named-profile-daemon-config" title="Permanent link">&para;</a></h3>
 <p>In <code>~/.bridgesessions/config</code> on the <strong>server</strong>:
-<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="na">session.hermes.command bash -lc &#39;export TERM</span><span class="o">=</span><span class="s">xterm-256color</span><span class="c1">; hermes --tui --yolo&#39;</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="na">session.hermes.command bash -lc 'export TERM</span><span class="o">=</span><span class="s">xterm-256color</span><span class="c1">; hermes --tui --yolo'</span>
 </code></pre></div></p>
 <p>Then from anywhere:
 <div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>$<span class="w"> </span>bs<span class="w"> </span>shell<span class="w"> </span>test-pc1<span class="w"> </span>-n<span class="w"> </span>hermes
@@ -1455,7 +1455,7 @@
 <a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>OK<span class="w"> </span>sent<span class="w"> </span>large-file.bin<span class="w"> </span><span class="m">7191040</span><span class="w"> </span>bytes<span class="w"> </span>sha256:226a95e...
 <a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a>
 <a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a><span class="c1"># Receive lands at ~/.bridgesessions/received/</span>
-<a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a>$<span class="w"> </span>bs<span class="w"> </span>shell<span class="w"> </span>test-pc1<span class="w"> </span>-x<span class="w"> </span><span class="s1">&#39;sha256sum ~/.bridgesessions/received/large-file.bin&#39;</span>
+<a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a>$<span class="w"> </span>bs<span class="w"> </span>shell<span class="w"> </span>test-pc1<span class="w"> </span>-x<span class="w"> </span><span class="s1">'sha256sum ~/.bridgesessions/received/large-file.bin'</span>
 <a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a>226a95e67859eeaba2d63aaf4d1f8694...<span class="w">  </span>/home/user/.bridgesessions/received/large-file.bin
 </code></pre></div>
 <p>Hash-verified end-to-end. Works Linux↔macOS↔Windows.</p>
@@ -1481,7 +1481,7 @@
 <div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>GET  /api/machines          → mesh tree (peers + sessions)
 <a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a>GET  /api/tree              → filesystem session tree
 <a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a>GET  /api/output?session=X  → live scrollback (incremental)
-<a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a>GET  /api/session/connect?session=hermes&amp;machine=test-pc1  → {&quot;cmd&quot;: &quot;bs shell test-pc1 -n hermes&quot;}
+<a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a>GET  /api/session/connect?session=hermes&amp;machine=test-pc1  → {"cmd": "bs shell test-pc1 -n hermes"}
 <a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a>POST /api/save              → write file to session
 </code></pre></div>
 <hr />
