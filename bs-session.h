@@ -281,6 +281,10 @@ struct Session {
     std::string command;
     std::string detach_signal; // optional HUP/TERM/INT/KILL requested by the attaching peer
     std::string parent_id; // empty for primary sessions
+    // A5: pubkey of the peer that first spawned (created) this session. Empty
+    // until first attach. Used to detect foreign-owner kill attempts (logged
+    // as session_kill_foreign; hard enforcement deferred pending fleet rollout).
+    std::string owner_pubkey;
     // Session origin class. Set at spawn time so the panel can distinguish
     // operator interactive shells from agent/harness-spawned shells from
     // internal one-shot probes (health checks, --cmd relays). See
@@ -409,6 +413,7 @@ Session::Session(Session&& other) noexcept
     , command(std::move(other.command))
     , detach_signal(std::move(other.detach_signal))
     , parent_id(std::move(other.parent_id))
+    , owner_pubkey(std::move(other.owner_pubkey))
     , kind(other.kind)
     , master_fd(other.master_fd)
     , child_pid(other.child_pid)
@@ -448,6 +453,7 @@ Session& Session::operator=(Session&& other) noexcept {
         command = std::move(other.command);
         detach_signal = std::move(other.detach_signal);
         parent_id = std::move(other.parent_id);
+        owner_pubkey = std::move(other.owner_pubkey);
         kind = other.kind;
         master_fd = other.master_fd;
         child_pid = other.child_pid;

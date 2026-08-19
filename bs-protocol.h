@@ -6109,6 +6109,7 @@ public:
             auto news = std::make_unique<Session>(std::move(*session_result));
             news->state = SessionState::Attached;
             news->kind = classify_session_kind(name, resolved.source);
+            news->owner_pubkey = peer_pubkey;  // A5: first spawner is owner
             if (!peer_pubkey.empty()) news->peer_ids.push_back(peer_pubkey);
             s = news.get();
             sessions_[name] = std::move(news);
@@ -11849,6 +11850,19 @@ public:
                 log_event("signal_rejected_spectator", conn.attached_session
                     ? conn.attached_session->name : std::string{});
                 return;
+            }
+            // A5: record foreign-owner kill attempts. The kill itself is
+            // allowed (fleet multi-peer workflows may legitimately share a
+            // session), but we surface ownership so watchdogs that reap
+            // sessions they did not spawn are visible in the structured log.
+            if (sig.signal == SignalMsg::SignalType::Kill && conn.attached_session) {
+                const auto& owner = conn.attached_session->owner_pubkey;
+                if (!owner.empty() && owner != conn.peer_pubkey) {
+                    log_event("session_kill_foreign",
+                              conn.attached_session->name +
+                              " by " + conn.peer_name +
+                              " (owner " + owner.substr(0, 12) + "...)");
+                }
             }
             if (conn.attached_session && conn.attached_session->is_valid()) {
 #ifdef _WIN32
