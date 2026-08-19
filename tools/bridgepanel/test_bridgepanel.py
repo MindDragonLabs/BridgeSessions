@@ -481,6 +481,40 @@ class TestHttpSurface(unittest.TestCase):
         status, _ = self._req("GET", f"/{self.token}/api/session/connect?machine=test-pc2")
         self.assertEqual(status, 400)
 
+    def test_9warp_routes_removed(self):
+        for path in ("/api/providers", "/api/fleet", "/api/registry", "/api/events"):
+            status, _ = self._req("GET", f"/{self.token}{path}")
+            self.assertEqual(status, 404, path)
+
+    def test_9warp_helpers_removed(self):
+        import bridgepanel.api as bp_api
+        for name in (
+            "query_providers",
+            "query_fleet",
+            "query_registry",
+            "query_events",
+            "query_discovered",
+        ):
+            self.assertFalse(hasattr(bp_api, name), name)
+
+    def test_loopback_bind_guard(self):
+        with self.assertRaises(ValueError):
+            bp.serve("0.0.0.0", 9770)
+        with self.assertRaises(ValueError):
+            bp.serve("1.2.3.4", 9770)
+
+
+class TestLauncher(unittest.TestCase):
+    def test_panel_py_exists(self):
+        launcher = os.path.join(HERE, "panel.py")
+        self.assertTrue(os.path.isfile(launcher), launcher)
+
+    def test_install_sh_uses_panel_py(self):
+        with open(os.path.join(HERE, "install.sh"), encoding="utf-8") as fh:
+            text = fh.read()
+        self.assertIn("panel.py", text)
+        self.assertNotIn("bridgepanel.py", text)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -105,7 +105,18 @@ def _seed_sample_data() -> None:
 
 # ── CLI ────────────────────────────────────────────────────────
 
+def _bind_is_loopback(bind: str) -> bool:
+    host = (bind or "").strip().strip("[]")
+    if host in ("127.0.0.1", "localhost", "::1"):
+        return True
+    return host.startswith("127.")
+
+
 def serve(bind: str, port: int) -> None:
+    if not _bind_is_loopback(bind):
+        raise ValueError(
+            f"Refusing non-loopback bind {bind!r}; BridgePanel listens on 127.0.0.1 only"
+        )
     token = ensure_dirs()
     server = ThreadingHTTPServer((bind, port), BridgePanelHandler)
     server.bridgepanel_token = token  # type: ignore[attr-defined]
