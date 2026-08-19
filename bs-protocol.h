@@ -10065,6 +10065,19 @@ private:
         if (telemetry_ring && timing.count > 0)
             telemetry_ring->append(make_telemetry_entry(timing, filename, filesize,
                 peer_name, "send"));
+        // C1: structured per-transfer record (duration + rate).
+        {
+            double dur_s = std::chrono::duration<double>(
+                std::chrono::steady_clock::now() - t0).count();
+            double mibs = dur_s > 0.001 ? (static_cast<double>(filesize) / dur_s) / 1048576.0 : 0.0;
+            log_event("transfer_complete",
+                      "peer=" + peer_name + " dir=send path=" + filename +
+                      " bytes=" + std::to_string(filesize) +
+                      " chunks=" + std::to_string(total_chunks) +
+                      " rate_mibs=" + std::to_string(static_cast<int>(mibs * 10) / 10.0) +
+                      " dur_s=" + std::to_string(static_cast<int>(dur_s * 10) / 10.0) +
+                      " result=ok");
+        }
         log_event("file_send_wait_complete", filename + " " + std::to_string(filesize) + " bytes");
         std::string ok = "OK sent " + filename + " " + std::to_string(filesize)
                        + " bytes sha256:" + checksum;
@@ -12354,6 +12367,19 @@ public:
                         sdm.signal_num = WTERMSIG(status);
                     }
                     sessions_.record_finished(*s, sdm.exit_code, "died");
+                    // C1: structured per-command record (exit + duration +
+                    // lineage). parent_id is empty for primary sessions.
+                    {
+                        double dur_s = std::chrono::duration<double>(
+                            std::chrono::steady_clock::now() - s->created_at).count();
+                        log_event("command_complete",
+                                  "session=" + s->name +
+                                  (s->parent_id.empty() ? "" : " parent=" + s->parent_id) +
+                                  " exit=" + std::to_string(sdm.exit_code) +
+                                  (sdm.signal_num ? " signal=" + std::to_string(sdm.signal_num) : "") +
+                                  " dur_s=" + std::to_string(static_cast<int>(dur_s * 10) / 10.0) +
+                                  " kind=" + session_kind_str(s->kind));
+                    }
                     s->child_pid = -1;
                     s->release_exited_runtime();
                     s->state = SessionState::Died;
