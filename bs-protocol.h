@@ -9899,6 +9899,26 @@ private:
         const size_t chunk_raw = transfer_chunk_size_for_peer(ver);
         const bool allow_large = version_has_cap(ver, kCapFrm2);
 
+        // E1: auto-tune pipeline depth by peer RTT. High-RTT WAN peers
+        // (144ms+) need more chunks in flight to saturate the link; the fixed
+        // 32-deep batch idles the pipe waiting on acks. If we have a live conn
+        // for this peer with a measured pong RTT (B1), scale the window
+        // 32 → 64. Conservative upper bound keeps memory bounded and receiver
+        // validation unchanged.
+        int pipeline_size = kTransferPipelineSize;
+        if (!peer_name.empty()) {
+            for (const auto& c : conns_) {
+                if (is_live_mesh_transport_for(c, peer_name, false) &&
+                    c.pong_rtt_ms.count() > 0) {
+                    if (c.pong_rtt_ms >= std::chrono::milliseconds(100))
+                        pipeline_size = 64;
+                    else if (c.pong_rtt_ms >= std::chrono::milliseconds(30))
+                        pipeline_size = 48;
+                    break;
+                }
+            }
+        }
+
         uint64_t filesize = static_cast<uint64_t>(fs::file_size(local_path));
         const auto shape = calculate_transfer_metadata(
             filesize, config_.transfer_max_bytes, chunk_raw);
@@ -10002,7 +10022,7 @@ private:
         auto timing = make_transfer_timing();
 
         for (uint32_t ci = start_chunk; ci < total_chunks; /* incremented in batch */) {
-            uint32_t batch_end = std::min(ci + kTransferPipelineSize, total_chunks);
+            uint32_t batch_end = std::min(ci + static_cast<uint32_t>(pipeline_size), total_chunks);
 
             // ── Send batch: write all chunks without waiting for acks ──
             for (; ci < batch_end; ++ci) {
