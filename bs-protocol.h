@@ -53,6 +53,7 @@
 #include <vector>
 #include <deque>
 #include <cstring>
+#include <cwchar>
 #include <algorithm>
 #include <cctype>
 #include <span>
@@ -2939,6 +2940,17 @@ struct PtyError {
     std::string message;
 };
 
+[[nodiscard]] std::string parent_session_id_from_environment() {
+    const char* value = std::getenv("BS_PARENT_SESSION_ID");
+    if (!value || !*value) return {};
+    std::string parent(value);
+    if (parent.size() > 256) return {};
+    for (const unsigned char ch : parent) {
+        if (ch <= 0x20 || ch == 0x7f) return {};
+    }
+    return parent;
+}
+
 
 // ── PTY functions ─────────────────────────────────────────────────
 
@@ -2983,6 +2995,38 @@ struct PtyError {
     return std::wstring(resolved.data(), len);
 }
 
+[[nodiscard]] std::vector<wchar_t> windows_child_environment(
+        const std::string& session_id, const std::string& term) {
+    std::vector<std::wstring> entries;
+    LPWCH block = GetEnvironmentStringsW();
+    if (block) {
+        for (const wchar_t* cur = block; *cur; cur += std::wcslen(cur) + 1) {
+            std::wstring entry(cur);
+            const auto key_end = entry.find(L'=');
+            const std::wstring key = key_end == std::wstring::npos
+                ? entry : entry.substr(0, key_end);
+            if (_wcsicmp(key.c_str(), L"BS_SESSION_ID") == 0 ||
+                _wcsicmp(key.c_str(), L"TERM") == 0) {
+                continue;
+            }
+            entries.push_back(std::move(entry));
+        }
+        FreeEnvironmentStringsW(block);
+    }
+    entries.push_back(L"BS_SESSION_ID=" + utf8_to_wide(session_id));
+    entries.push_back(L"TERM=" + utf8_to_wide(term));
+    std::sort(entries.begin(), entries.end(), [](const auto& a, const auto& b) {
+        return _wcsicmp(a.c_str(), b.c_str()) < 0;
+    });
+    std::vector<wchar_t> result;
+    for (const auto& entry : entries) {
+        result.insert(result.end(), entry.begin(), entry.end());
+        result.push_back(L'\0');
+    }
+    result.push_back(L'\0');
+    return result;
+}
+
 // Forward decls — full definitions live next to prepare_session_command.
 [[nodiscard]] bool is_windows_cli_oneshot_command(const std::string& command);
 [[nodiscard]] bool command_has_direct_windows_exe_token(const std::string& command);
@@ -2991,6 +3035,8 @@ struct PtyError {
     const std::string& name, const std::string& command,
     uint16_t cols, uint16_t rows, const std::string& term)
 {
+    const std::string parent_id = parent_session_id_from_environment();
+    auto child_environment = windows_child_environment(name, term);
     // v2.0.1: one-shot commands (cmd /c …) skip ConPTY. ConPTY/conhost often
     // only delivers mode CSI to the pipe while command text never arrives
     // before SessionDied (fleet RCA). Plain anonymous pipes capture stdout
@@ -3030,8 +3076,8 @@ struct PtyError {
             mutable_cmdline.data(),
             nullptr, nullptr,
             TRUE,  // inherit the pipe ends we left inheritable
-            CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP,
-            nullptr, nullptr,
+            CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP | CREATE_UNICODE_ENVIRONMENT,
+            child_environment.data(), nullptr,
             &si, &pi);
         const DWORD create_error = created ? ERROR_SUCCESS : GetLastError();
         // Parent must close the ends it handed to the child.
@@ -3048,6 +3094,7 @@ struct PtyError {
         Session s;
         s.name = name;
         s.command = command;
+        s.parent_id = parent_id;
         s.master_fd = out_r;
         s.write_handle = in_w;
         s.child_pid = pi.hProcess;
@@ -3162,18 +3209,15 @@ struct PtyError {
     mutable_cmdline.push_back(L'\0');
     const std::wstring application = resolve_windows_application(cmdline);
 
-    // Set TERM environment for terminal-aware children.
-    const std::wstring wide_term = utf8_to_wide(term);
-    SetEnvironmentVariableW(L"TERM", wide_term.c_str());
-
     PROCESS_INFORMATION pi{};
     BOOL created = CreateProcessW(
         application.empty() ? nullptr : application.c_str(),
         mutable_cmdline.data(),
         nullptr, nullptr,           // process/thread security
         FALSE,                      // ConPTY child inherits no daemon handles
-        EXTENDED_STARTUPINFO_PRESENT | CREATE_NEW_PROCESS_GROUP,
-        nullptr,                    // environment (use parent's)
+        EXTENDED_STARTUPINFO_PRESENT | CREATE_NEW_PROCESS_GROUP |
+            CREATE_UNICODE_ENVIRONMENT,
+        child_environment.data(),
         nullptr,                    // current directory
         &siEx.StartupInfo,
         &pi);
@@ -3202,6 +3246,7 @@ struct PtyError {
     Session s;
     s.name = name;
     s.command = command;
+    s.parent_id = parent_id;
     s.master_fd = hPipeOutRead;     // read: child stdout -> server
     s.write_handle = hPipeInWrite;  // write: server -> child stdin
     s.child_pid = pi.hProcess;      // process handle
@@ -3241,6 +3286,7 @@ inline void close_nonstdio_fds_before_exec() {
     const std::string& name, const std::string& command,
     uint16_t cols, uint16_t rows, const std::string& term)
 {
+    const std::string parent_id = parent_session_id_from_environment();
     int master_fd = -1;
     struct winsize initial_ws {rows, cols, 0, 0};
     pid_t child = forkpty(&master_fd, nullptr, nullptr, &initial_ws);
@@ -3255,6 +3301,7 @@ inline void close_nonstdio_fds_before_exec() {
         // detect and skip interactive-only features (starship, tmux auto-attach,
         // zellij, mouse tracking, etc.) that produce escape-sequence garbage.
         setenv("BS_SESSION", "1", 1);
+        setenv("BS_SESSION_ID", name.c_str(), 1);
         // Clear env vars that trigger interactive terminal features which
         // corrupt BS shell sessions with escape-sequence noise.
         unsetenv("FORCE_STARSHIP");
@@ -3272,7 +3319,7 @@ inline void close_nonstdio_fds_before_exec() {
     }
 
     Session s;
-    s.name = name; s.command = command;
+    s.name = name; s.command = command; s.parent_id = parent_id;
     s.master_fd = master_fd; s.child_pid = child;
     s.generation = ++g_session_generation;
     s.state = SessionState::Running;
@@ -5929,6 +5976,7 @@ class SessionRegistry {
         const int restart_failures = target.restart_failures;
         const auto restart_window_start = target.restart_window_start;
         const Session::Kind kind = target.kind;
+        auto parent_id = std::move(target.parent_id);
 
         // P2 audit fix: the manual destructor + placement-new on a
         // unique_ptr-owned object is a double-free hazard if the Session move
@@ -5950,6 +5998,7 @@ class SessionRegistry {
         target.restart_failures = restart_failures;
         target.restart_window_start = restart_window_start;
         target.kind = kind;
+        target.parent_id = std::move(parent_id);
         target.history_recorded = false;
         target.state = state;
     }
@@ -12525,12 +12574,16 @@ private:
         for (const auto& info : sessions_.list()) {
             auto* s = sessions_.get(info.name);
             if (!s) continue;
-            entries.push_back(
+            std::string entry =
                 "{\"name\":\"" + gossip_json_escape(s->name) + "\","
                 "\"state\":\"" + gossip_json_escape(session_state_str(s->state)) + "\","
-                "\"kind\":\"" + gossip_json_escape(session_kind_str(s->kind)) + "\","
-                "\"command\":\"" + gossip_json_escape(s->command) + "\","
-                "\"bytes\":" + std::to_string(s->scrollback.total_written()) + "}");
+                "\"kind\":\"" + gossip_json_escape(session_kind_str(s->kind)) + "\",";
+            if (!s->parent_id.empty()) {
+                entry += "\"parent_id\":\"" + gossip_json_escape(s->parent_id) + "\",";
+            }
+            entry += "\"command\":\"" + gossip_json_escape(s->command) + "\","
+                     "\"bytes\":" + std::to_string(s->scrollback.total_written()) + "}";
+            entries.push_back(std::move(entry));
         }
         // Cap total size: drop oldest entries first, keep the newest that fit.
         size_t budget = kCapBytes > 2 ? kCapBytes - 2 : 0; // reserve for "[" "]"
@@ -12549,6 +12602,55 @@ private:
         }
         out += "]";
         return out;
+    }
+
+    std::string build_mesh_tree_json() {
+        std::ostringstream out;
+        const auto now = std::chrono::steady_clock::now();
+        const auto uptime = std::chrono::duration_cast<std::chrono::seconds>(
+            now - started_at_).count();
+        const auto fresh = std::chrono::seconds(config_.pong_timeout_secs > 0
+                                                ? config_.pong_timeout_secs : 30);
+        out << "{\"node\":\"" << gossip_json_escape(config_.node_name) << "\","
+            << "\"uptime_s\":" << uptime << ",\"peers\":[";
+        bool first = true;
+        for (const auto& c : conns_) {
+            if (c.purpose != ConnectionPurpose::Mesh || c.sock_fd == INVALID_SOCKET) continue;
+            if (!first) out << ",";
+            first = false;
+            const bool ok = (now - c.last_pong) <= fresh;
+            const auto age = std::chrono::duration_cast<std::chrono::seconds>(
+                now - c.last_pong).count();
+            std::string peer_sessions = "[]";
+            {
+                std::shared_lock lock(gossip_sessions_mutex_);
+                const auto it = gossip_sessions_json_.find(c.peer_name);
+                if (it != gossip_sessions_json_.end()) peer_sessions = it->second;
+            }
+            out << "{\"name\":\"" << gossip_json_escape(c.peer_name) << "\","
+                << "\"addr\":\"" << gossip_json_escape(c.peer_addr) << "\","
+                << "\"healthy\":" << (ok ? "true" : "false") << ","
+                << "\"last_pong_s\":" << age << ","
+                << "\"sessions\":" << peer_sessions << "}";
+        }
+        out << "],\"sessions\":[";
+        first = true;
+        for (const auto& info : sessions_.list()) {
+            const auto* s = sessions_.get(info.name);
+            if (!s) continue;
+            if (!first) out << ",";
+            first = false;
+            out << "{\"name\":\"" << gossip_json_escape(s->name) << "\","
+                << "\"state\":\"" << session_state_str(s->state) << "\","
+                << "\"kind\":\"" << session_kind_str(s->kind) << "\",";
+            if (!s->parent_id.empty()) {
+                out << "\"parent_id\":\"" << gossip_json_escape(s->parent_id) << "\",";
+            }
+            out << "\"command\":\"" << gossip_json_escape(s->command) << "\","
+                << "\"bytes\":" << s->scrollback.total_written() << "}";
+        }
+        out << "]}";
+        return out.str();
     }
 
     // ── Send Gossip to all connections ─────────────────────────
@@ -12835,6 +12937,12 @@ public:
     }
     [[nodiscard]] std::string hello_version_for_test() const {
         return build_hello().version;
+    }
+    [[nodiscard]] std::string sessions_summary_json_for_test() const {
+        return build_sessions_summary_json();
+    }
+    [[nodiscard]] std::string mesh_tree_json_for_test() {
+        return build_mesh_tree_json();
     }
     [[nodiscard]] bool direct_connect_rejects_missing_pin_for_test() {
         auto result = connect_and_hello("127.0.0.1:1", {});
@@ -13364,66 +13472,7 @@ public:
                 }
             }
             else if (line == "MESH_TREE") {
-                // Single-line JSON: node, uptime, peers[], local sessions[]
-                std::ostringstream out;
-                auto now = std::chrono::steady_clock::now();
-                auto uptime = std::chrono::duration_cast<std::chrono::seconds>(now - started_at_).count();
-                auto fresh = std::chrono::seconds(config_.pong_timeout_secs > 0
-                                                  ? config_.pong_timeout_secs : 30);
-                auto jesc = [](const std::string& v) {
-                    std::string r;
-                    for (char ch : v) {
-                        switch (ch) {
-                            case '"': r += "\\\""; break;
-                            case '\\': r += "\\\\"; break;
-                            case '\n': r += "\\n"; break;
-                            case '\r': r += "\\r"; break;
-                            case '\t': r += "\\t"; break;
-                            default:
-                                if (static_cast<unsigned char>(ch) < 0x20) {
-                                    char buf[8]; std::snprintf(buf, sizeof buf, "\\u%04x", ch);
-                                    r += buf;
-                                } else r += ch;
-                        }
-                    }
-                    return r;
-                };
-                out << "{\"node\":\"" << jesc(config_.node_name) << "\","
-                    << "\"uptime_s\":" << uptime << ",\"peers\":[";
-                bool first = true;
-                for (auto& c : conns_) {
-                    if (c.purpose != ConnectionPurpose::Mesh || c.sock_fd == INVALID_SOCKET) continue;
-                    if (!first) out << ",";
-                    first = false;
-                    bool ok = (now - c.last_pong) <= fresh;
-                    auto age = std::chrono::duration_cast<std::chrono::seconds>(now - c.last_pong).count();
-                    std::string peer_sessions = "[]";
-                    {
-                        std::shared_lock glock(gossip_sessions_mutex_);
-                        auto git = gossip_sessions_json_.find(c.peer_name);
-                        if (git != gossip_sessions_json_.end()) peer_sessions = git->second;
-                    }
-                    out << "{\"name\":\"" << jesc(c.peer_name) << "\","
-                        << "\"addr\":\"" << jesc(c.peer_addr) << "\","
-                        << "\"healthy\":" << (ok ? "true" : "false") << ","
-                        << "\"last_pong_s\":" << age << ","
-                        << "\"sessions\":" << peer_sessions << "}";
-                }
-                out << "],\"sessions\":[";
-                first = true;
-                for (const auto& info : sessions_.list()) {
-                    auto* s = sessions_.get(info.name);
-                    if (!s) continue;
-                    if (!first) out << ",";
-                    first = false;
-                    out << "{\"name\":\"" << jesc(s->name) << "\","
-                        << "\"state\":\"" << session_state_str(s->state) << "\","
-                        << "\"kind\":\"" << session_kind_str(s->kind) << "\","
-                        << "\"command\":\"" << jesc(s->command) << "\","
-                        << "\"bytes\":" << s->scrollback.total_written() << "}";
-                }
-                out << "]}\n";
-                response = out.str();
+                response = build_mesh_tree_json() + "\n";
             }
             else if (line == "TELEMETRY") {
                 response = transfer_telemetry_.to_json() + "\n";

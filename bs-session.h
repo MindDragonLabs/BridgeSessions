@@ -280,6 +280,7 @@ struct Session {
     std::unordered_map<uint32_t, Attachment> attachments;
     std::string command;
     std::string detach_signal; // optional HUP/TERM/INT/KILL requested by the attaching peer
+    std::string parent_id; // empty for primary sessions
     // Session origin class. Set at spawn time so the panel can distinguish
     // operator interactive shells from agent/harness-spawned shells from
     // internal one-shot probes (health checks, --cmd relays). See
@@ -407,6 +408,7 @@ Session::Session(Session&& other) noexcept
     , peer_ids(std::move(other.peer_ids))
     , command(std::move(other.command))
     , detach_signal(std::move(other.detach_signal))
+    , parent_id(std::move(other.parent_id))
     , kind(other.kind)
     , master_fd(other.master_fd)
     , child_pid(other.child_pid)
@@ -445,6 +447,7 @@ Session& Session::operator=(Session&& other) noexcept {
         peer_ids = std::move(other.peer_ids);
         command = std::move(other.command);
         detach_signal = std::move(other.detach_signal);
+        parent_id = std::move(other.parent_id);
         kind = other.kind;
         master_fd = other.master_fd;
         child_pid = other.child_pid;
