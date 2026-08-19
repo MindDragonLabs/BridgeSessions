@@ -384,14 +384,17 @@ Session::~Session() {
         master_fd = -1;
     }
     if (child_pid > 0) {
-        kill(child_pid, SIGTERM);
+        // Kill the whole process group (process group id == the forkpty
+        // session-leader pid), so background jobs spawned by the shell die
+        // with it instead of outliving the session as orphans.
+        kill(-child_pid, SIGTERM);
         int status = 0;
         for (int i = 0; i < 50; ++i) {
             if (waitpid(child_pid, &status, WNOHANG) == child_pid) break;
             usleep(100000);
         }
         if (waitpid(child_pid, &status, WNOHANG) != child_pid) {
-            kill(child_pid, SIGKILL);
+            kill(-child_pid, SIGKILL);
             waitpid(child_pid, &status, 0);
         }
         child_pid = -1;

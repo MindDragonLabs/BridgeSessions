@@ -5,6 +5,12 @@ endif()
 
 file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/VERSION" BRIDGESESSIONS_VERSION
      LIMIT_COUNT 1)
+# Declare VERSION as a configure dependency so bumping it (e.g. release prep)
+# triggers a reconfigure under the Make generator too. Without this, the Make
+# generator keeps the stale -DBS_VERSION="old" in flags.make and the binary
+# reports the previous version after a version bump (Ninja handles this natively).
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+             "${CMAKE_CURRENT_SOURCE_DIR}/VERSION")
 string(STRIP "${BRIDGESESSIONS_VERSION}" BRIDGESESSIONS_VERSION)
 string(REGEX MATCH "^[0-9]+\\.[0-9]+\\.[0-9]+"
        BRIDGESESSIONS_NUMERIC_VERSION "${BRIDGESESSIONS_VERSION}")

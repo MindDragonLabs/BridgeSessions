@@ -399,7 +399,7 @@ struct ScrollbackMsg {
 };
 
 struct SignalMsg {
-    enum class SignalType : uint8_t { CtrlC = 0, CtrlZ = 1, CtrlBackslash = 2, Restart = 3 };
+    enum class SignalType : uint8_t { CtrlC = 0, CtrlZ = 1, CtrlBackslash = 2, Restart = 3, Kill = 4 };
     SignalType signal = SignalType::CtrlC;
     std::string process;  // process name to restart (only for Restart signal)
 };
@@ -11606,6 +11606,8 @@ public:
                             ctrl_event = CTRL_C_EVENT; break;
                         case SignalMsg::SignalType::CtrlZ:
                             ctrl_event = CTRL_BREAK_EVENT; break;
+                        case SignalMsg::SignalType::Kill:
+                            TerminateProcess(conn.attached_session->child_pid, 1); break;
                         default: break;
                     }
                     if (ctrl_event)
@@ -11615,10 +11617,18 @@ public:
 #else
                 if (conn.attached_session->child_pid > 0) {
                     auto& sm = std::get<SignalMsg>(msg);
-                    int s = (sm.signal == SignalMsg::SignalType::CtrlC) ? SIGINT :
-                            (sm.signal == SignalMsg::SignalType::CtrlZ) ? SIGTSTP :
-                            SIGQUIT;
-                    kill(conn.attached_session->child_pid, s);
+                    if (sm.signal == SignalMsg::SignalType::Kill) {
+                        // Terminate the shell AND every process in its group
+                        // (the forkpty session-leader is the process-group id),
+                        // so background jobs cannot outlive the session.
+                        kill(-conn.attached_session->child_pid, SIGHUP);
+                        kill(-conn.attached_session->child_pid, SIGTERM);
+                    } else {
+                        int s = (sm.signal == SignalMsg::SignalType::CtrlC) ? SIGINT :
+                                (sm.signal == SignalMsg::SignalType::CtrlZ) ? SIGTSTP :
+                                SIGQUIT;
+                        kill(conn.attached_session->child_pid, s);
+                    }
                 }
 #endif
             }
@@ -12083,6 +12093,13 @@ public:
                 int status = 0;
                 pid_t result = waitpid(s->child_pid, &status, WNOHANG);
                 if (result == s->child_pid) {
+                    // The shell exited (`exit` / Ctrl-D). Kill the process group
+                    // so background jobs it left behind do not outlive the
+                    // session as orphans holding the PTY open.
+                    if (s->child_pid > 0) {
+                        ::kill(-s->child_pid, SIGHUP);
+                        ::kill(-s->child_pid, SIGTERM);
+                    }
                     SessionDiedMsg sdm;
                     if (WIFEXITED(status)) {
                         sdm.exit_code = WEXITSTATUS(status);
@@ -15006,8 +15023,35 @@ public:
                     pending_input.clear();
                 }
 
+                auto last_ctrl_c = std::chrono::steady_clock::time_point{};
                 auto forward_local_input = [&](std::string_view input) {
-                    // Every keystroke, including one or more Ctrl-C (0x03), goes
+                    // Double Ctrl-C (two 0x03 within 600ms) hard-terminates the
+                    // session: send a Kill signal for the whole process group and
+                    // leave the attach loop, instead of forwarding the second 0x03
+                    // as a keystroke. A single Ctrl-C still forwards normally so
+                    // nested TUIs can cancel/quit themselves.
+                    if (!input.empty() && input.find('\x03') != std::string_view::npos) {
+                        size_t ctrlc = 0;
+                        for (char ch : input) if (ch == '\x03') ++ctrlc;
+                        const auto now = std::chrono::steady_clock::now();
+                        const bool double_press =
+                            ctrlc >= 2 ||
+                            (last_ctrl_c != std::chrono::steady_clock::time_point{} &&
+                             (now - last_ctrl_c) <= std::chrono::milliseconds(600));
+                        if (double_press) {
+                            last_ctrl_c = std::chrono::steady_clock::time_point{};
+                            try {
+                                SignalMsg kill;
+                                kill.signal = SignalMsg::SignalType::Kill;
+                                write_frame(sc.ssl.get(), kill, CONTROL_STREAM_ID);
+                            } catch (...) {}
+                            local_stop = true;
+                            transport_alive = false;
+                            return;
+                        }
+                        last_ctrl_c = now;
+                    }
+                    // Every keystroke, including a single Ctrl-C (0x03), goes
                     // to the remote PTY. Nested TUIs (Claude Code) use double
                     // Ctrl-C to quit themselves — the client must not steal it.
                     // Leave the attach loop only on remote SessionDied / Detach,

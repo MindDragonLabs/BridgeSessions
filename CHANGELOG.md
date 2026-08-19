@@ -13,7 +13,18 @@ All notable public releases are documented here.
 
 ### Unreleased (dev tip)
 
-- Version bump from `26.08.16-beta4`; no behavioral changes yet.
+- **Session termination now kills the whole process group.** `~Session` and the
+  server-side `SignalMsg::Kill` path signal `kill(-child_pid, …)` (SIGHUP then
+  SIGTERM) so background jobs a shell spawned die with it instead of outliving
+  the session as orphans. On shell `exit` / Ctrl-D, the reaper also kills the
+  group before fanning out `SessionDied`.
+- **Double Ctrl-C hard-kills the session.** Two `0x03` bytes within 600 ms send
+  a new `SignalMsg::SignalType::Kill` (wire type 4) and leave the attach loop.
+  A single Ctrl-C still forwards as SIGINT so nested TUIs can cancel themselves.
+- **CMake `VERSION` configure dependency.** `VERSION` is now declared via
+  `CMAKE_CONFIGURE_DEPENDS`, so bumping it triggers a reconfigure under the Make
+  generator (previously the binary kept reporting the old version after a bump).
+- Version bump from `26.08.16-beta4`.
 - `26.08.16-beta4` remains the current published release (binaries, checksums,
   and GitHub Release are unchanged).
 

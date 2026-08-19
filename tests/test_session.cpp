@@ -291,7 +291,8 @@ TEST_CASE("input typed during reconnect is buffered until reattach", "[session][
 
 TEST_CASE("local Ctrl-C is the only interactive disconnect key", "[session][interactive]") {
     // Reconnect wait only: a lone 0x03 aborts waiting for the peer.
-    // Live attach forwards every 0x03 (including double Ctrl-C) to the PTY.
+    // In a live attach, a single 0x03 still forwards to the PTY; a double
+    // Ctrl-C (two 0x03 within 600ms) hard-kills the session process group.
     REQUIRE(local_input_requests_disconnect(std::string_view("\x03", 1)));
     REQUIRE_FALSE(local_input_requests_disconnect(std::string_view("\x1a", 1)));
     REQUIRE_FALSE(local_input_requests_disconnect("ordinary input"));
