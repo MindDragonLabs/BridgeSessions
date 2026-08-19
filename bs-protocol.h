@@ -7971,6 +7971,23 @@ private:
         std::chrono::steady_clock::time_point next_attempt{};
     };
     std::unordered_map<std::string, Backoff> backoffs_;
+
+    // B2: dead-seed cooldown. Independent of the exponential retry Backoff
+    // above — that struct is erased optimistically the moment a dial is
+    // *started* (see try_connect_to_seeds), so it can't carry a reliable
+    // consecutive-failure streak. This tracks handshake_deadline failures
+    // (real timeouts, not immediate connect() refusals) per addr and, once
+    // a seed has strung together kDeadSeedCooldownThreshold of them in a
+    // row, stops scheduling dials to it for a jittered cooldown window.
+    struct DeadSeedCooldown {
+        int consecutive_deadline_failures = 0;
+        bool in_cooldown = false;
+        std::chrono::steady_clock::time_point cooldown_until{};
+    };
+    std::unordered_map<std::string, DeadSeedCooldown> seed_cooldowns_;
+    static constexpr int kDeadSeedCooldownThreshold = 3;
+    static constexpr int kDeadSeedCooldownBaseSecs = 600; // 10 min
+
     // Seeded RNG for reconnect jitter (P2 audit fix — replaces global rand()).
     std::mt19937 rng_{std::random_device{}()};
     std::unordered_map<std::string, std::chrono::steady_clock::time_point> accept_only_until_;
@@ -8704,6 +8721,7 @@ private:
 
     // Promote a completed handshake to a live Conn.
     void promote_handshake_to_conn(PendingHandshake& ph, const HelloMsg& hello) {
+        if (!ph.server_side) record_dead_seed_success(ph.expected_addr); // B2
         Conn c;
         c.peer_name = hello.node_name;
         c.peer_pubkey = ph.peer_pk;
@@ -8773,6 +8791,7 @@ private:
             auto& ph = pending_handshakes_[i];
             if (now > ph.deadline) {
                 log_event("handshake_deadline", ph.server_side ? "inbound" : ph.expected_addr);
+                if (!ph.server_side) record_dead_seed_failure(ph.expected_addr); // B2
                 ph.state = PendingHandshake::State::Failed;
                 to_erase.push_back(i);
                 continue;
@@ -9216,6 +9235,7 @@ private:
 
             // Reset backoff on success
             backoffs_.erase(addr);
+            record_dead_seed_success(addr); // B2
             clear_accept_only_for(hello.node_name, addr, peer_pk);
 
             log_event("mesh_peer_connected_outbound", hello.node_name + " addr=" + addr
@@ -12471,6 +12491,77 @@ private:
         }
     }
 
+    // ── Dead-seed cooldown (B2) ─────────────────────────────────
+    // See DeadSeedCooldown above. record_dead_seed_failure() is called from
+    // advance_handshakes() on every handshake_deadline event for an outbound
+    // dial target; record_dead_seed_success() clears the streak the moment
+    // that addr actually completes a handshake. dead_seed_cooldown_active()
+    // gates scheduling in try_connect_to_seeds(), before start_outbound_handshake
+    // is ever called for that addr.
+
+    // ±25% jitter around the base cooldown window, so many dead seeds
+    // hitting the threshold together don't all re-probe in lockstep.
+    std::chrono::milliseconds dead_seed_cooldown_duration() {
+        long base_ms = static_cast<long>(kDeadSeedCooldownBaseSecs) * 1000;
+        long jitter = base_ms * (static_cast<long>(rng_() % 50) - 25) / 100; // -25%..+24%
+        return std::chrono::milliseconds(base_ms + jitter);
+    }
+
+    void record_dead_seed_failure(const std::string& addr) {
+        if (addr.empty()) return;
+        auto& dc = seed_cooldowns_[addr];
+        dc.consecutive_deadline_failures++;
+        if (dc.consecutive_deadline_failures >= kDeadSeedCooldownThreshold) {
+            dc.in_cooldown = true;
+            dc.cooldown_until = std::chrono::steady_clock::now() + dead_seed_cooldown_duration();
+            log_event("mesh_seed_cooldown_enter",
+                      addr + " streak=" + std::to_string(dc.consecutive_deadline_failures));
+        }
+    }
+
+    void record_dead_seed_success(const std::string& addr) {
+        if (addr.empty()) return;
+        auto it = seed_cooldowns_.find(addr);
+        if (it == seed_cooldowns_.end()) return;
+        if (it->second.in_cooldown || it->second.consecutive_deadline_failures > 0) {
+            log_event("mesh_seed_cooldown_reset", addr);
+        }
+        seed_cooldowns_.erase(it);
+    }
+
+    // True if addr is currently within an active cooldown window (dialing
+    // should be skipped this pass). When the window has elapsed, clears the
+    // in_cooldown flag as a side effect — the streak count is left intact,
+    // so a single renewed handshake_deadline failure re-enters cooldown
+    // immediately ("allow one probe" semantics).
+    bool dead_seed_cooldown_active(const std::string& addr,
+                                    std::chrono::steady_clock::time_point now) {
+        auto it = seed_cooldowns_.find(addr);
+        if (it == seed_cooldowns_.end() || !it->second.in_cooldown) return false;
+        if (now < it->second.cooldown_until) return true;
+        it->second.in_cooldown = false; // cooldown expired: allow exactly one probe
+        return false;
+    }
+
+    // Health string for MESH_TREE / FLEET seed listings: "ok" (no failure
+    // history), "backoff" (mid exponential retry delay), or
+    // "cooldown(dead Nm)" (parked after repeated handshake_deadline
+    // failures, N minutes remaining).
+    std::string seed_dial_health(const std::string& addr,
+                                  std::chrono::steady_clock::time_point now) const {
+        auto cit = seed_cooldowns_.find(addr);
+        if (cit != seed_cooldowns_.end() && cit->second.in_cooldown &&
+            now < cit->second.cooldown_until) {
+            long mins = std::chrono::duration_cast<std::chrono::minutes>(
+                cit->second.cooldown_until - now).count();
+            if (mins < 1) mins = 1;
+            return "cooldown(dead " + std::to_string(mins) + "m)";
+        }
+        auto bit = backoffs_.find(addr);
+        if (bit != backoffs_.end() && bit->second.attempt > 0) return "backoff";
+        return "ok";
+    }
+
     // ── Try to connect to seeds/discovered ─────────────────────
 
     void try_connect_to_seeds() {
@@ -12492,6 +12583,9 @@ private:
             }
             if (conns_.size() >= config_.max_peers) break;
             if (should_defer_outbound_for(s, now)) continue;
+            // B2: dead-seed cooldown gates scheduling before start_outbound_handshake
+            // is ever called — distinct from the exponential delay backoff below.
+            if (dead_seed_cooldown_active(s.addr, now)) continue;
 
             auto& bo = backoffs_[s.addr];
             // P2 audit fix: initialize max_ms from config so the operator's
@@ -12528,6 +12622,7 @@ private:
                 if (config_.require_seed_pins && d.pubkey_hex.empty()) continue;
                 if (conns_.size() >= config_.max_peers) break;
                 if (should_defer_outbound_for(d, now)) continue;
+                if (dead_seed_cooldown_active(d.addr, now)) continue; // B2
 
                 auto& bo = backoffs_[d.addr];
                 if (bo.attempt > 0 && now < bo.next_attempt) continue;
@@ -12632,6 +12727,19 @@ private:
                 << "\"healthy\":" << (ok ? "true" : "false") << ","
                 << "\"last_pong_s\":" << age << ","
                 << "\"sessions\":" << peer_sessions << "}";
+        }
+        // B2: dial health for configured seeds that are not currently connected
+        // ("ok" / "backoff" / "cooldown(dead Nm)") — helps operators see why a
+        // seed hasn't come back without grepping handshake_deadline logs.
+        out << "],\"seeds\":[";
+        first = true;
+        for (const auto& s : config_.seeds) {
+            if (s.name.empty() || has_conn_for_addr(s.addr)) continue;
+            if (!first) out << ",";
+            first = false;
+            out << "{\"name\":\"" << gossip_json_escape(s.name) << "\","
+                << "\"addr\":\"" << gossip_json_escape(s.addr) << "\","
+                << "\"dial_health\":\"" << gossip_json_escape(seed_dial_health(s.addr, now)) << "\"}";
         }
         out << "],\"sessions\":[";
         first = true;
@@ -12966,6 +13074,39 @@ public:
         return next_backoff_ms(attempt);
     }
     void advance_handshakes_for_test() { advance_handshakes(); }
+    // B2: dead-seed cooldown test hooks.
+    void try_connect_to_seeds_for_test() { try_connect_to_seeds(); }
+    void record_dead_seed_failure_for_test(const std::string& addr) {
+        record_dead_seed_failure(addr);
+    }
+    void record_dead_seed_success_for_test(const std::string& addr) {
+        record_dead_seed_success(addr);
+    }
+    [[nodiscard]] bool dead_seed_in_cooldown_for_test(const std::string& addr) {
+        return dead_seed_cooldown_active(addr, std::chrono::steady_clock::now());
+    }
+    [[nodiscard]] int dead_seed_failure_streak_for_test(const std::string& addr) const {
+        auto it = seed_cooldowns_.find(addr);
+        return it == seed_cooldowns_.end() ? 0 : it->second.consecutive_deadline_failures;
+    }
+    // Force an active cooldown to expire immediately (simulates the 10min
+    // window elapsing) without sleeping in the test.
+    void expire_dead_seed_cooldown_for_test(const std::string& addr) {
+        auto it = seed_cooldowns_.find(addr);
+        if (it != seed_cooldowns_.end()) it->second.cooldown_until = std::chrono::steady_clock::now();
+    }
+    [[nodiscard]] std::string seed_dial_health_for_test(const std::string& addr) {
+        return seed_dial_health(addr, std::chrono::steady_clock::now());
+    }
+    // True if a pending handshake exists whose outbound target is addr —
+    // deterministic proof that try_connect_to_seeds() attempted (or didn't
+    // attempt) a dial, independent of real-world connect() timing.
+    [[nodiscard]] bool has_pending_handshake_for_addr_for_test(const std::string& addr) const {
+        for (const auto& ph : pending_handshakes_) {
+            if (!ph.server_side && ph.expected_addr == addr) return true;
+        }
+        return false;
+    }
     [[nodiscard]] size_t worker_queue_depth_for_test() const {
         return worker_pool_ ? worker_pool_->pending_count() : 0;
     }
@@ -13276,6 +13417,18 @@ public:
                         << " state=" << (ok ? "healthy" : "no-pong")
                         << " last_pong_s=" << age << "\n";
                 }
+                // B2: configured seeds/discovered peers with no live conn — surface
+                // dial health so operators can see backoff/cooldown without logs.
+                for (const auto& s : config_.seeds) {
+                    if (s.name.empty() || has_conn_for_addr(s.addr)) continue;
+                    out << s.name << " " << s.addr
+                        << " state=offline dial_health=" << seed_dial_health(s.addr, now) << "\n";
+                }
+                for (const auto& d : config_.discovered) {
+                    if (d.name.empty() || has_conn_for_addr(d.addr)) continue;
+                    out << d.name << " " << d.addr
+                        << " state=offline dial_health=" << seed_dial_health(d.addr, now) << "\n";
+                }
                 out << "END\n";
                 response = out.str();
             }
@@ -13415,6 +13568,7 @@ public:
                     out << "\"addr\":\"" << gossip_json_escape(s.addr) << "\",";
                     out << "\"version\":\"\",";
                     out << "\"status\":\"offline\",";
+                    out << "\"dial_health\":\"" << gossip_json_escape(seed_dial_health(s.addr, now)) << "\",";
                     out << "\"source\":\"seed\",";
                     out << "\"metrics\":false";
                     out << "}";
@@ -13433,6 +13587,7 @@ public:
                     out << "\"addr\":\"" << gossip_json_escape(d.addr) << "\",";
                     out << "\"version\":\"\",";
                     out << "\"status\":\"stale\",";
+                    out << "\"dial_health\":\"" << gossip_json_escape(seed_dial_health(d.addr, now)) << "\",";
                     out << "\"source\":\"discovered\",";
                     out << "\"last_seen\":" << d.last_seen << ",";
                     out << "\"metrics\":false";
