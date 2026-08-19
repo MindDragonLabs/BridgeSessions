@@ -4084,6 +4084,7 @@ struct MeshConfig {
     size_t max_peers = 50;
     int gossip_interval_secs = 30;
     int reconnect_backoff_max_secs = 30;
+    int join_window_max_secs = 300;
     int startup_wait_secs = 30;  // boot-time network readiness gate (0 = skip)
     std::string receive_dir_override;  // override default received/ path (for SYSTEM daemons)
     int ping_interval_secs = 5;
@@ -4312,6 +4313,9 @@ void write_peer_line(std::ostream& os, const std::string& prefix, const PeerEntr
         } else if (key_str == "mesh.reconnect_backoff_max_secs") {
             auto v = parse_int(val);
             if (v.has_value()) cfg.reconnect_backoff_max_secs = *v;
+        } else if (key_str == "mesh.join_window_max_secs") {
+            auto v = parse_int(val);
+            if (v.has_value() && *v > 0) cfg.join_window_max_secs = *v;
         } else if (key_str == "mesh.startup_wait_secs") {
             auto v = parse_int(val);
             if (v.has_value() && *v >= 0) cfg.startup_wait_secs = *v;
@@ -5603,6 +5607,7 @@ struct ResolvedSessionCommand {
     f << "mesh.max_peers " << cfg.max_peers << "\n";
     f << "mesh.gossip_interval_secs " << cfg.gossip_interval_secs << "\n";
     f << "mesh.reconnect_backoff_max_secs " << cfg.reconnect_backoff_max_secs << "\n";
+    f << "mesh.join_window_max_secs " << cfg.join_window_max_secs << "\n";
     f << "mesh.ping_interval_secs " << cfg.ping_interval_secs << "\n";
     f << "mesh.pong_timeout_secs " << cfg.pong_timeout_secs << "\n";
     f << "mesh.auto_upgrade " << (cfg.auto_upgrade ? "true" : "false") << "\n";
@@ -5794,14 +5799,15 @@ inline std::shared_ptr<spdlog::logger> get_logger() {
     file_sink->set_pattern("%v");  // raw JSON lines
 
     state.logger = std::make_shared<spdlog::logger>("bs-mesh", file_sink);
-    state.logger->set_level(spdlog::level::info);
+    state.logger->set_level(spdlog::level::debug);
     state.logger->flush_on(spdlog::level::info);
     spdlog::register_logger(state.logger);
     return state.logger;
 }
 
-// Log a structured event as a single JSON line
-inline void log_event(const std::string& event, const std::string& detail = "") {
+// Log a structured event as a single JSON line.
+inline void log_event_at(spdlog::level::level_enum level,
+                         const std::string& event, const std::string& detail) {
     auto l = get_logger();
     nlohmann::json j;
     j["ts"] = std::to_string(std::chrono::steady_clock::now().time_since_epoch().count());
@@ -5822,7 +5828,15 @@ inline void log_event(const std::string& event, const std::string& detail = "") 
     }
     j["event"] = event;
     if (!detail.empty()) j["detail"] = detail;
-    l->info(j.dump());
+    l->log(level, j.dump());
+}
+
+inline void log_event(const std::string& event, const std::string& detail = "") {
+    log_event_at(spdlog::level::info, event, detail);
+}
+
+inline void log_debug_event(const std::string& event, const std::string& detail = "") {
+    log_event_at(spdlog::level::debug, event, detail);
 }
 
 // ────────────────────────────────────────────────────────────────────
@@ -7778,18 +7792,29 @@ public:
         return std::any_of(pending_invites_.begin(), pending_invites_.end(),
             [&](const auto& p) { return p.token == token && p.claimed_by.empty(); });
     }
-    void test_add_invite(const std::string& token) {
+    void test_add_invite(
+            const std::string& token,
+            std::chrono::seconds age = std::chrono::seconds(0)) {
         std::lock_guard lock(invite_mutex_);
+        const auto now = std::chrono::steady_clock::now();
         PendingInvite pi;
         pi.token = token;
-        pi.created_at = std::chrono::steady_clock::now();
+        pi.created_at = now - age;
         pending_invites_.push_back(std::move(pi));
-        g_allow_join_connections.store(true, std::memory_order_relaxed);
+        open_join_window_locked(now);
     }
     JoinReplyMsg test_process_join(const JoinRequestMsg& jr, const std::string& peer_pk) {
         return process_join_request(jr, peer_pk);
     }
     void test_close_join_window() { maybe_close_join_window(); }
+    void test_age_join_window(std::chrono::seconds age) {
+        std::lock_guard lock(invite_mutex_);
+        join_window_opened_at_ = std::chrono::steady_clock::now() - age;
+    }
+    [[nodiscard]] uint64_t test_invite_expired_event_count() const {
+        std::lock_guard lock(invite_mutex_);
+        return invite_expired_event_count_;
+    }
 #endif
 
 private:
@@ -7807,6 +7832,8 @@ private:
     };
     std::vector<PendingInvite> pending_invites_;
     mutable std::mutex invite_mutex_;
+    std::chrono::steady_clock::time_point join_window_opened_at_{};
+    uint64_t invite_expired_event_count_ = 0;
     // ── BridgePanel v3 mesh plane ────────────────────────────────
     // Pre-rendered JSON arrays of session summaries per peer, populated by
     // session gossip (ServerInfoMsg trailing field). Empty until gossip lands.
@@ -8299,8 +8326,9 @@ private:
     void prune_revoked_connections() {
         // Skip pruning when join window is open — joining peers are not yet
         // in authorized_keys. The JoinRequest handler adds them on success.
+        // Window transitions are logged by open/close_join_window_locked(), so
+        // this once-per-second path remains silent while onboarding is active.
         if (g_allow_join_connections.load(std::memory_order_relaxed)) {
-            log_event("prune_skip_join_window", "g_allow_join_connections=true");
             return;
         }
         authorized_keys_.reload();
@@ -11289,10 +11317,7 @@ public:
         {
             std::lock_guard lock(invite_mutex_);
             auto now = std::chrono::steady_clock::now();
-            pending_invites_.erase(
-                std::remove_if(pending_invites_.begin(), pending_invites_.end(),
-                    [now](auto& p) { return (now - p.created_at) > std::chrono::hours(2); }),
-                pending_invites_.end());
+            expire_pending_invites_locked(now);
             auto it = std::find_if(pending_invites_.begin(), pending_invites_.end(),
                 [&](auto& p) { return p.token == jr.token && p.claimed_by.empty(); });
             if (it == pending_invites_.end()) {
@@ -11359,24 +11384,58 @@ public:
         return reply;
     }
 
-    // Close join window when all invites are claimed or expired.
-    // Called from the event loop tick to auto-close after invite expiry.
+    static constexpr auto kInviteTtl = std::chrono::hours(2);
+
+    void open_join_window_locked(std::chrono::steady_clock::time_point now) {
+        if (!g_allow_join_connections.exchange(true, std::memory_order_relaxed)) {
+            join_window_opened_at_ = now;
+            log_debug_event("prune_skip_join_window", "state=open");
+        }
+    }
+
+    void close_join_window_locked(const char* reason) {
+        if (g_allow_join_connections.exchange(false, std::memory_order_relaxed)) {
+            join_window_opened_at_ = {};
+            log_debug_event("prune_skip_join_window",
+                            std::string("state=closed reason=") + reason);
+        }
+    }
+
+    void expire_pending_invites_locked(std::chrono::steady_clock::time_point now) {
+        for (auto it = pending_invites_.begin(); it != pending_invites_.end();) {
+            if (now - it->created_at <= kInviteTtl) {
+                ++it;
+                continue;
+            }
+            const auto age_secs = std::chrono::duration_cast<std::chrono::seconds>(
+                now - it->created_at).count();
+            log_event("invite_expired", "age_secs=" + std::to_string(age_secs));
+            ++invite_expired_event_count_;
+            it = pending_invites_.erase(it);
+        }
+    }
+
+    // Close the join window when all invites are claimed/expired or when its
+    // hard wall-clock cap elapses, regardless of outstanding invite state.
+    // Called from the event loop tick.
     void maybe_close_join_window() {
-        if (!g_allow_join_connections.load(std::memory_order_relaxed)) return;
         std::lock_guard lock(invite_mutex_);
         auto now = std::chrono::steady_clock::now();
-        // Expire old invites (2h)
-        pending_invites_.erase(
-            std::remove_if(pending_invites_.begin(), pending_invites_.end(),
-                [now](auto& p) { return (now - p.created_at) > std::chrono::hours(2); }),
-            pending_invites_.end());
+        expire_pending_invites_locked(now);
+        if (!g_allow_join_connections.load(std::memory_order_relaxed)) return;
+        const auto max_window = std::chrono::seconds(config_.join_window_max_secs);
+        if (join_window_opened_at_ != std::chrono::steady_clock::time_point{} &&
+            now - join_window_opened_at_ >= max_window) {
+            close_join_window_locked("hard_cap");
+            return;
+        }
         // Close window if no unclaimed invites remain
         bool any_unclaimed = false;
         for (const auto& p : pending_invites_) {
             if (p.claimed_by.empty()) { any_unclaimed = true; break; }
         }
         if (!any_unclaimed) {
-            g_allow_join_connections.store(false, std::memory_order_relaxed);
+            close_join_window_locked("no_unclaimed_invites");
         }
     }
     void handle_inbound_session(Conn& conn, Message& msg) {
@@ -12999,10 +13058,7 @@ public:
                 for (size_t i = 0; i < sizeof(raw_bytes); ++i)
                     tok << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(raw_bytes[i]);
                 auto now = std::chrono::steady_clock::now();
-                pending_invites_.erase(
-                    std::remove_if(pending_invites_.begin(), pending_invites_.end(),
-                        [now](auto& p) { return (now - p.created_at) > std::chrono::hours(2); }),
-                    pending_invites_.end());
+                expire_pending_invites_locked(now);
                 PendingInvite pi;
                 pi.token = tok.str();
                 pi.created_at = now;
@@ -13011,7 +13067,7 @@ public:
                 // Open the join window so unknown peers can TLS-connect to
                 // present their invite token. Closed after successful join
                 // or naturally expires when invites time out.
-                g_allow_join_connections.store(true, std::memory_order_relaxed);
+                open_join_window_locked(now);
             }
             else if (line == "SESSIONS") {
                 response = sessions_.summary() + "\n";
