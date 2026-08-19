@@ -7757,6 +7757,12 @@ public:
         bool is_outbound = false;
         ConnectionPurpose purpose = ConnectionPurpose::Mesh;
         std::chrono::steady_clock::time_point last_pong;
+        // B1: RTT-aware pong deadline. ping_sent_at is stamped when we enqueue
+        // a PingMsg; on Pong receipt we derive pong_rtt_ms. check_pong_timeouts
+        // then uses max(base, 4×rtt) so healthy WAN peers (144ms RTT) are not
+        // spuriously dropped when the pong lands just past a tight static window.
+        std::chrono::steady_clock::time_point ping_sent_at{};
+        std::chrono::milliseconds pong_rtt_ms{0};
         std::chrono::steady_clock::time_point connected_at = std::chrono::steady_clock::now();
         uint64_t bytes_in = 0;
         uint64_t bytes_out = 0;
@@ -11187,7 +11193,15 @@ private:
             (void)enqueue_frame(c, PongMsg{}, CONTROL_STREAM_ID);
         }
         else if (std::holds_alternative<PongMsg>(msg)) {
-            c.last_pong = std::chrono::steady_clock::now();
+            const auto now = std::chrono::steady_clock::now();
+            c.last_pong = now;
+            // B1: derive RTT from the last ping we sent on this conn.
+            if (c.ping_sent_at != std::chrono::steady_clock::time_point{}) {
+                auto rtt = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    now - c.ping_sent_at);
+                if (rtt > std::chrono::milliseconds(0))
+                    c.pong_rtt_ms = rtt;
+            }
         }
         else if (std::holds_alternative<HelloMsg>(msg)) {
             auto& h = std::get<HelloMsg>(msg);
@@ -12075,7 +12089,14 @@ public:
 
         // PongMsg → update last_pong (already handled, but safe)
         if (std::holds_alternative<PongMsg>(msg)) {
-            conn.last_pong = std::chrono::steady_clock::now();
+            const auto now = std::chrono::steady_clock::now();
+            conn.last_pong = now;
+            if (conn.ping_sent_at != std::chrono::steady_clock::time_point{}) {
+                auto rtt = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    now - conn.ping_sent_at);
+                if (rtt > std::chrono::milliseconds(0))
+                    conn.pong_rtt_ms = rtt;
+            }
             return;
         }
 
@@ -12842,6 +12863,7 @@ private:
             // itself; writing here too would race the thread's writes.
             if (c.exec_busy && c.exec_busy->load()) continue;
             // Non-blocking enqueue — never stall the event loop on a slow peer.
+            c.ping_sent_at = std::chrono::steady_clock::now();
             if (!enqueue_frame(c, PingMsg{}, CONTROL_STREAM_ID)) {
                 // Overflow only: leave connection up; next tick may drain.
                 log_event("mesh_ping_enqueue_drop", c.peer_name);
@@ -12853,7 +12875,7 @@ private:
 
     void check_pong_timeouts() {
         auto now = std::chrono::steady_clock::now();
-        auto timeout = std::chrono::seconds(config_.pong_timeout_secs);
+        auto base = std::chrono::seconds(config_.pong_timeout_secs);
 
         for (auto& c : conns_) {
             if (c.sock_fd == INVALID_SOCKET) continue;
@@ -12861,8 +12883,21 @@ private:
             // grant a fresh timeout window because it may have consumed Pong
             // frames outside the event loop.
             if (refresh_heartbeat_after_busy(c, now)) continue;
-            if (now - c.last_pong > timeout) {
-                log_event("mesh_pong_timeout", c.peer_name + " " + c.peer_addr);
+            // B1: RTT-aware deadline. Healthy WAN peers sit at ~144ms RTT and
+            // can miss a tight static window under event-loop load. Use
+            // max(base, 4×measured RTT) once we have a RTT sample; fall back
+            // to base until then. Cap the multiplier so a pathological RTT
+            // (e.g. a single slow poll) can't push the deadline unboundedly.
+            auto deadline = std::chrono::duration_cast<std::chrono::milliseconds>(base);
+            if (c.pong_rtt_ms.count() > 0) {
+                std::chrono::milliseconds rtt = c.pong_rtt_ms;
+                if (rtt > std::chrono::milliseconds(5000)) rtt = std::chrono::milliseconds(5000); // clamp
+                auto rtt_aware = 4 * rtt;
+                if (rtt_aware > deadline) deadline = rtt_aware;
+            }
+            if (now - c.last_pong > deadline) {
+                log_event("mesh_pong_timeout", c.peer_name + " " + c.peer_addr
+                          + " rtt_ms=" + std::to_string(c.pong_rtt_ms.count()));
                 // Attempt graceful TLS shutdown before hard close (POSIX only).
                 // Best-effort: if shutdown fails or platform doesn't support it,
                 // close_conn still runs.
