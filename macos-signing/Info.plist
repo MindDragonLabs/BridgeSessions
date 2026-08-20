@@ -9,7 +9,7 @@
     <key>CFBundleName</key>
     <string>BridgeSessions</string>
     <key>CFBundleVersion</key>
-    <string>26.09.19-beta5</string>
+    <string>26.09.19-beta6</string>
     <key>CFBundleShortVersionString</key>
     <string>26.09.19</string>
     <!-- LSUIElement (not LSBackgroundOnly): no Dock icon, but TCC grant

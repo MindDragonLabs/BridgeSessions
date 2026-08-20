@@ -14,21 +14,21 @@ jobs:
   codeql:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - run: |
           sudo apt-get update
           sudo apt-get install -y cmake ninja-build libssl-dev libzstd-dev nlohmann-json3-dev libcli11-dev libspdlog-dev
-      - uses: github/codeql-action/init@v3
+      - uses: github/codeql-action/init@v4
         with:
           languages: c-cpp
       - run: |
           cmake -S . -B build/codeql -GNinja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DBUILD_TESTING=OFF
           cmake --build build/codeql --target bridgesessions --parallel 2
-      - uses: github/codeql-action/analyze@v3
+      - uses: github/codeql-action/analyze@v4
   secrets:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
       - uses: gitleaks/gitleaks-action@v2

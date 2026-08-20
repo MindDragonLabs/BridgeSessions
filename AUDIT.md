@@ -73,7 +73,9 @@ Four independent MiniMax M3/Hermes passes covered security, reliability/performa
 | tracked-file PII regex sweep | pass, zero hits |
 | MkDocs strict build | pass |
 | aggressive AppleClang warning build | builds successfully; 89 conversion/unused warnings remain as P3 debt |
-| Linux static build (GCC 13, OpenSSL 3.5.7) | see final release evidence / GitHub CI |
+| Linux static release build | pass: GCC 13, OpenSSL 3.5.7, PIE, RELRO/NOW, NX; SHA-256 `d770c0d1…` |
+| macOS arm64 release build | pass: static third-party deps, Developer ID signed, notarization accepted (`2b09a380-d350-42dc-9b85-ff54b12ae551`) |
+| Windows x86_64 release build | pass: PE32+, HIGH_ENTROPY_VA, DYNAMIC_BASE, NX_COMPAT; SHA-256 `f20832db…` |
 
 ## Repository outcome
 

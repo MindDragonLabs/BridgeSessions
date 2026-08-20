@@ -2,7 +2,7 @@
 
 Notable user-visible changes. Git history contains implementation-level detail.
 
-## 26.09.19-beta5
+## 26.09.19-beta6
 
 ### Security
 

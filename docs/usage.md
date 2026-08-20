@@ -53,7 +53,7 @@ bs capture-video <peer> --duration 10 -o capture.mp4
 bs invite
 bs join <seed-address>:19949 <token> --start
 bs upgrade
-bs upgrade --tag 26.09.19-beta5
+bs upgrade --tag 26.09.19-beta6
 ```
 
 Upgrade downloads GitHub Release assets and requires checksum/version verification.
