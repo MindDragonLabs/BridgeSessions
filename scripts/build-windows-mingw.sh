@@ -1,5 +1,5 @@
 #!/bin/bash
-# Windows x86_64 PE cross-compile via MinGW on fecv3 (~/bs-win static deps).
+# Windows x86_64 PE cross-compile (MinGW, ~/bs-win static deps).
 # Self-locates the repo root (do NOT hardcode $HOME/bridgesessions — that
 # clone has historically diverged).
 set -euo pipefail

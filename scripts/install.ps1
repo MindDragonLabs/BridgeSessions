@@ -48,6 +48,38 @@ if ($needsDownload) {
     $URL = "$BASE/bridgesessions-windows-x86_64.exe"
     Write-Host "→ Downloading bridgesessions $TAG for Windows..."
     Invoke-WebRequest -Uri $URL -OutFile $BIN_PATH
+
+    # H4: verify the downloaded binary against the published SHA256SUMS before
+    # executing it. A tampered/MITM'd download must never run as the user.
+    $SUMS_URL = "$BASE/SHA256SUMS"
+    $expected = $null
+    try {
+        $sums = (Invoke-WebRequest -Uri $SUMS_URL -UseBasicParsing -ErrorAction Stop).Content
+        foreach ($line in ($sums -split "`n")) {
+            $parts = $line.Trim() -split "\s+"
+            if ($parts.Count -ge 2 -and $parts[1] -eq "bridgesessions-windows-x86_64.exe") {
+                $expected = $parts[0].ToLower()
+                break
+            }
+        }
+    } catch {
+        Write-Warning "Could not download SHA256SUMS — refusing to run an unverified binary."
+        Remove-Item -Path $BIN_PATH -Force -ErrorAction SilentlyContinue
+        exit 1
+    }
+    if (-not $expected) {
+        Write-Warning "SHA256SUMS did not contain an entry for bridgesessions-windows-x86_64.exe."
+        Remove-Item -Path $BIN_PATH -Force -ErrorAction SilentlyContinue
+        exit 1
+    }
+    $actual = (Get-FileHash -Path $BIN_PATH -Algorithm SHA256).Hash.ToLower()
+    if ($actual -ne $expected) {
+        Write-Warning "Checksum mismatch for $BIN_PATH (expected $expected, got $actual)."
+        Remove-Item -Path $BIN_PATH -Force -ErrorAction SilentlyContinue
+        exit 1
+    }
+    Write-Host "→ SHA256 verified."
+
     $TAG | Set-Content $VERSION_FILE
     Write-Host "→ Download complete."
 }

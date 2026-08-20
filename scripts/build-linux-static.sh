@@ -1,5 +1,5 @@
 #!/bin/bash
-# Linux static build via bs-static-builder docker image on fecv3.
+# Linux static build via bs-static-builder docker image (build host).
 # Self-locates the repo root (do NOT hardcode $HOME/bridgesessions — that
 # clone has historically diverged). Builds static binary (glibc 2.35 floor).
 set -euo pipefail

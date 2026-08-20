@@ -27,7 +27,7 @@ PEM_PAT='-----BEGIN [A-Z ]*PRIVATE KEY-----'
 BLOCKLIST="${BS_PUBLISH_BLOCKLIST:-$HOME/.config/bridgesessions/publish-blocklist}"
 
 # ── WARN tier ────────────────────────────────────────────────────
-WARN_PAT='Year25careful|password|ipc-token|api[_-]?key|BEGIN [A-Z ]*PRIVATE KEY'
+WARN_PAT='Year25careful|password|ipc-token|api[_-]?key|BEGIN [A-Z ]*PRIVATE KEY|fecv3|nunn-shadow|shadow-df8uluc8'
 
 # Paths never scanned: release binaries and the scanner itself
 EXCL='^(dist/|scripts/prepublish-scan\.sh|scripts/pre-push\.hook)'
@@ -71,7 +71,9 @@ scan_dist() {
     [ -f "$b" ] || continue
     case "$b" in *.json|*.txt|SHA256SUMS) continue ;; esac
     # Flag personal homes; allow generic CI/build accounts (agent, runner, builder, github).
-    hits=$(strings "$b" 2>/dev/null | grep -E '/home/[a-z]+/|/Users/[a-z]+/'       | grep -Ev '/home/(agent|runner|builder|github|ubuntu|root)/|/Users/(builder|runner)/'       | head -3 || true)
+    # Neutralized scrubbed names may carry a trailing-pad (builder__, builder2) to
+    # preserve binary layout when a personal name is overwritten same-length.
+    hits=$(strings "$b" 2>/dev/null | grep -E '/home/[a-z]+/|/Users/[a-z]+/'       | grep -Ev '/home/(agent|runner|builder|github|ubuntu|root)/|/Users/(builder[_0-9]*|runner)/'       | head -3 || true)
     [ -n "$hits" ] && { echo "BLOCK: personal build-path bake-in in $b:"; echo "$hits" | sed 's/^/  /'; FAILED=1; }
     if [ -f "$BLOCKLIST" ]; then
       while IFS= read -r pat; do

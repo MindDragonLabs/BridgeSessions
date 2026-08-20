@@ -190,10 +190,10 @@ class TestPureFunctions(unittest.TestCase):
         # MESH_TREE lists only live peers; FLEET adds offline seeds. The merged
         # tree must include the offline seed so the panel renders it.
         mesh_payload = (b'{"node":"macbook","uptime_s":10,'
-                        b'"peers":[{"name":"fecv3","addr":"1.2.3.4:19949","healthy":true,"last_pong_s":1,"sessions":[]}],'
+                        b'"peers":[{"name":"test-peer","addr":"1.2.3.4:19949","healthy":true,"last_pong_s":1,"sessions":[]}],'
                         b'"sessions":[]}\n')
         fleet_payload = (b'{"macbook":{"name":"macbook","addr":"0.0.0.0:19949","status":"self"},'
-                         b'"fecv3":{"name":"fecv3","addr":"1.2.3.4:19949","status":"healthy"},'
+                         b'"test-peer":{"name":"test-peer","addr":"1.2.3.4:19949","status":"healthy"},'
                          b'"ranas-mac-studio":{"name":"ranas-mac-studio","addr":"5.6.7.8:19949","status":"offline","source":"seed"}}\n')
         self._fake_ipc_factory([mesh_payload, fleet_payload])
         try:
@@ -201,7 +201,7 @@ class TestPureFunctions(unittest.TestCase):
         finally:
                 self._restore_ipc()
         names = {p["name"] for p in tree["peers"]}
-        self.assertIn("fecv3", names)                 # live peer kept
+        self.assertIn("test-peer", names)                 # live peer kept
         self.assertIn("ranas-mac-studio", names)      # offline seed merged in
         offline = next(p for p in tree["peers"] if p["name"] == "ranas-mac-studio")
         self.assertFalse(offline["healthy"])
@@ -210,16 +210,16 @@ class TestPureFunctions(unittest.TestCase):
     def test_mesh_tree_does_not_dup_live_peer_from_fleet(self):
         # A live peer present in both MESH_TREE and FLEET must not be duplicated.
         mesh_payload = (b'{"node":"macbook","uptime_s":10,'
-                        b'"peers":[{"name":"fecv3","addr":"1.2.3.4:19949","healthy":true,"last_pong_s":1,"sessions":[]}],'
+                        b'"peers":[{"name":"test-peer","addr":"1.2.3.4:19949","healthy":true,"last_pong_s":1,"sessions":[]}],'
                         b'"sessions":[]}\n')
-        fleet_payload = (b'{"fecv3":{"name":"fecv3","addr":"1.2.3.4:19949","status":"healthy"}}\n')
+        fleet_payload = (b'{"test-peer":{"name":"test-peer","addr":"1.2.3.4:19949","status":"healthy"}}\n')
         self._fake_ipc_factory([mesh_payload, fleet_payload])
         try:
             tree = bp.query_mesh_tree()
         finally:
                 self._restore_ipc()
-        fecv3 = [p for p in tree["peers"] if p["name"] == "fecv3"]
-        self.assertEqual(len(fecv3), 1)
+        test-peer = [p for p in tree["peers"] if p["name"] == "test-peer"]
+        self.assertEqual(len(test-peer), 1)
 
     def test_scrollback_parse_incremental(self):
         import base64
