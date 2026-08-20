@@ -6,13 +6,17 @@
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1">
       
-        <meta name="description" content="One binary. Every machine. Zero SSH. Mesh terminal relay over TLS 1.3.">
+        <meta name="description" content="Persistent shells, verified files, and desktop automation on a pinned peer mesh.">
       
       
       
         <link rel="canonical" href="https://minddragonlabs.github.io/BridgeSessions/E2E-FRAMEWORK/">
       
       
+        <link rel="prev" href="../building/">
+      
+      
+        <link rel="next" href="../RELEASE-PROVENANCE/">
       
       
         
@@ -23,7 +27,7 @@
     
     
       
-        <title>BridgeSessions E2E Framework - BridgeSessions</title>
+        <title>E2E Framework - BridgeSessions</title>
       
     
     
@@ -74,7 +78,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#bridgesessions-e2e-framework" class="md-skip">
+        <a href="#e2e-framework" class="md-skip">
           Skip to content
         </a>
       
@@ -108,7 +112,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              BridgeSessions E2E Framework
+              E2E Framework
             
           </span>
         </div>
@@ -259,25 +263,6 @@
   
   
     <li class="md-tabs__item">
-      <a href="../building/" class="md-tabs__link">
-        
-  
-  
-    
-  
-  Install & Build
-
-      </a>
-    </li>
-  
-
-      
-        
-  
-  
-  
-  
-    <li class="md-tabs__item">
       <a href="../usage/" class="md-tabs__link">
         
   
@@ -316,6 +301,25 @@
   
   
     <li class="md-tabs__item">
+      <a href="../design/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Design
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
       <a href="../protocol/" class="md-tabs__link">
         
   
@@ -341,7 +345,7 @@
   
     
   
-  CUA (Computer Use)
+  Computer Use
 
       </a>
     </li>
@@ -373,13 +377,53 @@
   
   
     <li class="md-tabs__item">
-      <a href="../design/" class="md-tabs__link">
+      <a href="../building/" class="md-tabs__link">
         
   
   
     
   
-  Design
+  Building
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    <li class="md-tabs__item md-tabs__item--active">
+      <a href="./" class="md-tabs__link">
+        
+  
+  
+    
+  
+  E2E Framework
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../RELEASE-PROVENANCE/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Release Provenance
 
       </a>
     </li>
@@ -402,46 +446,6 @@
 
       </a>
     </li>
-  
-
-      
-        
-  
-  
-  
-  
-    
-    
-      <li class="md-tabs__item">
-        <a href="../ARCHITECTURE-DECISION-RECORD/" class="md-tabs__link">
-          
-  
-  
-  Architecture
-
-        </a>
-      </li>
-    
-  
-
-      
-        
-  
-  
-  
-  
-    
-    
-      <li class="md-tabs__item">
-        <a href="../RELEASE-PROVENANCE/" class="md-tabs__link">
-          
-  
-  
-  Releases
-
-        </a>
-      </li>
-    
   
 
       
@@ -551,33 +555,6 @@
   
   
     <li class="md-nav__item">
-      <a href="../building/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Install & Build
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    <li class="md-nav__item">
       <a href="../usage/" class="md-nav__link">
         
   
@@ -632,6 +609,33 @@
   
   
     <li class="md-nav__item">
+      <a href="../design/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Design
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../protocol/" class="md-nav__link">
         
   
@@ -666,7 +670,7 @@
   <span class="md-ellipsis">
     
   
-    CUA (Computer Use)
+    Computer Use
   
 
     
@@ -713,14 +717,170 @@
   
   
     <li class="md-nav__item">
-      <a href="../design/" class="md-nav__link">
+      <a href="../building/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Design
+    Building
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    E2E Framework
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    E2E Framework
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#layers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Layers
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#run" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Run
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#desktop-prerequisites" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Desktop prerequisites
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#evidence" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Evidence
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#release-gate" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Release gate
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../RELEASE-PROVENANCE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Release Provenance
   
 
     
@@ -760,212 +920,6 @@
   
 
     
-      
-      
-  
-  
-  
-  
-    
-    
-    
-    
-      
-      
-        
-      
-    
-    
-    <li class="md-nav__item md-nav__item--nested">
-      
-        
-        
-          
-        
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_11" >
-        
-          
-          <label class="md-nav__link" for="__nav_11" id="__nav_11_label" tabindex="0">
-            
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Architecture
-  
-
-    
-  </span>
-  
-  
-
-            <span class="md-nav__icon md-icon"></span>
-          </label>
-        
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_11_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_11">
-            <span class="md-nav__icon md-icon"></span>
-            
-  
-    Architecture
-  
-
-          </label>
-          <ul class="md-nav__list" data-md-scrollfix>
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../ARCHITECTURE-DECISION-RECORD/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Decision Record
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../ARCHITECTURE-RECOMMENDATIONS/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Recommendations
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-          </ul>
-        </nav>
-      
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    
-    
-    
-    
-      
-      
-        
-      
-    
-    
-    <li class="md-nav__item md-nav__item--nested">
-      
-        
-        
-          
-        
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_12" >
-        
-          
-          <label class="md-nav__link" for="__nav_12" id="__nav_12_label" tabindex="0">
-            
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Releases
-  
-
-    
-  </span>
-  
-  
-
-            <span class="md-nav__icon md-icon"></span>
-          </label>
-        
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_12_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_12">
-            <span class="md-nav__icon md-icon"></span>
-            
-  
-    Releases
-  
-
-          </label>
-          <ul class="md-nav__list" data-md-scrollfix>
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../RELEASE-PROVENANCE/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Provenance
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-          </ul>
-        </nav>
-      
-    </li>
-  
-
-    
   </ul>
 </nav>
                   </div>
@@ -993,17 +947,6 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#decisions-operator-2026-08-11" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Decisions (operator, 2026-08-11)
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
   <a href="#layers" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1015,10 +958,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#entry-points" class="md-nav__link">
+  <a href="#run" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Entry points
+        Run
       
     </span>
   </a>
@@ -1026,10 +969,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#host-matrix" class="md-nav__link">
+  <a href="#desktop-prerequisites" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Host matrix
+        Desktop prerequisites
       
     </span>
   </a>
@@ -1037,10 +980,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#hermes-remote-support-windows" class="md-nav__link">
+  <a href="#evidence" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Hermes remote support (Windows)
+        Evidence
       
     </span>
   </a>
@@ -1048,32 +991,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#automation-constraints" class="md-nav__link">
+  <a href="#release-gate" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Automation constraints
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#artifacts" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Artifacts
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#run-on-completion-checklist" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Run-on-completion checklist
+        Release gate
       
     </span>
   </a>
@@ -1097,199 +1018,87 @@
 
 
   
-    <a href="https://github.com/MindDragonLabs/BridgeSessions/edit/main/docs/E2E-FRAMEWORK.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
-      
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
-    </a>
-  
   
 
 
-<h1 id="bridgesessions-e2e-framework">BridgeSessions E2E Framework<a class="headerlink" href="#bridgesessions-e2e-framework" title="Permanent link">&para;</a></h1>
-<p><strong>Status:</strong> active (run-on-completion, not nightly)<br />
-<strong>Version:</strong> 26.08.10-beta2</p>
-<h2 id="decisions-operator-2026-08-11">Decisions (operator, 2026-08-11)<a class="headerlink" href="#decisions-operator-2026-08-11" title="Permanent link">&para;</a></h2>
-<table>
-<thead>
-<tr>
-<th>Topic</th>
-<th>Decision</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Windows desktop</td>
-<td>Use <strong>Windows Desktop</strong> (Session 1 interactive). Hermes on remote may assist bootstrap; primary transport remains <code>bs</code> (+ WinRM only for Session-0 bootstrap).</td>
-</tr>
-<tr>
-<td>Linux desktop</td>
-<td><strong>KVM on a Linux lab hop</strong> (not operator Mac — macOS has no KVM). Guest: Ubuntu 24.04 cloud + XFCE auto-login for 100% automated CUA/tray.</td>
-</tr>
-<tr>
-<td>macOS</td>
-<td><strong>existing macOS peer as-is</strong> — no wipe. launchctl + existing TCC.</td>
-</tr>
-<tr>
-<td>Schedule</td>
-<td><strong>On completion of work effort</strong>, not nightly CI.</td>
-</tr>
-</tbody>
-</table>
+<h1 id="e2e-framework">E2E Framework<a class="headerlink" href="#e2e-framework" title="Permanent link">&para;</a></h1>
+<p>Unit tests prove local contracts. E2E lanes prove the real mesh, desktop session, installer, and platform packaging.</p>
 <h2 id="layers">Layers<a class="headerlink" href="#layers" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
 <tr>
 <th>Layer</th>
-<th>What</th>
-<th>Hosts</th>
+<th>Scope</th>
+<th>Default</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td>L0</td>
-<td>Unit (<code>ctest</code>)</td>
-<td>any</td>
+<td>CTest and Python tests</td>
+<td>every change</td>
 </tr>
 <tr>
 <td>L1</td>
-<td>Local loopback e2e</td>
-<td>build host</td>
+<td>local loopback daemon/client</td>
+<td>protocol changes</td>
 </tr>
 <tr>
 <td>L2</td>
-<td>Mesh (health/shell/file/run-script)</td>
-<td>live peers via <code>BS_E2E_PEERS</code></td>
+<td>live mesh: health, shell, files, scripts</td>
+<td>release candidates</td>
 </tr>
 <tr>
 <td>L3</td>
-<td>Desktop GUI + CUA + tray/menubar</td>
-<td>Linux KVM guest, Windows Session 1, macOS peer</td>
+<td>Windows/macOS/Linux desktop helper and tray</td>
+<td>CUA changes</td>
 </tr>
 <tr>
 <td>L4</td>
-<td>Foreground installer (clean)</td>
-<td>disposable KVM guest / Win user profile / macOS <em>secondary user only if added later</em></td>
+<td>clean-profile installer and upgrade</td>
+<td>release candidates</td>
 </tr>
 </tbody>
 </table>
-<h2 id="entry-points">Entry points<a class="headerlink" href="#entry-points" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1"># L2 mesh only (existing)</span>
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>scripts/e2e-fleet-test.sh<span class="w"> </span>--json<span class="w"> </span>/tmp/l2.json
+<h2 id="run">Run<a class="headerlink" href="#run" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1"># Discover every healthy configured seed</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>scripts/e2e-fleet-test.sh<span class="w"> </span>--all
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="c1"># Full orchestrator (L2 + L3 setup + desktop suites)</span>
-<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>python3<span class="w"> </span>tests/e2e/runner.py<span class="w"> </span>--layers<span class="w"> </span>L2,L3<span class="w"> </span>--json<span class="w"> </span>/tmp/e2e.json
-<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>
-<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="c1"># Desktop-only after hosts ready</span>
-<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>python3<span class="w"> </span>tests/e2e/runner.py<span class="w"> </span>--layers<span class="w"> </span>L3<span class="w"> </span>--json<span class="w"> </span>/tmp/l3.json
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="c1"># Explicit sanitized peer list</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="nv">BS_E2E_PEERS</span><span class="o">=</span><span class="s2">"linux-peer,macos-peer,windows-peer"</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="w">  </span>scripts/e2e-fleet-test.sh<span class="w"> </span>--json<span class="w"> </span>/tmp/bs-l2.json
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="c1"># Orchestrated desktop lanes</span>
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="nv">BS_E2E_PEERS</span><span class="o">=</span><span class="s2">"linux-peer,macos-peer,windows-peer"</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="w">  </span>python3<span class="w"> </span>tests/e2e/runner.py<span class="w"> </span>--layers<span class="w"> </span>L2,L3<span class="w"> </span>--json<span class="w"> </span>/tmp/bs-e2e.json
 </code></pre></div>
-<h2 id="host-matrix">Host matrix<a class="headerlink" href="#host-matrix" title="Permanent link">&para;</a></h2>
-<table>
-<thead>
-<tr>
-<th>Role</th>
-<th>Machine</th>
-<th>Notes</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Orchestrator</td>
-<td>Operator Mac</td>
-<td>runs <code>runner.py</code>, has Dev ID</td>
-</tr>
-<tr>
-<td>Linux mesh</td>
-<td><code>linux-a</code>, <code>linux-b</code> (set <code>BS_E2E_PEERS</code>)</td>
-<td>headless OK for L2</td>
-</tr>
-<tr>
-<td>Linux desktop QA</td>
-<td><strong>KVM guest</strong> (<code>bs-qa-ubuntu</code>)</td>
-<td>XFCE auto-login, DISPLAY set</td>
-</tr>
-<tr>
-<td>Windows desktop</td>
-<td><strong>windows-peer</strong> Session 1</td>
-<td>explorer running; cua-helper + tray must be user-session</td>
-</tr>
-<tr>
-<td>macOS desktop</td>
-<td><strong>macos-peer</strong></td>
-<td>BridgeSessions.app, BSMenubar.app, cua-helper launchd</td>
-</tr>
-</tbody>
-</table>
-<h2 id="hermes-remote-support-windows">Hermes remote support (Windows)<a class="headerlink" href="#hermes-remote-support-windows" title="Permanent link">&para;</a></h2>
-<p>Hermes on the Windows desktop peer can:</p>
-<ol>
-<li>Ensure interactive logon tasks for <code>--cua-helper</code> and <code>bs_tray.ps1</code></li>
-<li>Watch helper health and re-run setup scripts under user context</li>
-<li>Not replace mesh tests — still validate with operator <code>bs cua …</code></li>
-</ol>
-<p>Bootstrap scripts (idempotent) live in <code>tests/e2e/harness/</code>:</p>
+<p>Pass live peer names through arguments/environment variables. Never hardcode a private fleet in the repository.</p>
+<h2 id="desktop-prerequisites">Desktop prerequisites<a class="headerlink" href="#desktop-prerequisites" title="Permanent link">&para;</a></h2>
 <ul>
-<li><code>win_desktop_setup.ps1</code> — schtasks for CUA helper + tray at logon; start now if Session 1</li>
-<li><code>linux_kvm_setup.sh</code> — define/start <code>bs-qa-ubuntu</code> on the Linux lab hop</li>
-<li><code>mac_desktop_probe.sh</code> — menubar/cua-helper process checks (no wipe)</li>
+<li><strong>Linux:</strong> disposable VM with a logged-in desktop and display/input tools.</li>
+<li><strong>Windows:</strong> interactive user session, one CUA helper, Explorer desktop.</li>
+<li><strong>macOS:</strong> logged-in user, signed helper/app, Screen Recording and Accessibility grants.</li>
 </ul>
-<h2 id="automation-constraints">Automation constraints<a class="headerlink" href="#automation-constraints" title="Permanent link">&para;</a></h2>
-<table>
-<thead>
-<tr>
-<th>Feature</th>
-<th>Fully automated?</th>
-<th>Method</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Mesh L2</td>
-<td>Yes</td>
-<td><code>bs</code> CLI</td>
-</tr>
-<tr>
-<td>Linux CUA</td>
-<td>Yes on KVM guest</td>
-<td>auto-login XFCE + <code>bs cua</code> from orchestrator after peer join</td>
-</tr>
-<tr>
-<td>Windows CUA</td>
-<td>Yes if Session 1 alive</td>
-<td>schtasks <code>/IT</code> interactive + mesh <code>bs cua</code></td>
-</tr>
-<tr>
-<td>Linux tray</td>
-<td>Yes on KVM guest</td>
-<td>start <code>bs_tray.py</code>, assert process + optional DBus</td>
-</tr>
-<tr>
-<td>Windows tray</td>
-<td>Yes if Session 1</td>
-<td>start <code>bs_tray.ps1</code>, assert process</td>
-</tr>
-<tr>
-<td>macOS menubar</td>
-<td>Mostly</td>
-<td>process + launchctl + codesign; menu pixel optional</td>
-</tr>
-<tr>
-<td>Installer L4</td>
-<td>Yes on clean KVM / disposable Win profile</td>
-<td>not on a production macOS wipe</td>
-</tr>
-</tbody>
-</table>
-<h2 id="artifacts">Artifacts<a class="headerlink" href="#artifacts" title="Permanent link">&para;</a></h2>
+<p>Idempotent setup/probe helpers live under <code>tests/e2e/harness/</code>. They are test infrastructure, not installation entry points.</p>
+<h2 id="evidence">Evidence<a class="headerlink" href="#evidence" title="Permanent link">&para;</a></h2>
+<p>A complete run records:</p>
 <ul>
-<li>JSON summary (<code>--json</code>)</li>
-<li>Optional screenshots under <code>artifacts/e2e/&lt;run-id&gt;/</code></li>
-<li>Exit non-zero if any <strong>required</strong> suite fails</li>
+<li>exact local binary version,</li>
+<li>peer/version matrix,</li>
+<li>command exit codes and output,</li>
+<li>file checksum results,</li>
+<li>screenshots/video metadata for desktop lanes,</li>
+<li>JSON summary,</li>
+<li>skipped lanes with reasons.</li>
 </ul>
-<h2 id="run-on-completion-checklist">Run-on-completion checklist<a class="headerlink" href="#run-on-completion-checklist" title="Permanent link">&para;</a></h2>
+<p>E2E artifacts are local/CI outputs and must not be committed.</p>
+<h2 id="release-gate">Release gate<a class="headerlink" href="#release-gate" title="Permanent link">&para;</a></h2>
 <ol>
-<li><code>python3 tests/e2e/runner.py --layers L2,L3 --json /tmp/bs-e2e.json</code></li>
-<li>Review fails; fix product or harness</li>
-<li>Re-run until green before claiming full feature QA</li>
+<li>Run L0.</li>
+<li>Run L1/L2 for protocol or transfer changes.</li>
+<li>Run affected L3 platforms for CUA changes.</li>
+<li>Run L4 on disposable profiles for installer/upgrade changes.</li>
+<li>Fix product or harness failures; do not convert a required failure into a skip.</li>
 </ol>
 
 
@@ -1313,7 +1122,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 13, 2026 13:31:45 UTC">August 13, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 20, 2026 16:19:23 UTC">August 20, 2026</span>
   </span>
 
     
@@ -1372,7 +1181,7 @@
     
       
       
-      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.tabs", "navigation.sections", "navigation.expand", "search.suggest", "search.highlight", "content.code.copy", "content.action.edit"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.tabs", "navigation.sections", "search.suggest", "search.highlight", "content.code.copy"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
     
     
       <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>

@@ -6,14 +6,14 @@
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1">
       
-        <meta name="description" content="One binary. Every machine. Zero SSH. Mesh terminal relay over TLS 1.3.">
+        <meta name="description" content="Persistent shells, verified files, and desktop automation on a pinned peer mesh.">
       
       
       
         <link rel="canonical" href="https://minddragonlabs.github.io/BridgeSessions/protocol/">
       
       
-        <link rel="prev" href="../configuration/">
+        <link rel="prev" href="../design/">
       
       
         <link rel="next" href="../cua/">
@@ -263,25 +263,6 @@
   
   
     <li class="md-tabs__item">
-      <a href="../building/" class="md-tabs__link">
-        
-  
-  
-    
-  
-  Install & Build
-
-      </a>
-    </li>
-  
-
-      
-        
-  
-  
-  
-  
-    <li class="md-tabs__item">
       <a href="../usage/" class="md-tabs__link">
         
   
@@ -308,6 +289,25 @@
     
   
   Configuration
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../design/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Design
 
       </a>
     </li>
@@ -347,7 +347,7 @@
   
     
   
-  CUA (Computer Use)
+  Computer Use
 
       </a>
     </li>
@@ -379,13 +379,51 @@
   
   
     <li class="md-tabs__item">
-      <a href="../design/" class="md-tabs__link">
+      <a href="../building/" class="md-tabs__link">
         
   
   
     
   
-  Design
+  Building
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../E2E-FRAMEWORK/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  E2E Framework
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../RELEASE-PROVENANCE/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Release Provenance
 
       </a>
     </li>
@@ -408,46 +446,6 @@
 
       </a>
     </li>
-  
-
-      
-        
-  
-  
-  
-  
-    
-    
-      <li class="md-tabs__item">
-        <a href="../ARCHITECTURE-DECISION-RECORD/" class="md-tabs__link">
-          
-  
-  
-  Architecture
-
-        </a>
-      </li>
-    
-  
-
-      
-        
-  
-  
-  
-  
-    
-    
-      <li class="md-tabs__item">
-        <a href="../RELEASE-PROVENANCE/" class="md-tabs__link">
-          
-  
-  
-  Releases
-
-        </a>
-      </li>
-    
   
 
       
@@ -557,33 +555,6 @@
   
   
     <li class="md-nav__item">
-      <a href="../building/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Install & Build
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    <li class="md-nav__item">
       <a href="../usage/" class="md-nav__link">
         
   
@@ -619,6 +590,33 @@
     
   
     Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../design/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Design
   
 
     
@@ -698,10 +696,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#design-principles" class="md-nav__link">
+  <a href="#transport" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Design principles
+        Transport
       
     </span>
   </a>
@@ -709,10 +707,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#wire-format" class="md-nav__link">
+  <a href="#frames" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Wire format
+        Frames
       
     </span>
   </a>
@@ -720,10 +718,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#stream-multiplexing" class="md-nav__link">
+  <a href="#streams" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Stream multiplexing
+        Streams
       
     </span>
   </a>
@@ -731,10 +729,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#message-types" class="md-nav__link">
+  <a href="#message-families" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Message types
+        Message families
       
     </span>
   </a>
@@ -742,10 +740,32 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#clipboard-two-way-guaranteed" class="md-nav__link">
+  <a href="#handshake-and-identity" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Clipboard (two-way, guaranteed)
+        Handshake and identity
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#file-transfer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        File transfer
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#backward-compatibility" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Backward compatibility
       
     </span>
   </a>
@@ -774,7 +794,7 @@
   <span class="md-ellipsis">
     
   
-    CUA (Computer Use)
+    Computer Use
   
 
     
@@ -821,14 +841,68 @@
   
   
     <li class="md-nav__item">
-      <a href="../design/" class="md-nav__link">
+      <a href="../building/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Design
+    Building
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../E2E-FRAMEWORK/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    E2E Framework
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../RELEASE-PROVENANCE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Release Provenance
   
 
     
@@ -868,212 +942,6 @@
   
 
     
-      
-      
-  
-  
-  
-  
-    
-    
-    
-    
-      
-      
-        
-      
-    
-    
-    <li class="md-nav__item md-nav__item--nested">
-      
-        
-        
-          
-        
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_11" >
-        
-          
-          <label class="md-nav__link" for="__nav_11" id="__nav_11_label" tabindex="0">
-            
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Architecture
-  
-
-    
-  </span>
-  
-  
-
-            <span class="md-nav__icon md-icon"></span>
-          </label>
-        
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_11_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_11">
-            <span class="md-nav__icon md-icon"></span>
-            
-  
-    Architecture
-  
-
-          </label>
-          <ul class="md-nav__list" data-md-scrollfix>
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../ARCHITECTURE-DECISION-RECORD/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Decision Record
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../ARCHITECTURE-RECOMMENDATIONS/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Recommendations
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-          </ul>
-        </nav>
-      
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    
-    
-    
-    
-      
-      
-        
-      
-    
-    
-    <li class="md-nav__item md-nav__item--nested">
-      
-        
-        
-          
-        
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_12" >
-        
-          
-          <label class="md-nav__link" for="__nav_12" id="__nav_12_label" tabindex="0">
-            
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Releases
-  
-
-    
-  </span>
-  
-  
-
-            <span class="md-nav__icon md-icon"></span>
-          </label>
-        
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_12_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_12">
-            <span class="md-nav__icon md-icon"></span>
-            
-  
-    Releases
-  
-
-          </label>
-          <ul class="md-nav__list" data-md-scrollfix>
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../RELEASE-PROVENANCE/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Provenance
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-          </ul>
-        </nav>
-      
-    </li>
-  
-
-    
   </ul>
 </nav>
                   </div>
@@ -1101,10 +969,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#design-principles" class="md-nav__link">
+  <a href="#transport" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Design principles
+        Transport
       
     </span>
   </a>
@@ -1112,10 +980,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#wire-format" class="md-nav__link">
+  <a href="#frames" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Wire format
+        Frames
       
     </span>
   </a>
@@ -1123,10 +991,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#stream-multiplexing" class="md-nav__link">
+  <a href="#streams" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Stream multiplexing
+        Streams
       
     </span>
   </a>
@@ -1134,10 +1002,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#message-types" class="md-nav__link">
+  <a href="#message-families" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Message types
+        Message families
       
     </span>
   </a>
@@ -1145,10 +1013,32 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#clipboard-two-way-guaranteed" class="md-nav__link">
+  <a href="#handshake-and-identity" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Clipboard (two-way, guaranteed)
+        Handshake and identity
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#file-transfer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        File transfer
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#backward-compatibility" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Backward compatibility
       
     </span>
   </a>
@@ -1172,199 +1062,131 @@
 
 
   
-    <a href="https://github.com/MindDragonLabs/BridgeSessions/edit/main/docs/protocol.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
-      
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
-    </a>
-  
   
 
 
 <h1 id="protocol-bs">Protocol (<code>bs://</code>)<a class="headerlink" href="#protocol-bs" title="Permanent link">&para;</a></h1>
-<p>BridgeSessions speaks a single binary-framed protocol over TLS 1.2+ (prefer 1.3).</p>
-<h2 id="design-principles">Design principles<a class="headerlink" href="#design-principles" title="Permanent link">&para;</a></h2>
-<table>
-<thead>
-<tr>
-<th>Principle</th>
-<th>Implementation</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Reliable</td>
-<td>TLS 1.2+ (prefer 1.3) over TCP</td>
-</tr>
-<tr>
-<td>Secure</td>
-<td>ed25519 mutual auth, X25519 forward secrecy</td>
-</tr>
-<tr>
-<td>Compressed</td>
-<td>zstd per-frame (2–8× on terminal output)</td>
-</tr>
-<tr>
-<td>Low-latency</td>
-<td><code>TCP_NODELAY</code>, keystrokes sent immediately</td>
-</tr>
-<tr>
-<td>Firewall-friendly</td>
-<td>single TCP port (19949)</td>
-</tr>
-<tr>
-<td>Multiplexed</td>
-<td>one TCP connection, app-level stream IDs</td>
-</tr>
-</tbody>
-</table>
-<h2 id="wire-format">Wire format<a class="headerlink" href="#wire-format" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>Frame: [stream_id: u16] [type: u8] [flags: u8] [length: u16] [data]
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>flags: bit 0 = compressed (zstd), bit 1 = control frame (stream 0 only)
+<p>BridgeSessions uses binary frames over mutually authenticated TLS/TCP.</p>
+<h2 id="transport">Transport<a class="headerlink" href="#transport" title="Permanent link">&para;</a></h2>
+<ul>
+<li>TCP port: 19949 by default.</li>
+<li>Current compatibility profile: TLS 1.2.</li>
+<li>Identity: pinned Ed25519 public key carried in a self-signed certificate and repeated in Hello.</li>
+<li>Latency: <code>TCP_NODELAY</code> on interactive connections.</li>
+<li>Compression: zstd for payloads above 256 bytes.</li>
+</ul>
+<h2 id="frames">Frames<a class="headerlink" href="#frames" title="Permanent link">&para;</a></h2>
+<p>Small/legacy frame:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>stream_id:u16be | type:u8 | flags:u8 | length:u16be | payload
 </code></pre></div>
+<p>A peer advertising <code>+frm2</code> in <code>Hello.version</code> may use:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>stream_id:u16be | type:u8 | flags:u8 | length:u32be | payload
+</code></pre></div>
+<p>Limits:</p>
 <ul>
-<li>Binary framing, not newline-delimited JSON.</li>
-<li>zstd on frames &gt; 256 bytes (Output, Clipboard, Scrollback).</li>
-<li>Never compressed: Keystroke, Ping/Pong (too small).</li>
-<li>Max frame size 65535 bytes (u16). File transfer uses its own chunk protocol.
-  Reserved image message types are not a large-payload transport in 2.0.6-alpha2 and
-  have no fragmentation/reassembly or receiver rendering path.</li>
+<li>u16 payload: 65,535 bytes,</li>
+<li><code>frm2</code> payload: 4 MiB,</li>
+<li>image input: 50 MiB before conversion/encoding,</li>
+<li>decompressed payload is checked against the same logical cap before allocation/use.</li>
 </ul>
-<h2 id="stream-multiplexing">Stream multiplexing<a class="headerlink" href="#stream-multiplexing" title="Permanent link">&para;</a></h2>
-<p>One TCP connection carries many streams via app-level stream IDs.</p>
-<ul>
-<li><strong>Stream 0</strong> — control channel (Attach, Detach, SessionList, Ping/Pong).</li>
-<li><strong>Stream 1–65535</strong> — session channels (Keystroke, Output, Clipboard, Signal).</li>
-</ul>
+<p>Flags:</p>
 <table>
 <thead>
 <tr>
-<th>Event</th>
-<th>Stream action</th>
+<th>Bit</th>
+<th>Name</th>
+<th>Meaning</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>Client <code>Attach{session_name}</code></td>
-<td>Server allocates a stream ID for the attachment.</td>
+<td><code>0x01</code></td>
+<td>compressed</td>
+<td>zstd payload</td>
 </tr>
 <tr>
-<td>Client <code>Detach</code></td>
-<td>Server flushes buffered output, then closes the stream.</td>
+<td><code>0x02</code></td>
+<td>control</td>
+<td>control stream frame</td>
 </tr>
 <tr>
-<td>Client TCP disconnect</td>
-<td>All streams implicitly closed; <strong>session state preserved</strong>.</td>
+<td><code>0x04</code></td>
+<td>render markdown</td>
+<td>output rendering hint</td>
 </tr>
 <tr>
-<td>Reconnect + re-attach</td>
-<td>New TCP connection, new stream ID.</td>
+<td><code>0x08</code></td>
+<td>u32 length</td>
+<td>8-byte header / <code>frm2</code></td>
 </tr>
 </tbody>
 </table>
-<p>Sessions live 7 days. Stream IDs are scoped to a single TCP connection
-(65535 max) — effectively unlimited headroom.</p>
-<h2 id="message-types">Message types<a class="headerlink" href="#message-types" title="Permanent link">&para;</a></h2>
+<h2 id="streams">Streams<a class="headerlink" href="#streams" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Stream 0 is control: Hello, attach/detach, keepalive, gossip, transfer control.</li>
+<li>Non-zero streams identify session traffic on one connection.</li>
+<li>Stream IDs are connection-scoped. Reattach creates a new attachment; the server-side session persists.</li>
+</ul>
+<h2 id="message-families">Message families<a class="headerlink" href="#message-families" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
 <tr>
-<th>Direction</th>
-<th>Type</th>
-<th>Semantics</th>
+<th>Family</th>
+<th>Examples</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>c→s</td>
-<td>Keystroke</td>
-<td>Raw key bytes (or bracketed-paste)</td>
+<td>identity/mesh</td>
+<td>Hello, Gossip, DirectoryEnroll, Ping/Pong</td>
 </tr>
 <tr>
-<td>s→c</td>
-<td>Output</td>
-<td>PTY stdout (rendered)</td>
+<td>sessions</td>
+<td>Attach/Ack, Detach, SessionList, SessionDied, Signal</td>
 </tr>
 <tr>
-<td>c→s</td>
-<td>Resize</td>
-<td cols_="cols," rows="rows">Terminal size</td>
+<td>terminal</td>
+<td>Keystroke, Output, Resize, Scrollback/Ack</td>
 </tr>
 <tr>
-<td>s→c</td>
-<td>ClipboardGet</td>
-<td>OSC 52 captured → client clipboard</td>
+<td>files</td>
+<td>FileMeta, FileChunk, FileAck, FileRequest</td>
 </tr>
 <tr>
-<td>c→s</td>
-<td>ClipboardPut</td>
-<td>User paste → inject into session</td>
+<td>clipboard</td>
+<td>Clipboard, ClipboardEcho</td>
 </tr>
 <tr>
-<td>c→s</td>
-<td>Attach</td>
-<td>{session_name, cols, rows, term}</td>
+<td>desktop</td>
+<td>CuaRequest/Response, CuaVideoCapture/Result</td>
 </tr>
 <tr>
-<td>c→s</td>
-<td>Detach</td>
-<td>Preserve session, close stream</td>
-</tr>
-<tr>
-<td>s→c</td>
-<td>SessionList</td>
-<td>[{name, state, uptime}]</td>
-</tr>
-<tr>
-<td>s→c</td>
-<td>ServerInfo</td>
-<td>{hostname, version, load}</td>
-</tr>
-<tr>
-<td>both</td>
-<td>Ping/Pong</td>
-<td>Keepalive (every 5 s)</td>
-</tr>
-<tr>
-<td>s→c</td>
-<td>Scrollback</td>
-<td>Last N lines on attach (single bounded frame in 2.0.6-alpha2)</td>
-</tr>
-<tr>
-<td>c→s</td>
-<td>Signal</td>
-<td>^C, ^Z, ^\ → foreground process</td>
-</tr>
-<tr>
-<td>s→c</td>
-<td>ExitCode</td>
-<td code="code">Foreground process exited</td>
-</tr>
-<tr>
-<td>c→s</td>
-<td>ScrollbackAck</td>
-<td>Client ready for next scrollback chunk</td>
-</tr>
-<tr>
-<td>s→c</td>
-<td>SessionDied</td>
-<td>PTY exited unexpectedly</td>
-</tr>
-<tr>
-<td>s→c</td>
-<td>ClipboardEcho</td>
-<td>Server already has this clipboard hash</td>
+<td>optional transports</td>
+<td>DHT and WebRTC negotiation messages</td>
 </tr>
 </tbody>
 </table>
-<h2 id="clipboard-two-way-guaranteed">Clipboard (two-way, guaranteed)<a class="headerlink" href="#clipboard-two-way-guaranteed" title="Permanent link">&para;</a></h2>
-<ul>
-<li><strong>Client → server (paste):</strong> user pastes → client hashes → sends
-  <code>ClipboardPut{text, hash}</code> → server injects (bracketed-paste) → server
-  echoes <code>ClipboardEcho{hash}</code> → client records last-acked hash.</li>
-<li><strong>Server → client (copy):</strong> app emits OSC 52 → server captures, strips from
-  the stream, sends <code>ClipboardGet{text, hash}</code> → client writes to local
-  clipboard.</li>
-</ul>
-<p>Hash echo (ADR-005) prevents the copy/paste echo loop.</p>
+<p>The authoritative enum, variant, serializers, and decoders are in <code>bs-protocol.h</code>. A new message is incomplete unless all four agree and round-trip tests cover it.</p>
+<h2 id="handshake-and-identity">Handshake and identity<a class="headerlink" href="#handshake-and-identity" title="Permanent link">&para;</a></h2>
+<ol>
+<li>TCP connect.</li>
+<li>Mutual TLS handshake.</li>
+<li>Extract raw Ed25519 key from the peer certificate.</li>
+<li>Exchange Hello.</li>
+<li>Require the expected pin, certificate key, Hello key, and peer name to agree.</li>
+<li>Only then promote the transport to a live mesh connection.</li>
+</ol>
+<p>During a bounded invite window, an unknown certificate may send a JoinRequest. The single-use token is checked before authorization. Successful enrollment is signed; only configured seed keys are accepted as issuers.</p>
+<h2 id="file-transfer">File transfer<a class="headerlink" href="#file-transfer" title="Permanent link">&para;</a></h2>
+<ol>
+<li>Sender sends metadata: filename, byte size, SHA-256, chunk count, chunk size, optional destination.</li>
+<li>Receiver validates metadata and path, opens <code>&lt;target&gt;.part</code>, and replies with the first needed chunk (resume-aware).</li>
+<li>Sender streams a bounded window of chunks; receiver validates ordering/size and acknowledges progress.</li>
+<li>Receiver verifies SHA-256, atomically renames the partial, and returns a final ACK.</li>
+</ol>
+<p>Transport failure preserves a valid partial and sidecar for resume. Validation or write failure removes it.</p>
+<h2 id="backward-compatibility">Backward compatibility<a class="headerlink" href="#backward-compatibility" title="Permanent link">&para;</a></h2>
+<p>Capabilities are additive suffixes in <code>Hello.version</code> (for example <code>+frm2</code>). Never send a new frame shape to a peer that did not advertise it. Protocol changes require mixed-version tests, not only same-version loopback tests.</p>
 
 
 
@@ -1387,7 +1209,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 19, 2026 12:51:36 UTC">July 19, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 20, 2026 16:19:23 UTC">August 20, 2026</span>
   </span>
 
     
@@ -1446,7 +1268,7 @@
     
       
       
-      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.tabs", "navigation.sections", "navigation.expand", "search.suggest", "search.highlight", "content.code.copy", "content.action.edit"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.tabs", "navigation.sections", "search.suggest", "search.highlight", "content.code.copy"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
     
     
       <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
