@@ -669,10 +669,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#architecture" class="md-nav__link">
+  <a href="#core-decisions" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Architecture
+        Core decisions
       
     </span>
   </a>
@@ -680,10 +680,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#identity-trust" class="md-nav__link">
+  <a href="#source-map" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Identity &amp; trust
+        Source map
       
     </span>
   </a>
@@ -691,10 +691,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#cli-surface" class="md-nav__link">
+  <a href="#current-limits" class="md-nav__link">
     <span class="md-ellipsis">
       
-        CLI surface
+        Current limits
       
     </span>
   </a>
@@ -925,10 +925,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#architecture" class="md-nav__link">
+  <a href="#core-decisions" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Architecture
+        Core decisions
       
     </span>
   </a>
@@ -936,10 +936,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#identity-trust" class="md-nav__link">
+  <a href="#source-map" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Identity &amp; trust
+        Source map
       
     </span>
   </a>
@@ -947,10 +947,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#cli-surface" class="md-nav__link">
+  <a href="#current-limits" class="md-nav__link">
     <span class="md-ellipsis">
       
-        CLI surface
+        Current limits
       
     </span>
   </a>
@@ -978,90 +978,65 @@
 
 
 <h1 id="design">Design<a class="headerlink" href="#design" title="Permanent link">&para;</a></h1>
-<p>BridgeSessions is a <strong>single C++23 binary</strong> — a mesh terminal + file relay that
-replaces SSH, MOSH, SCP, tmux/Zellij, and WinRM with one encrypted mesh over TLS.</p>
-<p><strong>Replace:</strong> <code>ssh → scp → tmux → hermes --tui</code>
-<strong>With:</strong> <code>bs shell &lt;peer&gt; --cmd "…"</code> / <code>bs file send &lt;peer&gt; …</code> / <code>bs cua …</code></p>
-<p>One protocol. One binary. One mesh. No SSH. No mosh. No zellij.</p>
+<p>BridgeSessions is one executable with three roles: mesh daemon, client CLI, and persistent session multiplexer.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>CLI ── mutual TLS ── peer daemon ── PTY / ConPTY
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>                            ├── files
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>                            ├── desktop helper
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>                            └── peer/session gossip
+</code></pre></div>
+<h2 id="core-decisions">Core decisions<a class="headerlink" href="#core-decisions" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>Pinned identity:</strong> each node owns an Ed25519 key. Trust is the raw pinned key, not a certificate subject or public CA.</li>
+<li><strong>Persistent sessions:</strong> the server owns the terminal and child; attachments are temporary. Detach does not kill the session.</li>
+<li><strong>Single event loop:</strong> established sockets are non-blocking and outgoing frames use bounded queues.</li>
+<li><strong>Exclusive TLS ownership:</strong> long operations borrow one transport via <code>exec_busy</code>; no two threads touch the same <code>SSL*</code>.</li>
+<li><strong>Verified transfers:</strong> metadata is bounded, paths canonicalized, writes use <code>.part</code>, SHA-256 precedes atomic publish, and valid partials survive reconnect.</li>
+<li><strong>Backpressure:</strong> wire lengths, receive work per tick, TLS TX, PTY input, worker IPC, and logical output queues are bounded.</li>
+<li><strong>Desktop isolation:</strong> Windows/macOS CUA uses a token-authenticated loopback helper in the interactive user session.</li>
+<li><strong>Artifact separation:</strong> git contains source/automation; binaries and SBOMs are GitHub Release assets.</li>
+</ul>
+<h2 id="source-map">Source map<a class="headerlink" href="#source-map" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
 <tr>
-<th>Property</th>
-<th>Choice</th>
+<th>File</th>
+<th>Responsibility</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>Language</td>
-<td>C++23</td>
+<td><code>main.cpp</code></td>
+<td>CLI and self-upgrade</td>
 </tr>
 <tr>
-<td>Transport</td>
-<td>TLS 1.2+ (1.3 re-enabled once Windows PE links OpenSSL ≥ 3.6) over TCP, port <strong>19949</strong></td>
+<td><code>bs-protocol.h</code></td>
+<td>codec, TLS, mesh, transfers, IPC</td>
 </tr>
 <tr>
-<td>Compression</td>
-<td>zstd per-frame (over <code>COMPRESSION_THRESHOLD</code>)</td>
+<td><code>bs-session.h</code></td>
+<td>session lifetime and scrollback</td>
 </tr>
 <tr>
-<td>Auth</td>
-<td>ed25519 mutual TLS + pinned pubkey (<code>authorized_keys</code> + <code>seed … pubkey=</code>)</td>
+<td><code>bs-session-worker.h</code></td>
+<td>optional per-session process</td>
 </tr>
 <tr>
-<td>Build</td>
-<td>CMake 3.25+ (single <code>main.cpp</code> + header monolith)</td>
+<td><code>bs-cua-helper.h</code></td>
+<td>desktop helper</td>
+</tr>
+<tr>
+<td><code>macos-capture.mm</code></td>
+<td>ScreenCaptureKit</td>
 </tr>
 </tbody>
 </table>
-<h2 id="architecture">Architecture<a class="headerlink" href="#architecture" title="Permanent link">&para;</a></h2>
-<p>One <code>bridgesessions</code> process is simultaneously the mesh daemon, the CLI client,
-and the session multiplexer. A node holds a persistent ed25519 identity
-(<code>~/.bridgesessions/id_ed25519.pem</code> + self-signed cert), joins a mesh of peers via
-pinned seeds or a <code>join &lt;token&gt;</code>, and both <em>serves</em> shell/file/CUA requests from
-peers and <em>issues</em> them to peers over the same encrypted transport.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>        ┌──────────────────────────────────────────────┐
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>        │  bridgesessions (one binary, all roles)      │
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>        │  ├─ mesh daemon    (TLS 1.2+, port 19949)    │
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>        │  ├─ CLI client     (bs shell / file / cua)   │
-<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>        │  └─ session multiplexer (PTY / ConPTY)       │
-<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>        └──────────────────────┬───────────────────────┘
-<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>                               │  mesh over TLS 19949
-<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>        ┌──────────────────────┼───────────────────────┐
-<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>        ▼                      ▼                       ▼
-<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>   Linux peer             macOS peer             Windows peer
-<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>   (PTY sessions)         (PTY + ScreenCaptureKit)  (ConPTY + cua-helper)
-</code></pre></div>
+<h2 id="current-limits">Current limits<a class="headerlink" href="#current-limits" title="Permanent link">&para;</a></h2>
 <ul>
-<li><strong>Shell</strong> — <code>bs shell &lt;peer&gt;</code> opens a PTY (forkpty / ConPTY) session on the peer;
-  one-shot <code>--cmd</code> pipes a single command through the daemon IPC.</li>
-<li><strong>File transfer</strong> — <code>bs file send/recv</code> streams chunks over direct TLS, zstd
-  pipelined (depth 16), SHA-256 verified, with <code>PROGRESS</code> lines.</li>
-<li><strong>CUA</strong> — <code>bs cua screen/capture/click/type/key/scroll</code> drives a remote desktop
-  via a user-session helper (<code>--cua-helper</code> on Windows/macOS, xdotool on Linux).</li>
-<li><strong>Bridge Panel</strong> — a local web surface (<code>tools/bridgepanel/</code>) for document
-  review between agent and human.</li>
+<li><code>select()</code> inherits the platform FD ceiling; this targets small trusted fleets.</li>
+<li>Authorization is host-level, not capability-scoped.</li>
+<li>Cross-platform compatibility currently caps TLS at 1.2.</li>
+<li>Windows ConPTY and macOS permissions require platform E2E testing.</li>
 </ul>
-<h2 id="identity-trust">Identity &amp; trust<a class="headerlink" href="#identity-trust" title="Permanent link">&para;</a></h2>
-<ul>
-<li><strong>Keypair:</strong> ed25519, at <code>~/.bridgesessions/id_ed25519.pem</code>; the peer's public
-  key is pinned per-seed (<code>seed &lt;name&gt; &lt;addr&gt; pubkey=&lt;hex&gt;</code>).</li>
-<li><strong>Inbound auth:</strong> the TLS server verifies the client cert against
-  <code>authorized_keys</code> (one <code>pubkey &lt;hex&gt;</code> per line) — <code>SSL_VERIFY_PEER |
-  FAIL_IF_NO_PEER_CERT</code>.</li>
-<li><strong>Outbound auth:</strong> the client compares the server cert + Hello pubkey against the
-  pinned <code>expected_pubkey</code> immediately post-handshake and rejects on mismatch
-  (<code>verify_outbound_peer_identity</code>). TOFU is transport-level only; the pin is
-  enforced at the app layer.</li>
-<li><strong>Mesh bootstrap (Tailscale model):</strong> <code>bs invite</code> on a trusted seed, then
-  <code>curl …/install.sh | bash -s -- join &lt;host&gt; &lt;token&gt;</code>. The host auto-vouches for
-  the new node (signed <code>DirectoryEnrollMsg</code>), gossips it, and peers auto-trust it —
-  no manual key copying. Only explicitly-pinned <strong>seed</strong> peers may vouch.</li>
-</ul>
-<h2 id="cli-surface">CLI surface<a class="headerlink" href="#cli-surface" title="Permanent link">&para;</a></h2>
-<p><code>shell</code>, <code>sessions</code>, <code>keygen</code>, <code>authorize</code>, <code>doctor</code>, <code>peers</code>, <code>health</code>,
-<code>reconnect</code>, <code>invite</code>, <code>enroll</code>, <code>join</code>, <code>image</code>, <code>anim</code>, <code>stats</code>, <code>fleet</code>,
-<code>upgrade</code>, <code>telemetry</code>, <code>file send|recv</code>, <code>capture-video</code>, <code>cua …</code>.</p>
-<p>See <a href="../usage/">Usage</a> and <a href="../configuration/">Configuration</a> for the commands.</p>
 
 
 
@@ -1069,38 +1044,6 @@ peers and <em>issues</em> them to peers over the same encrypted transport.</p>
 
 
 
-  
-    
-  
-  
-    
-  
-
-
-  <aside class="md-source-file">
-    
-      
-  <span class="md-source-file__fact">
-    <span class="md-icon" title="Last update">
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
-    </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 20, 2026 15:19:07 UTC">August 20, 2026</span>
-  </span>
-
-    
-    
-      
-  <span class="md-source-file__fact">
-    <span class="md-icon" title="Created">
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M14.47 15.08 11 13V7h1.5v5.25l3.08 1.83c-.41.28-.79.62-1.11 1m-1.39 4.84c-.36.05-.71.08-1.08.08-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8c0 .37-.03.72-.08 1.08.69.1 1.33.32 1.92.64.1-.56.16-1.13.16-1.72 0-5.5-4.5-10-10-10S2 6.5 2 12s4.47 10 10 10c.59 0 1.16-.06 1.72-.16-.32-.59-.54-1.23-.64-1.92M18 15v3h-3v2h3v3h2v-3h3v-2h-3v-3z"/></svg>
-    </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 16, 2026 14:09:27 UTC">July 16, 2026</span>
-  </span>
-
-    
-    
-    
-  </aside>
 
 
 

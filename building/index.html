@@ -78,7 +78,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#building-bridgesessions" class="md-skip">
+        <a href="#building" class="md-skip">
           Skip to content
         </a>
       
@@ -777,38 +777,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#prerequisites" class="md-nav__link">
+  <a href="#sanitizers" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Prerequisites
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Prerequisites">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#debian-ubuntu-dependencies" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Debian / Ubuntu dependencies
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#build-the-easy-way" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Build (the easy way)
+        Sanitizers
       
     </span>
   </a>
@@ -816,54 +788,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#build-with-cmake-shipping-root" class="md-nav__link">
+  <a href="#release-platforms" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Build with CMake (shipping root)
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#cross-compiling-windows-from-linux" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Cross-compiling Windows from Linux
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#building-on-macos-arm64" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Building on macOS (arm64)
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#tests" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Tests
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#troubleshooting" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Troubleshooting
+        Release platforms
       
     </span>
   </a>
@@ -986,38 +914,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#prerequisites" class="md-nav__link">
+  <a href="#sanitizers" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Prerequisites
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Prerequisites">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#debian-ubuntu-dependencies" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Debian / Ubuntu dependencies
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#build-the-easy-way" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Build (the easy way)
+        Sanitizers
       
     </span>
   </a>
@@ -1025,54 +925,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#build-with-cmake-shipping-root" class="md-nav__link">
+  <a href="#release-platforms" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Build with CMake (shipping root)
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#cross-compiling-windows-from-linux" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Cross-compiling Windows from Linux
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#building-on-macos-arm64" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Building on macOS (arm64)
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#tests" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Tests
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#troubleshooting" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Troubleshooting
+        Release platforms
       
     </span>
   </a>
@@ -1099,109 +955,35 @@
   
 
 
-<h1 id="building-bridgesessions">Building BridgeSessions<a class="headerlink" href="#building-bridgesessions" title="Permanent link">&para;</a></h1>
-<p>BridgeSessions is C++23 and builds with either CMake or the single-file
-<code>build.sh</code>. Prebuilt binaries for Linux (x86_64), Windows (x86_64), and macOS
-(arm64) are published with each release tag.</p>
-<h2 id="prerequisites">Prerequisites<a class="headerlink" href="#prerequisites" title="Permanent link">&para;</a></h2>
-<table>
-<thead>
-<tr>
-<th>Platform</th>
-<th>Toolchain</th>
-<th>Notes</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Linux</td>
-<td><code>g++</code> ≥ 14 <strong>or</strong> <code>clang</code> ≥ 18, <code>cmake</code> ≥ 3.25</td>
-<td>Also needs OpenSSL, zstd, fmt, spdlog, CLI11, and nlohmann-json. Catch2 is required for tests. The direct <code>build.sh</code> link line uses <code>libutil</code> where the platform provides it.</td>
-</tr>
-<tr>
-<td>Windows</td>
-<td>MinGW-w64 <code>x86_64-w64-mingw32-g++</code></td>
-<td>Cross-compile from Linux, or build natively in MSVC.</td>
-</tr>
-<tr>
-<td>macOS</td>
-<td>Apple <code>clang</code> (Xcode command line tools)</td>
-<td>arm64 and x86_64.</td>
-</tr>
-</tbody>
-</table>
-<h3 id="debian-ubuntu-dependencies">Debian / Ubuntu dependencies<a class="headerlink" href="#debian-ubuntu-dependencies" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>sudo<span class="w"> </span>apt<span class="w"> </span>install<span class="w"> </span>-y<span class="w"> </span>g++<span class="w"> </span>cmake<span class="w"> </span>libssl-dev<span class="w"> </span>libzstd-dev<span class="w"> </span>libfmt-dev<span class="w"> </span>libspdlog-dev<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">  </span>libcli11-dev<span class="w"> </span>nlohmann-json3-dev<span class="w"> </span>catch2
+<h1 id="building">Building<a class="headerlink" href="#building" title="Permanent link">&para;</a></h1>
+<p>BridgeSessions requires C++23 and CMake 3.25+.</p>
+<p>Dependencies: OpenSSL 3, zstd, spdlog/fmt, CLI11, nlohmann-json, and Catch2 3 for tests.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1"># macOS</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>brew<span class="w"> </span>install<span class="w"> </span>cmake<span class="w"> </span>ninja<span class="w"> </span>openssl@3<span class="w"> </span>zstd<span class="w"> </span>fmt<span class="w"> </span>spdlog<span class="w"> </span>cli11<span class="w"> </span>nlohmann-json<span class="w"> </span>catch2
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>cmake<span class="w"> </span>-S<span class="w"> </span>.<span class="w"> </span>-B<span class="w"> </span>build<span class="w"> </span>-GNinja<span class="w"> </span>-DCMAKE_BUILD_TYPE<span class="o">=</span>RelWithDebInfo
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>cmake<span class="w"> </span>--build<span class="w"> </span>build<span class="w"> </span>--parallel
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>ctest<span class="w"> </span>--test-dir<span class="w"> </span>build<span class="w"> </span>--output-on-failure
 </code></pre></div>
-<p>The test suite requires Catch2 <strong>3.x</strong>. On distributions whose <code>catch2</code> package
-is still 2.x, install Catch2 3 from its upstream release before configuring
-CMake.</p>
-<h2 id="build-the-easy-way">Build (the easy way)<a class="headerlink" href="#build-the-easy-way" title="Permanent link">&para;</a></h2>
-<p>The repository root has a POSIX one-command build that produces the
-<code>bridgesessions</code> binary:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>./build.sh
-<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="c1"># → builds ./bridgesessions</span>
-<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>./bridgesessions<span class="w"> </span>--version<span class="w">   </span><span class="c1"># → 26.08.10-beta2</span>
+<p>Source-only release build:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>cmake<span class="w"> </span>-S<span class="w"> </span>.<span class="w"> </span>-B<span class="w"> </span>build/release<span class="w"> </span>-GNinja<span class="w"> </span>-DCMAKE_BUILD_TYPE<span class="o">=</span>Release<span class="w"> </span>-DBUILD_TESTING<span class="o">=</span>OFF
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>cmake<span class="w"> </span>--build<span class="w"> </span>build/release<span class="w"> </span>--target<span class="w"> </span>bridgesessions<span class="w"> </span>--parallel
 </code></pre></div>
-<p>The script runs:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>g++<span class="w"> </span>-std<span class="o">=</span>c++23<span class="w"> </span>-O2<span class="w"> </span>-DBS_NO_NAT<span class="w"> </span>-DBS_NO_WEBRTC<span class="w"> </span>-DBS_NO_DHT<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">    </span>-DBS_VERSION<span class="o">=</span><span class="se">\"</span><span class="m">26</span>.08.10-beta2<span class="se">\"</span><span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">    </span>-o<span class="w"> </span>bridgesessions<span class="w"> </span>bridgesessions.cpp<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="w">    </span>-lssl<span class="w"> </span>-lcrypto<span class="w"> </span>-lzstd<span class="w"> </span>-pthread<span class="w"> </span>-lutil<span class="w"> </span>-lfmt<span class="w"> </span>-lspdlog
+<p>Release builds enable stack protection, fortified libc, PIE/RELRO/NX on Linux and ASLR/NX/Control Flow Guard where supported on Windows.</p>
+<h2 id="sanitizers">Sanitizers<a class="headerlink" href="#sanitizers" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>cmake<span class="w"> </span>-S<span class="w"> </span>.<span class="w"> </span>-B<span class="w"> </span>build/asan<span class="w"> </span>-GNinja<span class="w"> </span>-DCMAKE_BUILD_TYPE<span class="o">=</span>Debug<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">  </span>-DCMAKE_CXX_FLAGS<span class="o">=</span><span class="s1">'-fsanitize=address,undefined -fno-omit-frame-pointer'</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">  </span>-DCMAKE_EXE_LINKER_FLAGS<span class="o">=</span><span class="s1">'-fsanitize=address,undefined'</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>cmake<span class="w"> </span>--build<span class="w"> </span>build/asan<span class="w"> </span>--parallel<span class="w"> </span><span class="m">2</span>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>ctest<span class="w"> </span>--test-dir<span class="w"> </span>build/asan<span class="w"> </span>--output-on-failure
 </code></pre></div>
-<h2 id="build-with-cmake-shipping-root">Build with CMake (shipping root)<a class="headerlink" href="#build-with-cmake-shipping-root" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>cmake<span class="w"> </span>-S<span class="w"> </span>.<span class="w"> </span>-B<span class="w"> </span>build<span class="w"> </span>-DCMAKE_BUILD_TYPE<span class="o">=</span>Release
-<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>cmake<span class="w"> </span>--build<span class="w"> </span>build<span class="w"> </span>-j
-<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>./build/bridgesessions<span class="w"> </span>--version<span class="w">   </span><span class="c1"># → 26.08.10-beta2</span>
-</code></pre></div>
-<p><code>VERSION</code> is the single source of truth for CLI, CMake, mesh Hello, BridgePanel,
-and release scripts.</p>
-<h2 id="cross-compiling-windows-from-linux">Cross-compiling Windows from Linux<a class="headerlink" href="#cross-compiling-windows-from-linux" title="Permanent link">&para;</a></h2>
-<p>Requires MinGW OpenSSL and zstd static libraries plus MinGW-visible CLI11,
-nlohmann-json, fmt, and spdlog headers (example cache layout used on the release
-host under <code>~/.cache/bridgesessions-cross/</code>):</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>x86_64-w64-mingw32-g++<span class="w"> </span>-std<span class="o">=</span>c++23<span class="w"> </span>-O2<span class="w"> </span>-DFMT_HEADER_ONLY<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">  </span>-DWIN32_LEAN_AND_MEAN<span class="w"> </span>-D_WIN32_WINNT<span class="o">=</span>0x0A00<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">  </span>-DBS_NO_NAT<span class="w"> </span>-DBS_NO_WEBRTC<span class="w"> </span>-DBS_NO_DHT<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="w">  </span>-DBS_VERSION<span class="o">=</span><span class="se">\"</span><span class="m">26</span>.08.10-beta2<span class="se">\"</span><span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="w">  </span>-I<span class="s2">"</span><span class="nv">$MINGW_OPENSSL</span><span class="s2">/include"</span><span class="w"> </span>-I<span class="s2">"</span><span class="nv">$ZSTD_SRC</span><span class="s2">/lib"</span><span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="w">  </span>-o<span class="w"> </span>dist/bridgesessions-windows-x86_64.exe<span class="w"> </span>bridgesessions.cpp<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="w">  </span>-L<span class="s2">"</span><span class="nv">$MINGW_OPENSSL</span><span class="s2">/lib64"</span><span class="w"> </span>-L<span class="s2">"</span><span class="nv">$ZSTD_SRC</span><span class="s2">/lib"</span><span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a><span class="w">  </span>-lssl<span class="w"> </span>-lcrypto<span class="w"> </span>-lws2_32<span class="w"> </span>-lzstd<span class="w"> </span>-lgdi32<span class="w"> </span>-luser32<span class="w"> </span>-lcrypt32<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a><span class="w">  </span>-static<span class="w"> </span>-static-libgcc<span class="w"> </span>-static-libstdc++
-</code></pre></div>
-<h2 id="building-on-macos-arm64">Building on macOS (arm64)<a class="headerlink" href="#building-on-macos-arm64" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">PATH</span><span class="o">=</span>/opt/homebrew/bin:<span class="nv">$PATH</span>
-<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="nv">SSL</span><span class="o">=</span><span class="k">$(</span>brew<span class="w"> </span>--prefix<span class="w"> </span>openssl@3<span class="k">)</span>
-<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="c1"># also: zstd fmt spdlog nlohmann-json cli11</span>
-<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>clang++<span class="w"> </span>-std<span class="o">=</span>c++23<span class="w"> </span>-O2<span class="w"> </span>-DBS_NO_NAT<span class="w"> </span>-DBS_NO_WEBRTC<span class="w"> </span>-DBS_NO_DHT<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="w">  </span>-DBS_VERSION<span class="o">=</span><span class="se">\"</span><span class="m">26</span>.08.10-beta2<span class="se">\"</span><span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="w">  </span>-I<span class="s2">"</span><span class="nv">$SSL</span><span class="s2">/include"</span><span class="w"> </span>-I<span class="s2">"</span><span class="k">$(</span>brew<span class="w"> </span>--prefix<span class="w"> </span>zstd<span class="k">)</span><span class="s2">/include"</span><span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="w">  </span>-I<span class="s2">"</span><span class="k">$(</span>brew<span class="w"> </span>--prefix<span class="w"> </span>fmt<span class="k">)</span><span class="s2">/include"</span><span class="w"> </span>-I<span class="s2">"</span><span class="k">$(</span>brew<span class="w"> </span>--prefix<span class="w"> </span>spdlog<span class="k">)</span><span class="s2">/include"</span><span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a><span class="w">  </span>-I<span class="s2">"</span><span class="k">$(</span>brew<span class="w"> </span>--prefix<span class="w"> </span>nlohmann-json<span class="k">)</span><span class="s2">/include"</span><span class="w"> </span>-I<span class="s2">"</span><span class="k">$(</span>brew<span class="w"> </span>--prefix<span class="w"> </span>cli11<span class="k">)</span><span class="s2">/include"</span><span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a><span class="w">  </span>-o<span class="w"> </span>bridgesessions-macos-arm64<span class="w"> </span>bridgesessions.cpp<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a><span class="w">  </span>-L<span class="s2">"</span><span class="nv">$SSL</span><span class="s2">/lib"</span><span class="w"> </span>-L<span class="s2">"</span><span class="k">$(</span>brew<span class="w"> </span>--prefix<span class="w"> </span>zstd<span class="k">)</span><span class="s2">/lib"</span><span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-5-11" name="__codelineno-5-11" href="#__codelineno-5-11"></a><span class="w">  </span>-L<span class="s2">"</span><span class="k">$(</span>brew<span class="w"> </span>--prefix<span class="w"> </span>fmt<span class="k">)</span><span class="s2">/lib"</span><span class="w"> </span>-L<span class="s2">"</span><span class="k">$(</span>brew<span class="w"> </span>--prefix<span class="w"> </span>spdlog<span class="k">)</span><span class="s2">/lib"</span><span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-5-12" name="__codelineno-5-12" href="#__codelineno-5-12"></a><span class="w">  </span>-lssl<span class="w"> </span>-lcrypto<span class="w"> </span>-lzstd<span class="w"> </span>-lfmt<span class="w"> </span>-lspdlog<span class="w"> </span>-pthread
-<a id="__codelineno-5-13" name="__codelineno-5-13" href="#__codelineno-5-13"></a>./bridgesessions-macos-arm64<span class="w"> </span>--version<span class="w">   </span><span class="c1"># → 26.08.10-beta2</span>
-</code></pre></div>
-<p>Clipboard integration is Windows-only in 26.08.10-beta2.</p>
-<h2 id="tests">Tests<a class="headerlink" href="#tests" title="Permanent link">&para;</a></h2>
-<p>Unit tests live under <code>tests/</code> and build against Catch2-style helpers:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>cmake<span class="w"> </span>-S<span class="w"> </span>.<span class="w"> </span>-B<span class="w"> </span>build/test<span class="w"> </span>-DCMAKE_BUILD_TYPE<span class="o">=</span>Debug
-<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>cmake<span class="w"> </span>--build<span class="w"> </span>build/test<span class="w"> </span>-j
-<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>ctest<span class="w"> </span>--test-dir<span class="w"> </span>build/test<span class="w"> </span>--output-on-failure
-</code></pre></div>
-<h2 id="troubleshooting">Troubleshooting<a class="headerlink" href="#troubleshooting" title="Permanent link">&para;</a></h2>
+<h2 id="release-platforms">Release platforms<a class="headerlink" href="#release-platforms" title="Permanent link">&para;</a></h2>
 <ul>
-<li><strong><code>std::expected</code> / <code>std::span</code> not found</strong> — you built with <code>-std=c++20</code> or
-  lower. BridgeSessions requires <strong>C++23</strong>.</li>
-<li><strong>Link errors for <code>ssl</code>/<code>zstd</code>/<code>fmt</code></strong> — install the <code>-dev</code> packages listed
-  under Prerequisites.</li>
-<li><strong><code>fmt</code> / <code>spdlog</code> ABI mismatch</strong> — ensure the system <code>libfmt</code> and <code>libspdlog</code>
-  are from the same distro snapshot; mixing sources causes link failures.</li>
+<li>Linux x86_64: <code>scripts/Dockerfile.static-linux</code> (OpenSSL 3.5 LTS, supported dependencies)</li>
+<li>Windows x86_64: <code>scripts/build-windows-mingw.sh</code> or native MSVC/vcpkg</li>
+<li>macOS arm64: native static dependency build, Developer ID sign, notarize</li>
 </ul>
+<p><code>dist/</code> is ignored local staging. Generated artifacts belong in GitHub Releases, not commits. See <a href="../RELEASE-PROVENANCE/">Release provenance</a>.</p>
 
 
 
@@ -1209,38 +991,6 @@ host under <code>~/.cache/bridgesessions-cross/</code>):</p>
 
 
 
-  
-    
-  
-  
-    
-  
-
-
-  <aside class="md-source-file">
-    
-      
-  <span class="md-source-file__fact">
-    <span class="md-icon" title="Last update">
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
-    </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 10, 2026 11:58:55 UTC">August 10, 2026</span>
-  </span>
-
-    
-    
-      
-  <span class="md-source-file__fact">
-    <span class="md-icon" title="Created">
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M14.47 15.08 11 13V7h1.5v5.25l3.08 1.83c-.41.28-.79.62-1.11 1m-1.39 4.84c-.36.05-.71.08-1.08.08-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8c0 .37-.03.72-.08 1.08.69.1 1.33.32 1.92.64.1-.56.16-1.13.16-1.72 0-5.5-4.5-10-10-10S2 6.5 2 12s4.47 10 10 10c.59 0 1.16-.06 1.72-.16-.32-.59-.54-1.23-.64-1.92M18 15v3h-3v2h3v3h2v-3h3v-2h-3v-3z"/></svg>
-    </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 16, 2026 14:09:27 UTC">July 16, 2026</span>
-  </span>
-
-    
-    
-    
-  </aside>
 
 
 

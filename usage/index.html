@@ -615,10 +615,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#connect-to-a-session" class="md-nav__link">
+  <a href="#mesh-and-shells" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Connect to a session
+        Mesh and shells
       
     </span>
   </a>
@@ -626,10 +626,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#list-manage-sessions" class="md-nav__link">
+  <a href="#files" class="md-nav__link">
     <span class="md-ellipsis">
       
-        List / manage sessions
+        Files
       
     </span>
   </a>
@@ -637,10 +637,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#health-diagnostics" class="md-nav__link">
+  <a href="#scripts" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Health &amp; diagnostics
+        Scripts
       
     </span>
   </a>
@@ -648,10 +648,21 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#keys" class="md-nav__link">
+  <a href="#computer-use" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Keys
+        Computer use
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#bootstrap-and-upgrade" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Bootstrap and upgrade
       
     </span>
   </a>
@@ -663,28 +674,6 @@
     <span class="md-ellipsis">
       
         Daemon
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#bridge-panel" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Bridge Panel
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#notes" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Notes
       
     </span>
   </a>
@@ -969,10 +958,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#connect-to-a-session" class="md-nav__link">
+  <a href="#mesh-and-shells" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Connect to a session
+        Mesh and shells
       
     </span>
   </a>
@@ -980,10 +969,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#list-manage-sessions" class="md-nav__link">
+  <a href="#files" class="md-nav__link">
     <span class="md-ellipsis">
       
-        List / manage sessions
+        Files
       
     </span>
   </a>
@@ -991,10 +980,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#health-diagnostics" class="md-nav__link">
+  <a href="#scripts" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Health &amp; diagnostics
+        Scripts
       
     </span>
   </a>
@@ -1002,10 +991,21 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#keys" class="md-nav__link">
+  <a href="#computer-use" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Keys
+        Computer use
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#bootstrap-and-upgrade" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Bootstrap and upgrade
       
     </span>
   </a>
@@ -1017,28 +1017,6 @@
     <span class="md-ellipsis">
       
         Daemon
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#bridge-panel" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Bridge Panel
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#notes" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Notes
       
     </span>
   </a>
@@ -1066,51 +1044,49 @@
 
 
 <h1 id="usage">Usage<a class="headerlink" href="#usage" title="Permanent link">&para;</a></h1>
-<p>The shipping <code>bridgesessions</code> binary is the all-in-one client, daemon, and
-diagnostic tool. Older <code>bs-client</code>/<code>bs-server</code> modular documents are historical.</p>
-<h2 id="connect-to-a-session">Connect to a session<a class="headerlink" href="#connect-to-a-session" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>bridgesessions<span class="w"> </span>shell<span class="w"> </span>&lt;server&gt;<span class="w">                  </span><span class="c1"># attach to default session</span>
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>bridgesessions<span class="w"> </span>shell<span class="w"> </span>&lt;server&gt;<span class="w"> </span>--name<span class="w"> </span>hms<span class="w">       </span><span class="c1"># attach to session "hms"</span>
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>bridgesessions<span class="w"> </span>shell<span class="w"> </span>&lt;server&gt;<span class="w"> </span>--name<span class="w"> </span>logs<span class="w"> </span>--cmd<span class="o">=</span><span class="s2">"journalctl -f"</span>
+<h2 id="mesh-and-shells">Mesh and shells<a class="headerlink" href="#mesh-and-shells" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>bs<span class="w"> </span>peers<span class="w"> </span>list
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>bs<span class="w"> </span>health<span class="w"> </span>&lt;peer&gt;
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>bs<span class="w"> </span>fleet
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>bs<span class="w"> </span>stats
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>bs<span class="w"> </span>shell<span class="w"> </span>&lt;peer&gt;
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>bs<span class="w"> </span>shell<span class="w"> </span>&lt;peer&gt;<span class="w"> </span>--name<span class="w"> </span>agent
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>bs<span class="w"> </span>shell<span class="w"> </span>&lt;peer&gt;<span class="w"> </span>--cmd<span class="w"> </span><span class="s1">'hostname &amp;&amp; uptime'</span>
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>bs<span class="w"> </span>sessions<span class="w"> </span>&lt;peer&gt;
 </code></pre></div>
-<p>The short form reuses your SSH <code>Host</code> aliases for address discovery only:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>bs<span class="w"> </span>shell<span class="w"> </span>dev<span class="w">            </span><span class="c1"># short alias for bridgesessions shell dev</span>
-<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>bs<span class="w"> </span>dev<span class="w"> </span>hms<span class="w">              </span><span class="c1"># positional quick-connect to session "hms"</span>
+<p>Named sessions survive disconnect. Use one stacked shell or <code>run-script</code> for dependent work; separate one-shots do not share state.</p>
+<h2 id="files">Files<a class="headerlink" href="#files" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>bs<span class="w"> </span>file<span class="w"> </span>send<span class="w"> </span>&lt;peer&gt;<span class="w"> </span>&lt;local&gt;<span class="w"> </span>--wait
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>bs<span class="w"> </span>file<span class="w"> </span>send<span class="w"> </span>&lt;peer&gt;<span class="w"> </span>&lt;local&gt;<span class="w"> </span>--dest<span class="w"> </span>&lt;remote&gt;<span class="w"> </span>--wait
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>bs<span class="w"> </span>file<span class="w"> </span>recv<span class="w"> </span>&lt;peer&gt;<span class="w"> </span>&lt;remote&gt;<span class="w"> </span>--to<span class="w"> </span>&lt;local&gt;<span class="w"> </span>--wait
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>bs<span class="w"> </span>telemetry
 </code></pre></div>
-<h2 id="list-manage-sessions">List / manage sessions<a class="headerlink" href="#list-manage-sessions" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>bridgesessions<span class="w"> </span>sessions<span class="w"> </span>&lt;server&gt;
+<p>Transfers are resumable and SHA-256 verified. Peers serve only from <code>receive_dir</code> by default.</p>
+<h2 id="scripts">Scripts<a class="headerlink" href="#scripts" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>bs<span class="w"> </span>run-script<span class="w"> </span>&lt;peer&gt;<span class="w"> </span>./task.sh
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>bs<span class="w"> </span>script<span class="w"> </span>add<span class="w"> </span>./task.sh<span class="w"> </span>--name<span class="w"> </span>task
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>bs<span class="w"> </span>script<span class="w"> </span>push<span class="w"> </span>task<span class="w"> </span>--peer<span class="w"> </span>&lt;peer&gt;
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>bs<span class="w"> </span>script<span class="w"> </span>run<span class="w"> </span>task<span class="w"> </span>--peer<span class="w"> </span>&lt;peer&gt;<span class="w"> </span>--<span class="w"> </span><span class="s1">'arg with spaces'</span>
 </code></pre></div>
-<h2 id="health-diagnostics">Health &amp; diagnostics<a class="headerlink" href="#health-diagnostics" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>bridgesessions<span class="w"> </span>doctor<span class="w">            </span><span class="c1"># config + key presence checks</span>
-<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>bridgesessions<span class="w"> </span>--version<span class="w">         </span><span class="c1"># → 26.08.10-beta2</span>
+<p>Aliases are path-safe; cached scripts are content-addressed. Arguments are shell-quoted individually.</p>
+<h2 id="computer-use">Computer use<a class="headerlink" href="#computer-use" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>bs<span class="w"> </span>cua<span class="w"> </span>screen<span class="w"> </span>&lt;peer&gt;
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>bs<span class="w"> </span>cua<span class="w"> </span>capture<span class="w"> </span>&lt;peer&gt;<span class="w"> </span>-o<span class="w"> </span>screen.png
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>bs<span class="w"> </span>cua<span class="w"> </span>click<span class="w"> </span>&lt;peer&gt;<span class="w"> </span>--x<span class="w"> </span><span class="m">500</span><span class="w"> </span>--y<span class="w"> </span><span class="m">300</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>bs<span class="w"> </span>cua<span class="w"> </span><span class="nb">type</span><span class="w"> </span>&lt;peer&gt;<span class="w"> </span>--text<span class="w"> </span><span class="s1">'hello'</span>
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>bs<span class="w"> </span>capture-video<span class="w"> </span>&lt;peer&gt;<span class="w"> </span>--duration<span class="w"> </span><span class="m">10</span><span class="w"> </span>-o<span class="w"> </span>capture.mp4
 </code></pre></div>
-<h2 id="keys">Keys<a class="headerlink" href="#keys" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>bridgesessions<span class="w"> </span>keygen<span class="w">                        </span><span class="c1"># write ~/.bridgesessions/id_ed25519.pem</span>
-<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>bridgesessions<span class="w"> </span>authorize<span class="w"> </span>&lt;hex-pubkey&gt;<span class="w">       </span><span class="c1"># append to server authorized_keys</span>
+<h2 id="bootstrap-and-upgrade">Bootstrap and upgrade<a class="headerlink" href="#bootstrap-and-upgrade" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>bs<span class="w"> </span>invite
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>bs<span class="w"> </span>join<span class="w"> </span>&lt;seed-address&gt;:19949<span class="w"> </span>&lt;token&gt;<span class="w"> </span>--start
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>bs<span class="w"> </span>upgrade
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>bs<span class="w"> </span>upgrade<span class="w"> </span>--tag<span class="w"> </span><span class="m">26</span>.09.19-beta5
 </code></pre></div>
+<p>Upgrade downloads GitHub Release assets and requires checksum/version verification.</p>
 <h2 id="daemon">Daemon<a class="headerlink" href="#daemon" title="Permanent link">&para;</a></h2>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>bridgesessions<span class="w"> </span>--daemon<span class="w"> </span>--config<span class="w"> </span>~/.bridgesessions/config
-<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>bridgesessions<span class="w"> </span>health<span class="w"> </span>&lt;peer&gt;
-<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>bridgesessions<span class="w"> </span>stats
 </code></pre></div>
-<p>Install as a systemd user service:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>cp<span class="w"> </span>docs/service/bs-server.service<span class="w"> </span>~/.config/systemd/user/bridgesessions.service
-<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>systemctl<span class="w"> </span>--user<span class="w"> </span>daemon-reload
-<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>systemctl<span class="w"> </span>--user<span class="w"> </span><span class="nb">enable</span><span class="w"> </span>--now<span class="w"> </span>bridgesessions
-</code></pre></div>
-<h2 id="bridge-panel">Bridge Panel<a class="headerlink" href="#bridge-panel" title="Permanent link">&para;</a></h2>
-<p><code>bridgesessions pane publish &lt;file&gt;</code> copies a local Markdown file into a
-BridgePanel session so peers can read it in the web surface. See
-<a href="../bridge-panel/">Bridge Panel</a>.</p>
-<h2 id="notes">Notes<a class="headerlink" href="#notes" title="Permanent link">&para;</a></h2>
-<ul>
-<li>A disconnected client never kills the session — reattach any time.</li>
-<li>Keystrokes are sent with <code>TCP_NODELAY</code> for lowest latency.</li>
-<li>Clipboard integration is Windows-only in 26.08.10-beta2.</li>
-<li><code>image</code> and <code>anim</code> are local terminal previews; media transfer uses <code>file</code>.</li>
-<li>Remote <code>edit</code> and <code>vfolder sync</code> fail closed in 26.08.10-beta2 pending a dedicated
-  transfer transport.</li>
-</ul>
+<p>Platform installers generate service definitions. Do not copy obsolete templates from old tags.</p>
 
 
 
@@ -1118,38 +1094,6 @@ BridgePanel session so peers can read it in the web surface. See
 
 
 
-  
-    
-  
-  
-    
-  
-
-
-  <aside class="md-source-file">
-    
-      
-  <span class="md-source-file__fact">
-    <span class="md-icon" title="Last update">
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
-    </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 10, 2026 11:58:55 UTC">August 10, 2026</span>
-  </span>
-
-    
-    
-      
-  <span class="md-source-file__fact">
-    <span class="md-icon" title="Created">
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M14.47 15.08 11 13V7h1.5v5.25l3.08 1.83c-.41.28-.79.62-1.11 1m-1.39 4.84c-.36.05-.71.08-1.08.08-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8c0 .37-.03.72-.08 1.08.69.1 1.33.32 1.92.64.1-.56.16-1.13.16-1.72 0-5.5-4.5-10-10-10S2 6.5 2 12s4.47 10 10 10c.59 0 1.16-.06 1.72-.16-.32-.59-.54-1.23-.64-1.92M18 15v3h-3v2h3v3h2v-3h3v-2h-3v-3z"/></svg>
-    </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 16, 2026 14:09:27 UTC">July 16, 2026</span>
-  </span>
-
-    
-    
-    
-  </aside>
 
 
 
