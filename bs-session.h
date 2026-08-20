@@ -550,7 +550,7 @@ void Session::release_exited_runtime() {
 // Fallback: `taskkill /F /T /PID <child>` — kills the tree by PID, which works
 // even on schtasks-SYSTEM hosts (Shadow PC, avir servers) where every spawned
 // child lands in a Task Scheduler job BEFORE our AssignProcessToJobObject, so
-// KILL_ON_JOB_CLOSE silently no-ops (verified 2026-08-20 on nunn-shadow-2:
+// KILL_ON_JOB_CLOSE silently no-ops (verified 2026-08-20 on a Windows host:
 // IsProcessInJob=True pre-assign, closing our job handle left ping/cmd alive).
 //
 // The direct child handle stays live so reap_dead observes the death and

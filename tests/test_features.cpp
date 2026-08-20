@@ -340,7 +340,7 @@ TEST_CASE("resolve_peer: tier 3 prefix segment match", "[features][resolve_peer]
     cfg.node_name = "test";
     cfg.authorized_keys_path = home + "/authorized_keys";
     cfg.seeds.push_back(PeerEntry{
-        .name = "shadow-df8uluc8",  // query "shadow" should prefix-match
+        .name = "shadow-worker-1",  // query "shadow" should prefix-match
         .addr = "10.0.0.2:19949",
         .pubkey_hex = seed_pk});
 

@@ -44,13 +44,16 @@ TEST_CASE("apply_directory_enroll trusts a new member signed by a trusted issuer
     (void)issuer_cert;
 
     // Build a controller, point its authorized_keys at a temp file, and
-    // pre-authorize the ISSUER (trust root).
+    // pre-authorize the ISSUER as an explicit SEED (trust root — see H3:
+    // enrollment issuers must be pinned seeds, not merely authorized_keys
+    // entries, to prevent transitive trust).
     MeshConfig cfg;
     cfg.authorized_keys_path = (home / "authorized_keys").string();
-    {
-        std::ofstream af(cfg.authorized_keys_path);
-        af << "pubkey " << issuer_pk << "\n";
-    }
+    cfg.seeds.push_back(PeerEntry{
+        .name = "issuer-seed",
+        .addr = "100.7.7.1:19949",
+        .pubkey_hex = issuer_pk,
+    });
 
     MeshController controller(cfg, home.string());
 
@@ -116,7 +119,11 @@ TEST_CASE("enroll rejects a bad signature", "[bootstrap][enroll][apply]") {
 
     MeshConfig cfg;
     cfg.authorized_keys_path = (home / "authorized_keys").string();
-    { std::ofstream af(cfg.authorized_keys_path); af << "pubkey " << issuer_pk << "\n"; }
+    cfg.seeds.push_back(PeerEntry{
+        .name = "issuer-seed",
+        .addr = "100.5.5.1:19949",
+        .pubkey_hex = issuer_pk,
+    });
 
     MeshController controller(cfg, home.string());
 

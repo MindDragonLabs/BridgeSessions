@@ -572,8 +572,13 @@ inline WorkerResult run_session_worker_posix(const WorkerConfig& cfg) {
     }
 
 worker_shutdown:
-    // Cleanup
+    // Cleanup. After we close master_fd/child_pid here, null them out on the
+    // Session object so its destructor (which runs when `session_result` leaves
+    // scope) does NOT close the same fds a second time. A double-close lets the
+    // fd number get recycled by the client-close loop below (or a concurrent
+    // thread), so the second close would kill an unrelated live socket.
     ::close(master_fd);
+    session.master_fd = -1;
     if (child_pid > 0) {
         ::kill(child_pid, SIGTERM);
         int status = 0;
@@ -586,6 +591,7 @@ worker_shutdown:
             ::waitpid(child_pid, &status, 0);
         }
     }
+    session.child_pid = -1;
 
     for (auto& c : clients) {
         if (c.fd >= 0) ::close(c.fd);

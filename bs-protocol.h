@@ -4291,7 +4291,7 @@ struct MeshConfig {
     uint16_t listen_port = 19949;
     size_t max_peers = 50;
     int gossip_interval_secs = 30;
-    int reconnect_backoff_max_secs = 30;
+    int reconnect_backoff_max_secs = 300;  // was 30 → dead-seed TLS-retry storm (RSS 3GB, 48% CPU)
     int join_window_max_secs = 300;
     int startup_wait_secs = 30;  // boot-time network readiness gate (0 = skip)
     std::string receive_dir_override;  // override default received/ path (for SYSTEM daemons)
@@ -4761,7 +4761,7 @@ void write_peer_line(std::ostream& os, const std::string& prefix, const PeerEntr
         name[name.size() - query.size() - 1] == '-' &&
         std::equal(query.rbegin(), query.rend(), name.rbegin(), ic_eq))
         return true;
-    // Exact prefix: "shadow" matches "shadow-df8uluc8"
+    // Exact prefix: "shadow" matches "shadow-worker-1"
     if (name.size() > query.size() &&
         name[query.size()] == '-' &&
         std::equal(query.begin(), query.end(), name.begin(), ic_eq))
@@ -10350,6 +10350,35 @@ private:
         // Resolve relative paths against receive_dir_ without double-nesting
         // client-supplied `.bridgesessions/received/` / `received/` prefixes.
         std::string resolved_path = resolve_file_request_path(path, receive_dir_);
+        // M4 hardening: a peer must never be able to pull an arbitrary absolute
+        // path off this host (e.g. ~/.ssh/id_rsa, ~/.aws/credentials, browser
+        // cookie DBs). Only files under receive_dir_ are servable unless the
+        // operator explicitly opts into transfer.allow_sensitive_paths.
+        if (!config_.allow_sensitive_paths && !resolved_path.empty()) {
+            namespace fsr = std::filesystem;
+            std::error_code pec;
+            auto canon_root = fsr::weakly_canonical(receive_dir_, pec);
+            auto canon_res  = fsr::weakly_canonical(resolved_path, pec);
+            bool outside = false;
+            if (!pec) {
+                auto root_str = canon_root.string();
+                auto res_str  = canon_res.string();
+                outside = !(res_str.size() >= root_str.size() &&
+                            res_str.compare(0, root_str.size(), root_str) == 0);
+            } else {
+                // If canonicalization failed, refuse absolute paths conservatively.
+                fsr::path rp(resolved_path);
+                outside = rp.is_absolute();
+            }
+            if (outside) {
+                log_event("file_request_error", "refused path outside receive_dir");
+                try {
+                    write_frame(ssl, FileAckMsg{0, 0, true, "refused path outside receive_dir"},
+                                CONTROL_STREAM_ID);
+                } catch (...) {}
+                return "ERROR refused path outside receive_dir";
+            }
+        }
         if (!resolved_path.empty() && is_sensitive_mesh_path(resolved_path) &&
             !config_.allow_sensitive_paths) {
             log_event("file_request_error", "refused sensitive path");
@@ -11862,10 +11891,22 @@ public:
     // that we do not already trust. Idempotent: re-applying an already-known
     // member is a no-op.
     bool apply_directory_enroll(const DirectoryEnrollMsg& e) {
-        // 1. Issuer must already be a trusted pubkey (seed or authorized_keys).
-        //    This is the trust root: an unknown signer cannot bootstrap a member.
-        if (!is_trusted_pubkey(e.issuer_pubkey)) {
-            log_event("enroll_rejected_untrusted_issuer", e.name);
+        // 1. Issuer must be an explicitly-pinned SEED peer (config `seed ...
+        //    pubkey=`), not merely any authorized_keys entry. This limits the
+        //    enrollment trust root to operator-provisioned peers and prevents a
+        //    single auto-enrolled member from transitively vouching for an
+        //    arbitrary new key mesh-wide (Tailscale admin-key model: only the
+        //    provisioned trust root can bootstrap members). An unknown signer
+        //    cannot bootstrap a member either way.
+        bool issuer_is_seed = false;
+        for (const auto& s : config_.seeds) {
+            if (!s.pubkey_hex.empty() && s.pubkey_hex == e.issuer_pubkey) {
+                issuer_is_seed = true;
+                break;
+            }
+        }
+        if (!issuer_is_seed) {
+            log_event("enroll_rejected_issuer_not_seed", e.name);
             return false;
         }
         // 2. Freshness guard — reject stale enrollments (clock-skew tolerant).
@@ -12948,6 +12989,18 @@ private:
                 return;
             }
 
+            // R7: bound rx_buffer before draining. A hostile/buggy peer can
+            // advertise a multi-GB frame length (FLAG_LENGTH_U32) and trick us
+            // into buffering it in RAM before decode rejects it. Frames larger
+            // than the largest legitimate payload are malformed — drop the conn.
+            constexpr size_t kRxBufferHardCap = 64u * 1024u * 1024u;  // 64 MiB sanity ceiling
+            if (c.rx_buffer.size() > kRxBufferHardCap) {
+                log_event("mesh_conn_close", c.peer_name +
+                          " reason=rx_buffer_overflow bytes=" + std::to_string(c.rx_buffer.size()));
+                close_conn(c);
+                return;
+            }
+
             auto messages = drain_complete_frames(c.rx_buffer);
             for (auto& msg : messages) {
                 if (static_cast<size_t>(conn_idx) >= conns_.size()) return;
@@ -13493,8 +13546,17 @@ public:
         NodeTlsConfig connect_cfg;
         connect_cfg.cert_file = cert_path;
         connect_cfg.key_file = key_path;
+        // Outbound peer authentication is enforced at the application layer in
+        // connect_and_hello() / verify_outbound_peer_identity(), which compare
+        // the certificate + Hello public key against the pinned `expected_pubkey`
+        // immediately after the TLS handshake and reject on any mismatch. The
+        // TLS-level verify callback therefore accepts the peer cert (TOFU at the
+        // transport layer) so that pin enforcement can happen one layer up with
+        // the full per-peer pin context, which a daemon-wide shared SSL_CTX
+        // cannot carry. Do NOT add a permissive callback here that shadows the
+        // app-layer check — see connect_and_hello() for the authoritative gate.
         connect_cfg.tofu_cb = [](const std::string& /*fingerprint*/) {
-            return true;
+            return true;  // transport TOFU; pin enforced post-handshake (see above)
         };
         tls_connect_ = create_node_tls(connect_cfg, TlsMode::Connect, nullptr, &tofu_cb_);
 
