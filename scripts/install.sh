@@ -127,6 +127,15 @@ if [ "${NEEDS_DOWNLOAD}" = "1" ]; then
   curl -fsSL --progress-bar "${BASE}/${BIN}" -o "${TMP_BIN}"
   chmod +x "${TMP_BIN}"
   validate_binary "${TMP_BIN}"
+  # Clear the quarantine flag macOS stamps on downloaded binaries. Without
+  # this, Gatekeeper kills an unnotarized Developer ID binary with SIGKILL
+  # (exit 137) on first run — the classic "curl install works, binary dies".
+  # curl itself does not set quarantine, but launchd/Spotlight/other download
+  # paths can, so strip it defensively here and after the swap below.
+  if [ "${os}" = "Darwin" ]; then
+    xattr -d com.apple.quarantine "${TMP_BIN}" 2>/dev/null || true
+    xattr -cr "${TMP_BIN}" 2>/dev/null || true
+  fi
 
   # SHA-256 checksum verification
   TMP_SUMS="${INSTALL_DIR}/.SHA256SUMS.$$"
@@ -164,6 +173,11 @@ if [ "${NEEDS_DOWNLOAD}" = "1" ]; then
   fi
   mv -f "${TMP_BIN}" "${INSTALL_DIR}/${BIN_NAME}"
   chmod +x "${INSTALL_DIR}/${BIN_NAME}"
+  # Strip quarantine again post-swap (the mv may re-stamp it on some macOS).
+  if [ "${os}" = "Darwin" ]; then
+    xattr -d com.apple.quarantine "${INSTALL_DIR}/${BIN_NAME}" 2>/dev/null || true
+    xattr -cr "${INSTALL_DIR}/${BIN_NAME}" 2>/dev/null || true
+  fi
 
   # Create 'bs' symlink for CLI shorthand (was only created in the .app branch,
   # so bare-binary installs ended up with 'bs: command not found').
