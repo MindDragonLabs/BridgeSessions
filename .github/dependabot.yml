@@ -13,4 +13,3 @@ updates:
     ignore:
       # Ubuntu 22.04 is the deliberate glibc compatibility floor.
       - dependency-name: ubuntu
-        update-types: ["version-update:semver-major"]
