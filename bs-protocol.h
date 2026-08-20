@@ -62,6 +62,7 @@
 #include <chrono>
 #include <random>
 #include <cstdio>
+#include <cstdlib>
 #include <fstream>
 #include <sstream>
 #include <iomanip>
@@ -6688,6 +6689,13 @@ public:
                 GetExitCodeProcess(s->child_pid, &code);
                 exit_code = static_cast<int32_t>(code);
                 record_history_locked(*s, exit_code, "died");
+                // A3: reap the whole tree BEFORE nulling child_pid. The direct
+                // child has exited, but its grandchildren (nested cmd / ping)
+                // may still be alive — on schtasks-SYSTEM hosts the Job Object
+                // no-ops, so kill_tree()'s taskkill /T /PID fallback is the only
+                // thing that reaches them. Must run while child_pid is still a
+                // valid handle (GetProcessId needs it).
+                s->kill_tree();
                 CloseHandle(s->child_pid);
                 s->child_pid = nullptr;
             }
@@ -12696,6 +12704,12 @@ public:
                 DWORD exit_code = 0;
                 GetExitCodeProcess(s->child_pid, &exit_code);
                 sessions_.record_finished(*s, static_cast<int32_t>(exit_code), "died");
+                // A3: reap the whole tree BEFORE nulling child_pid. The ConPTY
+                // root exited, but grandchildren (nested cmd / background jobs)
+                // may still be alive — on schtasks-SYSTEM hosts the Job Object
+                // no-ops, so kill_tree()'s taskkill /T /PID fallback is the only
+                // thing that reaches them. Must run while child_pid is valid.
+                s->kill_tree();
                 CloseHandle(s->child_pid);
                 s->child_pid = nullptr;
                 s->release_exited_runtime();

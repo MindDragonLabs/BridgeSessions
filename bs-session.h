@@ -382,10 +382,9 @@ Session::~Session() {
         CloseHandle(write_handle);
         write_handle = nullptr;
     }
-    if (job_handle) {   // A3: KILL_ON_JOB_CLOSE terminates the whole tree first
-        CloseHandle(job_handle);
-        job_handle = nullptr;
-    }
+    // A3: kill the whole process tree (job-close + taskkill /T fallback) before
+    // terminating the direct child, so grandchildren never outlive the session.
+    kill_tree();
     if (child_pid) {
         TerminateProcess(child_pid, 1);
         WaitForSingleObject(child_pid, 5000);
@@ -541,13 +540,37 @@ void Session::release_exited_runtime() {
 }
 
 #ifdef _WIN32
-// A3: closing the Job Object (KILL_ON_JOB_CLOSE) terminates the ConPTY root,
-// the shell, and every descendant. The direct child handle stays live so
-// reap_dead observes the death and records exit history normally.
+// A3: kill the whole child process tree by PID, independent of Job Object
+// topology.
+//
+// Primary: close the Job Object (KILL_ON_JOB_CLOSE) — terminates the ConPTY
+// root + shell + every descendant on interactive-session hosts where the child
+// is NOT pre-wrapped in a Task Scheduler job.
+//
+// Fallback: `taskkill /F /T /PID <child>` — kills the tree by PID, which works
+// even on schtasks-SYSTEM hosts (Shadow PC, avir servers) where every spawned
+// child lands in a Task Scheduler job BEFORE our AssignProcessToJobObject, so
+// KILL_ON_JOB_CLOSE silently no-ops (verified 2026-08-20 on nunn-shadow-2:
+// IsProcessInJob=True pre-assign, closing our job handle left ping/cmd alive).
+//
+// The direct child handle stays live so reap_dead observes the death and
+// records exit history normally.
 void Session::kill_tree() {
+    // 1. Best-effort Job Object close (fast, no subprocess spawn).
     if (job_handle) {
         CloseHandle(job_handle);
         job_handle = nullptr;
+    }
+    // 2. Deterministic taskkill /T fallback — reaches grandchildren regardless
+    //    of job ownership. taskkill is always on PATH on Windows and blocks
+    //    until the tree is gone. /PID is an integer, no shell-injection surface.
+    if (child_pid) {
+        const DWORD pid = GetProcessId(child_pid);
+        if (pid != 0) {
+            std::string cmd = "taskkill /F /T /PID " + std::to_string(pid) +
+                              " >nul 2>&1";
+            (void)std::system(cmd.c_str());
+        }
     }
 }
 #endif
