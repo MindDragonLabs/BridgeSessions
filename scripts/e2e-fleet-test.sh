@@ -302,17 +302,17 @@ test_peer() {
     record FAIL "$peer" file_send_verify "marker missing; out=${out//$'\n'/ }"
   fi
 
-  # file recv: create remote file at a known absolute path, then pull
+  # file recv: create a remote file inside receive_dir (M4: peers may only
+  # serve files under receive_dir, never arbitrary absolute paths), then pull
+  # it by basename (resolve_file_request_path resolves basenames under receive_dir).
   case "$os" in
     windows)
-      # Prefer profile-relative absolute path (expandable on remote, stable for file recv)
-      # Avoid hardcoding C:\Users\<name>; use Windows Temp (no profile PII).
-      remote_path="C:/Windows/Temp/bs-e2e-recv.txt"
-      run_to "$BS_BIN" shell "$peer" --cmd "powershell -NoProfile -Command \"Set-Content -Path '$remote_path' -Value '$marker' -NoNewline\"" >/dev/null 2>&1 || true
+      run_to "$BS_BIN" shell "$peer" --cmd "powershell -NoProfile -Command \"New-Item -ItemType Directory -Force -Path (Join-Path \$env:USERPROFILE '.bridgesessions\received') | Out-Null; Set-Content -Path (Join-Path \$env:USERPROFILE '.bridgesessions\received\bs-e2e-recv.txt') -Value '$marker' -NoNewline\"" >/dev/null 2>&1 || true
+      remote_path="bs-e2e-recv.txt"
       ;;
     *)
-      remote_path="/tmp/bs-e2e-recv.txt"
-      run_to "$BS_BIN" shell "$peer" --cmd "printf '%s\n' '$marker' > /tmp/bs-e2e-recv.txt" >/dev/null 2>&1 || true
+      run_to "$BS_BIN" shell "$peer" --cmd "mkdir -p \"\$HOME/.bridgesessions/received\" && printf '%s\n' '$marker' > \"\$HOME/.bridgesessions/received/bs-e2e-recv.txt\"" >/dev/null 2>&1 || true
+      remote_path="bs-e2e-recv.txt"
       ;;
   esac
   tmp_recv="$WORKDIR/recv-${peer}.txt"

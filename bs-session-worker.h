@@ -43,6 +43,9 @@ typedef int pid_t;
 
 #include <cstring>
 #include <cstdlib>
+#include <algorithm>
+#include <cstddef>
+#include <cstdint>
 #include <string>
 #include <vector>
 #include <atomic>
@@ -375,6 +378,44 @@ inline WorkerResult run_session_worker_posix(const WorkerConfig& cfg) {
     int master_fd = session.master_fd;
     pid_t child_pid = session.child_pid;
 
+    // The worker event loop must never block on a child that stops reading.
+    const int master_flags = ::fcntl(master_fd, F_GETFL, 0);
+    if (master_flags < 0 ||
+        ::fcntl(master_fd, F_SETFL, master_flags | O_NONBLOCK) < 0) {
+        ::close(listen_fd);
+        ::unlink(cfg.socket_path.c_str());
+        return {-1, 0};
+    }
+
+    constexpr size_t kPendingPtyInputCap = 1024u * 1024u;
+    std::vector<uint8_t> pending_pty_input;
+    size_t pending_pty_offset = 0;
+    auto drain_pending_pty_input = [&]() {
+        while (pending_pty_offset < pending_pty_input.size()) {
+            const ssize_t n = ::write(
+                master_fd, pending_pty_input.data() + pending_pty_offset,
+                pending_pty_input.size() - pending_pty_offset);
+            if (n > 0) {
+                pending_pty_offset += static_cast<size_t>(n);
+                continue;
+            }
+            if (n < 0 && errno == EINTR) continue;
+            if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) break;
+            pending_pty_input.clear();
+            pending_pty_offset = 0;
+            break;
+        }
+        if (pending_pty_offset == pending_pty_input.size()) {
+            pending_pty_input.clear();
+            pending_pty_offset = 0;
+        } else if (pending_pty_offset >= 64u * 1024u) {
+            pending_pty_input.erase(
+                pending_pty_input.begin(),
+                pending_pty_input.begin() + static_cast<std::ptrdiff_t>(pending_pty_offset));
+            pending_pty_offset = 0;
+        }
+    };
+
     // Ignore SIGPIPE — write to dead socket returns error, not signal death
     ::signal(SIGPIPE, SIG_IGN);
 
@@ -403,9 +444,13 @@ inline WorkerResult run_session_worker_posix(const WorkerConfig& cfg) {
     // 4. Event loop
     while (!child_died) {
         fd_set read_fds;
+        fd_set write_fds;
         FD_ZERO(&read_fds);
+        FD_ZERO(&write_fds);
         FD_SET(listen_fd, &read_fds);
         FD_SET(master_fd, &read_fds);
+        if (pending_pty_offset < pending_pty_input.size())
+            FD_SET(master_fd, &write_fds);
         int max_fd = std::max(listen_fd, master_fd);
 
         for (const auto& c : clients) {
@@ -415,24 +460,35 @@ inline WorkerResult run_session_worker_posix(const WorkerConfig& cfg) {
             }
         }
 
-        timeval tv{1, 0};  // 1 second timeout for child-death checks
-        int ready = ::select(max_fd + 1, &read_fds, nullptr, nullptr, &tv);
+        timeval tv{0, 100000};  // 100 ms child-death/input-latency bound
+        int ready = ::select(max_fd + 1, &read_fds, &write_fds, nullptr, &tv);
         if (ready < 0) {
             if (errno == EINTR) continue;
             break;
+        }
+
+        if (FD_ISSET(master_fd, &write_fds)) {
+            drain_pending_pty_input();
         }
 
         // Accept new controller connections
         if (FD_ISSET(listen_fd, &read_fds)) {
             int cfd = ::accept(listen_fd, nullptr, nullptr);
             if (cfd >= 0) {
-                // Send READY message to the new client
+                // Bound writes to a stalled controller. A slow client is dropped
+                // rather than freezing PTY output for every other client.
+                timeval send_timeout{0, 100000};
+                (void)::setsockopt(cfd, SOL_SOCKET, SO_SNDTIMEO,
+                                   &send_timeout, sizeof(send_timeout));
+
+                // READY payload = UTF-8 session name followed by child pid (u32be).
                 std::string ready_payload = cfg.session_name;
+                uint8_t pid_bytes[4];
+                write_u32be(pid_bytes, static_cast<uint32_t>(child_pid));
+                ready_payload.append(reinterpret_cast<const char*>(pid_bytes),
+                                     sizeof(pid_bytes));
                 bool sent = worker_send(cfd, WMSG_READY, ready_payload);
                 if (sent) {
-                    // Append child PID as int32 at end of ready payload
-                    uint8_t pid_bytes[4];
-                    write_u32be(pid_bytes, static_cast<uint32_t>(child_pid));
                     // Send scrollback to new client
                     auto sb = scrollback.read_last_lines(8192);
                     if (!sb.empty()) {
@@ -486,18 +542,28 @@ inline WorkerResult run_session_worker_posix(const WorkerConfig& cfg) {
 
             switch (wmsg.type) {
                 case WMSG_INPUT: {
-                    // Write to PTY master
                     if (!wmsg.data.empty()) {
-                        ssize_t written = 0;
-                        while (written < static_cast<ssize_t>(wmsg.data.size())) {
-                            ssize_t w = ::write(master_fd, wmsg.data.data() + written,
-                                               wmsg.data.size() - written);
-                            if (w < 0) {
-                                if (errno == EINTR) continue;
-                                break;
-                            }
-                            written += w;
+                        const size_t pending_bytes =
+                            pending_pty_input.size() - pending_pty_offset;
+                        if (wmsg.data.size() > kPendingPtyInputCap -
+                                                  std::min(pending_bytes,
+                                                           kPendingPtyInputCap)) {
+                            // Backpressure contract: disconnect a client that
+                            // exceeds the bounded input queue.
+                            ::close(it->fd);
+                            it = clients.erase(it);
+                            continue;
                         }
+                        if (pending_pty_offset > 0) {
+                            pending_pty_input.erase(
+                                pending_pty_input.begin(),
+                                pending_pty_input.begin() +
+                                    static_cast<std::ptrdiff_t>(pending_pty_offset));
+                            pending_pty_offset = 0;
+                        }
+                        pending_pty_input.insert(pending_pty_input.end(),
+                                                 wmsg.data.begin(), wmsg.data.end());
+                        drain_pending_pty_input();
                     }
                     break;
                 }
@@ -572,23 +638,27 @@ inline WorkerResult run_session_worker_posix(const WorkerConfig& cfg) {
     }
 
 worker_shutdown:
-    // Cleanup. After we close master_fd/child_pid here, null them out on the
-    // Session object so its destructor (which runs when `session_result` leaves
-    // scope) does NOT close the same fds a second time. A double-close lets the
-    // fd number get recycled by the client-close loop below (or a concurrent
-    // thread), so the second close would kill an unrelated live socket.
-    ::close(master_fd);
+    // Cleanup. Transfer ownership away from Session before local RAII runs so
+    // no descriptor or child is closed twice.
+    if (master_fd >= 0) ::close(master_fd);
     session.master_fd = -1;
     if (child_pid > 0) {
-        ::kill(child_pid, SIGTERM);
+        // forkpty makes the shell a process-group leader. Kill the whole group
+        // so background jobs cannot outlive the worker.
+        ::kill(-child_pid, SIGTERM);
         int status = 0;
-        for (int i = 0; i < 50; ++i) {
-            if (::waitpid(child_pid, &status, WNOHANG) == child_pid) break;
-            ::usleep(100000);
+        bool reaped = false;
+        for (int i = 0; i < 10; ++i) {
+            const pid_t waited = ::waitpid(child_pid, &status, WNOHANG);
+            if (waited == child_pid || (waited < 0 && errno == ECHILD)) {
+                reaped = true;
+                break;
+            }
+            ::usleep(50000);
         }
-        if (::waitpid(child_pid, &status, WNOHANG) != child_pid) {
-            ::kill(child_pid, SIGKILL);
-            ::waitpid(child_pid, &status, 0);
+        if (!reaped) {
+            ::kill(-child_pid, SIGKILL);
+            while (::waitpid(child_pid, &status, 0) < 0 && errno == EINTR) {}
         }
     }
     session.child_pid = -1;
@@ -876,10 +946,17 @@ inline std::vector<DiscoveredWorker> discover_workers(const std::string& app_hom
             continue;
         }
 
-        // Wait for READY message
+        // Wait for READY message. The final four payload bytes are child pid
+        // (u32be); older workers omit them and remain compatible.
         WorkerMessage msg;
         pid_t child_pid = -1;
         if (worker_recv(fd, msg, 2000) && msg.type == WMSG_READY) {
+            if (msg.data.size() == session_name.size() + 4 &&
+                std::equal(session_name.begin(), session_name.end(),
+                           msg.data.begin())) {
+                child_pid = static_cast<pid_t>(
+                    read_u32be(msg.data.data() + msg.data.size() - 4));
+            }
             DiscoveredWorker dw;
             dw.session_name = session_name;
             dw.socket_path = full_path;

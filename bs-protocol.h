@@ -1535,6 +1535,12 @@ struct TransferChunkValidation {
     std::string& pending,
     std::string_view chunk,
     const std::function<void(const std::string&)>& emit_progress) {
+    constexpr size_t kMaxPendingIpcLine = 1024u * 1024u;
+    if (chunk.size() > kMaxPendingIpcLine -
+                           std::min(pending.size(), kMaxPendingIpcLine)) {
+        pending.clear();
+        return std::string("ERROR IPC response exceeds 1 MiB");
+    }
     pending.append(chunk);
     size_t consumed = 0;
     while (true) {
@@ -2837,13 +2843,21 @@ void write_frame(SSL* ssl, const Message& msg, uint16_t stream_id,
 [[nodiscard]] inline std::optional<Message> read_frame_nonblocking(
     SSL* ssl, std::vector<uint8_t>& rx_buffer, int* want_error = nullptr) {
     if (want_error) *want_error = SSL_ERROR_WANT_READ;
-    for (;;) {
+    constexpr size_t kHandshakeReadBudget = 64u * 1024u;
+    constexpr size_t kHandshakeBufferCap = 1024u * 1024u;
+    size_t read_this_call = 0;
+    while (read_this_call < kHandshakeReadBudget) {
         std::array<uint8_t, 4096> chunk{};
         size_t n = 0;
         clear_stale_ssl_errors_before_io();
         int ret = SSL_read_ex(ssl, chunk.data(), chunk.size(), &n);
         if (ret > 0 && n > 0) {
-            rx_buffer.insert(rx_buffer.end(), chunk.begin(), chunk.begin() + static_cast<std::ptrdiff_t>(n));
+            if (rx_buffer.size() > kHandshakeBufferCap - n)
+                throw std::runtime_error("handshake frame exceeds buffer cap");
+            rx_buffer.insert(rx_buffer.end(), chunk.begin(),
+                             chunk.begin() + static_cast<std::ptrdiff_t>(n));
+            read_this_call += n;
+            if (buffered_bytes_hold_complete_frame(rx_buffer)) break;
             continue;
         }
         int err = SSL_get_error(ssl, ret);
@@ -7806,6 +7820,7 @@ struct LongOperationTask {
         EditUpload,
         VFolderSync,
         RemoteFileRequest,
+        AutoUpgrade,
     };
     Type type;
     std::string peer_name;
@@ -7916,6 +7931,11 @@ public:
         uint32_t received_chunks = 0;
         size_t chunk_raw_size = kTransferChunkRawSizeDefault;
         std::ofstream file;
+        // Fresh transfers hash incrementally as chunks arrive, avoiding an
+        // O(file-size) verification pass on the single-threaded event loop.
+        // Resumed transfers fall back to a final streaming re-hash because an
+        // EVP digest state cannot be reconstructed from the sidecar.
+        std::unique_ptr<Sha256Stream> hasher;
         bool active = false;
     };
 
@@ -7999,7 +8019,7 @@ public:
         // Encoded frames (ping/gossip/acks/output) wait here instead of
         // blocking the event loop in write_frame() up to 30s. Drained when
         // select() reports the socket writable (or immediately on enqueue).
-        static constexpr size_t kTxQueueHighWaterBytes = 2u * 1024u * 1024u;
+        static constexpr size_t kTxQueueHighWaterBytes = 8u * 1024u * 1024u;
         struct QueuedTxFrame {
             std::vector<uint8_t> data;
             size_t offset = 0;
@@ -8026,9 +8046,12 @@ public:
     static bool is_live_mesh_transport_for(const Conn& conn,
                                            const std::string& peer_name,
                                            bool require_idle = true) {
+        const bool transfer_reserved = !conn.pending_recv_dir.empty() ||
+                                       conn.file_receive.active;
         return conn.purpose == ConnectionPurpose::Mesh &&
                conn.sock_fd != INVALID_SOCKET &&
-               (!require_idle || !conn.exec_busy || !conn.exec_busy->load()) &&
+               (!require_idle || ((!conn.exec_busy || !conn.exec_busy->load()) &&
+                                  !transfer_reserved)) &&
                peer_name_eq(conn.peer_name, peer_name);
     }
 
@@ -8590,9 +8613,11 @@ private:
         c.close_requested = false;
         c.pending_recv_dir.clear();
         if (c.file_receive.active) {
+            // Preserve .part + .bsmeta across a transport drop so the sender can
+            // reconnect and resume. Validation/write failures remove them at the
+            // failure site; a normal connection close is not data corruption.
             c.file_receive.file.close();
-            std::error_code ec;
-            std::filesystem::remove(c.file_receive.path + ".part", ec);
+            c.file_receive.hasher.reset();
             c.file_receive.active = false;
         }
         if (c.attached_session) {
@@ -8994,6 +9019,12 @@ private:
     void maybe_schedule_auto_upgrade(const std::string& peer, const std::string& remote_ver) {
         if (!config_.auto_upgrade) return;
         if (peer.empty() || peer == config_.node_name) return;
+        // The peer name comes from a remote Hello. Never interpolate an
+        // unvalidated remote string into a shell command.
+        if (!bs_peer_name_shell_safe(peer)) {
+            log_event("auto_upgrade_rejected", "unsafe peer name");
+            return;
+        }
         if (!version_is_older(remote_ver, kBridgeSessionsVersion)) return;
         const auto now = std::chrono::steady_clock::now();
         const auto cooldown = std::chrono::seconds(
@@ -9004,15 +9035,12 @@ private:
         log_event("auto_upgrade_dispatch",
                   peer + " remote=" + remote_ver +
                   " local=" + std::string(kBridgeSessionsVersion));
-        // Detached: must not block the mesh event loop. Prefer `bs`/`bridgesessions`
-        // on PATH of the operator host that is running this daemon.
-        std::thread([peer]() {
-            // shell + upgrade; remote daemon may stop mid-command (expected).
-            std::string cmd =
-                "bridgesessions shell " + peer +
-                " --cmd 'bridgesessions upgrade' >/dev/null 2>&1";
-            std::system(cmd.c_str());
-        }).detach();
+        // Use the bounded, joinable long-operation pool instead of spawning an
+        // unbounded detached thread for every returning peer.
+        LongOperationTask task;
+        task.type = LongOperationTask::Type::AutoUpgrade;
+        task.peer_name = peer;
+        worker_pool_->enqueue(std::move(task));
     }
 
     void advance_handshakes() {
@@ -9508,7 +9536,7 @@ private:
             SdpOfferMsg offer;
             offer.peer_name = config_.node_name;
             offer.sdp = "v=0\r\no=- 0 0 IN IP4 0.0.0.0\r\ns=bridgesessions\r\nt=0 0\r\n";
-            write_frame(c.ssl.get(), offer, CONTROL_STREAM_ID);
+            (void)enqueue_frame(c, offer, CONTROL_STREAM_ID);
             log_event("webrtc_offer_sent", c.peer_name);
         } catch (...) {
             log_event("webrtc_offer_send_failed", c.peer_name);
@@ -9559,7 +9587,7 @@ private:
             SdpAnswerMsg answer;
             answer.peer_name = config_.node_name;
             answer.sdp = answer_sdp;
-            write_frame(c.ssl.get(), answer, CONTROL_STREAM_ID);
+            (void)enqueue_frame(c, answer, CONTROL_STREAM_ID);
 
             log_event("webrtc_offer_accepted", "from " + offer.peer_name);
         } catch (...) {
@@ -9594,14 +9622,22 @@ private:
             g.peers.push_back(std::move(pi));
         }
         if (!g.peers.empty()) {
-            try {
-                write_frame(c.ssl.get(), g, CONTROL_STREAM_ID);
-            } catch (...) {}
+            (void)enqueue_frame(c, g, CONTROL_STREAM_ID);
         }
 #endif
     }
 
     // ── P1: File transfer handlers ──────────────────────────────
+
+    // File receive handlers run on the event loop. Their replies must use the
+    // bounded non-blocking TX queue; a stalled peer must never freeze every
+    // other peer for write_frame()'s 30-second deadline.
+    bool enqueue_file_ack(Conn& c, FileAckMsg ack) {
+        if (enqueue_frame(c, ack, CONTROL_STREAM_ID)) return true;
+        log_event("file_ack_queue_failed", c.peer_name);
+        close_conn(c);  // reconnect/resume is safer than silently losing an ACK
+        return false;
+    }
 
     void handle_file_meta(Conn& c, const FileMetaMsg& m) {
         // Prepare receive path — never trust raw remote filenames (P0-3).
@@ -9617,7 +9653,7 @@ private:
         if (!safe_name) {
             std::string err = "rejected unsafe filename";
             log_event("file_recv_rejected", m.filename + " reason=unsafe_filename");
-            try { write_frame(c.ssl.get(), FileAckMsg{0, 0, true, err}, CONTROL_STREAM_ID); } catch (...) {}
+            (void)enqueue_file_ack(c, FileAckMsg{0, 0, true, err});
             return;
         }
         const size_t chunk_raw = effective_transfer_chunk_size(m.chunk_size);
@@ -9630,7 +9666,7 @@ private:
                       " chunks=" + std::to_string(m.total_chunks) +
                       " chunk_size=" + std::to_string(chunk_raw) +
                       " reason=" + err);
-            try { write_frame(c.ssl.get(), FileAckMsg{0, 0, true, err}, CONTROL_STREAM_ID); } catch (...) {}
+            (void)enqueue_file_ack(c, FileAckMsg{0, 0, true, err});
             return;
         }
         std::error_code ec;
@@ -9638,7 +9674,7 @@ private:
         if (ec) {
             std::string err = "cannot create receive directory";
             log_event("file_recv_failed", recv_dir + " reason=" + ec.message());
-            try { write_frame(c.ssl.get(), FileAckMsg{0, 0, true, err}, CONTROL_STREAM_ID); } catch (...) {}
+            (void)enqueue_file_ack(c, FileAckMsg{0, 0, true, err});
             return;
         }
 
@@ -9662,7 +9698,7 @@ private:
             if (!resolved) {
                 std::string err = "rejected dest path (escape or invalid)";
                 log_event("file_recv_rejected", m.dest_path + " reason=dest_escape");
-                try { write_frame(c.ssl.get(), FileAckMsg{0, 0, true, err}, CONTROL_STREAM_ID); } catch (...) {}
+                (void)enqueue_file_ack(c, FileAckMsg{0, 0, true, err});
                 return;
             }
             out_path = *resolved;
@@ -9678,13 +9714,13 @@ private:
             if (pec) {
                 std::string err = "cannot create dest parent directory";
                 log_event("file_recv_failed", out_path + " reason=" + pec.message());
-                try { write_frame(c.ssl.get(), FileAckMsg{0, 0, true, err}, CONTROL_STREAM_ID); } catch (...) {}
+                (void)enqueue_file_ack(c, FileAckMsg{0, 0, true, err});
                 return;
             }
             if (is_sensitive_mesh_path(out_path) && !config_.allow_sensitive_paths) {
                 std::string err = "refused sensitive dest path";
                 log_event("file_recv_rejected", "reason=sensitive_dest");
-                try { write_frame(c.ssl.get(), FileAckMsg{0, 0, true, err}, CONTROL_STREAM_ID); } catch (...) {}
+                (void)enqueue_file_ack(c, FileAckMsg{0, 0, true, err});
                 return;
             }
         } else {
@@ -9692,7 +9728,7 @@ private:
             if (!path_is_inside_directory(out_path, recv_dir)) {
                 std::string err = "path escapes receive directory";
                 log_event("file_recv_rejected", *safe_name + " reason=path_escape");
-                try { write_frame(c.ssl.get(), FileAckMsg{0, 0, true, err}, CONTROL_STREAM_ID); } catch (...) {}
+                (void)enqueue_file_ack(c, FileAckMsg{0, 0, true, err});
                 return;
             }
         }
@@ -9764,6 +9800,7 @@ private:
                       " bytes=" + std::to_string(resume_bytes));
         } else {
             state.file.open(part_path, std::ios::binary | std::ios::trunc);
+            state.hasher = std::make_unique<Sha256Stream>();
             // Sidecar for cross-connection resume after Wi‑Fi drops
             {
                 std::ofstream mf(meta_path, std::ios::trunc);
@@ -9777,36 +9814,38 @@ private:
             log_event("file_recv_start", *safe_name + " -> " + out_path);
         }
         state.active = state.file.is_open();
-        if (!state.active) {
-            std::string err = "cannot open " + out_path + ".part";
-            log_event("file_recv_failed", err);
-            try { write_frame(c.ssl.get(), FileAckMsg{0, 0, true, err}, CONTROL_STREAM_ID); } catch (...) {}
+        if (!state.active || (!resume && (!state.hasher || !state.hasher->ok()))) {
+            const std::string err = "cannot initialize receive file";
+            log_event("file_recv_failed", *safe_name + " reason=init_failed");
+            state.file.close();
+            fs::remove(part_path, ec);
+            state.active = false;
+            (void)enqueue_file_ack(c, FileAckMsg{0, 0, true, err});
             return;
         }
         // next_requested = first chunk we still need (0 for fresh, N for resume).
-        // error_msg carries path=<resolved> so senders can confirm scp-style dest
-        // (legacy peers leave this empty → sender warns that dest was not confirmed).
-        try {
-            write_frame(c.ssl.get(),
-                        FileAckMsg{resume ? (resume_chunks > 0 ? resume_chunks - 1 : 0)
-                                          : 0,
-                                   resume_chunks, false, "path=" + out_path},
-                        CONTROL_STREAM_ID);
-        } catch (...) {}
+        // Echo only the basename; returning an absolute local path leaks the
+        // receiver's home/username to the sending peer.
+        (void)enqueue_file_ack(
+            c, FileAckMsg{resume ? (resume_chunks > 0 ? resume_chunks - 1 : 0) : 0,
+                          resume_chunks, false,
+                          "path=" + fs::path(out_path).filename().string()});
     }
 
     void handle_file_chunk(Conn& c, const FileChunkMsg& m) {
         auto& state = c.file_receive;
         if (!state.active) {
             log_event("file_chunk_orphan", "no active receive for chunk " + std::to_string(m.chunk_index));
-            try { write_frame(c.ssl.get(), FileAckMsg{m.chunk_index, 0, true, "no active receive"}, CONTROL_STREAM_ID); } catch (...) {}
+            (void)enqueue_file_ack(
+                c, FileAckMsg{m.chunk_index, 0, true, "no active receive"});
             return;
         }
         // Decompress chunk data (zstd magic sniff — v2.0.16: handles both
         // pre-2.0.14 double-compressed and v2.0.14+ raw senders)
         std::vector<uint8_t> decompressed;
         if (!m.data.empty()) {
-            decompressed = decompress_chunk_payload(std::span<const uint8_t>(m.data.data(), m.data.size()));
+            decompressed = decompress_chunk_payload(
+                std::span<const uint8_t>(m.data.data(), m.data.size()));
         }
         const auto chunk_valid = validate_transfer_chunk(
             state.expected_size, state.received_bytes, state.received_chunks,
@@ -9819,7 +9858,8 @@ private:
             std::error_code ec;
             std::filesystem::remove(state.path + ".part", ec);
             state.active = false;
-            try { write_frame(c.ssl.get(), FileAckMsg{m.chunk_index, state.received_chunks, true, err}, CONTROL_STREAM_ID); } catch (...) {}
+            (void)enqueue_file_ack(
+                c, FileAckMsg{m.chunk_index, state.received_chunks, true, err});
             return;
         }
         if (!decompressed.empty()) {
@@ -9832,7 +9872,19 @@ private:
                 std::error_code ec;
                 std::filesystem::remove(state.path + ".part", ec);
                 state.active = false;
-                try { write_frame(c.ssl.get(), FileAckMsg{m.chunk_index, state.received_chunks, true, err}, CONTROL_STREAM_ID); } catch (...) {}
+                (void)enqueue_file_ack(
+                    c, FileAckMsg{m.chunk_index, state.received_chunks, true, err});
+                return;
+            }
+            if (state.hasher && !state.hasher->update(decompressed)) {
+                const std::string err = "sha256 update failed";
+                log_event("file_recv_failed", state.filename + " reason=hash_update");
+                state.file.close();
+                std::error_code ec;
+                std::filesystem::remove(state.path + ".part", ec);
+                state.active = false;
+                (void)enqueue_file_ack(
+                    c, FileAckMsg{m.chunk_index, state.received_chunks, true, err});
                 return;
             }
         }
@@ -9843,7 +9895,11 @@ private:
             namespace fs = std::filesystem;
             const std::string final_path = state.path;
             const std::string part_path = final_path + ".part";
-            const std::string actual = sha256_file_stream(part_path);
+            // Fresh transfers have already hashed each accepted chunk. Only a
+            // resumed transfer needs the full-file fallback pass here.
+            const std::string actual = state.hasher
+                ? state.hasher->final_hex()
+                : sha256_file_stream(part_path);
             const bool checksum_ok = !actual.empty() && actual == state.checksum;
             std::string final_error;
             if (!checksum_ok) {
@@ -9856,7 +9912,7 @@ private:
                 if (ec) {
                     final_error = "cannot publish received file";
                     log_event("file_recv_rename_failed",
-                              part_path + " -> " + final_path + " reason=" + ec.message());
+                              fs::path(part_path).filename().string() + " reason=" + ec.message());
                     fs::remove(part_path, ec);
                 }
             }
@@ -9870,71 +9926,16 @@ private:
                 fs::remove(final_path + ".part.bsmeta", mec);
             }
             state.active = false;
-            // Final ack: on success include path= so sender can prove scp dest.
-            std::string final_msg = complete_ok ? ("path=" + final_path) : final_error;
-            try { write_frame(c.ssl.get(), FileAckMsg{m.chunk_index, m.total_chunks, !complete_ok, final_msg}, CONTROL_STREAM_ID); } catch (...) {}
+            state.hasher.reset();
+            const std::string final_msg = complete_ok
+                ? ("path=" + fs::path(final_path).filename().string())
+                : final_error;
+            (void)enqueue_file_ack(
+                c, FileAckMsg{m.chunk_index, m.total_chunks, !complete_ok, final_msg});
         } else {
-            // Request next chunk
-            try { write_frame(c.ssl.get(), FileAckMsg{m.chunk_index, m.chunk_index + 1, false, ""}, CONTROL_STREAM_ID); } catch (...) {}
+            (void)enqueue_file_ack(
+                c, FileAckMsg{m.chunk_index, m.chunk_index + 1, false, ""});
         }
-    }
-
-    // ── Daemon file_send (runs inside event loop, reuses existing mesh conn) ──
-    bool daemon_file_send(const std::string& peer_name, const std::string& local_path) {
-        namespace fs = std::filesystem;
-        if (!fs::exists(local_path) || fs::is_directory(local_path)) {
-            log_event("file_send_error", "not found or is dir: " + local_path);
-            return false;
-        }
-        // Find the connection (allow file transfer even on busy conns)
-        Conn* target = nullptr;
-        for (auto& c : conns_) {
-            if (is_live_mesh_transport_for(c, peer_name, false)) { target = &c; break; }
-        }
-        if (!target) {
-            log_event("file_send_error", "no conn to " + peer_name);
-            return false;
-        }
-
-        uint64_t filesize = static_cast<uint64_t>(fs::file_size(local_path));
-        const auto shape = calculate_transfer_metadata(filesize, config_.transfer_max_bytes);
-        if (!shape.ok) {
-            log_event("file_send_error", shape.reason + ": " + local_path);
-            return false;
-        }
-        std::string filename = fs::path(local_path).filename().string();
-        std::string checksum = sha256_file_stream(local_path);
-        if (checksum.empty()) { log_event("file_send_error", "cannot hash " + local_path); return false; }
-
-        const uint32_t total_chunks = shape.expected_chunks;
-
-        FileMetaMsg meta;
-        meta.filename = filename; meta.filesize = filesize;
-        meta.checksum = checksum; meta.total_chunks = total_chunks; meta.chunk_size = static_cast<uint32_t>(kTransferChunkRawSizeDefault);
-        write_frame(target->ssl.get(), meta, CONTROL_STREAM_ID);
-        log_event("file_send_start", filename + " -> " + peer_name);
-        std::cout << "sending " << filename << " (" << filesize << " bytes, "
-                  << total_chunks << " chunk(s), sha256:" << checksum.substr(0, 12) << "...)\n";
-
-        // Fire all chunks without per-chunk ACK wait (must not block inside event loop).
-        std::ifstream infile(local_path, std::ios::binary);
-        if (!infile) { log_event("file_send_error", "cannot open " + local_path); return false; }
-        std::vector<char> raw(kTransferChunkRawSize);
-        for (uint32_t ci = 0; ci < total_chunks; ++ci) {
-            infile.read(raw.data(), static_cast<std::streamsize>(kTransferChunkRawSize));
-            size_t chunk_sz = static_cast<size_t>(infile.gcount());
-            // v2.0.12c: let encode() handle compression — manual zstd_compress here
-            // causes double compression which breaks on Windows/MinGW.
-            FileChunkMsg chunk;
-            chunk.chunk_index = ci; chunk.total_chunks = total_chunks;
-            if (chunk_sz > 0) {
-                chunk.data.assign(raw.data(), raw.data() + chunk_sz);
-            }
-            try { write_frame(target->ssl.get(), chunk, CONTROL_STREAM_ID); } catch (...) { return false; }
-        }
-        log_event("file_send_complete", filename + " " + std::to_string(filesize) + " bytes " + std::to_string(total_chunks) + " chunks");
-        std::cout << "sent " << filename << " (" << filesize << " bytes, " << total_chunks << " chunks, sha256:" << checksum.substr(0, 12) << "...)\\n";
-        return true;
     }
 
     // ── Direct TLS file send (no daemon required) ──────────────
@@ -10350,34 +10351,17 @@ private:
         // Resolve relative paths against receive_dir_ without double-nesting
         // client-supplied `.bridgesessions/received/` / `received/` prefixes.
         std::string resolved_path = resolve_file_request_path(path, receive_dir_);
-        // M4 hardening: a peer must never be able to pull an arbitrary absolute
-        // path off this host (e.g. ~/.ssh/id_rsa, ~/.aws/credentials, browser
-        // cookie DBs). Only files under receive_dir_ are servable unless the
-        // operator explicitly opts into transfer.allow_sensitive_paths.
-        if (!config_.allow_sensitive_paths && !resolved_path.empty()) {
-            namespace fsr = std::filesystem;
-            std::error_code pec;
-            auto canon_root = fsr::weakly_canonical(receive_dir_, pec);
-            auto canon_res  = fsr::weakly_canonical(resolved_path, pec);
-            bool outside = false;
-            if (!pec) {
-                auto root_str = canon_root.string();
-                auto res_str  = canon_res.string();
-                outside = !(res_str.size() >= root_str.size() &&
-                            res_str.compare(0, root_str.size(), root_str) == 0);
-            } else {
-                // If canonicalization failed, refuse absolute paths conservatively.
-                fsr::path rp(resolved_path);
-                outside = rp.is_absolute();
-            }
-            if (outside) {
-                log_event("file_request_error", "refused path outside receive_dir");
-                try {
-                    write_frame(ssl, FileAckMsg{0, 0, true, "refused path outside receive_dir"},
-                                CONTROL_STREAM_ID);
-                } catch (...) {}
-                return "ERROR refused path outside receive_dir";
-            }
+        // A remote peer may serve only files contained by receive_dir_. The
+        // canonical component-wise helper handles prefix collisions
+        // (`received-evil`) and symlinks that point outside the directory.
+        if (!config_.allow_sensitive_paths && !resolved_path.empty() &&
+            !path_is_inside_directory(resolved_path, receive_dir_)) {
+            log_event("file_request_error", "refused path outside receive_dir");
+            try {
+                write_frame(ssl, FileAckMsg{0, 0, true, "refused path outside receive_dir"},
+                            CONTROL_STREAM_ID);
+            } catch (...) {}
+            return "ERROR refused path outside receive_dir";
         }
         if (!resolved_path.empty() && is_sensitive_mesh_path(resolved_path) &&
             !config_.allow_sensitive_paths) {
@@ -10389,9 +10373,13 @@ private:
             return "ERROR refused sensitive path";
         }
         if (resolved_path.empty() || !fs::exists(resolved_path) || fs::is_directory(resolved_path)) {
-            log_event("file_request_error", "not found: " + resolved_path + " (receive_dir=" + receive_dir_ + ")");
-            try { write_frame(ssl, FileAckMsg{0, 0, true, "file not found: " + path + " (looked in " + resolved_path + ")"}, CONTROL_STREAM_ID); } catch (...) {}
-            return "ERROR file not found: " + path + " (looked in " + resolved_path + ", receive_dir=" + receive_dir_ + ")";
+            // Do not return local absolute paths or receive_dir_ to the remote.
+            log_event("file_request_error", "not found: " + fs::path(path).filename().string());
+            try {
+                write_frame(ssl, FileAckMsg{0, 0, true, "file not found"},
+                            CONTROL_STREAM_ID);
+            } catch (...) {}
+            return "ERROR file not found";
         }
         uint64_t filesize = static_cast<uint64_t>(fs::file_size(resolved_path));
         // peer_name param identifies the requester; use their Hello caps.
@@ -10631,6 +10619,21 @@ private:
             }
             break;
         }
+        case LongOperationTask::Type::AutoUpgrade: {
+            // Defense in depth: preserve the shell-safety contract even if a
+            // future caller queues this task without the front-end check.
+            if (!bs_peer_name_shell_safe(task.peer_name)) {
+                log_event("auto_upgrade_rejected", "unsafe queued peer name");
+                break;
+            }
+            const std::string cmd =
+                "bridgesessions shell " + task.peer_name +
+                " --cmd 'bridgesessions upgrade' >/dev/null 2>&1";
+            const int rc = std::system(cmd.c_str());
+            log_event("auto_upgrade_complete",
+                      task.peer_name + " rc=" + std::to_string(rc));
+            break;
+        }
         case LongOperationTask::Type::EditDownload:
         case LongOperationTask::Type::EditUpload:
         case LongOperationTask::Type::VFolderSync:
@@ -10658,8 +10661,9 @@ private:
     void handle_file_request(Conn& c, const FileRequestMsg& m) {
         log_event("file_request_received", m.path + " from " + c.peer_name);
         if (c.exec_busy->exchange(true)) {
-            log_event("file_request_busy", m.path + " from " + c.peer_name);
-            try { write_frame(c.ssl.get(), FileAckMsg{0, 0, true, "peer busy with another transfer"}, CONTROL_STREAM_ID); } catch (...) {}
+            log_event("file_request_busy", c.peer_name);
+            // The existing worker owns SSL exclusively. Writing a busy reply
+            // here would race its TLS record stream; drop the duplicate request.
             return;
         }
         c.exec_completed->store(false);
@@ -10695,7 +10699,9 @@ private:
     // ── Daemon file recv: send FileRequest to peer (non-blocking) ──
     std::string daemon_file_recv(const std::string& peer_name, const std::string& remote_path,
                                  const std::string& local_dir = "") {
-        log_event("file_recv_request", remote_path + " from " + peer_name);
+        log_event("file_recv_request",
+                  std::filesystem::path(remote_path).filename().string()
+                      + " from " + peer_name);
         std::string dest_dir = local_dir.empty() ? receive_dir_ : local_dir;
         if (!local_dir.empty()) {
             namespace fs = std::filesystem;
@@ -10713,14 +10719,15 @@ private:
 
         FileRequestMsg req;
         req.path = remote_path;
-        try { write_frame(target->ssl.get(), req, CONTROL_STREAM_ID); }
-        catch (const std::exception& e) {
+        if (!enqueue_frame(*target, req, CONTROL_STREAM_ID)) {
             target->pending_recv_dir.clear();
-            return "ERROR send request: " + std::string(e.what());
+            return "ERROR could not queue file request";
         }
 
-        log_event("file_recv_request_sent", remote_path + " -> " + peer_name + " (async)");
-        return "request sent to " + peer_name + " for " + remote_path + " (arrives async in " + dest_dir + ")";
+        log_event("file_recv_request_sent",
+                  std::filesystem::path(remote_path).filename().string()
+                      + " -> " + peer_name + " (async)");
+        return "request sent to " + peer_name + " (arrives async)";
     }
 
     // v2.0.6: transport-agnostic file recv-wait. Caller must ensure exclusive SSL transport access.
@@ -11426,9 +11433,7 @@ private:
             g.peers.push_back(std::move(pi));
         }
         if (!g.peers.empty()) {
-            try {
-                write_frame(c.ssl.get(), g, CONTROL_STREAM_ID);
-            } catch (...) {}
+            (void)enqueue_frame(c, g, CONTROL_STREAM_ID);
         }
 #endif
     }
@@ -12045,7 +12050,7 @@ public:
         if (std::holds_alternative<JoinRequestMsg>(msg)) {
             auto& jr = std::get<JoinRequestMsg>(msg);
             JoinReplyMsg reply = process_join_request(jr, conn.peer_pubkey);
-            try { write_frame(conn.ssl.get(), reply, CONTROL_STREAM_ID); } catch (...) {}
+            (void)enqueue_frame(conn, reply, CONTROL_STREAM_ID);
             return;
         }
         // AttachMsg — peer wants to attach to one of our sessions
@@ -12123,8 +12128,7 @@ public:
                 ack.attach_id = aid;
                 ack.session_name = a.session_name;
                 ack.cols = eff_c; ack.rows = eff_r;
-                try { write_frame(conn.ssl.get(), ack, CONTROL_STREAM_ID); }
-                catch (...) {}
+                (void)enqueue_frame(conn, ack, CONTROL_STREAM_ID);
 
                 // Send scrollback to reattaching peer
                 auto lines = s->scrollback.read_last_lines(
@@ -12134,9 +12138,7 @@ public:
                     sb.data = std::move(lines);
                     sb.total_lines = 0; // best-effort
                     sb.chunk_index = 0;
-                    try {
-                        write_frame(conn.ssl.get(), sb, 0);
-                    } catch (...) {}
+                    (void)enqueue_frame(conn, sb, 0);
                 }
                 log_event("session_attached",
                           a.session_name + " from " + conn.peer_name
@@ -12178,27 +12180,16 @@ public:
                 resp.request_id = req.request_id;
                 resp.status = 1;
                 resp.error = "spectator cannot drive computer use";
-                try { write_frame(conn.ssl.get(), resp, CONTROL_STREAM_ID); } catch (...) {}
+                (void)enqueue_frame(conn, resp, CONTROL_STREAM_ID);
                 return;
             }
             // Non-spectator: dispatch to platform CUA backend (2.0.8 P5).
             CuaResponseMsg resp = cua_execute(req, home_dir_);
             resp.request_id = req.request_id;
-            // Screenshots often exceed 64KB; use u32 frames when peer
-            // advertised +frm2 (default allow_large=false silently drops).
-            const bool allow_large = version_has_cap(conn.remote_version, kCapFrm2);
-            try {
-                write_frame(conn.ssl.get(), resp, CONTROL_STREAM_ID, allow_large);
-            } catch (const std::exception& e) {
-                log_event("cua_response_write_failed", e.what());
-                CuaResponseMsg fail;
-                fail.request_id = req.request_id;
-                fail.status = 1;
-                fail.error = std::string("cua response send failed: ") + e.what();
-                try { write_frame(conn.ssl.get(), fail, CONTROL_STREAM_ID); } catch (...) {}
-            } catch (...) {
-                log_event("cua_response_write_failed", "unknown");
-            }
+            // Screenshots can use the u32 frame format. enqueue_frame selects
+            // it from the peer capability and never blocks the event loop.
+            if (!enqueue_frame(conn, resp, CONTROL_STREAM_ID))
+                log_event("cua_response_queue_failed", conn.peer_name);
             return;
         }
 
@@ -12207,8 +12198,7 @@ public:
             auto& req = std::get<CuaVideoCaptureMsg>(msg);
             CuaVideoCaptureResultMsg resp = video_capture_execute(req);
             resp.request_id = req.request_id;
-            const bool allow_large = version_has_cap(conn.remote_version, kCapFrm2);
-            try { write_frame(conn.ssl.get(), resp, CONTROL_STREAM_ID, allow_large); } catch (...) {}
+            (void)enqueue_frame(conn, resp, CONTROL_STREAM_ID);
             return;
         }
 
@@ -12408,9 +12398,7 @@ public:
                 if (!cb.hash.empty()) {
                     ClipboardEchoMsg echo;
                     echo.hash = cb.hash;
-                    try {
-                        write_frame(conn.ssl.get(), echo, 0);
-                    } catch (...) {}
+                    (void)enqueue_frame(conn, echo, 0);
                 }
             }
             return;
@@ -12461,7 +12449,7 @@ public:
                         if (m.seq > cq.since_seq) batch.messages.push_back(m);
                 }
             }
-            try { write_frame(conn.ssl.get(), batch, CONTROL_STREAM_ID); } catch (...) {}
+            (void)enqueue_frame(conn, batch, CONTROL_STREAM_ID);
             return;
         }
     }
@@ -12517,9 +12505,7 @@ public:
     void common_message_handler(Conn& conn, Message& msg) {
         // PingMsg → PongMsg (already handled in dispatch, but safe to be here)
         if (std::holds_alternative<PingMsg>(msg)) {
-            try {
-                write_frame(conn.ssl.get(), PongMsg{}, CONTROL_STREAM_ID);
-            } catch (...) {}
+            (void)enqueue_frame(conn, PongMsg{}, CONTROL_STREAM_ID);
             return;
         }
 
@@ -12541,10 +12527,7 @@ public:
             auto& sb = std::get<ScrollbackMsg>(msg);
             fwrite(sb.data.data(), 1, sb.data.size(), stdout);
             fflush(stdout);
-            // Send ack
-            try {
-                write_frame(conn.ssl.get(), ScrollbackAckMsg{}, 0);
-            } catch (...) {}
+            (void)enqueue_frame(conn, ScrollbackAckMsg{}, 0);
             return;
         }
 
@@ -12578,33 +12561,28 @@ public:
             if (!s || !s->is_pollable()) continue;
 
             auto fanout = [&](const auto& message) {
-                // Serialize once, fan out to all attached connections.
-                // On write failure, enqueue to the per-connection output
-                // queue instead of silently dropping (2.0.8 P3).
                 for (auto& target : conns_) {
                     if (target.attached_session != s || target.sock_fd == INVALID_SOCKET ||
                         !target.ssl) {
                         continue;
                     }
                     if (target.exec_busy && target.exec_busy->load()) continue;
-                    try {
-                        write_frame(target.ssl.get(), message, 0);
-                    } catch (...) {
-                        // Enqueue for later retry; drop oldest if over high-water.
-                        if constexpr (std::is_same_v<std::decay_t<decltype(message)>, OutputMsg>) {
-                            Conn::QueuedOutput qo;
-                            qo.data = message.data;
-                            qo.render_markdown = message.render_markdown;
-                            if (target.output_queue.size() >= Conn::kOutputQueueHighWater) {
-                                auto& oldest = target.output_queue.front();
-                                target.output_dropped_bytes += oldest.data.size();
-                                target.output_gap_pending = true;
-                                target.output_queue.pop_front();
-                            }
-                            target.output_queue.push_back(std::move(qo));
+                    if (enqueue_frame(target, message, 0)) continue;
+
+                    // Output can be retried from its bounded logical queue.
+                    if constexpr (std::is_same_v<std::decay_t<decltype(message)>, OutputMsg>) {
+                        Conn::QueuedOutput qo;
+                        qo.data = message.data;
+                        qo.render_markdown = message.render_markdown;
+                        if (target.output_queue.size() >= Conn::kOutputQueueHighWater) {
+                            auto& oldest = target.output_queue.front();
+                            target.output_dropped_bytes += oldest.data.size();
+                            target.output_gap_pending = true;
+                            target.output_queue.pop_front();
                         }
-                        // Non-OutputMsg types (ClipboardMsg, SessionDiedMsg etc.)
-                        // are control messages and not queued for retry.
+                        target.output_queue.push_back(std::move(qo));
+                    } else {
+                        log_event("control_frame_dropped", target.peer_name);
                     }
                 }
             };
@@ -12674,14 +12652,10 @@ public:
                             target.attached_session == s ||
                             target.purpose == ConnectionPurpose::DirectSession;
                         if (!match) continue;
-                        try {
-                            write_frame(target.ssl.get(), lom, CONTROL_STREAM_ID);
+                        if (enqueue_frame(target, lom, CONTROL_STREAM_ID)) {
                             ++targets;
-                        } catch (const std::exception& e) {
-                            log_event("fanout_output_failed",
-                                      s->name + " " + e.what());
-                        } catch (...) {
-                            log_event("fanout_output_failed", s->name + " unknown");
+                        } else {
+                            log_event("fanout_output_queue_failed", s->name);
                         }
                     }
                     log_event("fanout_output",
@@ -12771,9 +12745,7 @@ public:
                         target.attached_session == s ||
                         target.purpose == ConnectionPurpose::DirectSession;
                     if (!match) continue;
-                    try {
-                        write_frame(target.ssl.get(), sdm, CONTROL_STREAM_ID);
-                    } catch (...) {}
+                    (void)enqueue_frame(target, sdm, CONTROL_STREAM_ID);
                 }
                 log_event("session_died", s->name + " exit_code=" + std::to_string(exit_code));
             }
@@ -12952,16 +12924,31 @@ private:
                 fcntl(c.sock_fd, F_SETFL, original_flags | O_NONBLOCK);
 #endif
             bool fatal_read = false;
+            bool oversized_read = false;
             int fatal_ssl_error = SSL_ERROR_NONE;
             std::array<uint8_t, 64 * 1024> chunk{};
-            for (;;) {
+            // Fairness + memory bound: process at most 1 MiB from one peer per
+            // event-loop tick, then decode before returning to select().
+            constexpr size_t kReadBudgetPerTick = 1024u * 1024u;
+            constexpr size_t kRxBufferHardCap =
+                static_cast<size_t>(MAX_FRAME_PAYLOAD_U32) + chunk.size() +
+                FRAME_HEADER_SIZE_U32;
+            size_t read_this_tick = 0;
+            while (read_this_tick < kReadBudgetPerTick) {
                 size_t n = 0;
+                const size_t request = std::min(
+                    chunk.size(), kReadBudgetPerTick - read_this_tick);
                 clear_stale_ssl_errors_before_io();
-                const int ret = SSL_read_ex(c.ssl.get(), chunk.data(), chunk.size(), &n);
+                const int ret = SSL_read_ex(c.ssl.get(), chunk.data(), request, &n);
                 if (ret > 0 && n > 0) {
+                    if (c.rx_buffer.size() > kRxBufferHardCap - n) {
+                        oversized_read = true;
+                        break;
+                    }
                     c.rx_buffer.insert(c.rx_buffer.end(), chunk.begin(), chunk.begin() +
                                        static_cast<std::ptrdiff_t>(n));
                     c.bytes_in += n;
+                    read_this_tick += n;
                     continue;
                 }
                 const int ssl_err = SSL_get_error(c.ssl.get(), ret);
@@ -12989,14 +12976,10 @@ private:
                 return;
             }
 
-            // R7: bound rx_buffer before draining. A hostile/buggy peer can
-            // advertise a multi-GB frame length (FLAG_LENGTH_U32) and trick us
-            // into buffering it in RAM before decode rejects it. Frames larger
-            // than the largest legitimate payload are malformed — drop the conn.
-            constexpr size_t kRxBufferHardCap = 64u * 1024u * 1024u;  // 64 MiB sanity ceiling
-            if (c.rx_buffer.size() > kRxBufferHardCap) {
+            if (oversized_read) {
                 log_event("mesh_conn_close", c.peer_name +
-                          " reason=rx_buffer_overflow bytes=" + std::to_string(c.rx_buffer.size()));
+                          " reason=rx_buffer_overflow bytes=" +
+                          std::to_string(c.rx_buffer.size()));
                 close_conn(c);
                 return;
             }
@@ -14778,44 +14761,23 @@ public:
         }
         std::string cmd = token + " FILE_RECV_WAIT_B64 " + peer_name + " " + b64enc(path) + " " + b64enc(local_dest) + "\n";
         send(sfd, cmd.data(), (int)cmd.size(), 0);
-        std::string acc;
+        std::string pending;
         char buf[8192];
         while (true) {
-            int n = recv(sfd, buf, (int)sizeof(buf) - 1, 0);
+            const int n = recv(sfd, buf, static_cast<int>(sizeof(buf)), 0);
             if (n <= 0) break;
-            buf[n] = '\0';
-            acc.append(buf, n);
-            // Stream PROGRESS lines to stderr for AI/operators as they arrive.
-            size_t pos = 0;
-            while (true) {
-                auto nl = acc.find('\n', pos);
-                if (nl == std::string::npos) break;
-                std::string line = acc.substr(pos, nl - pos);
-                pos = nl + 1;
-                if (line.rfind("PROGRESS ", 0) == 0) {
-                    std::cerr << line << "\n";
-                }
-            }
-            // Keep only incomplete trailing line in buffer for PROGRESS scan; full acc kept for final.
-            // Done when we have a non-PROGRESS final line ending with newline after last PROGRESS.
-            // Final response is last complete line that starts with OK or ERROR.
-            size_t last_nl = acc.rfind('\n');
-            if (last_nl != std::string::npos) {
-                // Find last full line
-                size_t start = acc.rfind('\n', last_nl > 0 ? last_nl - 1 : 0);
-                size_t line_start = (start == std::string::npos) ? 0 : start + 1;
-                std::string last = acc.substr(line_start, last_nl - line_start);
-                if (last.rfind("OK ", 0) == 0 || last.rfind("ERROR", 0) == 0) {
-                    CLOSESOCK(sfd);
-                    return last;
-                }
+            auto terminal = consume_transfer_ipc_chunk(
+                pending, std::string_view(buf, static_cast<size_t>(n)),
+                [](const std::string& line) { std::cerr << line << "\n"; });
+            if (terminal) {
+                CLOSESOCK(sfd);
+                return *terminal;
             }
         }
         CLOSESOCK(sfd);
-        while (!acc.empty() && (acc.back() == '\r' || acc.back() == '\n')) acc.pop_back();
-        auto last_nl = acc.rfind('\n');
-        if (last_nl != std::string::npos) return acc.substr(last_nl + 1);
-        return acc;
+        while (!pending.empty() && (pending.back() == '\r' || pending.back() == '\n'))
+            pending.pop_back();
+        return pending;
     }
 
     // Returns true if another bridgesessions daemon is already running locally

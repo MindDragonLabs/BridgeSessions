@@ -387,7 +387,7 @@ Session::~Session() {
     kill_tree();
     if (child_pid) {
         TerminateProcess(child_pid, 1);
-        WaitForSingleObject(child_pid, 5000);
+        WaitForSingleObject(child_pid, 500);
         CloseHandle(child_pid);
         child_pid = nullptr;
     }
@@ -406,13 +406,18 @@ Session::~Session() {
         // with it instead of outliving the session as orphans.
         kill(-child_pid, SIGTERM);
         int status = 0;
-        for (int i = 0; i < 50; ++i) {
-            if (waitpid(child_pid, &status, WNOHANG) == child_pid) break;
-            usleep(100000);
+        bool reaped = false;
+        for (int i = 0; i < 10; ++i) {
+            const pid_t waited = waitpid(child_pid, &status, WNOHANG);
+            if (waited == child_pid || (waited < 0 && errno == ECHILD)) {
+                reaped = true;
+                break;
+            }
+            usleep(50000);
         }
-        if (waitpid(child_pid, &status, WNOHANG) != child_pid) {
+        if (!reaped) {
             kill(-child_pid, SIGKILL);
-            waitpid(child_pid, &status, 0);
+            while (waitpid(child_pid, &status, 0) < 0 && errno == EINTR) {}
         }
         child_pid = -1;
     }
@@ -461,43 +466,11 @@ Session::Session(Session&& other) noexcept
 
 Session& Session::operator=(Session&& other) noexcept {
     if (this != &other) {
+        // Reconstruct the object after releasing its current runtime. Assigning
+        // into std::string/vector members after an explicit destructor call is
+        // use-after-lifetime undefined behavior.
         this->~Session();
-        name = std::move(other.name);
-        peer_ids = std::move(other.peer_ids);
-        command = std::move(other.command);
-        detach_signal = std::move(other.detach_signal);
-        parent_id = std::move(other.parent_id);
-        owner_pubkey = std::move(other.owner_pubkey);
-        kind = other.kind;
-        master_fd = other.master_fd;
-        child_pid = other.child_pid;
-#ifndef _WIN32
-        pending_input = std::move(other.pending_input);
-        input_backpressured = other.input_backpressured;
-#endif
-        state = other.state;
-        scrollback = std::move(other.scrollback);
-        created_at = other.created_at;
-        created_at_sys = other.created_at_sys;
-        last_output_at = other.last_output_at;
-        last_attach_at = other.last_attach_at;
-        auto_restart = other.auto_restart;
-        restart_failures = other.restart_failures;
-        restart_window_start = other.restart_window_start;
-        generation = other.generation;
-#ifdef _WIN32
-        write_handle = other.write_handle;
-        hpcon = other.hpcon;
-        job_handle = other.job_handle;
-        other.write_handle = nullptr;
-        other.hpcon = nullptr;
-        other.job_handle = nullptr;
-        other.master_fd = nullptr;
-        other.child_pid = nullptr;
-#else
-        other.master_fd = -1;
-        other.child_pid = -1;
-#endif
+        new (this) Session(std::move(other));
     }
     return *this;
 }
