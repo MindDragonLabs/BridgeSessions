@@ -10,9 +10,9 @@
 [![License](https://img.shields.io/badge/license-BSL--1.1-6c7086?style=flat-square)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20Windows%20%7C%20macOS-00d9ff?style=flat-square)](#install)
 [![Language](https://img.shields.io/badge/C%2B%2B-23-00599C?style=flat-square&logo=c%2B%2B&logoColor=white)](https://en.cppreference.com/)
-[![Tests](https://img.shields.io/badge/tests-363%20passing-brightgreen?style=flat-square)](tests/)
+[![Tests](https://img.shields.io/badge/tests-472%20passing-brightgreen?style=flat-square)](tests/)
 
-**Mesh terminal relay** — replaces SSH + MOSH + SCP + tmux + WinRM with a single encrypted mesh (`bs://` over TLS 1.3). Built for humans **and** AI agents.
+**Mesh terminal relay** — replaces SSH + MOSH + SCP + tmux + WinRM with a single encrypted mesh (`bs://` over TLS 1.2+). Built for humans **and** AI agents.
 
 [Install](#install) ·
 [Quickstart](#quickstart) ·
@@ -47,7 +47,7 @@ Each tool has its own auth, escaping rules, failure modes, and security surface.
 ## Features
 
 ### 🔐 Encrypted Mesh Network
-- **ed25519 mutual TLS 1.3** — every connection authenticated, encrypted, forward-secret
+- **ed25519 mutual TLS 1.2+** — every connection authenticated, encrypted (1.3 re-enabled once Windows PE links OpenSSL ≥ 3.6)
 - **Peer-to-peer mesh** — connect any machine to any machine, no central server
 - **TOFU key pinning** — first contact establishes trust, subsequent connections verify identity
 - **Zero passwords** — cryptographic identity, not credentials
@@ -260,13 +260,13 @@ BridgeSessions ships multi-harness agent instructions:
 ## Architecture
 
 ```
-┌─────────────┐     TLS 1.3      ┌─────────────┐     TLS 1.3      ┌─────────────┐
+┌─────────────┐     TLS 1.2+     ┌─────────────┐     TLS 1.2+     ┌─────────────┐
 │  Mac (agent) │◄────────────────►│  Linux box  │◄────────────────►│  Windows PC │
 │  bs daemon   │     ed25519      │  bs daemon   │     ed25519      │  bs daemon  │
 │  bs CLI      │     mesh gossip  │  PTY sessions│     file transfer│  CUA helper │
 └─────────────┘                   └─────────────┘                   └─────────────┘
        │                                                               │
-       │  TLS 1.3                                                      │ TLS 1.3
+       │  TLS 1.2+                                                     │ TLS 1.2+
        ▼                                                               ▼
 ┌─────────────┐                                             ┌─────────────┐
 │  Mac mini   │◄─────────── mesh gossip ───────────────────►│  Docker box │
@@ -276,7 +276,7 @@ BridgeSessions ships multi-harness agent instructions:
 
 - **One C++23 binary** — client, server, daemon, CUA helper, all in `bridgesessions`
 - **Source:** `bs-protocol.h` + `main.cpp` (~14K lines single header)
-- **Protocol:** `bs://` over TLS 1.3 with ed25519 mutual auth
+- **Protocol:** `bs://` over TLS 1.2+ with ed25519 mutual auth
 - **Default port:** 19949 (mesh), 19980 (local IPC), 19986 (CUA helper)
 
 ---

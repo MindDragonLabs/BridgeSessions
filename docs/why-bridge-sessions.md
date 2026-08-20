@@ -1,10 +1,6 @@
 # Why BridgeSessions
 
-BridgeSessions is a **secure mesh terminal system** that replaces the usual
-stack of remote-work tools with one binary, one protocol (`bs://`), and one
-session model. It is built for humans *and* AI agents: long-lived shells,
-file transfer for image/video artifacts, Windows automation, and a
-document surface (Bridge Panel) for reviewing Markdown with your agent.
+BridgeSessions is a **secure mesh terminal system**: one binary, one protocol (`bs://`), one session model. Built for humans *and* AI agents — long-lived shells, file/image/video transfer, Windows automation, and a Bridge Panel surface for reviewing Markdown with your agent.
 
 > One mesh. Persistent PTYs. Mutual TLS. AI-friendly media and files.
 
@@ -12,8 +8,7 @@ document surface (Bridge Panel) for reviewing Markdown with your agent.
 
 ## The old stack (and what each piece did)
 
-Before BridgeSessions, a serious remote workflow usually meant bolting several
-tools together:
+Remote workflows usually stack several tools:
 
 | Tool | What it was good at | Pain it left behind |
 |---|---|---|
@@ -38,15 +33,11 @@ BridgeSessions **absorbs the job of each** into a single design:
 
 ## Feature mapping: what you get instead
 
-### 1. SSH → encrypted remote shell, without the “session death” tax
+### 1. SSH → encrypted remote shell, without the "session death" tax
 
-**SSH** gives you a secure pipe into a remote machine. When the pipe dies, the
-remote process usually dies with it (unless you stacked tmux underneath).
+**SSH** gives a secure pipe into a remote machine; when the pipe dies, the remote process usually dies (unless wrapped in tmux).
 
-**BridgeSessions** keeps the **PTY on the server**. Clients attach and detach.
-Network blips reconnect with backoff; your agent or human reattaches to the
-*same* named session. Identity is **ed25519 mutual TLS** (TOFU / authorized
-keys), not a bag of OpenSSH server configs per host.
+**BridgeSessions** keeps the **PTY on the server**. Clients attach/detach; network blips reconnect with backoff to the *same* named session. Identity is **ed25519 mutual TLS** (TOFU / authorized keys), not per-host OpenSSH configs.
 
 ```bash
 bridgesessions shell <peer> --name hms
@@ -58,64 +49,55 @@ bridgesessions shell <peer> --name hms   # same session, same scrollback
 
 **MOSH** predicted keystrokes and survived IP changes over UDP.
 
-BridgeSessions is TLS/TCP for v1 (firewall-friendly, one port), with:
+BridgeSessions v1 is TLS/TCP (firewall-friendly, one port), with:
 
-- `TCP_NODELAY` for keystroke latency  
-- keepalive Ping/Pong  
-- automatic reconnect + reattach  
-- (roadmap) QUIC transport without changing the app protocol  
+- `TCP_NODELAY` for keystroke latency
+- keepalive Ping/Pong
+- automatic reconnect + reattach
+- (roadmap) QUIC transport without changing the app protocol
 
-You keep the “session survives the network” *experience*, without a second
-protocol stack beside SSH.
+Same "session survives the network" experience, without a second protocol stack beside SSH.
 
 ### 3. SCP → first-class file transfer on the same mesh
 
-**SCP** was “another command over SSH.”
+**SCP** was "another command over SSH."
 
-BridgeSessions speaks **file transfer on `bs://`** (meta / chunk / ack /
-request messages), so the same authenticated peer that runs your shell can
-push or pull artifacts:
+BridgeSessions speaks **file transfer on `bs://`** (meta / chunk / ack / request messages), so the same authenticated peer that runs your shell can push/pull:
 
-- configs, logs, build outputs  
-- screenshots and videos for an agent  
-- documents destined for Bridge Panel  
+- configs, logs, build outputs
+- screenshots and videos for an agent
+- documents destined for Bridge Panel
 
-No separate credential ceremony for “now copy a file.”
+No separate credential ceremony for file copies.
 
 ### 4. tmux / Zellij → the multiplexer *is* the server
 
-**tmux/Zellij** solved persistence by multiplexing *inside* the remote host.
-That means:
+**tmux/Zellij** persist by multiplexing *inside* the remote host, so:
 
-- you still need a transport to reach them  
-- agents often end up nested: SSH → tmux → agent TUI  
+- you still need a transport to reach them
+- agents often nest: SSH → tmux → agent TUI
 
 BridgeSessions **is** the multiplexer:
 
-- named sessions with auto-spawn commands  
-- scrollback buffer (zstd compressed) replayed on reattach  
-- detach never kills the PTY  
-- multi-client identity namespaces (sessions keyed by client pubkey)  
+- named sessions with auto-spawn commands
+- zstd-compressed scrollback replayed on reattach
+- detach never kills the PTY
+- multi-client identity namespaces (sessions keyed by client pubkey)
 
-You do **not** start Zellij *inside* BridgeSessions for basic persistence —
-the mesh session *is* that layer.
+Don't run Zellij inside BridgeSessions for basic persistence — the mesh session *is* that layer.
 
 ### 5. WinRM / Windows desktop automation → one mesh that includes Windows
 
-**WinRM** is the classic Windows remote-exec channel; RDP is the interactive
-desktop. Agents that need **CUA (computer-use / UI automation)** on Windows
-historically lived on a different planet from Linux SSH workflows.
+**WinRM** is the classic Windows remote-exec channel; RDP is the interactive desktop. Agents needing **CUA** on Windows historically lived on a different planet from Linux SSH workflows.
 
 BridgeSessions peers include **Windows nodes** in the same mesh:
 
-- shell / exec paths for Windows peers  
+- shell/exec paths for Windows peers
 - file transfer for screenshots and recordings
-- gameplay / desktop capture patterns for vision agents  
-- one identity and config model across Linux, macOS, and Windows  
+- gameplay/desktop capture patterns for vision agents
+- one identity and config model across Linux, macOS, and Windows
 
-An agent can drive a Windows desktop (CUA), capture a screenshot or video,
-ship it across the mesh, and analyze it on a Linux peer — without re-plumbing
-SSH + WinRM + SMB for each hop.
+An agent drives a Windows desktop (CUA), captures a screenshot or video, ships it across the mesh, and analyzes it on a Linux peer — no re-plumbing SSH + WinRM + SMB per hop.
 
 ---
 
@@ -136,43 +118,35 @@ No CA bureaucracy for a personal/fleet mesh. Pin keys, authorize peers, ship.
 
 ## AI-friendly by design
 
-Agents are not “just another human typing.” They need **durable sessions**,
-**structured artifacts**, and **media**:
+Agents need **durable sessions**, **structured artifacts**, and **media**:
 
 ### Persistent agent shells
-An agent TUI (`hermes --tui`, coding agents, long jobs) lives in a named
-session. If the agent process or network restarts, reattach — do not restart
-the world.
+An agent TUI (`hermes --tui`, coding agents, long jobs) lives in a named session. If the agent process or network restarts, reattach — do not restart the world.
 
 ### Media through file transfer
-Image message IDs are reserved, but 2.0.6-alpha2 does not implement large-image
-fragmentation or receiver rendering. Send PNG/JPEG/GIF/video artifacts through
-the bounded file-transfer protocol, then render or analyze them locally.
+Image message IDs are reserved, but 2.0.6-alpha2 does not implement large-image fragmentation or receiver rendering. Send PNG/JPEG/GIF/video artifacts through the bounded file-transfer protocol, then render/analyze locally.
 
 ### Screenshots & video for vision analysis
 Typical AI loop:
 
-1. Windows peer captures a screenshot or MP4 (desktop / game / UI).  
+1. Windows peer captures a screenshot or MP4 (desktop / game / UI).
 2. File transfer carries the artifact across the mesh.
-3. Linux/macOS agent loads the artifact and runs **vision analysis**.  
+3. Linux/macOS agent loads the artifact and runs **vision analysis**.
 4. Agent writes findings as Markdown into Bridge Panel for human review.
 
 ### Files as first-class agent I/O
-Logs, patches, datasets, and recordings move as mesh file transfers — not as
-base64 pasted into chat.
+Logs, patches, datasets, and recordings move as mesh file transfers — not as base64 pasted into chat.
 
 ### Bridge Panel — long-form communication with your agent
 
-Chat UIs are bad at **long specs**, **multi-file reviews**, and **iterative
-Markdown**. Bridge Panel is a small web surface on the mesh:
+Chat UIs are bad at **long specs**, **multi-file reviews**, and **iterative Markdown**. Bridge Panel is a small web surface on the mesh:
 
-- Session tree: `session → type → file`  
-- Breadcrumb + outlined tools: **Edit / Save / Cancel / Copy**  
-- Rendered Markdown for reading; raw source for copy/edit  
-- Publish from CLI: `bridgesessions pane publish note.md`  
+- Session tree: `session → type → file`
+- Breadcrumb + tools: **Edit / Save / Cancel / Copy**
+- Rendered Markdown for reading; raw source for copy/edit
+- Publish from CLI: `bridgesessions pane publish note.md`
 
-Humans review agent output as documents. Agents treat the panel as a
-**shared notebook**, not a scrolling chat.
+Humans review agent output as documents; agents treat the panel as a **shared notebook**, not scrolling chat.
 
 #### Bridge Panel — read view
 
@@ -190,7 +164,7 @@ Humans review agent output as documents. Agents treat the panel as a
 
 ## End-to-end story: install → Windows CUA → video → vision
 
-This is the workflow BridgeSessions is built to make *one* path:
+BridgeSessions makes this one path:
 
 ```
   [ You / orchestrator ]
@@ -246,22 +220,19 @@ bridgesessions pane publish ./report.md \
 
 ## What BridgeSessions is *not*
 
-- Not a full desktop OS replacement for RDP in every GUI scenario (though
-  Windows peers + capture cover agent CUA loops).  
-- Not “SSH config compatible” as a transport — SSH host aliases may be reused
-  for **discovery only** (hostname), never as the wire protocol.  
-- Not a public multi-tenant SaaS remote-desktop product (see BSL Additional
-  Use Grant in [LICENSE](../LICENSE)).
+- Not a full desktop OS replacement for RDP in every GUI scenario (Windows peers + capture cover agent CUA loops).
+- Not "SSH config compatible" as transport — SSH host aliases may be reused for **discovery only** (hostname), never as wire protocol.
+- Not a public multi-tenant SaaS remote-desktop product (see BSL Additional Use Grant in [LICENSE](../LICENSE)).
 
 ---
 
 ## See also
 
-- [Architecture / design](design.md)  
-- [Protocol (`bs://`)](protocol.md)  
-- [Bridge Panel](bridge-panel.md)  
-- [Usage](usage.md)  
-- [Building](building.md)  
+- [Architecture / design](design.md)
+- [Protocol (`bs://`)](protocol.md)
+- [Bridge Panel](bridge-panel.md)
+- [Usage](usage.md)
+- [Building](building.md)
 
 Demo media (HyperFrames product trailer) lives under
 [`assets/`](assets/): `demo-install-ai-mesh.gif` (README embed) and

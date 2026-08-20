@@ -1,7 +1,14 @@
 # bridgesessions — Architecture Decision Record (SPEC)
 
-**Replace:** `mosh → ssh → zellij → hermes --tui`
-**With:** `bs-client ⚡ bs-server → hermes --tui`
+> **Historical archive — superseded by [`design.md`](design.md).** This ADR was
+> written for the v1/v2.0.x `bs-client`/`bs-server` split and is retained for
+> decision provenance only. The **shipping** architecture is a single C++23
+> monolith binary (see `design.md` and the canonical source `bs-protocol.h` +
+> `main.cpp` + `bs-session.h`). The `bs-client`/`bs-server`/`bs-transport`/
+> `bs-protocol` modular dirs referenced below were removed in 26.09.19-beta5.
+
+**Replace:** `ssh → scp → tmux → hermes --tui`
+**With:** `bs shell <peer>` / `bs file send <peer>` / `bs cua <peer>`
 
 One protocol. One binary. One mesh. No SSH. No mosh. No zellij.
 
@@ -13,7 +20,7 @@ One protocol. One binary. One mesh. No SSH. No mosh. No zellij.
 
 ---
 
-## Shipping reality (canonical SoT) — v2.0.14-alpha6
+## Shipping reality (canonical SoT) — 26.09.19-beta5
 
 The canonical implementation is the **`bs-protocol.h` + `main.cpp` + `bs-session.h`**
 tree (post-R1/R3/R5 refactor, 2026-07-23): `bs-protocol.h` (~12.6k LOC) is the header-only

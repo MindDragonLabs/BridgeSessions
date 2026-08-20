@@ -18,10 +18,9 @@ Windows — no SSH, no mosh, no tmux/zellij in the connection path.
 
 ## Quick orientation
 
-- **`bridgesessions`** — the all-in-one binary (client + server + doctor).
-- **`bs-server`** — the remote Linux daemon (session multiplexer).
-- **`bs-client`** — the relay agent that attaches a local terminal to a session.
-- **`bs-transport` / `bs-protocol`** — the shared TLS transport and codec libraries.
+- **`bridgesessions`** — the all-in-one binary (client + server + doctor), a C++23
+  monolith. Shipping source: `main.cpp` + `bs-protocol.h` + `bs-session.h` (+
+  `bs-session-worker.h`, `bs-cua-helper.h`, `macos-capture.mm`).
 
 ## Screenshots — Bridge Panel
 
