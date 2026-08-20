@@ -85,7 +85,7 @@ static std::string daemon_simple_ipc(const std::string& cmd, int wait_ms,
     sockaddr_in sa{};
     sa.sin_family = AF_INET;
     sa.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-    sa.sin_port = htons(19980);
+    sa.sin_port = htons(bs::mesh::mesh_cli_port());
     // set_socket_timeouts inline
     int ms = wait_ms > 0 ? wait_ms : 5000;
 #ifdef _WIN32

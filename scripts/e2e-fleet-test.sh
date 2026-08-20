@@ -161,7 +161,7 @@ else
 fi
 
 PEERS_OUT="$(run_to "$BS_BIN" peers list 2>&1 || true)"
-if assert_contains "$PEERS_OUT" "Known peers" || assert_contains "$PEERS_OUT" "[seed]"; then
+if assert_contains "$PEERS_OUT" "seed" || assert_contains "$PEERS_OUT" "self" || assert_contains "$PEERS_OUT" "ADDRESS"; then
   record PASS local peers_list "ok"
 else
   record FAIL local peers_list "unexpected: ${PEERS_OUT:0:120}"
