@@ -890,10 +890,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#shipping-reality-canonical-sot-v2014-alpha6" class="md-nav__link">
+  <a href="#shipping-reality-canonical-sot-260919-beta5" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Shipping reality (canonical SoT) — v2.0.14-alpha6
+        Shipping reality (canonical SoT) — 26.09.19-beta5
       
     </span>
   </a>
@@ -1682,10 +1682,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#shipping-reality-canonical-sot-v2014-alpha6" class="md-nav__link">
+  <a href="#shipping-reality-canonical-sot-260919-beta5" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Shipping reality (canonical SoT) — v2.0.14-alpha6
+        Shipping reality (canonical SoT) — 26.09.19-beta5
       
     </span>
   </a>
@@ -2340,8 +2340,16 @@
 
 
 <h1 id="bridgesessions-architecture-decision-record-spec">bridgesessions — Architecture Decision Record (SPEC)<a class="headerlink" href="#bridgesessions-architecture-decision-record-spec" title="Permanent link">&para;</a></h1>
-<p><strong>Replace:</strong> <code>mosh → ssh → zellij → hermes --tui</code>
-<strong>With:</strong> <code>bs-client ⚡ bs-server → hermes --tui</code></p>
+<blockquote>
+<p><strong>Historical archive — superseded by <a href="../design/"><code>design.md</code></a>.</strong> This ADR was
+written for the v1/v2.0.x <code>bs-client</code>/<code>bs-server</code> split and is retained for
+decision provenance only. The <strong>shipping</strong> architecture is a single C++23
+monolith binary (see <code>design.md</code> and the canonical source <code>bs-protocol.h</code> +
+<code>main.cpp</code> + <code>bs-session.h</code>). The <code>bs-client</code>/<code>bs-server</code>/<code>bs-transport</code>/
+<code>bs-protocol</code> modular dirs referenced below were removed in 26.09.19-beta5.</p>
+</blockquote>
+<p><strong>Replace:</strong> <code>ssh → scp → tmux → hermes --tui</code>
+<strong>With:</strong> <code>bs shell &lt;peer&gt;</code> / <code>bs file send &lt;peer&gt;</code> / <code>bs cua &lt;peer&gt;</code></p>
 <p>One protocol. One binary. One mesh. No SSH. No mosh. No zellij.</p>
 <p><strong>Language:</strong> C++23 (gcc 14+ / clang 18+)
 <strong>Transport:</strong> TLS 1.2+ over TCP (prefer 1.3)
@@ -2349,7 +2357,7 @@
 <strong>Auth:</strong> ed25519 mutual TLS + explicit pins/authorized keys
 <strong>Build:</strong> CMake 3.25+</p>
 <hr />
-<h2 id="shipping-reality-canonical-sot-v2014-alpha6">Shipping reality (canonical SoT) — v2.0.14-alpha6<a class="headerlink" href="#shipping-reality-canonical-sot-v2014-alpha6" title="Permanent link">&para;</a></h2>
+<h2 id="shipping-reality-canonical-sot-260919-beta5">Shipping reality (canonical SoT) — 26.09.19-beta5<a class="headerlink" href="#shipping-reality-canonical-sot-260919-beta5" title="Permanent link">&para;</a></h2>
 <p>The canonical implementation is the <strong><code>bs-protocol.h</code> + <code>main.cpp</code> + <code>bs-session.h</code></strong>
 tree (post-R1/R3/R5 refactor, 2026-07-23): <code>bs-protocol.h</code> (~12.6k LOC) is the header-only
 protocol/daemon SoT including the wire <code>MessageType</code> enum, <code>main.cpp</code> (~0.9k LOC) is the
@@ -3666,7 +3674,7 @@ from it only if a real codec is ever needed. Recorded in TODO.md.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 6, 2026 23:00:05 UTC">August 6, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 20, 2026 15:19:07 UTC">August 20, 2026</span>
   </span>
 
     

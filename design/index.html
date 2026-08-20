@@ -78,7 +78,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#architecture" class="md-skip">
+        <a href="#design" class="md-skip">
           Skip to content
         </a>
       
@@ -779,10 +779,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#overview" class="md-nav__link">
+  <a href="#architecture" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Overview
+        Architecture
       
     </span>
   </a>
@@ -790,10 +790,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#architecture-decision-records" class="md-nav__link">
+  <a href="#identity-trust" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Architecture Decision Records
+        Identity &amp; trust
       
     </span>
   </a>
@@ -801,49 +801,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#components" class="md-nav__link">
+  <a href="#cli-surface" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Components
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Components">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#bs-server-remote-daemon" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        bs-server (remote daemon)
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#bs-client-relay-agent" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        bs-client (relay agent)
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#authentication-keys" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Authentication &amp; keys
+        CLI surface
       
     </span>
   </a>
@@ -1118,10 +1079,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#overview" class="md-nav__link">
+  <a href="#architecture" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Overview
+        Architecture
       
     </span>
   </a>
@@ -1129,10 +1090,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#architecture-decision-records" class="md-nav__link">
+  <a href="#identity-trust" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Architecture Decision Records
+        Identity &amp; trust
       
     </span>
   </a>
@@ -1140,49 +1101,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#components" class="md-nav__link">
+  <a href="#cli-surface" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Components
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Components">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#bs-server-remote-daemon" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        bs-server (remote daemon)
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#bs-client-relay-agent" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        bs-client (relay agent)
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#authentication-keys" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Authentication &amp; keys
+        CLI surface
       
     </span>
   </a>
@@ -1214,16 +1136,11 @@
   
 
 
-<h1 id="architecture">Architecture<a class="headerlink" href="#architecture" title="Permanent link">&para;</a></h1>
-<blockquote>
-<p><strong>Forward-looking design archive.</strong> The shipping 2.0.6-alpha2 implementation is the
-single <a href="../bridgesessions.cpp"><code>bridgesessions.cpp</code></a> monolith. See
-<a href="../LEGACY_CODE.md"><code>LEGACY_CODE.md</code></a> for the boundary between shipping and
-retained experimental code. Modular <code>bs-client</code> / <code>bs-server</code>, dual-stack
-IPv6, and the command fallbacks below are not current operational claims.</p>
-</blockquote>
-<p><strong>Replace:</strong> <code>mosh → ssh → zellij → hermes --tui</code>
-<strong>With:</strong> <code>bs-client ⚡ bs-server → hermes --tui</code></p>
+<h1 id="design">Design<a class="headerlink" href="#design" title="Permanent link">&para;</a></h1>
+<p>BridgeSessions is a <strong>single C++23 binary</strong> — a mesh terminal + file relay that
+replaces SSH, MOSH, SCP, tmux/Zellij, and WinRM with one encrypted mesh over TLS.</p>
+<p><strong>Replace:</strong> <code>ssh → scp → tmux → hermes --tui</code>
+<strong>With:</strong> <code>bs shell &lt;peer&gt; --cmd "…"</code> / <code>bs file send &lt;peer&gt; …</code> / <code>bs cua …</code></p>
 <p>One protocol. One binary. One mesh. No SSH. No mosh. No zellij.</p>
 <table>
 <thead>
@@ -1235,103 +1152,74 @@ IPv6, and the command fallbacks below are not current operational claims.</p>
 <tbody>
 <tr>
 <td>Language</td>
-<td>C++23 (gcc 14+ / clang 18+)</td>
+<td>C++23</td>
 </tr>
 <tr>
 <td>Transport</td>
-<td>TLS 1.2+ prefer 1.3 over TCP (v1), QUIC via msquic (v2)</td>
+<td>TLS 1.2+ (1.3 re-enabled once Windows PE links OpenSSL ≥ 3.6) over TCP, port <strong>19949</strong></td>
 </tr>
 <tr>
 <td>Compression</td>
-<td>zstd per-frame</td>
+<td>zstd per-frame (over <code>COMPRESSION_THRESHOLD</code>)</td>
 </tr>
 <tr>
 <td>Auth</td>
-<td>ed25519 mutual TLS + TOFU</td>
+<td>ed25519 mutual TLS + pinned pubkey (<code>authorized_keys</code> + <code>seed … pubkey=</code>)</td>
 </tr>
 <tr>
 <td>Build</td>
-<td>CMake 3.25+ (or single-file <code>build.sh</code>)</td>
+<td>CMake 3.25+ (single <code>main.cpp</code> + header monolith)</td>
 </tr>
 </tbody>
 </table>
-<h2 id="overview">Overview<a class="headerlink" href="#overview" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a> macOS — BridgeSpace / terminal
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>   ┌─ Pane A ───────────────┐  ┌─ Pane B ───────────┐
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>   │ bs-client --server=dev  │  │ bs-client --srv=dev │
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>   │ stdin/stdout relay      │  │                    │
-<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>   └───────────┬─────────────┘  └─────────┬──────────┘
-<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>               │  bs:// over TLS 1.2+/TCP (port 19949) │
-<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>               └──────────────────┬───────────────────┘
-<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>                          INTERNET
-<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>               ┌──────────────────┼───────────────────┐
-<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>               ▼                                      ▼
-<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>        bs-server (systemd user service, TCP 19949)
-<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>          ┌──────────────────────────────────────────┐
-<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>          │  Session Multiplexer (replaces zellij)    │
-<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>          │  ┌─ session: hms ──────────────────────┐  │
-<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>          │  │  PTY → hermes --tui                 │  │
-<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>          │  │  Output buffer (zstd, last 16K)     │  │
-<a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a>          │  ├─ session: work ─────────────────────┤  │
-<a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a>          │  │  PTY → bash -l                      │  │
-<a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a>          │  └─────────────────────────────────────┘  │
-<a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a>          │  Clipboard relay (OSC 52 → protocol)      │
-<a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a>          └──────────────────────────────────────────┘
+<h2 id="architecture">Architecture<a class="headerlink" href="#architecture" title="Permanent link">&para;</a></h2>
+<p>One <code>bridgesessions</code> process is simultaneously the mesh daemon, the CLI client,
+and the session multiplexer. A node holds a persistent ed25519 identity
+(<code>~/.bridgesessions/id_ed25519.pem</code> + self-signed cert), joins a mesh of peers via
+pinned seeds or a <code>join &lt;token&gt;</code>, and both <em>serves</em> shell/file/CUA requests from
+peers and <em>issues</em> them to peers over the same encrypted transport.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>        ┌──────────────────────────────────────────────┐
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>        │  bridgesessions (one binary, all roles)      │
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>        │  ├─ mesh daemon    (TLS 1.2+, port 19949)    │
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>        │  ├─ CLI client     (bs shell / file / cua)   │
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>        │  └─ session multiplexer (PTY / ConPTY)       │
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>        └──────────────────────┬───────────────────────┘
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>                               │  mesh over TLS 19949
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>        ┌──────────────────────┼───────────────────────┐
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>        ▼                      ▼                       ▼
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>   Linux peer             macOS peer             Windows peer
+<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>   (PTY sessions)         (PTY + ScreenCaptureKit)  (ConPTY + cua-helper)
 </code></pre></div>
-<p><code>bs-client</code> is a <strong>relay, not a terminal emulator</strong>. It sits between your
-terminal and the network, translating stdin/stdout ↔ <code>bs://</code> protocol messages.
-The server owns the PTY and the session, so a disconnected client never kills
-your work.</p>
-<h2 id="architecture-decision-records">Architecture Decision Records<a class="headerlink" href="#architecture-decision-records" title="Permanent link">&para;</a></h2>
 <ul>
-<li><strong>ADR-001 — One TLS connection per <code>bs-client</code> process.</strong> Eight panes to the
-  same server = eight independent TCP connections. Each is independently
-  reconnectable and authenticated. (v2 may mux over one QUIC connection.)</li>
-<li><strong>ADR-002 — IPv6-first, IPv4-compatible.</strong> <code>bs-server</code> binds <code>[::]:19949</code>
-  (dual-stack on Linux). SRV discovery is v2.</li>
-<li><strong>ADR-002a — Reuse SSH aliases for <em>discovery</em>, never transport.</strong> The short
-  form <code>bs &lt;host&gt; [session]</code> expands <code>&lt;host&gt;</code> with <code>ssh -G</code> to import only the
-  resolved <code>HostName</code> (port 19949). <code>User</code>, <code>Port</code>, <code>ProxyJump</code>, and
-  authentication are ignored — a pinned BridgeSessions public key is still
-  required and checked against the TLS certificate.</li>
-<li><strong>ADR-004 — Stream = session attachment, not session lifetime.</strong> One TCP
-  connection carries multiple streams via app-level stream IDs (see
-  <a href="../protocol/">Protocol</a>).</li>
-<li><strong>ADR-007 — Command resolution order:</strong> (1) client <code>--cmd</code>, (2)
-  <code>session.&lt;name&gt;.command</code>, (3) <code>sessions.default_shell</code>.</li>
-<li><strong>ADR-008 — PTY death handling.</strong> On unexpected PTY exit, the server sends
-  <code>SessionDied{exit_code, signal}</code>. With <code>auto_restart: true</code> it respawns after
-  <code>restart_delay_secs</code>; 3 failures in 60s → <code>EXITED</code>.</li>
-<li><strong>ADR-009 — Clipboard ownership lives in <code>bs-client</code>.</strong> The client tracks the
-  last-acked clipboard hash to prevent echo loops.</li>
-<li><strong>ADR-010 — Server restart = full TLS handshake.</strong> Session tickets are
-  ephemeral.</li>
+<li><strong>Shell</strong> — <code>bs shell &lt;peer&gt;</code> opens a PTY (forkpty / ConPTY) session on the peer;
+  one-shot <code>--cmd</code> pipes a single command through the daemon IPC.</li>
+<li><strong>File transfer</strong> — <code>bs file send/recv</code> streams chunks over direct TLS, zstd
+  pipelined (depth 16), SHA-256 verified, with <code>PROGRESS</code> lines.</li>
+<li><strong>CUA</strong> — <code>bs cua screen/capture/click/type/key/scroll</code> drives a remote desktop
+  via a user-session helper (<code>--cua-helper</code> on Windows/macOS, xdotool on Linux).</li>
+<li><strong>Bridge Panel</strong> — a local web surface (<code>tools/bridgepanel/</code>) for document
+  review between agent and human.</li>
 </ul>
-<h2 id="components">Components<a class="headerlink" href="#components" title="Permanent link">&para;</a></h2>
-<h3 id="bs-server-remote-daemon">bs-server (remote daemon)<a class="headerlink" href="#bs-server-remote-daemon" title="Permanent link">&para;</a></h3>
+<h2 id="identity-trust">Identity &amp; trust<a class="headerlink" href="#identity-trust" title="Permanent link">&para;</a></h2>
 <ul>
-<li>Owns PTYs and the session multiplexer.</li>
-<li>Auto-spawns the configured command when a client attaches to a new session.</li>
-<li>Sessions survive client disconnects indefinitely; idle timeout 7 days
-  (resets on output).</li>
-<li>Output buffer: zstd-compressed circular buffer, last 16K lines.</li>
-<li>On reattach: replays last 2K lines in 500-line chunks, each ACK'd.</li>
+<li><strong>Keypair:</strong> ed25519, at <code>~/.bridgesessions/id_ed25519.pem</code>; the peer's public
+  key is pinned per-seed (<code>seed &lt;name&gt; &lt;addr&gt; pubkey=&lt;hex&gt;</code>).</li>
+<li><strong>Inbound auth:</strong> the TLS server verifies the client cert against
+  <code>authorized_keys</code> (one <code>pubkey &lt;hex&gt;</code> per line) — <code>SSL_VERIFY_PEER |
+  FAIL_IF_NO_PEER_CERT</code>.</li>
+<li><strong>Outbound auth:</strong> the client compares the server cert + Hello pubkey against the
+  pinned <code>expected_pubkey</code> immediately post-handshake and rejects on mismatch
+  (<code>verify_outbound_peer_identity</code>). TOFU is transport-level only; the pin is
+  enforced at the app layer.</li>
+<li><strong>Mesh bootstrap (Tailscale model):</strong> <code>bs invite</code> on a trusted seed, then
+  <code>curl …/install.sh | bash -s -- join &lt;host&gt; &lt;token&gt;</code>. The host auto-vouches for
+  the new node (signed <code>DirectoryEnrollMsg</code>), gossips it, and peers auto-trust it —
+  no manual key copying. Only explicitly-pinned <strong>seed</strong> peers may vouch.</li>
 </ul>
-<h3 id="bs-client-relay-agent">bs-client (relay agent)<a class="headerlink" href="#bs-client-relay-agent" title="Permanent link">&para;</a></h3>
-<ul>
-<li>Loads its ed25519 keypair, resolves the server, dials TCP 19949, performs
-  mutual TLS 1.2+ (prefer 1.3), then attaches to a session.</li>
-<li>Reconnects with exponential backoff (100 ms → 5 s); reattaches transparently
-  if the server buffered output during the gap.</li>
-<li>On macOS, bridges the pasteboard (pbcopy/pbpaste) for two-way clipboard.</li>
-</ul>
-<h2 id="authentication-keys">Authentication &amp; keys<a class="headerlink" href="#authentication-keys" title="Permanent link">&para;</a></h2>
-<ul>
-<li>Keypair: ed25519, stored at <code>~/.bridgesessions/id_ed25519.pem</code>.</li>
-<li>Server <code>authorized_keys</code> (one hex pubkey per line) gates who may attach.</li>
-<li>Sessions are namespaced by the <strong>authenticated client pubkey</strong>, so two
-  different keys can each own a session called <code>agent</code> without collision.</li>
-</ul>
+<h2 id="cli-surface">CLI surface<a class="headerlink" href="#cli-surface" title="Permanent link">&para;</a></h2>
+<p><code>shell</code>, <code>sessions</code>, <code>keygen</code>, <code>authorize</code>, <code>doctor</code>, <code>peers</code>, <code>health</code>,
+<code>reconnect</code>, <code>invite</code>, <code>enroll</code>, <code>join</code>, <code>image</code>, <code>anim</code>, <code>stats</code>, <code>fleet</code>,
+<code>upgrade</code>, <code>telemetry</code>, <code>file send|recv</code>, <code>capture-video</code>, <code>cua …</code>.</p>
 <p>See <a href="../usage/">Usage</a> and <a href="../configuration/">Configuration</a> for the commands.</p>
 
 
@@ -1355,7 +1243,7 @@ your work.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 19, 2026 12:51:36 UTC">July 19, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 20, 2026 15:19:07 UTC">August 20, 2026</span>
   </span>
 
     

@@ -832,7 +832,7 @@
   <a href="#1-ssh-encrypted-remote-shell-without-the-session-death-tax" class="md-nav__link">
     <span class="md-ellipsis">
       
-        1. SSH → encrypted remote shell, without the “session death” tax
+        1. SSH → encrypted remote shell, without the "session death" tax
       
     </span>
   </a>
@@ -1327,7 +1327,7 @@
   <a href="#1-ssh-encrypted-remote-shell-without-the-session-death-tax" class="md-nav__link">
     <span class="md-ellipsis">
       
-        1. SSH → encrypted remote shell, without the “session death” tax
+        1. SSH → encrypted remote shell, without the "session death" tax
       
     </span>
   </a>
@@ -1581,18 +1581,13 @@
 
 
 <h1 id="why-bridgesessions">Why BridgeSessions<a class="headerlink" href="#why-bridgesessions" title="Permanent link">&para;</a></h1>
-<p>BridgeSessions is a <strong>secure mesh terminal system</strong> that replaces the usual
-stack of remote-work tools with one binary, one protocol (<code>bs://</code>), and one
-session model. It is built for humans <em>and</em> AI agents: long-lived shells,
-file transfer for image/video artifacts, Windows automation, and a
-document surface (Bridge Panel) for reviewing Markdown with your agent.</p>
+<p>BridgeSessions is a <strong>secure mesh terminal system</strong>: one binary, one protocol (<code>bs://</code>), one session model. Built for humans <em>and</em> AI agents — long-lived shells, file/image/video transfer, Windows automation, and a Bridge Panel surface for reviewing Markdown with your agent.</p>
 <blockquote>
 <p>One mesh. Persistent PTYs. Mutual TLS. AI-friendly media and files.</p>
 </blockquote>
 <hr />
 <h2 id="the-old-stack-and-what-each-piece-did">The old stack (and what each piece did)<a class="headerlink" href="#the-old-stack-and-what-each-piece-did" title="Permanent link">&para;</a></h2>
-<p>Before BridgeSessions, a serious remote workflow usually meant bolting several
-tools together:</p>
+<p>Remote workflows usually stack several tools:</p>
 <table>
 <thead>
 <tr>
@@ -1639,69 +1634,56 @@ tools together:</p>
 </code></pre></div>
 <hr />
 <h2 id="feature-mapping-what-you-get-instead">Feature mapping: what you get instead<a class="headerlink" href="#feature-mapping-what-you-get-instead" title="Permanent link">&para;</a></h2>
-<h3 id="1-ssh-encrypted-remote-shell-without-the-session-death-tax">1. SSH → encrypted remote shell, without the “session death” tax<a class="headerlink" href="#1-ssh-encrypted-remote-shell-without-the-session-death-tax" title="Permanent link">&para;</a></h3>
-<p><strong>SSH</strong> gives you a secure pipe into a remote machine. When the pipe dies, the
-remote process usually dies with it (unless you stacked tmux underneath).</p>
-<p><strong>BridgeSessions</strong> keeps the <strong>PTY on the server</strong>. Clients attach and detach.
-Network blips reconnect with backoff; your agent or human reattaches to the
-<em>same</em> named session. Identity is <strong>ed25519 mutual TLS</strong> (TOFU / authorized
-keys), not a bag of OpenSSH server configs per host.</p>
+<h3 id="1-ssh-encrypted-remote-shell-without-the-session-death-tax">1. SSH → encrypted remote shell, without the "session death" tax<a class="headerlink" href="#1-ssh-encrypted-remote-shell-without-the-session-death-tax" title="Permanent link">&para;</a></h3>
+<p><strong>SSH</strong> gives a secure pipe into a remote machine; when the pipe dies, the remote process usually dies (unless wrapped in tmux).</p>
+<p><strong>BridgeSessions</strong> keeps the <strong>PTY on the server</strong>. Clients attach/detach; network blips reconnect with backoff to the <em>same</em> named session. Identity is <strong>ed25519 mutual TLS</strong> (TOFU / authorized keys), not per-host OpenSSH configs.</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>bridgesessions<span class="w"> </span>shell<span class="w"> </span>&lt;peer&gt;<span class="w"> </span>--name<span class="w"> </span>hms
 <a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="c1"># later, from another client:</span>
 <a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>bridgesessions<span class="w"> </span>shell<span class="w"> </span>&lt;peer&gt;<span class="w"> </span>--name<span class="w"> </span>hms<span class="w">   </span><span class="c1"># same session, same scrollback</span>
 </code></pre></div>
 <h3 id="2-mosh-roaming-friendly-low-latency-feel">2. MOSH → roaming-friendly, low-latency feel<a class="headerlink" href="#2-mosh-roaming-friendly-low-latency-feel" title="Permanent link">&para;</a></h3>
 <p><strong>MOSH</strong> predicted keystrokes and survived IP changes over UDP.</p>
-<p>BridgeSessions is TLS/TCP for v1 (firewall-friendly, one port), with:</p>
+<p>BridgeSessions v1 is TLS/TCP (firewall-friendly, one port), with:</p>
 <ul>
-<li><code>TCP_NODELAY</code> for keystroke latency  </li>
-<li>keepalive Ping/Pong  </li>
-<li>automatic reconnect + reattach  </li>
-<li>(roadmap) QUIC transport without changing the app protocol  </li>
+<li><code>TCP_NODELAY</code> for keystroke latency</li>
+<li>keepalive Ping/Pong</li>
+<li>automatic reconnect + reattach</li>
+<li>(roadmap) QUIC transport without changing the app protocol</li>
 </ul>
-<p>You keep the “session survives the network” <em>experience</em>, without a second
-protocol stack beside SSH.</p>
+<p>Same "session survives the network" experience, without a second protocol stack beside SSH.</p>
 <h3 id="3-scp-first-class-file-transfer-on-the-same-mesh">3. SCP → first-class file transfer on the same mesh<a class="headerlink" href="#3-scp-first-class-file-transfer-on-the-same-mesh" title="Permanent link">&para;</a></h3>
-<p><strong>SCP</strong> was “another command over SSH.”</p>
-<p>BridgeSessions speaks <strong>file transfer on <code>bs://</code></strong> (meta / chunk / ack /
-request messages), so the same authenticated peer that runs your shell can
-push or pull artifacts:</p>
+<p><strong>SCP</strong> was "another command over SSH."</p>
+<p>BridgeSessions speaks <strong>file transfer on <code>bs://</code></strong> (meta / chunk / ack / request messages), so the same authenticated peer that runs your shell can push/pull:</p>
 <ul>
-<li>configs, logs, build outputs  </li>
-<li>screenshots and videos for an agent  </li>
-<li>documents destined for Bridge Panel  </li>
+<li>configs, logs, build outputs</li>
+<li>screenshots and videos for an agent</li>
+<li>documents destined for Bridge Panel</li>
 </ul>
-<p>No separate credential ceremony for “now copy a file.”</p>
+<p>No separate credential ceremony for file copies.</p>
 <h3 id="4-tmux-zellij-the-multiplexer-is-the-server">4. tmux / Zellij → the multiplexer <em>is</em> the server<a class="headerlink" href="#4-tmux-zellij-the-multiplexer-is-the-server" title="Permanent link">&para;</a></h3>
-<p><strong>tmux/Zellij</strong> solved persistence by multiplexing <em>inside</em> the remote host.
-That means:</p>
+<p><strong>tmux/Zellij</strong> persist by multiplexing <em>inside</em> the remote host, so:</p>
 <ul>
-<li>you still need a transport to reach them  </li>
-<li>agents often end up nested: SSH → tmux → agent TUI  </li>
+<li>you still need a transport to reach them</li>
+<li>agents often nest: SSH → tmux → agent TUI</li>
 </ul>
 <p>BridgeSessions <strong>is</strong> the multiplexer:</p>
 <ul>
-<li>named sessions with auto-spawn commands  </li>
-<li>scrollback buffer (zstd compressed) replayed on reattach  </li>
-<li>detach never kills the PTY  </li>
-<li>multi-client identity namespaces (sessions keyed by client pubkey)  </li>
+<li>named sessions with auto-spawn commands</li>
+<li>zstd-compressed scrollback replayed on reattach</li>
+<li>detach never kills the PTY</li>
+<li>multi-client identity namespaces (sessions keyed by client pubkey)</li>
 </ul>
-<p>You do <strong>not</strong> start Zellij <em>inside</em> BridgeSessions for basic persistence —
-the mesh session <em>is</em> that layer.</p>
+<p>Don't run Zellij inside BridgeSessions for basic persistence — the mesh session <em>is</em> that layer.</p>
 <h3 id="5-winrm-windows-desktop-automation-one-mesh-that-includes-windows">5. WinRM / Windows desktop automation → one mesh that includes Windows<a class="headerlink" href="#5-winrm-windows-desktop-automation-one-mesh-that-includes-windows" title="Permanent link">&para;</a></h3>
-<p><strong>WinRM</strong> is the classic Windows remote-exec channel; RDP is the interactive
-desktop. Agents that need <strong>CUA (computer-use / UI automation)</strong> on Windows
-historically lived on a different planet from Linux SSH workflows.</p>
+<p><strong>WinRM</strong> is the classic Windows remote-exec channel; RDP is the interactive desktop. Agents needing <strong>CUA</strong> on Windows historically lived on a different planet from Linux SSH workflows.</p>
 <p>BridgeSessions peers include <strong>Windows nodes</strong> in the same mesh:</p>
 <ul>
-<li>shell / exec paths for Windows peers  </li>
+<li>shell/exec paths for Windows peers</li>
 <li>file transfer for screenshots and recordings</li>
-<li>gameplay / desktop capture patterns for vision agents  </li>
-<li>one identity and config model across Linux, macOS, and Windows  </li>
+<li>gameplay/desktop capture patterns for vision agents</li>
+<li>one identity and config model across Linux, macOS, and Windows</li>
 </ul>
-<p>An agent can drive a Windows desktop (CUA), capture a screenshot or video,
-ship it across the mesh, and analyze it on a Linux peer — without re-plumbing
-SSH + WinRM + SMB for each hop.</p>
+<p>An agent drives a Windows desktop (CUA), captures a screenshot or video, ships it across the mesh, and analyzes it on a Linux peer — no re-plumbing SSH + WinRM + SMB per hop.</p>
 <hr />
 <h2 id="secure-mesh-not-a-pile-of-one-off-tunnels">Secure mesh (not a pile of one-off tunnels)<a class="headerlink" href="#secure-mesh-not-a-pile-of-one-off-tunnels" title="Permanent link">&para;</a></h2>
 <table>
@@ -1741,38 +1723,30 @@ SSH + WinRM + SMB for each hop.</p>
 <p>No CA bureaucracy for a personal/fleet mesh. Pin keys, authorize peers, ship.</p>
 <hr />
 <h2 id="ai-friendly-by-design">AI-friendly by design<a class="headerlink" href="#ai-friendly-by-design" title="Permanent link">&para;</a></h2>
-<p>Agents are not “just another human typing.” They need <strong>durable sessions</strong>,
-<strong>structured artifacts</strong>, and <strong>media</strong>:</p>
+<p>Agents need <strong>durable sessions</strong>, <strong>structured artifacts</strong>, and <strong>media</strong>:</p>
 <h3 id="persistent-agent-shells">Persistent agent shells<a class="headerlink" href="#persistent-agent-shells" title="Permanent link">&para;</a></h3>
-<p>An agent TUI (<code>hermes --tui</code>, coding agents, long jobs) lives in a named
-session. If the agent process or network restarts, reattach — do not restart
-the world.</p>
+<p>An agent TUI (<code>hermes --tui</code>, coding agents, long jobs) lives in a named session. If the agent process or network restarts, reattach — do not restart the world.</p>
 <h3 id="media-through-file-transfer">Media through file transfer<a class="headerlink" href="#media-through-file-transfer" title="Permanent link">&para;</a></h3>
-<p>Image message IDs are reserved, but 2.0.6-alpha2 does not implement large-image
-fragmentation or receiver rendering. Send PNG/JPEG/GIF/video artifacts through
-the bounded file-transfer protocol, then render or analyze them locally.</p>
+<p>Image message IDs are reserved, but 2.0.6-alpha2 does not implement large-image fragmentation or receiver rendering. Send PNG/JPEG/GIF/video artifacts through the bounded file-transfer protocol, then render/analyze locally.</p>
 <h3 id="screenshots-video-for-vision-analysis">Screenshots &amp; video for vision analysis<a class="headerlink" href="#screenshots-video-for-vision-analysis" title="Permanent link">&para;</a></h3>
 <p>Typical AI loop:</p>
 <ol>
-<li>Windows peer captures a screenshot or MP4 (desktop / game / UI).  </li>
+<li>Windows peer captures a screenshot or MP4 (desktop / game / UI).</li>
 <li>File transfer carries the artifact across the mesh.</li>
-<li>Linux/macOS agent loads the artifact and runs <strong>vision analysis</strong>.  </li>
+<li>Linux/macOS agent loads the artifact and runs <strong>vision analysis</strong>.</li>
 <li>Agent writes findings as Markdown into Bridge Panel for human review.</li>
 </ol>
 <h3 id="files-as-first-class-agent-io">Files as first-class agent I/O<a class="headerlink" href="#files-as-first-class-agent-io" title="Permanent link">&para;</a></h3>
-<p>Logs, patches, datasets, and recordings move as mesh file transfers — not as
-base64 pasted into chat.</p>
+<p>Logs, patches, datasets, and recordings move as mesh file transfers — not as base64 pasted into chat.</p>
 <h3 id="bridge-panel-long-form-communication-with-your-agent">Bridge Panel — long-form communication with your agent<a class="headerlink" href="#bridge-panel-long-form-communication-with-your-agent" title="Permanent link">&para;</a></h3>
-<p>Chat UIs are bad at <strong>long specs</strong>, <strong>multi-file reviews</strong>, and <strong>iterative
-Markdown</strong>. Bridge Panel is a small web surface on the mesh:</p>
+<p>Chat UIs are bad at <strong>long specs</strong>, <strong>multi-file reviews</strong>, and <strong>iterative Markdown</strong>. Bridge Panel is a small web surface on the mesh:</p>
 <ul>
-<li>Session tree: <code>session → type → file</code>  </li>
-<li>Breadcrumb + outlined tools: <strong>Edit / Save / Cancel / Copy</strong>  </li>
-<li>Rendered Markdown for reading; raw source for copy/edit  </li>
-<li>Publish from CLI: <code>bridgesessions pane publish note.md</code>  </li>
+<li>Session tree: <code>session → type → file</code></li>
+<li>Breadcrumb + tools: <strong>Edit / Save / Cancel / Copy</strong></li>
+<li>Rendered Markdown for reading; raw source for copy/edit</li>
+<li>Publish from CLI: <code>bridgesessions pane publish note.md</code></li>
 </ul>
-<p>Humans review agent output as documents. Agents treat the panel as a
-<strong>shared notebook</strong>, not a scrolling chat.</p>
+<p>Humans review agent output as documents; agents treat the panel as a <strong>shared notebook</strong>, not scrolling chat.</p>
 <h4 id="bridge-panel-read-view">Bridge Panel — read view<a class="headerlink" href="#bridge-panel-read-view" title="Permanent link">&para;</a></h4>
 <p><img alt="Bridge Panel read view" src="../assets/bridgepanel-read.png" /></p>
 <p><em>Sidebar sessions, breadcrumb, Edit/Copy tools, rendered Markdown.</em></p>
@@ -1781,7 +1755,7 @@ Markdown</strong>. Bridge Panel is a small web surface on the mesh:</p>
 <p><em>Inline Markdown editor with Save / Cancel for collaborative agent docs.</em></p>
 <hr />
 <h2 id="end-to-end-story-install-windows-cua-video-vision">End-to-end story: install → Windows CUA → video → vision<a class="headerlink" href="#end-to-end-story-install-windows-cua-video-vision" title="Permanent link">&para;</a></h2>
-<p>This is the workflow BridgeSessions is built to make <em>one</em> path:</p>
+<p>BridgeSessions makes this one path:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>  [ You / orchestrator ]
 <a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>           │
 <a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>           │  1. Install bridgesessions on laptop + peers
@@ -1886,21 +1860,18 @@ Markdown</strong>. Bridge Panel is a small web surface on the mesh:</p>
 <hr />
 <h2 id="what-bridgesessions-is-not">What BridgeSessions is <em>not</em><a class="headerlink" href="#what-bridgesessions-is-not" title="Permanent link">&para;</a></h2>
 <ul>
-<li>Not a full desktop OS replacement for RDP in every GUI scenario (though
-  Windows peers + capture cover agent CUA loops).  </li>
-<li>Not “SSH config compatible” as a transport — SSH host aliases may be reused
-  for <strong>discovery only</strong> (hostname), never as the wire protocol.  </li>
-<li>Not a public multi-tenant SaaS remote-desktop product (see BSL Additional
-  Use Grant in <a href="../LICENSE">LICENSE</a>).</li>
+<li>Not a full desktop OS replacement for RDP in every GUI scenario (Windows peers + capture cover agent CUA loops).</li>
+<li>Not "SSH config compatible" as transport — SSH host aliases may be reused for <strong>discovery only</strong> (hostname), never as wire protocol.</li>
+<li>Not a public multi-tenant SaaS remote-desktop product (see BSL Additional Use Grant in <a href="../LICENSE">LICENSE</a>).</li>
 </ul>
 <hr />
 <h2 id="see-also">See also<a class="headerlink" href="#see-also" title="Permanent link">&para;</a></h2>
 <ul>
-<li><a href="../design/">Architecture / design</a>  </li>
-<li><a href="../protocol/">Protocol (<code>bs://</code>)</a>  </li>
-<li><a href="../bridge-panel/">Bridge Panel</a>  </li>
-<li><a href="../usage/">Usage</a>  </li>
-<li><a href="../building/">Building</a>  </li>
+<li><a href="../design/">Architecture / design</a></li>
+<li><a href="../protocol/">Protocol (<code>bs://</code>)</a></li>
+<li><a href="../bridge-panel/">Bridge Panel</a></li>
+<li><a href="../usage/">Usage</a></li>
+<li><a href="../building/">Building</a></li>
 </ul>
 <p>Demo media (HyperFrames product trailer) lives under
 <a href="assets/"><code>assets/</code></a>: <code>demo-install-ai-mesh.gif</code> (README embed) and
@@ -1927,7 +1898,7 @@ Markdown</strong>. Bridge Panel is a small web surface on the mesh:</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 19, 2026 12:51:36 UTC">July 19, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 20, 2026 15:19:07 UTC">August 20, 2026</span>
   </span>
 
     
