@@ -1,64 +1,64 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.5",
-  "serialNumber": "urn:uuid:e7b6adce-5cae-4d74-92f0-9b227eb8b287",
+  "serialNumber": "urn:uuid:40637af7-f33a-48d8-8715-4fc705c5d596",
   "version": 1,
   "metadata": {
     "component": {
       "type": "application",
       "name": "bridgesessions",
-      "version": "26.08.16-beta4"
+      "version": "26.09.19-beta5"
     }
   },
   "components": [
     {
       "type": "file",
       "name": "bridgesessions-linux-x86_64",
-      "version": "26.08.16-beta4",
+      "version": "26.09.19-beta5",
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "4e0f1e9f1165731c833dcc6d268382eed303384c1346080b360c817220cfb289"
+          "content": "c4f4c069ce6d122d4a9ef6e76f507e47a437eb840400a7d518077dc2b4f97486"
         }
       ],
       "properties": [
         {
           "name": "bridgesessions:artifact:size-bytes",
-          "value": "11566088"
+          "value": "11626488"
         }
       ]
     },
     {
       "type": "file",
       "name": "bridgesessions-macos-arm64",
-      "version": "26.08.16-beta4",
+      "version": "26.09.19-beta5",
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "ea6fcbc9e62cee6a1085acc046bcf00a8f63c78af81085ae07ffc6c9fe693c42"
+          "content": "e3789e6458904b5e11bbcbdd8098645449d2713054d620f35b40f3b4385be1a1"
         }
       ],
       "properties": [
         {
           "name": "bridgesessions:artifact:size-bytes",
-          "value": "2596752"
+          "value": "2665904"
         }
       ]
     },
     {
       "type": "file",
       "name": "bridgesessions-windows-x86_64.exe",
-      "version": "26.08.16-beta4",
+      "version": "26.09.19-beta5",
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "7b1955c0d26bf20a8b99aa12af2cc609b45f4ed420bca4364ee9453f4e1ee390"
+          "content": "de9e4820738f4a2f2dd87871c369accc4a197567c07daecec96661653600c14d"
         }
       ],
       "properties": [
         {
           "name": "bridgesessions:artifact:size-bytes",
-          "value": "28892033"
+          "value": "28577224"
         }
       ]
     }
