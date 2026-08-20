@@ -1,5 +1,5 @@
 site_name: BridgeSessions
-site_description: One binary. Every machine. Zero SSH. Mesh terminal relay over TLS 1.3.
+site_description: Persistent shells, verified files, and desktop automation on a pinned peer mesh.
 site_url: https://minddragonlabs.github.io/BridgeSessions
 repo_url: https://github.com/MindDragonLabs/BridgeSessions
 repo_name: MindDragonLabs/BridgeSessions
@@ -21,30 +21,25 @@ theme:
   features:
     - navigation.tabs
     - navigation.sections
-    - navigation.expand
     - search.suggest
     - search.highlight
     - content.code.copy
-    - content.action.edit
   icon:
     repo: fontawesome/brands/github
 
 nav:
   - Home: index.md
   - Quickstart: QUICKSTART.md
-  - Install & Build: building.md
   - Usage: usage.md
   - Configuration: configuration.md
-  - Protocol: protocol.md
-  - CUA (Computer Use): cua.md
-  - Bridge Panel: bridge-panel.md
   - Design: design.md
+  - Protocol: protocol.md
+  - Computer Use: cua.md
+  - Bridge Panel: bridge-panel.md
+  - Building: building.md
+  - E2E Framework: E2E-FRAMEWORK.md
+  - Release Provenance: RELEASE-PROVENANCE.md
   - Why BridgeSessions: why-bridge-sessions.md
-  - Architecture:
-      - Decision Record: ARCHITECTURE-DECISION-RECORD.md
-      - Recommendations: ARCHITECTURE-RECOMMENDATIONS.md
-  - Releases:
-      - Provenance: RELEASE-PROVENANCE.md
 
 markdown_extensions:
   - pymdownx.highlight:
