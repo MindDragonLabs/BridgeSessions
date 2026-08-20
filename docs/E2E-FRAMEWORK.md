@@ -1,84 +1,60 @@
-# BridgeSessions E2E Framework
+# E2E Framework
 
-**Status:** active (run-on-completion, not nightly)  
-**Version:** 26.08.10-beta2
-
-## Decisions (operator, 2026-08-11)
-
-| Topic | Decision |
-|-------|----------|
-| Windows desktop | Use **Windows Desktop** (Session 1 interactive). Hermes on remote may assist bootstrap; primary transport remains `bs` (+ WinRM only for Session-0 bootstrap). |
-| Linux desktop | **KVM on a Linux lab hop** (not operator Mac — macOS has no KVM). Guest: Ubuntu 24.04 cloud + XFCE auto-login for 100% automated CUA/tray. |
-| macOS | **existing macOS peer as-is** — no wipe. launchctl + existing TCC. |
-| Schedule | **On completion of work effort**, not nightly CI. |
+Unit tests prove local contracts. E2E lanes prove the real mesh, desktop session, installer, and platform packaging.
 
 ## Layers
 
-| Layer | What | Hosts |
-|-------|------|--------|
-| L0 | Unit (`ctest`) | any |
-| L1 | Local loopback e2e | build host |
-| L2 | Mesh (health/shell/file/run-script) | live peers via `BS_E2E_PEERS` |
-| L3 | Desktop GUI + CUA + tray/menubar | Linux KVM guest, Windows Session 1, macOS peer |
-| L4 | Foreground installer (clean) | disposable KVM guest / Win user profile / macOS *secondary user only if added later* |
+| Layer | Scope | Default |
+|---|---|---|
+| L0 | CTest and Python tests | every change |
+| L1 | local loopback daemon/client | protocol changes |
+| L2 | live mesh: health, shell, files, scripts | release candidates |
+| L3 | Windows/macOS/Linux desktop helper and tray | CUA changes |
+| L4 | clean-profile installer and upgrade | release candidates |
 
-## Entry points
+## Run
 
 ```bash
-# L2 mesh only (existing)
-scripts/e2e-fleet-test.sh --json /tmp/l2.json
+# Discover every healthy configured seed
+scripts/e2e-fleet-test.sh --all
 
-# Full orchestrator (L2 + L3 setup + desktop suites)
-python3 tests/e2e/runner.py --layers L2,L3 --json /tmp/e2e.json
+# Explicit sanitized peer list
+BS_E2E_PEERS="linux-peer,macos-peer,windows-peer" \
+  scripts/e2e-fleet-test.sh --json /tmp/bs-l2.json
 
-# Desktop-only after hosts ready
-python3 tests/e2e/runner.py --layers L3 --json /tmp/l3.json
+# Orchestrated desktop lanes
+BS_E2E_PEERS="linux-peer,macos-peer,windows-peer" \
+  python3 tests/e2e/runner.py --layers L2,L3 --json /tmp/bs-e2e.json
 ```
 
-## Host matrix
+Pass live peer names through arguments/environment variables. Never hardcode a private fleet in the repository.
 
-| Role | Machine | Notes |
-|------|---------|--------|
-| Orchestrator | Operator Mac | runs `runner.py`, has Dev ID |
-| Linux mesh | `linux-a`, `linux-b` (set `BS_E2E_PEERS`) | headless OK for L2 |
-| Linux desktop QA | **KVM guest** (`bs-qa-ubuntu`) | XFCE auto-login, DISPLAY set |
-| Windows desktop | **windows-peer** Session 1 | explorer running; cua-helper + tray must be user-session |
-| macOS desktop | **macos-peer** | BridgeSessions.app, BSMenubar.app, cua-helper launchd |
+## Desktop prerequisites
 
-## Hermes remote support (Windows)
+- **Linux:** disposable VM with a logged-in desktop and display/input tools.
+- **Windows:** interactive user session, one CUA helper, Explorer desktop.
+- **macOS:** logged-in user, signed helper/app, Screen Recording and Accessibility grants.
 
-Hermes on the Windows desktop peer can:
+Idempotent setup/probe helpers live under `tests/e2e/harness/`. They are test infrastructure, not installation entry points.
 
-1. Ensure interactive logon tasks for `--cua-helper` and `bs_tray.ps1`
-2. Watch helper health and re-run setup scripts under user context
-3. Not replace mesh tests — still validate with operator `bs cua …`
+## Evidence
 
-Bootstrap scripts (idempotent) live in `tests/e2e/harness/`:
+A complete run records:
 
-- `win_desktop_setup.ps1` — schtasks for CUA helper + tray at logon; start now if Session 1
-- `linux_kvm_setup.sh` — define/start `bs-qa-ubuntu` on the Linux lab hop
-- `mac_desktop_probe.sh` — menubar/cua-helper process checks (no wipe)
+- exact local binary version,
+- peer/version matrix,
+- command exit codes and output,
+- file checksum results,
+- screenshots/video metadata for desktop lanes,
+- JSON summary,
+- skipped lanes with reasons.
 
-## Automation constraints
+E2E artifacts are local/CI outputs and must not be committed.
 
-| Feature | Fully automated? | Method |
-|---------|------------------|--------|
-| Mesh L2 | Yes | `bs` CLI |
-| Linux CUA | Yes on KVM guest | auto-login XFCE + `bs cua` from orchestrator after peer join |
-| Windows CUA | Yes if Session 1 alive | schtasks `/IT` interactive + mesh `bs cua` |
-| Linux tray | Yes on KVM guest | start `bs_tray.py`, assert process + optional DBus |
-| Windows tray | Yes if Session 1 | start `bs_tray.ps1`, assert process |
-| macOS menubar | Mostly | process + launchctl + codesign; menu pixel optional |
-| Installer L4 | Yes on clean KVM / disposable Win profile | not on a production macOS wipe |
+## Release gate
 
-## Artifacts
-
-- JSON summary (`--json`)
-- Optional screenshots under `artifacts/e2e/<run-id>/`
-- Exit non-zero if any **required** suite fails
-
-## Run-on-completion checklist
-
-1. `python3 tests/e2e/runner.py --layers L2,L3 --json /tmp/bs-e2e.json`
-2. Review fails; fix product or harness
-3. Re-run until green before claiming full feature QA
+1. Run L0.
+2. Run L1/L2 for protocol or transfer changes.
+3. Run affected L3 platforms for CUA changes.
+4. Run L4 on disposable profiles for installer/upgrade changes.
+5. Fix product or harness failures; do not convert a required failure into a skip.

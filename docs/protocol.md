@@ -1,77 +1,85 @@
 # Protocol (`bs://`)
 
-BridgeSessions speaks a single binary-framed protocol over TLS 1.2+ (prefer 1.3).
+BridgeSessions uses binary frames over mutually authenticated TLS/TCP.
 
-## Design principles
+## Transport
 
-| Principle | Implementation |
-|---|---|
-| Reliable | TLS 1.2+ (prefer 1.3) over TCP |
-| Secure | ed25519 mutual auth, X25519 forward secrecy |
-| Compressed | zstd per-frame (2–8× on terminal output) |
-| Low-latency | `TCP_NODELAY`, keystrokes sent immediately |
-| Firewall-friendly | single TCP port (19949) |
-| Multiplexed | one TCP connection, app-level stream IDs |
+- TCP port: 19949 by default.
+- Current compatibility profile: TLS 1.2.
+- Identity: pinned Ed25519 public key carried in a self-signed certificate and repeated in Hello.
+- Latency: `TCP_NODELAY` on interactive connections.
+- Compression: zstd for payloads above 256 bytes.
 
-## Wire format
+## Frames
 
-```
-Frame: [stream_id: u16] [type: u8] [flags: u8] [length: u16] [data]
-flags: bit 0 = compressed (zstd), bit 1 = control frame (stream 0 only)
+Small/legacy frame:
+
+```text
+stream_id:u16be | type:u8 | flags:u8 | length:u16be | payload
 ```
 
-- Binary framing, not newline-delimited JSON.
-- zstd on frames > 256 bytes (Output, Clipboard, Scrollback).
-- Never compressed: Keystroke, Ping/Pong (too small).
-- Max frame size 65535 bytes (u16). File transfer uses its own chunk protocol.
-  Reserved image message types are not a large-payload transport in 2.0.6-alpha2 and
-  have no fragmentation/reassembly or receiver rendering path.
+A peer advertising `+frm2` in `Hello.version` may use:
 
-## Stream multiplexing
+```text
+stream_id:u16be | type:u8 | flags:u8 | length:u32be | payload
+```
 
-One TCP connection carries many streams via app-level stream IDs.
+Limits:
 
-- **Stream 0** — control channel (Attach, Detach, SessionList, Ping/Pong).
-- **Stream 1–65535** — session channels (Keystroke, Output, Clipboard, Signal).
+- u16 payload: 65,535 bytes,
+- `frm2` payload: 4 MiB,
+- image input: 50 MiB before conversion/encoding,
+- decompressed payload is checked against the same logical cap before allocation/use.
 
-| Event | Stream action |
-|---|---|
-| Client `Attach{session_name}` | Server allocates a stream ID for the attachment. |
-| Client `Detach` | Server flushes buffered output, then closes the stream. |
-| Client TCP disconnect | All streams implicitly closed; **session state preserved**. |
-| Reconnect + re-attach | New TCP connection, new stream ID. |
+Flags:
 
-Sessions live 7 days. Stream IDs are scoped to a single TCP connection
-(65535 max) — effectively unlimited headroom.
-
-## Message types
-
-| Direction | Type | Semantics |
+| Bit | Name | Meaning |
 |---|---|---|
-| c→s | Keystroke | Raw key bytes (or bracketed-paste) |
-| s→c | Output | PTY stdout (rendered) |
-| c→s | Resize | Terminal size {cols, rows} |
-| s→c | ClipboardGet | OSC 52 captured → client clipboard |
-| c→s | ClipboardPut | User paste → inject into session |
-| c→s | Attach | {session_name, cols, rows, term} |
-| c→s | Detach | Preserve session, close stream |
-| s→c | SessionList | [{name, state, uptime}] |
-| s→c | ServerInfo | {hostname, version, load} |
-| both | Ping/Pong | Keepalive (every 5 s) |
-| s→c | Scrollback | Last N lines on attach (single bounded frame in 2.0.6-alpha2) |
-| c→s | Signal | ^C, ^Z, ^\ → foreground process |
-| s→c | ExitCode | Foreground process exited {code} |
-| c→s | ScrollbackAck | Client ready for next scrollback chunk |
-| s→c | SessionDied | PTY exited unexpectedly |
-| s→c | ClipboardEcho | Server already has this clipboard hash |
+| `0x01` | compressed | zstd payload |
+| `0x02` | control | control stream frame |
+| `0x04` | render markdown | output rendering hint |
+| `0x08` | u32 length | 8-byte header / `frm2` |
 
-## Clipboard (two-way, guaranteed)
+## Streams
 
-- **Client → server (paste):** user pastes → client hashes → sends
-  `ClipboardPut{text, hash}` → server injects (bracketed-paste) → server
-  echoes `ClipboardEcho{hash}` → client records last-acked hash.
-- **Server → client (copy):** app emits OSC 52 → server captures, strips from
-  the stream, sends `ClipboardGet{text, hash}` → client writes to local
-  clipboard.
+- Stream 0 is control: Hello, attach/detach, keepalive, gossip, transfer control.
+- Non-zero streams identify session traffic on one connection.
+- Stream IDs are connection-scoped. Reattach creates a new attachment; the server-side session persists.
 
-Hash echo (ADR-005) prevents the copy/paste echo loop.
+## Message families
+
+| Family | Examples |
+|---|---|
+| identity/mesh | Hello, Gossip, DirectoryEnroll, Ping/Pong |
+| sessions | Attach/Ack, Detach, SessionList, SessionDied, Signal |
+| terminal | Keystroke, Output, Resize, Scrollback/Ack |
+| files | FileMeta, FileChunk, FileAck, FileRequest |
+| clipboard | Clipboard, ClipboardEcho |
+| desktop | CuaRequest/Response, CuaVideoCapture/Result |
+| optional transports | DHT and WebRTC negotiation messages |
+
+The authoritative enum, variant, serializers, and decoders are in `bs-protocol.h`. A new message is incomplete unless all four agree and round-trip tests cover it.
+
+## Handshake and identity
+
+1. TCP connect.
+2. Mutual TLS handshake.
+3. Extract raw Ed25519 key from the peer certificate.
+4. Exchange Hello.
+5. Require the expected pin, certificate key, Hello key, and peer name to agree.
+6. Only then promote the transport to a live mesh connection.
+
+During a bounded invite window, an unknown certificate may send a JoinRequest. The single-use token is checked before authorization. Successful enrollment is signed; only configured seed keys are accepted as issuers.
+
+## File transfer
+
+1. Sender sends metadata: filename, byte size, SHA-256, chunk count, chunk size, optional destination.
+2. Receiver validates metadata and path, opens `<target>.part`, and replies with the first needed chunk (resume-aware).
+3. Sender streams a bounded window of chunks; receiver validates ordering/size and acknowledges progress.
+4. Receiver verifies SHA-256, atomically renames the partial, and returns a final ACK.
+
+Transport failure preserves a valid partial and sidecar for resume. Validation or write failure removes it.
+
+## Backward compatibility
+
+Capabilities are additive suffixes in `Hello.version` (for example `+frm2`). Never send a new frame shape to a peer that did not advertise it. Protocol changes require mixed-version tests, not only same-version loopback tests.

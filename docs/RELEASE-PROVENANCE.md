@@ -1,71 +1,69 @@
 # Release provenance
 
-## Verify a binary
+Generated executables, app bundles, archives, checksums, and SBOMs are release artifacts. They are ignored by git and attached to a GitHub Release whose tag points to the reviewed source commit.
+
+## Required assets
+
+| Asset | Platform |
+|---|---|
+| `bridgesessions-linux-x86_64` | Linux x86_64 |
+| `bridgesessions-macos-arm64` | macOS arm64 |
+| `bridgesessions-windows-x86_64.exe` | Windows x86_64 |
+| `SHA256SUMS` | checksum manifest |
+| `SBOM-binaries.json` | CycloneDX artifact/dependency record |
+
+Optional source archives are generated from the exact tag with `git archive`; GitHub also publishes automatic source archives.
+
+## Build requirements
+
+- clean source tree,
+- `VERSION` matches the intended tag,
+- supported dependency lines (OpenSSL 3.5 LTS; spdlog newer than 1.15.1),
+- release hardening flags enabled,
+- no operator paths, private hosts, credentials, or debug symbols in public artifacts,
+- macOS Developer ID signature and notarization,
+- Windows PE ASLR/NX validation,
+- Linux PIE/RELRO/NX/stack-protector validation.
+
+## Stage locally
 
 ```bash
-cd dist
-sha256sum -c SHA256SUMS
-# Linux:
-./bridgesessions-linux-x86_64 --version   # → matches VERSION file
-# Windows/macOS: compare embedded version via strings or run on-target
+scripts/package-release.sh --release
+scripts/release-checksums.sh
 ```
 
-Regenerate source archive, checksums, and SBOM from a clean tree:
+`dist/` is local staging and is ignored by git.
+
+## Verify
 
 ```bash
-./scripts/package-release.sh --release
-./scripts/release-checksums.sh
+# Source and tests
+cmake -S . -B build/release -DCMAKE_BUILD_TYPE=Release
+cmake --build build/release --parallel
+ctest --test-dir build/release --output-on-failure
+bash scripts/prepublish-scan.sh
+
+gitleaks dir . --redact --no-banner
+
+# Assets
+(cd dist && shasum -a 256 -c SHA256SUMS)
+file dist/bridgesessions-*
+strings dist/bridgesessions-linux-x86_64 | grep -E '^/home/|^/Users/' && exit 1 || true
 ```
 
-## What we ship
+Run each binary on its target OS and compare `--version` with `VERSION`. Run the affected E2E layers from [E2E Framework](E2E-FRAMEWORK.md).
 
-| Artifact | Platform | Build notes |
-|----------|----------|-------------|
-| `bridgesessions-linux-x86_64` | Linux x86_64 | CMake Release / shipping root |
-| `bridgesessions-windows-x86_64.exe` | Windows x86_64 | MinGW static cross-compile (OpenSSL+zstd) |
-| `bridgesessions-macos-arm64` | macOS arm64 | Apple clang on Apple Silicon; native ScreenCaptureKit backend; system frameworks + release dependency set |
-| `bridgesessions-<VERSION>-source.tar.gz` | Source archive | Deterministic `scripts/package-release.sh` |
-| `bridgesessions-<VERSION>-source.zip` | Source archive | Deterministic `git archive` ZIP |
-| `SHA256SUMS` | Checksums | SHA-256 of every release artifact, including the SBOM |
-| `SBOM-binaries.json` | SBOM | CycloneDX 1.5 of release artifacts |
+## Publish
 
-Do not copy forward binaries from earlier tags. Every artifact must embed the
-contents of [`VERSION`](../VERSION) and pass `scripts/release-checksums.sh`.
+1. Commit the source-only tree.
+2. Push `main` and wait for Build/Test and Security workflows.
+3. Create or move the annotated release tag only after green CI.
+4. Push the tag.
+5. Run `scripts/github-release.sh` to create the prerelease and upload verified assets.
+6. Read the release back with `gh release view` and compare every remote digest/size with local files.
 
-Full dependency SBOMs for system packages (OpenSSL, etc.) are host-specific;
-document the build OS in forge release notes if you republish.
+The release script refuses a dirty tree, tag/HEAD mismatch, origin-tag mismatch, missing asset, or implicit replacement of an existing release.
 
-Release-bundle hashes live in the generated `dist/SHA256SUMS`. The checksum,
-SBOM, and source archives are generated after the exact tag and are
-intentionally not tracked in that tag: committing them would change the tag's
-Git object and therefore change the exact-object source archive they describe.
+## Dependency evidence
 
-## Platform verification
-
-| Platform | How verified |
-|----------|----------------|
-| Linux | `./binary --version`, full CTest, ASan suite |
-| Windows | MinGW x86_64 static PE build and executable-format/version validation |
-| macOS | Native Apple Silicon build + full CTest + live ScreenCaptureKit video capture; binary reports `26.08.10-beta2` |
-
-## Signing (recommended operator step)
-
-```bash
-# Example minisign / cosign — keys not stored in this repo
-minisign -Sm SHA256SUMS
-# or
-cosign sign-blob --bundle SHA256SUMS.cosign.bundle SHA256SUMS
-```
-
-Tags should be annotated; prefer signed tags when publishing.
-
-## Tests for a release
-
-```bash
-cmake --build build -j
-ctest --test-dir build --output-on-failure
-./build/test_config "[security]"
-python3 -m pytest tests/test_release.py -q
-./scripts/package-release.sh --release
-./scripts/release-checksums.sh
-```
+Record exact compiler, OS image, and dependency versions in the GitHub Release notes or SBOM. Do not copy binaries or checksum files forward from an older tag.
