@@ -1,43 +1,32 @@
-# Contributing to BridgeSessions
+# Contributing
 
-Thanks for your interest in contributing. This document is deliberately short —
-the goal is a low-friction, high-quality bar.
+## Build
 
-## Getting started
+```bash
+cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo
+cmake --build build --parallel
+ctest --test-dir build --output-on-failure
+```
 
-1. Fork and clone.
-2. Build from source: see [docs/building.md](docs/building.md).
-3. Run the tests: see the Testing section of [docs/building.md](docs/building.md).
-4. Make your change on a feature branch.
+See [Building](docs/building.md) for dependencies and sanitizers.
 
-## Before you open a PR
+## Before a pull request
 
-- **Build is green** with `./build.sh` (C++23).
-- **Tests pass.** If you bumped `VERSION`, force a clean CMake reconfigure first:
-  `cmake -S . -B build && cmake --build build -j` — the Make generator does not
-  always detect `VERSION` changes, so `BS_VERSION` can stay stale and fail the
-  canonical-version test (`test_config #41`).
-- **Docs updated** if your change affects behavior, the CLI, or the protocol.
-- **No secrets, no hardcoded private paths, no internal notes.** Never commit
-  `*.pem`, `authorized_keys`, or machine-specific `C:\` paths.
-- Keep PRs focused — one logical change per pull request.
+- Add regression coverage for behavior changes.
+- Run `bash scripts/prepublish-scan.sh`.
+- Format changed C++; run ShellCheck/Ruff where available.
+- Update an existing document instead of adding one-off release/audit notes.
+- Keep private hosts, addresses, credentials, machine paths, generated binaries, and local reports out of git.
+- Keep one logical concern per PR.
 
-## Code style
+## Systems rules
 
-- C++23. Match the existing style in the file you edit.
-- `clang-format` and `clang-tidy` configs are in the repo root; run them on
-  changed code before submitting.
+- Never block the mesh event loop.
+- Treat `SSL*`, sockets, PTYs, handles, and temp files as single-owner resources.
+- Bound remote lengths, queues, buffers, retries, and worker pools.
+- Preserve mixed-version protocol behavior and test it.
+- Use deadlines for network and child-process work.
 
-## Reporting bugs
+Report vulnerabilities privately through [SECURITY.md](SECURITY.md).
 
-Open an issue with:
-- The exact command you ran.
-- Expected vs. actual behavior.
-- Your platform and `bridgesessions --version`.
-- Relevant config (redacted of secrets).
-
-## License
-
-By contributing, you agree that your contributions are licensed under the
-**Business Source License 1.1** (see [LICENSE](LICENSE)), which converts to
-Apache-2.0 on 2030-07-16.
+Contributions use the license in [LICENSE](LICENSE).

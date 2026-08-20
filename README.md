@@ -1,321 +1,78 @@
-<div align="center">
-
-<img src="docs/assets/bridge-hero-banner.png" alt="BridgeSessions" width="100%">
-
 # BridgeSessions
 
-### One binary. Every machine. Zero SSH.
+**Persistent shells, verified files, and computer-use automation across a trusted peer mesh—one C++23 executable.**
 
-[![Version](https://img.shields.io/badge/version-26.09.19--beta5-00d9ff?style=flat-square)](https://github.com/MindDragonLabs/BridgeSessions/releases)
-[![License](https://img.shields.io/badge/license-BSL--1.1-6c7086?style=flat-square)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20Windows%20%7C%20macOS-00d9ff?style=flat-square)](#install)
-[![Language](https://img.shields.io/badge/C%2B%2B-23-00599C?style=flat-square&logo=c%2B%2B&logoColor=white)](https://en.cppreference.com/)
-[![Tests](https://img.shields.io/badge/tests-472%20passing-brightgreen?style=flat-square)](tests/)
+`bridgesessions` (usually `bs`) is both daemon and CLI on Linux, macOS, and Windows. Sessions keep their PTY/ConPTY when clients disconnect.
 
-**Mesh terminal relay** — replaces SSH + MOSH + SCP + tmux + WinRM with a single encrypted mesh (`bs://` over TLS 1.2+). Built for humans **and** AI agents.
-
-[Install](#install) ·
-[Quickstart](#quickstart) ·
-[Features](#features) ·
-[Comparison](#vs-ssh--scp--winrm) ·
-[CUA](#computer-use-automation) ·
-[Docs](#documentation)
-
-</div>
-
-### Product demo
-
-[![BridgeSessions product demo](docs/assets/demo-install-ai-mesh.gif)](docs/assets/demo-install-ai-mesh.mp4)
-
-*Install → mesh → AI CUA → media/vision → Bridge Panel (22s loop).*  
-Full quality: **[MP4 · 1080p](docs/assets/demo-install-ai-mesh.mp4)**
-
----
-
-## The Problem
-
-Every remote machine task today chains together a pile of disconnected tools:
-
-```
-ssh server → tmux attach → work → detach → scp files back → winrm to Windows box → ...
-```
-
-Each tool has its own auth, escaping rules, failure modes, and security surface. AI agents struggle with all of them — `$_` escaping in PowerShell, SSH key management across containers, WinRM's broken Unicode handling, SCP's lack of progress reporting.
-
-**BridgeSessions replaces all of it with one binary.**
+> **Beta software.** An authorized peer has near-interactive host access. Use it only on machines and networks you control; read [SECURITY.md](SECURITY.md).
 
 ## Features
 
-### 🔐 Encrypted Mesh Network
-- **ed25519 mutual TLS 1.2+** — every connection authenticated, encrypted (1.3 re-enabled once Windows PE links OpenSSL ≥ 3.6)
-- **Peer-to-peer mesh** — connect any machine to any machine, no central server
-- **TOFU key pinning** — first contact establishes trust, subsequent connections verify identity
-- **Zero passwords** — cryptographic identity, not credentials
-
-### 🖥️ Persistent Sessions
-- **Durable PTYs** — disconnect and reattach, the terminal keeps running
-- **Multi-attach** — multiple clients on the same session simultaneously
-- **Spectator mode** — watch without controlling (pair programming, demos)
-
-### 📁 Fast File Transfer
-- **Direct TLS path** — works even without daemon mesh connection
-- **Streaming SHA-256** — verified integrity, no full-file RAM buffering
-- **Pipeline depth 16** — 768KB/batch, 3× faster than v2.x
-- **Bidirectional** — `send` and `recv` work identically on Linux, Windows, macOS
-- **Progress reporting** — machine-parseable `PROGRESS` lines for agents
-
-### 🤖 Computer-Use Automation (CUA)
-- **Remote screen capture** — screenshot any peer over the mesh
-- **Input injection** — click, type, scroll on remote machines
-- **Agent-native** — designed for AI agents driving remote desktops
-- **Cross-platform** — Linux (xdotool), Windows (SendInput), macOS (CGEvent)
-
-```bash
-bs cua screen win-desktop          # → 1920x1080
-bs cua capture win-desktop -o shot.png
-bs cua click win-desktop --x 500 --y 300
-bs cua type win-desktop --text "Hello World"
-```
-
-### 📜 Script Library
-- **Content-addressed** — SHA256 cache, no re-transfer of unchanged scripts
-- **Fleet-wide** — push once, run on any peer
-- **Zero escaping** — base64-encoded, eliminates PowerShell/bash quoting hell
-
-```bash
-bs script add deploy.sh --name deploy
-bs script push deploy --peer linux-hub
-bs script run deploy --peer linux-hub -- --env prod
-```
-
-### 🔍 Smart Peer Resolution
-- **4-tier fuzzy matching** — exact → suffix/prefix → Levenshtein → suggestions
-- **Alias support** — short queries resolve to longer peer names (e.g. `desktop` → `win-desktop`)
-- **"Did you mean…?"** — ambiguous matches return suggestions instead of guessing
-
-### 🛡️ Built for AI Agents
-- **SKILL.md + AGENTS.md** — multi-harness agent instructions (Hermes, Claude, Codex, Cursor, OpenCode)
-- **`run-script`** — base64-encoded execution, zero shell injection risk
-- **Rich error diagnostics** — per-reason guidance (`refused`, `timeout`, `tls_rejected`, `hello_rejected`)
-- **No-SSH-fallback contract** — the mesh IS the transport, no silent SSH/WinRM fallback
-- **Bridge Panel** — agent-friendly Markdown surface for long-form reviews
-
----
+- Named persistent sessions, scrollback, and multi-attach
+- Ed25519 mutual TLS with explicit peer pins
+- Resumable SHA-256-verified file transfer
+- Linux/macOS/Windows peers in one mesh
+- Remote screenshots and input through `bs cua`
+- Optional loopback Bridge Panel for Markdown review
 
 ## Install
 
-### One-line install (Linux / macOS)
+Release binaries and `SHA256SUMS` are GitHub Release assets. Installers fail closed on verification errors.
 
 ```bash
-curl -fsSL https://github.com/MindDragonLabs/BridgeSessions/raw/main/scripts/install.sh | bash
+# Linux / macOS
+curl -fsSL https://raw.githubusercontent.com/MindDragonLabs/BridgeSessions/main/scripts/install.sh | bash
+
+# Windows PowerShell
+irm https://raw.githubusercontent.com/MindDragonLabs/BridgeSessions/main/scripts/install.ps1 | iex
 ```
 
-### Windows (PowerShell)
-
-```powershell
-irm https://github.com/MindDragonLabs/BridgeSessions/raw/main/scripts/install.ps1 | iex
-```
-
-### Build from source
+## Join and use
 
 ```bash
-git clone https://github.com/MindDragonLabs/BridgeSessions.git
-cd BridgeSessions
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+# Existing pinned seed
+bs invite
+
+# New node
+bs join <seed-address>:19949 <single-use-token> --start
+
+bs peers list
+bs health <peer>
+bs shell <peer> --name agent
+bs shell <peer> --cmd 'hostname && uptime'
+bs file send <peer> ./artifact.bin --wait
+bs file recv <peer> received/report.md --to ./report.md --wait
+bs run-script <peer> ./task.sh
+bs cua capture <peer> -o screen.png
+```
+
+`Ctrl-D` detaches without killing the remote session. Reuse the same `--name` to reattach.
+
+## Security model
+
+- One Ed25519 identity per node
+- Inbound keys must be in `authorized_keys`, except during a bounded invite join
+- Outbound certificate, Hello key/name, and configured pin must agree
+- Local daemon IPC is loopback-only and token-authenticated
+- Remote file serving is confined to `receive_dir` unless explicitly weakened
+- Authorization is host-level, not per-command
+- Current cross-platform compatibility profile negotiates TLS 1.2
+
+## Build and test
+
+```bash
+cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo
 cmake --build build --parallel
-./build/bridgesessions --version   # → 26.09.19-beta5
+ctest --test-dir build --output-on-failure
+bash scripts/prepublish-scan.sh
 ```
-
-<details>
-<summary>Build dependencies</summary>
-
-| Platform | Dependencies |
-|----------|-------------|
-| **Linux** | `cmake gcc openssl fmt spdlog zstd nlohmann-json catch2` |
-| **macOS** | `brew install cmake openssl@3 fmt spdlog zstd nlohmann-json` |
-| **Windows** | MinGW-w64 (`x86_64-w64-mingw32-g++`) + static OpenSSL/zstd/fmt/spdlog |
-
-</details>
-
----
-
-## Quickstart
-
-```bash
-# 1. Generate a keypair (once per machine)
-bridgesessions keygen
-
-# 2. Start the daemon (background mesh service)
-bridgesessions --daemon --config ~/.bridgesessions/config
-
-# 3. From any other machine — connect, run, transfer
-bs health linux-hub                    # → healthy (data-plane ok)
-bs shell linux-hub --cmd 'uname -a'    # → Linux …
-bs file send linux-hub ./app.tar.gz --wait
-bs file send linux-hub ./app.tar.gz /tmp/app.tar.gz --wait   # scp-style dest
-bs shell win-desktop --cmd 'hostname'  # → WIN-…
-bs cua capture mac-desktop -o screen.png  # → screenshot from macOS peer
-```
-
-<details>
-<summary>Configuration file (~/.bridgesessions/config)</summary>
-
-```ini
-node.name   my-laptop
-node.listen 0.0.0.0:19949
-seed example-peer <tailnet-ip>:19949 pubkey=<hex-pubkey>
-mesh.gossip_interval_secs 30
-mesh.startup_wait_secs 30
-receive_dir ~/.bridgesessions/received
-```
-
-</details>
-
----
-
-## vs SSH + SCP + WinRM
-
-| Feature | SSH + SCP + tmux + WinRM | BridgeSessions |
-|---------|:------------------------:|:--------------:|
-| **One binary** | ❌ 4+ tools | ✅ `bridgesessions` |
-| **Cross-platform** | ❌ WinRM ≠ SSH ≠ MOSH | ✅ Same binary, same protocol |
-| **Persistent sessions** | Need tmux/Zellij | ✅ Built in |
-| **Encrypted file transfer** | SCP (no progress) | ✅ Streaming SHA-256 + progress |
-| **AI agent friendly** | ❌ Escaping hell | ✅ `run-script` + `bs script` |
-| **Remote desktop / CUA** | ❌ Separate VNC/RDP | ✅ `bs cua` built in |
-| **Mesh topology** | ❌ Point-to-point | ✅ Full mesh with gossip |
-| **Peer name resolution** | ❌ DNS or /etc/hosts | ✅ 4-tier fuzzy + aliases |
-| **Error diagnostics** | `Connection refused` | ✅ Per-reason guidance |
-| **Port forwarding** | ❌ Manual tunnels | ✅ Mesh routing |
-| **Session persistence on restart** | ❌ Lost | ✅ Save on shutdown |
-| **Self-hosting / no central server** | ❌ Need sshd | ✅ Daemon = server + client |
-| **License** | Various | BSL-1.1 → Apache-2.0 |
-
-### What BridgeSessions does NOT replace
-
-- **Interactive SSH login** for one-off admin tasks — BS is heavier to set up (keypair + config)
-- **SCP for tiny files** — overhead of TLS + mesh for a 1KB config edit
-- **SSH port forwarding** for database tunnels — BS mesh routes connections, not arbitrary TCP
-
----
-
-## Computer-Use Automation
-
-```bash
-# Screen dimensions
-bs cua screen <peer>                    # → 1920x1080
-
-# Screenshot
-bs cua capture <peer> -o screenshot.png
-
-# Mouse
-bs cua click <peer> --x 100 --y 200     # left click
-bs cua move <peer> --x 500 --y 300      # move cursor
-bs cua scroll <peer> --direction down   # scroll wheel
-
-# Keyboard
-bs cua type <peer> --text "Hello World"
-bs cua key <peer> --code 40             # HID Enter key
-```
-
-**Platform support:**
-
-| Platform | Screen Capture | Input Injection | Setup |
-|----------|:--------------:|:---------------:|-------|
-| **Linux** | ✅ grim/import/scrot | ✅ xdotool | Install xdotool |
-| **Windows** | ✅ GDI (built-in) | ✅ SendInput via cua-helper | `bridgesessions --cua-helper` in user session |
-| **macOS** | ✅ ScreenCaptureKit | ✅ CGEvent via cua-helper | `bridgesessions --cua-helper` + Accessibility permission |
-
----
 
 ## Documentation
 
-| Document | What it covers |
-|----------|----------------|
-| [docs/cua.md](docs/cua.md) | CUA commands, platform setup, HID key codes, workflows |
-| [docs/QUICKSTART.md](docs/QUICKSTART.md) | Fast-start guide with examples |
-| [docs/configuration.md](docs/configuration.md) | Full config file reference |
-| [docs/protocol.md](docs/protocol.md) | The `bs://` wire protocol specification |
-| [docs/building.md](docs/building.md) | Compile on Linux / Windows / macOS |
-| [docs/bridge-panel.md](docs/bridge-panel.md) | Bridge Panel web surface |
-| [docs/ARCHITECTURE-DECISION-RECORD.md](docs/ARCHITECTURE-DECISION-RECORD.md) | Design decisions and component model |
-| [docs/ARCHITECTURE-RECOMMENDATIONS.md](docs/ARCHITECTURE-RECOMMENDATIONS.md) | Future roadmap and recommendations |
+[Quickstart](docs/QUICKSTART.md) · [Usage](docs/usage.md) · [Configuration](docs/configuration.md) · [Design](docs/design.md) · [Protocol](docs/protocol.md) · [CUA](docs/cua.md) · [Building](docs/building.md) · [Audit](AUDIT.md)
 
----
-
-## For AI Agents
-
-BridgeSessions ships multi-harness agent instructions:
-
-| File | Role |
-|------|------|
-| [`AGENTS.md`](AGENTS.md) | Always-on project rules (AGENTS.md standard) |
-| [`CLAUDE.md`](CLAUDE.md) | Symlink → `AGENTS.md` for Claude Code |
-| [`skills/bridgesessions/SKILL.md`](skills/bridgesessions/SKILL.md) | Portable Agent Skills skill |
-
-**Load the skill** when operating `bs` mesh, Windows peers, large file transfer, CUA, or release hardening.
-
----
-
-## Architecture
-
-```
-┌─────────────┐     TLS 1.2+     ┌─────────────┐     TLS 1.2+     ┌─────────────┐
-│  Mac (agent) │◄────────────────►│  Linux box  │◄────────────────►│  Windows PC │
-│  bs daemon   │     ed25519      │  bs daemon   │     ed25519      │  bs daemon  │
-│  bs CLI      │     mesh gossip  │  PTY sessions│     file transfer│  CUA helper │
-└─────────────┘                   └─────────────┘                   └─────────────┘
-       │                                                               │
-       │  TLS 1.2+                                                     │ TLS 1.2+
-       ▼                                                               ▼
-┌─────────────┐                                             ┌─────────────┐
-│  Mac mini   │◄─────────── mesh gossip ───────────────────►│  Docker box │
-│  bs daemon   │                                             │  bs daemon  │
-└─────────────┘                                             └─────────────┘
-```
-
-- **One C++23 binary** — client, server, daemon, CUA helper, all in `bridgesessions`
-- **Source:** `bs-protocol.h` + `main.cpp` (~14K lines single header)
-- **Protocol:** `bs://` over TLS 1.2+ with ed25519 mutual auth
-- **Default port:** 19949 (mesh), 19980 (local IPC), 19986 (CUA helper)
-
----
-
-## Releases
-
-| Platform | Artifact |
-|----------|----------|
-| Linux x86_64 | `bridgesessions-linux-x86_64` |
-| Windows x86_64 | `bridgesessions-windows-x86_64.exe` |
-| macOS arm64 | `bridgesessions-macos-arm64` |
-
-Current release: **`26.09.19-beta5`** on [GitHub Releases](https://github.com/MindDragonLabs/BridgeSessions/releases).
-
-```bash
-# Verify checksums
-sha256sum -c SHA256SUMS
-```
-
----
-
-## Contributing
-
-See [CONTRIBUTING.md](CONTRIBUTING.md). Bug reports and pull requests welcome.
-
-## Security
-
-Found a vulnerability? Follow the disclosure process in [SECURITY.md](SECURITY.md).
+Generated binaries, app bundles, archives, checksums, and SBOMs are ignored by git and published through GitHub Releases.
 
 ## License
 
-**Business Source License 1.1** (BSL-1.1). Production and commercial use permitted with one carve-out (you may not operate it as a hosted remote-terminal service). Converts to **Apache-2.0** on **2030-07-16**. See [LICENSE](LICENSE).
-
----
-
-<div align="center">
-
-**[⬆ Back to top](#bridgesessions)**
-
-Built by [Mind Dragon Labs](https://github.com/MindDragonLabs) · Powered by C++23 + OpenSSL + ❤️
-
-</div>
+Business Source License 1.1. See [LICENSE](LICENSE).

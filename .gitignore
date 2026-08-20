@@ -1,14 +1,13 @@
-# ── Build outputs (in-tree binaries, not source dirs / dist releases) ──
+# ── Build and release outputs ───────────────────────────────────
 /bridgesessions
 /bs
 /bsmesh
 /bridgesessions-macos-arm64
 /bridgesessions-windows-x86_64.exe
 bridgesessions-v[0-9]*
-!dist/
-!dist/**
-/dist/SHA256SUMS
-/dist/SBOM-binaries.json
+/dist/
+/release/
+/BSMenubar/BSMenubar-bin
 
 # ── Generated files ──────────────────────────────────────────
 compile_commands.json
@@ -113,10 +112,7 @@ test_message
 bsmesh.bak.*
 bsmesh.prev*
 
-# ── Local build artifacts (per-platform binaries) ──
-# Release binaries bridgesessions-{macos-arm64,windows-x86_64.exe,linux-x86_64}
-# ARE committed to dist/ (they are the published artifacts). Only ignore the
-# dev/throwaway exe and object files.
+# ── Local build artifacts ──────────────────────────────────────
 bridgesessions.exe
 *.o
 *.obj

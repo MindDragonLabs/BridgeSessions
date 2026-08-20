@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import html as _html
 import re
-import time
 from pathlib import Path
 from urllib.parse import unquote
 

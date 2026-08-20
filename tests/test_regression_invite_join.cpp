@@ -1,8 +1,8 @@
 // test_regression_invite_join.cpp — regression tests for 10 bugs fixed 2026-08-11
 //
 // Bug coverage:
-//   1.  Codeberg URLs in invite output → must be GitHub
-//   2.  Version in URLs must use macro, not hardcoded
+//   1.  Invite URLs use the canonical GitHub source
+//   2.  Version in URLs uses the build macro, not a literal
 //   3.  (static binary check — covered by release test, not unit test)
 //   4.  (ZSH_VERSION unbound — covered by install_script Python test)
 //   5.  Double --start in join args
@@ -27,7 +27,7 @@ int main(int argc, char* argv[]) {
 }
 
 // ════════════════════════════════════════════════════════════════
-// Bug 1: Invite URLs must use GitHub, not Codeberg
+// Bug 1: Invite URLs use the canonical GitHub source
 // ════════════════════════════════════════════════════════════════
 
 TEST_CASE("kBridgeSessionsVersion is not empty", "[regression][invite][version]") {
@@ -161,15 +161,6 @@ TEST_CASE("Invite token is 32-char hex", "[regression][invite][format]") {
     }
 }
 
-TEST_CASE("Invite output does not contain codeberg", "[regression][invite][urls]") {
-    // The invite one-liner URLs must use github.com, not codeberg.org.
-    // This is a source-level check: verify the compiled binary doesn't
-    // contain codeberg strings by checking the version constant is available
-    // for URL construction at runtime.
-    std::string ver(kBridgeSessionsVersion);
-    // If version is available, the URL construction path uses it dynamically.
-    REQUIRE(!ver.empty());
-}
 
 // ════════════════════════════════════════════════════════════════
 // Join window lifecycle (g_allow_join_connections)

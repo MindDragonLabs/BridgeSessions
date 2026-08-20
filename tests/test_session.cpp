@@ -238,6 +238,24 @@ TEST_CASE("session move semantics transfer handles correctly", "[session]") {
     REQUIRE(moved.command == BS_CMD("cmd.exe /c timeout /t 3", "sleep 3"));
 }
 
+TEST_CASE("session move assignment reconstructs object lifetime safely",
+          "[session][move]") {
+    Session source;
+    source.name = "source";
+    source.command = "echo source";
+    source.peer_ids = {"peer-a", "peer-b"};
+    source.parent_id = "parent";
+    source.generation = 42;
+    Session destination;
+    destination.name = "old";
+    destination = std::move(source);
+    REQUIRE(destination.name == "source");
+    REQUIRE(destination.command == "echo source");
+    REQUIRE(destination.peer_ids == std::vector<std::string>{"peer-a", "peer-b"});
+    REQUIRE(destination.parent_id == "parent");
+    REQUIRE(destination.generation == 42);
+}
+
 // ── Test 5: Create session running directory listing, verify output ──
 
 TEST_CASE("create_session with directory listing produces output", "[session]") {

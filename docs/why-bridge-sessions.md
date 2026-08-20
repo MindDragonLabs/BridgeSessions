@@ -57,4 +57,4 @@ Bridge Panel is optional and loopback-only by default. It is a document review s
 - A compromised authorized node can affect other nodes that trust it.
 - Beta releases require active upgrade discipline.
 
-See [Design](design.md), [Security](../SECURITY.md), and [Quickstart](QUICKSTART.md).
+See [Design](design.md), [Security](https://github.com/MindDragonLabs/BridgeSessions/blob/main/SECURITY.md), and [Quickstart](QUICKSTART.md).

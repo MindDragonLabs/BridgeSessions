@@ -910,7 +910,14 @@ void serialize_msg(Serializer& s, const DetachMsg&)        {}
 void serialize_msg(Serializer& s, const PingMsg&)          {}
 void serialize_msg(Serializer& s, const PongMsg&)          {}
 void serialize_msg(Serializer& s, const ScrollbackAckMsg&) {}
-void serialize_msg(Serializer& s, const SessionListMsg&  m) { for (auto& si : m.sessions) { s.str_prefixed(si.name); s.str_prefixed(si.state); s.u32be(si.uptime_seconds); } }
+void serialize_msg(Serializer& s, const SessionListMsg& m) {
+    for (const auto& si : m.sessions) {
+        s.str_prefixed(si.name);
+        s.str_prefixed(si.state);
+        s.u32be(static_cast<uint32_t>(std::min<uint64_t>(
+            si.uptime_seconds, std::numeric_limits<uint32_t>::max())));
+    }
+}
 void serialize_msg(Serializer& s, const ServerInfoMsg&   m) {
     s.str_prefixed_u16(m.hostname);
     s.str_prefixed_u16(m.version);
@@ -3856,8 +3863,8 @@ extern "C" int bs_macos_capture_png(const char*, unsigned, char*, size_t);
     if (req.action == 0) {
         // Screen dimensions via CoreGraphics (no subprocess needed)
         auto r = CGDisplayBounds(CGMainDisplayID());
-        resp.screen_w = (int16_t)r.size.width;
-        resp.screen_h = (int16_t)r.size.height;
+        resp.screen_w = static_cast<uint32_t>(std::max(0.0, r.size.width));
+        resp.screen_h = static_cast<uint32_t>(std::max(0.0, r.size.height));
         resp.status = 0;
         return resp;
     }
@@ -3896,8 +3903,8 @@ extern "C" int bs_macos_capture_png(const char*, unsigned, char*, size_t);
                 resp.status = 0;
                 resp.error.clear();
                 auto r = CGDisplayBounds(CGMainDisplayID());
-                resp.screen_w = (int16_t)r.size.width;
-                resp.screen_h = (int16_t)r.size.height;
+                resp.screen_w = static_cast<uint32_t>(std::max(0.0, r.size.width));
+                resp.screen_h = static_cast<uint32_t>(std::max(0.0, r.size.height));
             } else {
                 resp.error = "macOS capture empty/oversize";
             }
@@ -7816,9 +7823,6 @@ struct LongOperationTask {
     enum class Type {
         FileSendWait,
         FileRecvWait,
-        EditDownload,
-        EditUpload,
-        VFolderSync,
         RemoteFileRequest,
         AutoUpgrade,
     };
@@ -7857,7 +7861,13 @@ public:
     void enqueue(LongOperationTask task) {
         {
             std::lock_guard lock(mutex_);
-            if (shutdown_) return;
+            constexpr size_t kMaxQueuedTasks = 64;
+            if (shutdown_ || queue_.size() >= kMaxQueuedTasks) {
+                if (task.exec_completed) task.exec_completed->store(true);
+                if (task.exec_busy) task.exec_busy->store(false);
+                if (task.ipc_fd != INVALID_SOCKET) CLOSESOCK(task.ipc_fd);
+                return;
+            }
             queue_.push(std::move(task));
         }
         cv_.notify_one();
@@ -9633,6 +9643,10 @@ private:
     // bounded non-blocking TX queue; a stalled peer must never freeze every
     // other peer for write_frame()'s 30-second deadline.
     bool enqueue_file_ack(Conn& c, FileAckMsg ack) {
+#ifdef BS_TESTING
+        // Unit tests inject transfer messages without constructing a TLS socket.
+        if (c.sock_fd == INVALID_SOCKET && !c.ssl) return true;
+#endif
         if (enqueue_frame(c, ack, CONTROL_STREAM_ID)) return true;
         log_event("file_ack_queue_failed", c.peer_name);
         close_conn(c);  // reconnect/resume is safer than silently losing an ACK
@@ -10634,20 +10648,6 @@ private:
                       task.peer_name + " rc=" + std::to_string(rc));
             break;
         }
-        case LongOperationTask::Type::EditDownload:
-        case LongOperationTask::Type::EditUpload:
-        case LongOperationTask::Type::VFolderSync:
-            // v2.0.6: these paths remain synchronous on the event loop. They
-            // depend on temp-directory creation, directory traversal, and
-            // multiple request/response pairs that are not yet refactored into
-            // transport-agnostic worker-safe forms. Leave unchanged per the
-            // directive to avoid cosmetic workarounds.
-            log_event("worker_unimplemented", std::to_string(static_cast<int>(task.type)));
-            if (task.ipc_fd != INVALID_SOCKET) {
-                std::string err = "ERROR operation not yet offloaded to worker\n";
-                send(task.ipc_fd, err.data(), (int)err.size(), 0);
-            }
-            break;
         }
 
         // Clear busy/completed flags on the captured shared_ptrs.
@@ -11120,293 +11120,34 @@ private:
         return out.str();
     }
 
-    // ── Daemon edit download: request file, receive to temp, return path+checksum ──
-    std::string daemon_edit_dl(const std::string& peer_name, const std::string& remote_path) {
-        namespace fs = std::filesystem;
-        // Create temp dir
-        std::string tmp_dir;
-#ifdef _WIN32
-        char tp[MAX_PATH+1]={}, tb[MAX_PATH+1]={};
-        GetTempPathA(sizeof(tp), tp);
-        GetTempFileNameA(tp, "bsed", 0, tb);
-        DeleteFileA(tb); CreateDirectoryA(tb, nullptr);
-        tmp_dir = tb;
-#else
-        char tmpl[] = "/tmp/bsedit-XXXXXX";
-        char* d = mkdtemp(tmpl);
-        tmp_dir = d ? d : "/tmp/bsedit";
-#endif
-        // Find conn
-        Conn* target = nullptr;
-        for (auto& c : conns_) { if (is_live_mesh_transport_for(c, peer_name)) { target = &c; break; } }
-        if (!target) return "ERROR no conn to " + peer_name;
-
-        // Acquire exec_busy guard before touching target->ssl — same pattern as
-        // daemon_file_recv_wait (line 8684). Without it, broadcast_ping/gossip/
-        // check_conn_read can race this blocking TLS exchange on the event loop.
-        if (target->exec_busy->exchange(true)) return "ERROR peer busy with another transfer, retry";
-        target->exec_completed->store(false);
-        struct BusyGuard {
-            std::shared_ptr<std::atomic<bool>> busy;
-            std::shared_ptr<std::atomic<bool>> completed;
-            ~BusyGuard() {
-                if (completed) completed->store(true);
-                if (busy) busy->store(false);
-            }
-        } busy_guard{target->exec_busy, target->exec_completed};
-
-        FileRequestMsg req; req.path = remote_path;
-        try { write_frame(target->ssl.get(), req, CONTROL_STREAM_ID); }
-        catch (const std::exception& e) { return "ERROR send request: " + std::string(e.what()); }
-
-        // Wait for FileMeta
-        std::string filename, checksum;
-        uint32_t total_chunks = 0;
-        auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(15);
-        while (std::chrono::steady_clock::now() < deadline) {
-            fd_set rfds; FD_ZERO(&rfds); FD_SET(target->sock_fd, &rfds);
-            timeval tv{3, 0};
-            if (select(static_cast<int>(target->sock_fd) + 1, &rfds, nullptr, nullptr, &tv) <= 0) continue;
-            try {
-                Message resp = read_frame(target->ssl.get());
-                if (std::holds_alternative<FileMetaMsg>(resp)) {
-                    auto& m = std::get<FileMetaMsg>(resp);
-                    filename = m.filename; checksum = m.checksum; total_chunks = m.total_chunks;
-                    break;
-                }
-                if (std::holds_alternative<FileAckMsg>(resp)) {
-                    auto& ack = std::get<FileAckMsg>(resp);
-                    if (ack.error) return "ERROR remote: " + ack.error_msg;
-                }
-            } catch (...) {}
-        }
-        if (filename.empty()) return "ERROR no FileMeta from " + peer_name;
-
-        auto safe = sanitize_transfer_filename(filename);
-        if (!safe) return "ERROR rejected unsafe remote filename for edit";
-        filename = *safe;
-
-        // filesize may be unknown from incomplete meta parse; use chunk count budget.
-        // Prefer size-aware overall timeout when meta carried filesize (re-read if needed).
-        std::string local_path = tmp_dir + "/" + filename;
-        std::string part_path = local_path + ".part";
-        {
-            std::ofstream out_file(part_path, std::ios::binary);
-            if (!out_file) return "ERROR cannot open " + part_path;
-            Sha256Stream hasher;
-            uint32_t chunks_recv = 0;
-            uint64_t bytes_recv = 0;
-            auto overall = std::chrono::steady_clock::now() + transfer_overall_timeout(
-                static_cast<uint64_t>(total_chunks) * kTransferChunkRawSize);
-            auto idle = std::chrono::steady_clock::now() +
-                        std::chrono::seconds(kTransferIdleTimeoutSec);
-            while (chunks_recv < total_chunks &&
-                   std::chrono::steady_clock::now() < overall &&
-                   std::chrono::steady_clock::now() < idle) {
-                fd_set rfds; FD_ZERO(&rfds); FD_SET(target->sock_fd, &rfds);
-                timeval tv{5, 0};
-                if (select(static_cast<int>(target->sock_fd) + 1, &rfds, nullptr, nullptr, &tv) <= 0) continue;
-                try {
-                    Message resp = read_frame(target->ssl.get());
-                    if (std::holds_alternative<FileChunkMsg>(resp)) {
-                        auto& chunk = std::get<FileChunkMsg>(resp);
-                        if (chunk.chunk_index == chunks_recv) {
-                            std::vector<uint8_t> d;
-                            if (!chunk.data.empty()) d = decompress_chunk_payload(std::span<const uint8_t>(chunk.data.data(), chunk.data.size()));
-                            if (!d.empty()) {
-                                out_file.write(reinterpret_cast<const char*>(d.data()),
-                                               static_cast<std::streamsize>(d.size()));
-                                hasher.update(d);
-                                bytes_recv += d.size();
-                            }
-                            ++chunks_recv;
-                            idle = std::chrono::steady_clock::now() +
-                                   std::chrono::seconds(kTransferIdleTimeoutSec);
-                            try { write_frame(target->ssl.get(), FileAckMsg{chunk.chunk_index, chunks_recv, false, ""}, CONTROL_STREAM_ID); } catch (...) {}
-                        }
-                    } else if (std::holds_alternative<PingMsg>(resp)) {
-                        write_frame(target->ssl.get(), PongMsg{}, CONTROL_STREAM_ID);
-                    }
-                } catch (...) {}
-            }
-            out_file.close();
-            if (chunks_recv < total_chunks) return "ERROR incomplete " + std::to_string(chunks_recv) + "/" + std::to_string(total_chunks);
-            if (!checksum.empty()) {
-                std::string actual = hasher.final_hex();
-                if (actual != checksum) {
-                    std::error_code ec; fs::remove(part_path, ec);
-                    return "ERROR checksum mismatch";
-                }
-            }
-        }
-        std::error_code rename_ec;
-        fs::rename(part_path, local_path, rename_ec);
-        if (rename_ec) {
-            // P2 audit fix: rename across filesystems / permission failure
-            // used to throw an uncaught filesystem_error, crashing the daemon.
-            return "ERROR rename to " + local_path + ": " + rename_ec.message();
-        }
-        log_event("edit_dl_complete", filename + " -> " + local_path);
-        return "OK " + local_path + " " + checksum;
-    }
-
-    // ── Daemon edit upload: read local file, upload via handle_file_meta/handle_file_chunk ──
-    std::string daemon_edit_up(const std::string& peer_name, const std::string& remote_path, const std::string& local_path) {
-        namespace fs = std::filesystem;
-        if (!fs::exists(local_path)) return "ERROR file not found: " + local_path;
-
-        Conn* target = nullptr;
-        for (auto& c : conns_) { if (is_live_mesh_transport_for(c, peer_name)) { target = &c; break; } }
-        if (!target) return "ERROR no conn to " + peer_name;
-
-        // Acquire exec_busy guard before touching target->ssl (same class as
-        // daemon_edit_dl / daemon_file_recv_wait). Prevents TLS record-stream
-        // corruption from concurrent event-loop access during the upload.
-        if (target->exec_busy->exchange(true)) return "ERROR peer busy with another transfer, retry";
-        target->exec_completed->store(false);
-        struct BusyGuard {
-            std::shared_ptr<std::atomic<bool>> busy;
-            std::shared_ptr<std::atomic<bool>> completed;
-            ~BusyGuard() {
-                if (completed) completed->store(true);
-                if (busy) busy->store(false);
-            }
-        } busy_guard{target->exec_busy, target->exec_completed};
-
-        uint64_t filesize = static_cast<uint64_t>(fs::file_size(local_path));
-        std::string filename = fs::path(local_path).filename().string();
-        std::ifstream infile(local_path, std::ios::binary);
-        if (!infile) return "ERROR cannot open " + local_path;
-        std::string content((std::istreambuf_iterator<char>(infile)), std::istreambuf_iterator<char>());
-        std::string checksum = sha256_hex(content);
-
-        const size_t kChunkRawSize = 48 * 1024;
-        size_t total = content.size();
-        uint32_t total_chunks = static_cast<uint32_t>((total + kChunkRawSize - 1) / kChunkRawSize);
-        if (total_chunks == 0) total_chunks = 1;
-
-        FileMetaMsg meta;
-        meta.filename = filename; meta.filesize = filesize; meta.checksum = checksum; meta.total_chunks = total_chunks; meta.chunk_size = static_cast<uint32_t>(kTransferChunkRawSizeDefault);
-        try { write_frame(target->ssl.get(), meta, CONTROL_STREAM_ID); } catch (...) { return "ERROR upload: send meta failed"; }
-
-        // Wait for ACK
-        auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(15);
-        bool got_ack = false;
-        while (std::chrono::steady_clock::now() < deadline) {
-            fd_set rfds; FD_ZERO(&rfds); FD_SET(target->sock_fd, &rfds);
-            timeval tv{3, 0};
-            if (select(static_cast<int>(target->sock_fd) + 1, &rfds, nullptr, nullptr, &tv) <= 0) continue;
-            try {
-                Message resp = read_frame(target->ssl.get());
-                if (std::holds_alternative<FileAckMsg>(resp)) {
-                    auto& ack = std::get<FileAckMsg>(resp);
-                    if (ack.error) return "ERROR remote: " + ack.error_msg;
-                    got_ack = true; break;
-                }
-            } catch (...) {}
-        }
-        if (!got_ack) return "ERROR upload: no ack";
-
-        for (uint32_t ci = 0; ci < total_chunks; ++ci) {
-            size_t off = static_cast<size_t>(ci) * kChunkRawSize;
-            size_t sz = (std::min)(kChunkRawSize, total - off);
-            std::string raw = content.substr(off, sz);
-            // v2.0.12c: let encode() handle compression — avoid double-compress
-            FileChunkMsg c; c.chunk_index = ci; c.total_chunks = total_chunks;
-            c.data.assign(reinterpret_cast<const uint8_t*>(raw.data()),
-                          reinterpret_cast<const uint8_t*>(raw.data()) + raw.size());
-            try { write_frame(target->ssl.get(), c, CONTROL_STREAM_ID); } catch (...) { return "ERROR upload: chunk " + std::to_string(ci); }
-        }
-        log_event("edit_up_complete", filename + " to " + peer_name);
-        return "OK uploaded " + filename + " (" + std::to_string(filesize) + " bytes)";
-    }
-
     // One-shot shell IPC deliberately delegates to the client direct-TLS path;
     // no background worker may borrow a mesh connection's SSL transport.
 
 
-    std::string daemon_vfolder_sync(const std::string& name) {
-        MeshConfig::VFolderEntry* vf = nullptr;
-        for (auto& v : config_.vfolders) { if (v.name == name) { vf = &v; break; } }
+    std::string vfolder_sync_direct(const std::string& name) {
+        const MeshConfig::VFolderEntry* vf = nullptr;
+        for (const auto& entry : config_.vfolders) {
+            if (entry.name == name) { vf = &entry; break; }
+        }
         if (!vf) return "ERROR no vfolder: " + name;
+        if (vf->direction != "push")
+            return "ERROR only push vfolder sync is implemented";
         namespace fs = std::filesystem;
-        if (!fs::exists(vf->local_path)) {
-            fs::create_directories(vf->local_path);
-        }
-        Conn* target = nullptr;
-        for (auto& c : conns_) {
-            if (is_live_mesh_transport_for(c, vf->remote_peer)) { target = &c; break; }
-        }
-        if (!target) return "ERROR no conn to " + vf->remote_peer;
-
-        // Hold exec_busy for the whole multi-file sync (not per file).
-        if (target->exec_busy->exchange(true)) return "ERROR peer busy with another transfer, retry";
-        target->exec_completed->store(false);
-        struct BusyGuard {
-            std::shared_ptr<std::atomic<bool>> busy;
-            std::shared_ptr<std::atomic<bool>> completed;
-            ~BusyGuard() {
-                if (completed) completed->store(true);
-                if (busy) busy->store(false);
-            }
-        } busy_guard{target->exec_busy, target->exec_completed};
-
-        // Scan local files, compute SHA-256 for each, send changed files
-        int sent = 0;
-        int skipped = 0;
-        for (auto& entry : fs::recursive_directory_iterator(vf->local_path, fs::directory_options::skip_permission_denied)) {
-            if (!entry.is_regular_file()) continue;
-            auto path = entry.path().string();
-            auto rel = path.substr(vf->local_path.size() + 1);
-            auto remote_file = vf->remote_path + "/" + rel;
-            // Read local, compute sha
-            std::ifstream f(path, std::ios::binary);
-            if (!f) continue;
-            std::string content((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
-            std::string checksum = sha256_hex(content);
-
-            // Send FileMeta
-            const size_t kChunkRawSize = 48 * 1024;
-            size_t total = content.size();
-            uint32_t total_chunks = static_cast<uint32_t>((total + kChunkRawSize - 1) / kChunkRawSize);
-            if (total_chunks == 0) total_chunks = 1;
-            FileMetaMsg meta;
-            meta.filename = fs::path(remote_file).filename().string();
-            meta.filesize = static_cast<uint64_t>(total);
-            meta.checksum = checksum; meta.total_chunks = total_chunks; meta.chunk_size = static_cast<uint32_t>(kTransferChunkRawSizeDefault);
-            try { write_frame(target->ssl.get(), meta, CONTROL_STREAM_ID); } catch (...) { return "ERROR send meta for " + rel; }
-            // Wait for ack
-            auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(15);
-            bool acked = false;
-            while (std::chrono::steady_clock::now() < deadline) {
-                fd_set rfds; FD_ZERO(&rfds); FD_SET(target->sock_fd, &rfds);
-                timeval tv{3, 0};
-                if (select(static_cast<int>(target->sock_fd) + 1, &rfds, nullptr, nullptr, &tv) <= 0) continue;
-                try {
-                    Message resp = read_frame(target->ssl.get());
-                    if (std::holds_alternative<FileAckMsg>(resp)) {
-                        auto& ack = std::get<FileAckMsg>(resp);
-                        if (ack.error) return "ERROR remote for " + rel + ": " + ack.error_msg;
-                        acked = true; break;
-                    }
-                } catch (...) {}
-            }
-            if (!acked) return "ERROR no ack for " + rel;
-            // Send chunks
-            for (uint32_t ci = 0; ci < total_chunks; ++ci) {
-                size_t offset = static_cast<size_t>(ci) * kChunkRawSize;
-                size_t chunk_sz = (std::min)(kChunkRawSize, total - offset);
-                std::string raw = content.substr(offset, chunk_sz);
-                // v2.0.12c: let encode() handle compression — avoid double-compress
-                FileChunkMsg c; c.chunk_index = ci; c.total_chunks = total_chunks;
-                c.data.assign(reinterpret_cast<const uint8_t*>(raw.data()),
-                              reinterpret_cast<const uint8_t*>(raw.data()) + raw.size());
-                try { write_frame(target->ssl.get(), c, CONTROL_STREAM_ID); } catch (...) { return "ERROR chunk " + std::to_string(ci); }
-            }
+        std::error_code ec;
+        const fs::path root = expand_home(vf->local_path);
+        if (!fs::is_directory(root, ec)) return "ERROR local vfolder is not a directory";
+        size_t sent = 0;
+        for (const auto& entry : fs::recursive_directory_iterator(root, ec)) {
+            if (ec) return "ERROR vfolder traversal failed: " + ec.message();
+            if (!entry.is_regular_file(ec)) continue;
+            const fs::path relative = fs::relative(entry.path(), root, ec);
+            if (ec) return "ERROR vfolder relative path failed";
+            const fs::path remote = fs::path(vf->remote_path) / relative;
+            const std::string result = direct_connect_file_send(
+                vf->remote_peer, entry.path().string(), true, remote.generic_string());
+            if (result.rfind("ERROR", 0) == 0) return result;
             ++sent;
-            log_event("vfolder_sync_file", rel + " -> " + vf->remote_peer);
         }
-        log_event("vfolder_sync_done", name + " sent=" + std::to_string(sent));
         return "OK synced " + name + " (" + std::to_string(sent) + " files)";
     }
 
@@ -13116,7 +12857,9 @@ private:
                 // P2: ±25% jitter to prevent thundering herd on reconnect.
                 // Use a seeded RNG (not rand()) so timing is not predictable
                 // across daemon restarts.
-                int jitter = bo.delay_ms * (rng_() % 50 - 25) / 100;
+                const int jitter_pct = static_cast<int>(rng_() % 50u) - 25;
+                const int jitter = static_cast<int>(
+                    static_cast<int64_t>(bo.delay_ms) * jitter_pct / 100);
                 bo.next_attempt = now + std::chrono::milliseconds(bo.delay_ms + jitter);
                 bo.delay_ms = std::min(std::max(bo.delay_ms * 2, 1000), bo.max_ms);
                 break; // one failed bounded dial per loop; keep accept/read responsive
@@ -13147,7 +12890,9 @@ private:
                     bo.attempt++;
                     // P2 audit fix: apply the same ±25% seeded jitter as seeds
                     // (was missing — discovered peers reconnected in lockstep).
-                    int jitter = bo.delay_ms * (rng_() % 50 - 25) / 100;
+                    const int jitter_pct = static_cast<int>(rng_() % 50u) - 25;
+                    const int jitter = static_cast<int>(
+                        static_cast<int64_t>(bo.delay_ms) * jitter_pct / 100);
                     bo.next_attempt = now + std::chrono::milliseconds(bo.delay_ms + jitter);
                     bo.delay_ms = std::min(std::max(bo.delay_ms * 2, 1000), bo.max_ms);
                     break; // one failed bounded dial per loop; keep accept/read responsive
@@ -14428,21 +14173,10 @@ public:
                 }
             }
             else if (line.rfind("EDIT_DL ", 0) == 0) {
-                std::string rest = line.substr(8);
-                while (!rest.empty() && (rest.back() == '\r' || rest.back() == '\n')) rest.pop_back();
-                auto sp = rest.find(' ');
-                if (sp == std::string::npos) { response = "ERROR usage: EDIT_DL <peer> <path>\n"; }
-                else {
-                    std::string peer = rest.substr(0, sp);
-                    std::string path = rest.substr(sp + 1);
-                    response = daemon_edit_dl(peer, path) + "\n";
-                }
+                response = "ERROR edit uses a dedicated direct TLS connection; upgrade the CLI\n";
             }
             else if (line.rfind("VFOLDER_SYNC ", 0) == 0) {
-                std::string vfolder_name = line.substr(13);
-                while (!vfolder_name.empty() && (vfolder_name.back() == '\r' || vfolder_name.back() == '\n'))
-                    vfolder_name.pop_back();
-                response = daemon_vfolder_sync(vfolder_name) + "\n";
+                response = "ERROR vfolder sync runs in the CLI over direct TLS\n";
             }
             else if (line.rfind("VFOLDER_LIST", 0) == 0) {
                 std::string result = "[";
@@ -14502,20 +14236,7 @@ public:
                 }
             }
             else if (line.rfind("EDIT_UP ", 0) == 0) {
-                std::string rest = line.substr(8);
-                while (!rest.empty() && (rest.back() == '\r' || rest.back() == '\n')) rest.pop_back();
-                auto sp1 = rest.find(' ');
-                if (sp1 == std::string::npos) { response = "ERROR usage: EDIT_UP <peer> <remote_path> <local_path>\n"; }
-                else {
-                    auto sp2 = rest.find(' ', sp1 + 1);
-                    if (sp2 == std::string::npos) { response = "ERROR usage: EDIT_UP <peer> <remote_path> <local_path>\n"; }
-                    else {
-                        std::string peer = rest.substr(0, sp1);
-                        std::string remote = rest.substr(sp1 + 1, sp2 - sp1 - 1);
-                        std::string local = rest.substr(sp2 + 1);
-                        response = daemon_edit_up(peer, remote, local) + "\n";
-                    }
-                }
+                response = "ERROR edit uses a dedicated direct TLS connection; upgrade the CLI\n";
             }
             if (response == "ERROR bad request\n") {
                 auto separator = line.find(' ');
@@ -14690,58 +14411,6 @@ public:
     }
 
     // CLI-side: request a file from a peer via daemon IPC.
-    // CLI-side: edit download via daemon IPC
-    std::string daemon_edit_dl_via_ipc(const std::string& peer_name, const std::string& path, int wait_ms) {
-        std::string token = load_ipc_token(home_dir_);
-        if (token.empty()) return "";
-        SOCKET sfd = socket(AF_INET, SOCK_STREAM, 0);
-        if (sfd == INVALID_SOCKET) return "";
-        sockaddr_in sa{};
-        sa.sin_family = AF_INET;
-        sa.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-        sa.sin_port = htons(mesh_cli_port());
-        set_socket_timeouts(sfd, wait_ms > 0 ? wait_ms : 120000);
-        if (connect(sfd, (sockaddr*)&sa, sizeof(sa)) == SOCKET_ERROR) { CLOSESOCK(sfd); return ""; }
-        std::string cmd = token + " EDIT_DL " + peer_name + " " + path + "\n";
-        send(sfd, cmd.data(), (int)cmd.size(), 0);
-        char buf[4096] = {}; int total = 0;
-        while (total < (int)sizeof(buf) - 1) {
-            int n = recv(sfd, buf + total, (int)sizeof(buf) - 1 - total, 0);
-            if (n > 0) { total += n; buf[total] = '\0'; if (strchr(buf, '\n')) break; }
-            else break;
-        }
-        CLOSESOCK(sfd);
-        std::string line(buf);
-        while (!line.empty() && (line.back() == '\r' || line.back() == '\n')) line.pop_back();
-        return line;
-    }
-
-    // CLI-side: edit upload via daemon IPC
-    std::string daemon_edit_up_via_ipc(const std::string& peer_name, const std::string& remote_path, const std::string& local_path, int wait_ms) {
-        std::string token = load_ipc_token(home_dir_);
-        if (token.empty()) return "ERROR no daemon";
-        SOCKET sfd = socket(AF_INET, SOCK_STREAM, 0);
-        if (sfd == INVALID_SOCKET) return "ERROR socket";
-        sockaddr_in sa{};
-        sa.sin_family = AF_INET;
-        sa.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-        sa.sin_port = htons(mesh_cli_port());
-        set_socket_timeouts(sfd, wait_ms > 0 ? wait_ms : 120000);
-        if (connect(sfd, (sockaddr*)&sa, sizeof(sa)) == SOCKET_ERROR) { CLOSESOCK(sfd); return "ERROR no daemon"; }
-        std::string cmd = token + " EDIT_UP " + peer_name + " " + remote_path + " " + local_path + "\n";
-        send(sfd, cmd.data(), (int)cmd.size(), 0);
-        char buf[4096] = {}; int total = 0;
-        while (total < (int)sizeof(buf) - 1) {
-            int n = recv(sfd, buf + total, (int)sizeof(buf) - 1 - total, 0);
-            if (n > 0) { total += n; buf[total] = '\0'; if (strchr(buf, '\n')) break; }
-            else break;
-        }
-        CLOSESOCK(sfd);
-        std::string line(buf);
-        while (!line.empty() && (line.back() == '\r' || line.back() == '\n')) line.pop_back();
-        return line;
-    }
-
     std::string daemon_recv_via_ipc(const std::string& peer_name, const std::string& path,
                                     const std::string& local_dest, int wait_ms,
                                     bool wait_for_completion = false) {
@@ -16503,70 +16172,46 @@ public:
     void edit_peer(const std::string& target) {
         auto colon = target.find(':');
         if (colon == std::string::npos || colon == 0 || colon == target.size() - 1) {
-            std::cerr << "usage: bridgesessions edit <peer>:<path> (e.g. dev:/etc/nginx.conf)\n";
+            std::cerr << "usage: bridgesessions edit <peer>:<path>\n";
             return;
         }
-        std::string peer_name = target.substr(0, colon);
-        std::string remote_path = target.substr(colon + 1);
+        const std::string peer_name = target.substr(0, colon);
+        const std::string remote_path = target.substr(colon + 1);
+        const std::string suffix = std::filesystem::path(remote_path).extension().string();
+        const std::string local_path = create_private_temp_file("edit", suffix);
+        if (local_path.empty()) { std::cerr << "cannot create edit temp file\n"; return; }
+        struct TempGuard {
+            std::string path;
+            ~TempGuard() { std::error_code ec; std::filesystem::remove(path, ec); }
+        } cleanup{local_path};
 
-        // Download via daemon IPC
-        std::string dl_result = daemon_edit_dl_via_ipc(peer_name, remote_path, 120000);
-        if (dl_result.empty()) {
-            std::cerr << "no daemon running — edit requires running daemon\n";
-            return;
-        }
-        if (dl_result.rfind("ERROR", 0) == 0) {
-            std::cerr << dl_result << "\n";
-            return;
-        }
-        std::cout << dl_result << "\n";
-        // dl_result format: "OK <local-path> <checksum>"
-        // Parse local path and checksum from response
-        auto sp1 = dl_result.find(' ');
-        if (sp1 == std::string::npos) return;
-        std::string local_path = dl_result.substr(sp1 + 1);
-        auto sp2 = local_path.rfind(' ');
-        if (sp2 == std::string::npos) return;
-        std::string checksum = local_path.substr(sp2 + 1);
-        local_path = local_path.substr(0, sp2);
+        const std::string received = direct_connect_file_recv(peer_name, remote_path, local_path);
+        if (received.rfind("ERROR", 0) == 0) { std::cerr << received << "\n"; return; }
+        const std::string original_checksum = sha256_file_stream(local_path);
+        if (original_checksum.empty()) { std::cerr << "cannot hash downloaded file\n"; return; }
 
-        std::cout << "downloaded to " << local_path << "\n";
-
-        // Open editor
 #ifdef _WIN32
         std::string editor = "notepad";
-        const char* env_editor = std::getenv("EDITOR");
-        if (env_editor && *env_editor) editor = env_editor;
-        int ret = run_editor_process(editor, local_path);
-        if (ret != 0) { std::cerr << "editor exited with code " << ret << "\n"; }
 #else
         std::string editor = "vim";
-        const char* env_editor = std::getenv("EDITOR");
-        if (env_editor && *env_editor) editor = env_editor;
-        int ret = run_editor_process(editor, local_path);
-        if (ret != 0) { std::cerr << "editor exited with code " << ret << "\n"; }
 #endif
+        if (const char* env_editor = std::getenv("EDITOR"); env_editor && *env_editor)
+            editor = env_editor;
+        const int editor_rc = run_editor_process(editor, local_path);
+        if (editor_rc != 0) { std::cerr << "editor exited with code " << editor_rc << "\n"; return; }
 
-        // Check for changes and upload
-        std::ifstream infile(local_path, std::ios::binary);
-        std::string new_content((std::istreambuf_iterator<char>(infile)), std::istreambuf_iterator<char>());
-        std::string new_checksum = sha256_hex(new_content);
-
-        if (new_checksum == checksum) {
-            std::cout << "no changes\n";
-            return;
-        }
-        std::cout << "file changed, uploading via daemon...\n";
-        std::string up_result = daemon_edit_up_via_ipc(peer_name, remote_path, local_path, 120000);
-        std::cout << up_result << "\n";
+        const std::string new_checksum = sha256_file_stream(local_path);
+        if (new_checksum == original_checksum) { std::cout << "no changes\n"; return; }
+        const std::string uploaded = direct_connect_file_send(
+            peer_name, local_path, true, remote_path);
+        std::cout << uploaded << "\n";
     }
 
     // ── CLI: run_script ─────────────────────────────────────────
     // Sends a script file to a peer, then executes it via shell_peer.
     // Composes file_send + shell execution — zero new wire protocol.
     int run_script(const std::string& peer_name, const std::string& local_path,
-                   const std::string& interpreter = "auto",
-                   int timeout_ms = 120000) {
+                   const std::string& interpreter = "auto") {
         namespace fs = std::filesystem;
 
         // 1. Resolve local script file (slurp stdin if "-")
@@ -16708,27 +16353,66 @@ public:
     // ── Content-addressed script cache (bs script) ───────────────────
     // Scripts stored in ~/.bridgesessions/scripts/<sha256>.sh, named via symlink.
 
+    static bool script_hash_valid(std::string_view value) {
+        if (value.size() != 64) return false;
+        for (const unsigned char c : value) {
+            if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) return false;
+        }
+        return true;
+    }
+
+    static bool script_alias_valid(std::string_view value) {
+        if (value.empty() || value.size() > 64 || value == "." || value == "..") return false;
+        for (const unsigned char c : value) {
+            if (!((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+                  (c >= '0' && c <= '9') || c == '.' || c == '_' || c == '-')) return false;
+        }
+        return true;
+    }
+
+    static std::string posix_shell_quote(std::string_view value) {
+        std::string out{"'"};
+        for (const char c : value) {
+            if (c == '\'') out += "'\\''";
+            else out += c;
+        }
+        out += '\'';
+        return out;
+    }
+
     [[nodiscard]] std::string script_cache_dir() const {
         return home_dir_ + "/scripts";
     }
 
     [[nodiscard]] std::string script_cache_path(const std::string& sha256) const {
+        if (!script_hash_valid(sha256)) return {};
         return script_cache_dir() + "/" + sha256 + ".sh";
     }
 
-    // Resolve a script name (or hash) to its cache path. Returns empty on not found.
     [[nodiscard]] std::string script_resolve(const std::string& name_or_hash) const {
         namespace fs = std::filesystem;
-        std::string dir = script_cache_dir();
-        // Direct hash file
-        std::string hash_path = script_cache_path(name_or_hash);
-        if (fs::exists(hash_path)) return hash_path;
-        // Symlink by name
-        std::string link_path = dir + "/" + name_or_hash;
-        if (fs::exists(link_path) && fs::is_symlink(link_path)) {
-            auto target = fs::read_symlink(link_path);
-            if (target.is_absolute()) return target.string();
-            return (fs::path(dir) / target).string();
+        const std::string dir = script_cache_dir();
+        std::error_code ec;
+        if (script_hash_valid(name_or_hash)) {
+            const std::string hash_path = script_cache_path(name_or_hash);
+            return fs::is_regular_file(hash_path, ec) && path_is_inside_directory(hash_path, dir)
+                ? hash_path : std::string{};
+        }
+        if (!script_alias_valid(name_or_hash)) return {};
+        const fs::path alias_path = fs::path(dir) / name_or_hash;
+        if (!path_is_inside_directory(alias_path, dir)) return {};
+        if (fs::is_symlink(alias_path, ec)) {
+            const fs::path resolved = fs::weakly_canonical(alias_path, ec);
+            if (ec || !path_is_inside_directory(resolved, dir)) return {};
+            const std::string filename = resolved.filename().string();
+            if (filename.size() != 67 || filename.substr(64) != ".sh" ||
+                !script_hash_valid(filename.substr(0, 64))) return {};
+            return resolved.string();
+        }
+        if (fs::is_regular_file(alias_path, ec)) {
+            const std::string hash = sha256_file_stream(alias_path.string());
+            const std::string canonical = script_cache_path(hash);
+            if (!canonical.empty() && fs::is_regular_file(canonical, ec)) return canonical;
         }
         return {};
     }
@@ -16738,21 +16422,25 @@ public:
     // Returns "OK <sha256> <path>" or "ERROR ...".
     std::string script_add(const std::string& file_path, const std::string& alias) {
         namespace fs = std::filesystem;
+        if (!alias.empty() && !script_alias_valid(alias))
+            return "ERROR invalid script alias (use 1-64 letters, digits, ., _, -)";
         std::ifstream f(file_path, std::ios::binary);
         if (!f) return "ERROR cannot read file: " + file_path;
         std::string content((std::istreambuf_iterator<char>(f)),
                             std::istreambuf_iterator<char>());
         f.close();
-        std::string hash = sha256_hex(content);
-        std::string dir = script_cache_dir();
+        const std::string hash = sha256_hex(content);
+        const std::string dir = script_cache_dir();
+        if (!ensure_private_directory(dir)) return "ERROR cannot create private script cache";
         std::error_code ec;
-        fs::create_directories(dir, ec);
-        std::string dest = script_cache_path(hash);
+        const std::string dest = script_cache_path(hash);
         if (!fs::exists(dest)) {
             std::ofstream out(dest, std::ios::binary | std::ios::trunc);
             if (!out) return "ERROR cannot write to cache: " + dest;
             out.write(content.data(), static_cast<std::streamsize>(content.size()));
             out.close();
+            if (!out || !restrict_private_file_permissions(dest))
+                return "ERROR cannot secure script cache file";
         }
         std::string result = "OK " + hash + " " + dest;
         if (!alias.empty()) {
@@ -16762,11 +16450,14 @@ public:
             std::string target = hash + ".sh";
             fs::create_symlink(target, link, lec);
             if (lec) {
-                // Symlink may fail on Windows without admin — copy as fallback
                 std::ofstream cp(link, std::ios::binary | std::ios::trunc);
-                if (cp) cp.write(content.data(), static_cast<std::streamsize>(content.size()));
+                if (!cp) return "ERROR cannot create script alias";
+                cp.write(content.data(), static_cast<std::streamsize>(content.size()));
+                cp.close();
+                if (!cp || !restrict_private_file_permissions(link))
+                    return "ERROR cannot secure script alias";
             }
-            if (!lec) result += " alias=" + alias;
+            result += " alias=" + alias;
         }
         return result;
     }
@@ -16818,6 +16509,7 @@ public:
     // bs script remove <name> — remove symlink or hash file
     std::string script_remove(const std::string& name) {
         namespace fs = std::filesystem;
+        if (!script_hash_valid(name) && !script_alias_valid(name)) return "ERROR invalid script name";
         std::string dir = script_cache_dir();
         std::string link = dir + "/" + name;
         std::error_code ec;
@@ -16852,16 +16544,14 @@ public:
         if (path.empty()) return "ERROR script not found: " + name;
         namespace fs = std::filesystem;
         // Extract hash from filename (<hash>.sh)
-        std::string fname = fs::path(path).filename().string();
-        std::string hash;
-        if (fname.size() >= 4 && fname.substr(fname.size() - 3) == ".sh")
-            hash = fname.substr(0, fname.size() - 3);
-        else
+        const std::string fname = fs::path(path).filename().string();
+        if (fname.size() != 67 || fname.substr(64) != ".sh" ||
+            !script_hash_valid(fname.substr(0, 64)))
             return "ERROR unexpected cache filename: " + fname;
+        const std::string hash = fname.substr(0, 64);
 
         // Check if peer already has it
         std::string check_cmd = "test -f ~/.bridgesessions/scripts/" + hash + ".sh && echo PRESENT || echo ABSENT";
-        auto [cols, rows] = get_winsize();
         std::string check_output;
         // Use daemon_shell_via_ipc for quick check (non-interactive)
         int ec = daemon_shell_via_ipc(peer, "script-check-" + hash.substr(0, 8),
@@ -16899,21 +16589,20 @@ public:
     // bs script run <name> --peer <peer> [-- args...]
     // Ensures script is on peer (push if needed), then executes it.
     int script_run(const std::string& name, const std::string& peer,
-                   const std::string& args) {
+                   const std::vector<std::string>& args) {
         std::string path = script_resolve(name);
         if (path.empty()) {
             std::cerr << "ERROR script not found: " + name + "\n";
             return 1;
         }
         namespace fs = std::filesystem;
-        std::string fname = fs::path(path).filename().string();
-        std::string hash;
-        if (fname.size() >= 4 && fname.substr(fname.size() - 3) == ".sh")
-            hash = fname.substr(0, fname.size() - 3);
-        else {
+        const std::string fname = fs::path(path).filename().string();
+        if (fname.size() != 67 || fname.substr(64) != ".sh" ||
+            !script_hash_valid(fname.substr(0, 64))) {
             std::cerr << "ERROR unexpected cache filename: " + fname + "\n";
             return 1;
         }
+        const std::string hash = fname.substr(0, 64);
 
         // Check if peer has it; push if not
         std::string check_cmd = "test -f ~/.bridgesessions/scripts/" + hash + ".sh && echo PRESENT || echo ABSENT";
@@ -16928,9 +16617,10 @@ public:
             if (push_result.rfind("ERROR", 0) == 0) return 1;
         }
 
-        // Execute on peer
-        std::string exec_cmd = "bash ~/.bridgesessions/scripts/" + hash + ".sh";
-        if (!args.empty()) exec_cmd += " " + args;
+        // Quote each argv element independently; raw joins become shell code.
+        std::string exec_cmd =
+            "bash \"$HOME/.bridgesessions/scripts/" + hash + ".sh\"";
+        for (const auto& arg : args) exec_cmd += " " + posix_shell_quote(arg);
         auto [cols, rows] = get_winsize();
         return shell_peer(peer, "script-" + hash.substr(0, 8), exec_cmd,
                           cols, rows, "xterm-256color");
@@ -16957,6 +16647,10 @@ public:
                       << "latency=" << latency << "ms "
                       << "uptime=" << uptime << "s" << std::endl;
         }
+    }
+
+    std::string sync_vfolder(const std::string& name) {
+        return vfolder_sync_direct(name);
     }
 
     // ── Accessors (for tests) ──────────────────────────────────

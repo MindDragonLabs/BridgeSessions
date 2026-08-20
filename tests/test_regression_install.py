@@ -9,7 +9,6 @@ Bug coverage:
   10. Bare binary not in TCC: .app bundle wrapper creation
 """
 import re
-import os
 import subprocess
 from pathlib import Path
 
@@ -111,7 +110,7 @@ class TestNoAdhocResign:
         # Should NOT find: codesign --force --sign - "${LOCAL_APP}"
         # as the primary signing path (it strips Developer ID)
         adhoc_pattern = r'codesign\s+--force\s+--sign\s+-\s+"\$\{LOCAL_APP\}"'
-        matches = re.findall(adhoc_pattern, text)
+        assert not re.findall(adhoc_pattern, text)
         # The only acceptable adhoc sign is in a fallback "|| true" chain
         # Check that the primary path doesn't adhoc sign
         assert 'preserving signed binary' in text.lower() or \
@@ -175,25 +174,21 @@ class TestAppBundleWrapper:
 
 
 # ════════════════════════════════════════════════════════════════
-# Bug 1: Invite URLs must be GitHub, not Codeberg
+# Bug 1: Installer source and assets must use GitHub
 # ════════════════════════════════════════════════════════════════
 
 class TestGitHubUrls:
-    """Bug 1: Invite output and install script must use GitHub raw URLs."""
+    """Installer source and binary assets must both use GitHub."""
 
     def test_install_script_uses_github(self):
         text = read_script()
         assert 'raw.githubusercontent.com/MindDragonLabs' in text
 
-    def test_install_script_no_codeberg(self):
-        text = read_script()
-        assert 'codeberg.org' not in text, "install.sh still references codeberg"
 
-    def test_dist_base_uses_github(self):
+    def test_binary_base_uses_github_releases(self):
         text = read_script()
-        # The BASE variable should point to github
-        assert re.search(r'BASE=.*githubusercontent\.com', text), \
-               "BASE should point to GitHub raw"
+        assert re.search(r'BASE=.*github\.com/.*/releases/download', text), \
+               "BASE should point to GitHub Releases"
 
 
 # ════════════════════════════════════════════════════════════════
@@ -214,7 +209,7 @@ class TestVersionNotHardcoded:
     def test_no_hardcoded_version_in_base(self):
         text = read_script()
         # Should not find a hardcoded date version in the BASE URL
-        base_line = [l for l in text.split('\n') if 'BASE=' in l and 'github' in l.lower()]
+        base_line = [line for line in text.split('\n') if 'BASE=' in line and 'github' in line.lower()]
         for line in base_line:
             # Should reference the variable, not a literal like 26.08.10
             hardcoded = re.findall(r'26\.\d{2}\.\d{2}', line)

@@ -1374,6 +1374,36 @@ int main(int argc, char** argv) {
             }
         }
 
+        // Resolve the newest published release, including prereleases.
+        if (tag == "latest") {
+            const std::string releases_path =
+                bs::mesh::create_private_temp_file("releases", ".json");
+            const std::string releases_url =
+                "https://api.github.com/repos/MindDragonLabs/BridgeSessions/releases?per_page=20";
+            const std::string fetch = "curl -fL -s -o '" + releases_path +
+                "' '" + releases_url + "' 2>/dev/null";
+            if (releases_path.empty() || std::system(fetch.c_str()) != 0) {
+                if (!releases_path.empty()) ::unlink(releases_path.c_str());
+                std::cerr << "upgrade: failed to resolve latest GitHub release\n";
+                return 1;
+            }
+            try {
+                std::ifstream in(releases_path);
+                nlohmann::json releases; in >> releases;
+                for (const auto& release : releases) {
+                    if (release.value("draft", true)) continue;
+                    tag = release.value("tag_name", "");
+                    if (!tag.empty() && tag.front() == 'v') tag.erase(tag.begin());
+                    if (!tag.empty()) break;
+                }
+            } catch (...) { tag.clear(); }
+            ::unlink(releases_path.c_str());
+            if (tag.empty() || !bs::mesh::bs_upgrade_tag_valid(tag)) {
+                std::cerr << "upgrade: no valid published release\n";
+                return 1;
+            }
+        }
+
         // Self-update this host
         std::cout << "→ Current version: " << bs::mesh::kBridgeSessionsVersion << "\n";
 
@@ -1406,11 +1436,10 @@ int main(int argc, char** argv) {
         }
 #endif
 
-        // Build download URL
-        std::string base_url = "https://raw.githubusercontent.com/MindDragonLabs/BridgeSessions";
-        std::string tag_path = (tag == "latest") ? std::string("main") : ("v" + tag);
-        std::string download_url = base_url + "/" + tag_path + "/dist/" + binary_name;
-        std::string sums_url = base_url + "/" + tag_path + "/dist/SHA256SUMS";
+        const std::string base_url =
+            "https://github.com/MindDragonLabs/BridgeSessions/releases/download/v" + tag;
+        const std::string download_url = base_url + "/" + binary_name;
+        const std::string sums_url = base_url + "/SHA256SUMS";
 
         std::cout << "→ Downloading " << binary_name << " from " << download_url << "\n";
         bs::log::get("upgrade")->info("downloading {} from {}", binary_name, download_url);
@@ -1492,6 +1521,12 @@ int main(int argc, char** argv) {
         }
 
         std::cout << "→ Downloaded version: " << reported_version << "\n";
+        if (reported_version != tag) {
+            std::cerr << "upgrade: downloaded binary reports " << reported_version
+                      << "; expected " << tag << "\n";
+            ::unlink(tmp_path.c_str());
+            return 1;
+        }
 
         // Skip if already up to date
         if (reported_version == std::string(bs::mesh::kBridgeSessionsVersion)) {
@@ -2035,13 +2070,7 @@ int main(int argc, char** argv) {
         bs::mesh::MeshConfig cfg = bs::mesh::load_config(config_path);
         bs::mesh::bootstrap_identity(home_dir);
         bs::mesh::MeshController mc(cfg, home_dir);
-        // Join args into space-separated string
-        std::string args_str;
-        for (size_t i = 0; i < script_run_args.size(); ++i) {
-            if (i > 0) args_str += " ";
-            args_str += script_run_args[i];
-        }
-        return mc.script_run(script_run_name, script_run_peer, args_str);
+        return mc.script_run(script_run_name, script_run_peer, script_run_args);
     }
     if (script_remove_app->parsed()) {
         bs::mesh::MeshController mc(bs::mesh::load_config(config_path), home_dir);
@@ -2098,11 +2127,12 @@ int main(int argc, char** argv) {
         return 0;
     }
     if (vfolder_sync->parsed()) {
+        bs::mesh::MeshConfig cfg = bs::mesh::load_config(config_path);
         bs::mesh::bootstrap_identity(home_dir);
-        std::string ipc = daemon_simple_ipc("VFOLDER_SYNC " + vfolder_name, 300000, home_dir);
-        if (ipc.empty()) { std::cerr << "no daemon running\n"; return 1; }
-        std::cout << ipc << "\n";
-        return ipc.rfind("ERROR", 0) == 0 ? 1 : 0;
+        bs::mesh::MeshController mc(cfg, home_dir);
+        const std::string result = mc.sync_vfolder(vfolder_name);
+        std::cout << result << "\n";
+        return result.rfind("ERROR", 0) == 0 ? 1 : 0;
     }
     if (vfolder_list->parsed()) {
         bs::mesh::MeshConfig cfg = bs::mesh::load_config(config_path);

@@ -9,7 +9,6 @@ surface (auth, tree, content, save, health check, session create, connect).
 Run:  python3 -m unittest test_bridgepanel -v
 """
 
-import importlib.util
 import json
 import os
 import sys
@@ -136,7 +135,7 @@ class TestPureFunctions(unittest.TestCase):
                    b'"addr":"192.168.1.2:19949","healthy":true,"last_pong_s":3,'
                    b'"sessions":[{"name":"build","state":"attached","command":"make","bytes":42}]}],'
                    b'"sessions":[{"name":"hermes","state":"attached","command":"hermes","bytes":99}]}\n')
-        fake = self._fake_ipc([payload])
+        self._fake_ipc([payload])
         try:
             tree = bp.query_mesh_tree()
         finally:
@@ -148,7 +147,7 @@ class TestPureFunctions(unittest.TestCase):
         self.assertNotIn("offline", tree)
 
     def test_mesh_tree_offline(self):
-        fake = self._fake_ipc([b"ERROR unauthorized\n"])
+        self._fake_ipc([b"ERROR unauthorized\n"])
         try:
             tree = bp.query_mesh_tree()
         finally:
@@ -194,7 +193,7 @@ class TestPureFunctions(unittest.TestCase):
                         b'"sessions":[]}\n')
         fleet_payload = (b'{"macbook":{"name":"macbook","addr":"0.0.0.0:19949","status":"self"},'
                          b'"test-peer":{"name":"test-peer","addr":"1.2.3.4:19949","status":"healthy"},'
-                         b'"ranas-mac-studio":{"name":"ranas-mac-studio","addr":"5.6.7.8:19949","status":"offline","source":"seed"}}\n')
+                         b'"offline-peer":{"name":"offline-peer","addr":"5.6.7.8:19949","status":"offline","source":"seed"}}\n')
         self._fake_ipc_factory([mesh_payload, fleet_payload])
         try:
             tree = bp.query_mesh_tree()
@@ -202,8 +201,8 @@ class TestPureFunctions(unittest.TestCase):
                 self._restore_ipc()
         names = {p["name"] for p in tree["peers"]}
         self.assertIn("test-peer", names)                 # live peer kept
-        self.assertIn("ranas-mac-studio", names)      # offline seed merged in
-        offline = next(p for p in tree["peers"] if p["name"] == "ranas-mac-studio")
+        self.assertIn("offline-peer", names)      # offline seed merged in
+        offline = next(p for p in tree["peers"] if p["name"] == "offline-peer")
         self.assertFalse(offline["healthy"])
         self.assertEqual(offline["status"], "offline")
 
@@ -218,14 +217,14 @@ class TestPureFunctions(unittest.TestCase):
             tree = bp.query_mesh_tree()
         finally:
                 self._restore_ipc()
-        test-peer = [p for p in tree["peers"] if p["name"] == "test-peer"]
-        self.assertEqual(len(test-peer), 1)
+        test_peer = [p for p in tree["peers"] if p["name"] == "test-peer"]
+        self.assertEqual(len(test_peer), 1)
 
     def test_scrollback_parse_incremental(self):
         import base64
         chunk = base64.b64encode(b"hello world").rstrip(b"=")  # daemon strips padding
         payload = b"OK 11 " + chunk + b"\n"
-        fake = self._fake_ipc([payload])
+        self._fake_ipc([payload])
         try:
             d = bp.query_scrollback("hermes", 0)
         finally:
@@ -239,7 +238,7 @@ class TestPureFunctions(unittest.TestCase):
         import base64
         chunk = base64.b64encode(b"tail-bytes").rstrip(b"=")
         payload = b"OK 4096 " + chunk + b" RESET\n"
-        fake = self._fake_ipc([payload])
+        self._fake_ipc([payload])
         try:
             d = bp.query_scrollback("hermes", 0)
         finally:
@@ -249,7 +248,7 @@ class TestPureFunctions(unittest.TestCase):
         self.assertEqual(d["offset"], 4096)
 
     def test_scrollback_error(self):
-        fake = self._fake_ipc([b"ERROR no such session\n"])
+        self._fake_ipc([b"ERROR no such session\n"])
         try:
             d = bp.query_scrollback("nope", 0)
         finally:
@@ -259,7 +258,7 @@ class TestPureFunctions(unittest.TestCase):
     def test_scrollback_empty_incremental(self):
         # Daemon replies 'OK <off>' (no payload) when nothing new arrived —
         # must NOT be treated as an error (v3 UI regression).
-        fake = self._fake_ipc([b"OK 2295\n"])
+        self._fake_ipc([b"OK 2295\n"])
         try:
             d = bp.query_scrollback("hermes", 2295)
         finally:
@@ -294,7 +293,7 @@ class TestPureFunctions(unittest.TestCase):
         self.assertEqual(consts.MAX_UPLOAD, 10 * 1024 * 1024)
 
     def test_scrollback_bare_reset(self):
-        fake = self._fake_ipc([b"OK 4096 RESET\n"])
+        self._fake_ipc([b"OK 4096 RESET\n"])
         try:
             d = bp.query_scrollback("hermes", 0)
         finally:

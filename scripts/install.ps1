@@ -1,11 +1,11 @@
 # BridgeSessions one-line install + upgrade (Windows PowerShell)
 #
-#   irm https://raw.githubusercontent.com/MindDragonLabs/BridgeSessions/v/26.09.19-beta5/scripts/install.ps1 | iex
+#   irm https://raw.githubusercontent.com/MindDragonLabs/BridgeSessions/main/scripts/install.ps1 | iex
 #
 
 $ErrorActionPreference = "Stop"
 $TAG = if ($env:BRIDGESESSIONS_TAG) { $env:BRIDGESESSIONS_TAG } else { "26.09.19-beta5" }
-$BASE = "https://raw.githubusercontent.com/MindDragonLabs/BridgeSessions/v/$TAG/dist"
+$BASE = "https://github.com/MindDragonLabs/BridgeSessions/releases/download/v$TAG"
 $INSTALL_DIR = "$env:LOCALAPPDATA\bridgesessions"
 $BIN_PATH = "$INSTALL_DIR\bridgesessions.exe"
 $VERSION_FILE = "$INSTALL_DIR\.bridgesessions-version"
@@ -46,11 +46,10 @@ if ($CURRENT -eq $TAG -and (Test-Path $BIN_PATH)) {
 
 if ($needsDownload) {
     $URL = "$BASE/bridgesessions-windows-x86_64.exe"
+    $TMP_PATH = "$INSTALL_DIR\bridgesessions.download.$PID.exe"
     Write-Host "→ Downloading bridgesessions $TAG for Windows..."
-    Invoke-WebRequest -Uri $URL -OutFile $BIN_PATH
+    Invoke-WebRequest -Uri $URL -OutFile $TMP_PATH
 
-    # H4: verify the downloaded binary against the published SHA256SUMS before
-    # executing it. A tampered/MITM'd download must never run as the user.
     $SUMS_URL = "$BASE/SHA256SUMS"
     $expected = $null
     try {
@@ -58,30 +57,30 @@ if ($needsDownload) {
         foreach ($line in ($sums -split "`n")) {
             $parts = $line.Trim() -split "\s+"
             if ($parts.Count -ge 2 -and $parts[1] -eq "bridgesessions-windows-x86_64.exe") {
-                $expected = $parts[0].ToLower()
-                break
+                $expected = $parts[0].ToLower(); break
             }
         }
     } catch {
-        Write-Warning "Could not download SHA256SUMS — refusing to run an unverified binary."
-        Remove-Item -Path $BIN_PATH -Force -ErrorAction SilentlyContinue
-        exit 1
+        Remove-Item $TMP_PATH -Force -ErrorAction SilentlyContinue
+        throw "Could not download SHA256SUMS; refusing unverified binary."
     }
-    if (-not $expected) {
-        Write-Warning "SHA256SUMS did not contain an entry for bridgesessions-windows-x86_64.exe."
-        Remove-Item -Path $BIN_PATH -Force -ErrorAction SilentlyContinue
-        exit 1
+    if (-not $expected -or $expected -notmatch '^[0-9a-f]{64}$') {
+        Remove-Item $TMP_PATH -Force -ErrorAction SilentlyContinue
+        throw "SHA256SUMS has no valid Windows binary entry."
     }
-    $actual = (Get-FileHash -Path $BIN_PATH -Algorithm SHA256).Hash.ToLower()
+    $actual = (Get-FileHash $TMP_PATH -Algorithm SHA256).Hash.ToLower()
     if ($actual -ne $expected) {
-        Write-Warning "Checksum mismatch for $BIN_PATH (expected $expected, got $actual)."
-        Remove-Item -Path $BIN_PATH -Force -ErrorAction SilentlyContinue
-        exit 1
+        Remove-Item $TMP_PATH -Force -ErrorAction SilentlyContinue
+        throw "Checksum mismatch (expected $expected, got $actual)."
     }
-    Write-Host "→ SHA256 verified."
-
+    $downloadedVersion = (& $TMP_PATH --version 2>&1 | Out-String).Trim()
+    if ($downloadedVersion -ne $TAG.TrimStart('v')) {
+        Remove-Item $TMP_PATH -Force -ErrorAction SilentlyContinue
+        throw "Downloaded binary reports $downloadedVersion; expected $TAG."
+    }
+    Move-Item $TMP_PATH $BIN_PATH -Force
     $TAG | Set-Content $VERSION_FILE
-    Write-Host "→ Download complete."
+    Write-Host "→ SHA256 verified; binary installed."
 }
 
 # -- 4. VALIDATE -------------------------------------------------------------

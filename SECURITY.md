@@ -1,69 +1,45 @@
 # Security Policy
 
-## Supported versions
+## Supported version
 
-| Version | Supported |
-|---|---|
-| 26.09.19-beta5 | ✅ current public beta |
-| < 26.09.19 | ❌ superseded |
+`26.09.19-beta5` is the current beta line. Upgrade older builds before reporting unless reproducing a regression.
 
-## Reporting a vulnerability
+## Report privately
 
-**Do not open a public issue for security reports.**
+Do not open a public issue with vulnerability details. Use:
 
-Please report vulnerabilities privately by emailing the maintainer through the
-contact address in the latest signed release tag or commit metadata. If that is
-not available, open a non-sensitive issue requesting a private contact channel,
-but do not include vulnerability details in that issue.
+<https://github.com/MindDragonLabs/BridgeSessions/security/advisories/new>
 
-Include:
-- A description of the vulnerability and its impact.
-- Steps to reproduce (or a proof-of-concept).
-- Affected version(s).
+Include impact, reproduction, and affected versions. Remove secrets, private hosts, addresses, and personal paths.
 
-You will receive an acknowledgement within a few days, and we will coordinate a
-fix and disclosure timeline with you.
+## Trust boundary
 
-## Scope notes
+BridgeSessions is for operator-controlled peer meshes, not hostile multi-tenant access.
 
-- BridgePanel defaults to loopback and requires its generated bearer token for
-  every write. VPN/LAN reads may be allowed only through explicit trusted-IP
-  configuration. Do not expose its port to the public internet.
-- ed25519 mutual TLS is the primary authentication mechanism; protect your
-  `~/.bridgesessions/id_ed25519.pem` private key as you would an SSH key.
-- Seed and direct CLI connections require pinned Ed25519 public keys. Do not
-  disable `mesh.require_seed_pins` on untrusted networks.
-- File serve/overwrite of identity, `authorized_keys`, tokens, and `*.pem`/`*.key`
-  is denied unless `transfer.allow_sensitive_paths` is set on that node.
-- scp-style `--dest` is confined to `receive_dir` unless `file.dest_allow_home`
-  is set; mesh trust files still cannot be overwritten without the sensitive-path
-  opt-in.
-- mDNS is disabled by default. Enabling it permits address refresh only for
-  keys already present in pinned seeds or `authorized_keys`; multicast never
-  creates a trust root. Announced addresses are unauthenticated hints and may
-  be spoofed for denial of service; TLS key verification still prevents
-  impersonation.
-- Peer authorization is host-level, not capability-scoped: an authorized peer
-  can execute shell commands. File serve still denies identity/config/token/PEM
-  paths unless `transfer.allow_sensitive_paths` is set. Treat every authorized
-  peer key as near-equivalent to interactive host access.
-- Daemon CLI IPC remains loopback-only and additionally requires the ephemeral
-  owner-only token stored under the active BridgeSessions app home.
+- A key in `authorized_keys` has near-interactive host access.
+- Seed/direct connections require explicit Ed25519 pins.
+- Certificate key, Hello key/name, and configured pin must agree.
+- Local daemon IPC is loopback-only and token-authenticated.
+- Compromise of an authorized key can compromise hosts that trust it.
 
-## Invite token lifecycle
+## Join and transport
 
-Mesh join uses single-use invite tokens with the following properties:
+Mesh traffic uses mutual TLS over TCP/19949. The current compatibility profile negotiates TLS 1.2. A bounded invite window temporarily accepts an unknown certificate only to submit a single-use random token. Only pinned seeds may issue accepted mesh-wide enrollments.
 
-| Property | Value |
-|----------|-------|
-| **Generation** | 16 random bytes from `RAND_bytes` (OpenSSL CSPRNG), hex-encoded (32 chars) |
-| **Lifetime** | 2 hours from creation (`steady_clock`, not wall clock) |
-| **Single-use** | Yes — claimed on first successful `JoinRequest`; `claimed_by` field set to joiner's Ed25519 pubkey |
-| **Scope** | Node-specific — token is valid only on the node that generated it (`bs invite`) |
-| **Revocation** | Restart the daemon — all pending tokens are in-memory only, cleared on restart |
-| **Rotation** | Generate a new token with `bs invite` at any time; old tokens expire naturally |
-| **Storage** | In-memory only (`pending_invites_` vector). Never written to disk. No persistence across restarts. |
-| **Transport** | TLS-encrypted mesh channel — token never traverses plaintext |
+## Files
 
-If a token is compromised before use: restart the daemon on the inviting node.
-All pending tokens are invalidated. Generate a new one with `bs invite`.
+- filenames and destinations are validated and canonicalized,
+- remote serving is confined to `receive_dir`, including symlink resolution,
+- received data uses `.part` plus SHA-256 before atomic publish,
+- identity/token/config/PEM paths are denied by default,
+- remote errors do not expose local absolute paths.
+
+`transfer.allow_sensitive_paths` deliberately removes major safeguards; treat it as arbitrary file authority.
+
+## CUA and Bridge Panel
+
+Spectators cannot send CUA input. Windows/macOS helpers are loopback-only and token-authenticated. Bridge Panel binds loopback by default and writes require a bearer token. Do not expose it directly to the internet.
+
+## Release integrity
+
+Installers require a matching GitHub Release `SHA256SUMS` entry and embedded version before replacement. Release binaries are not committed. macOS artifacts must be Developer ID signed/notarized; builders use supported dependency lines.

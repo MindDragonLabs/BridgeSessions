@@ -29,6 +29,7 @@ option(BS_ENABLE_WEBRTC "Enable libdatachannel WebRTC transport" OFF)
 option(BS_ENABLE_DHT "Enable DHT prototype" OFF)
 option(BS_CATCH2_APPLE_SHIM
        "Enable the legacy macOS shim for mismatched Catch2 headers/archive" OFF)
+include(CTest)
 
 # ── MSVC-specific ──────────────────────────────────────────────
 if(MSVC)
@@ -38,7 +39,9 @@ endif()
 # ── Dependencies ────────────────────────────────────────────────
 find_package(OpenSSL REQUIRED)
 find_package(zstd REQUIRED)
-find_package(Catch2 REQUIRED)
+if(BUILD_TESTING)
+    find_package(Catch2 REQUIRED)
+endif()
 find_package(nlohmann_json 3.2.0 REQUIRED)
 find_package(CLI11 REQUIRED)
 find_package(spdlog REQUIRED)
@@ -49,9 +52,6 @@ if(TARGET zstd::libzstd_static)
 else()
     set(ZSTD_TARGET zstd::libzstd)
 endif()
-
-include(CTest)
-enable_testing()
 
 # ── Core library (header-only) + binary ──────────────────────────
 add_executable(bridgesessions main.cpp bs-protocol.h)
@@ -87,7 +87,21 @@ target_compile_options(bridgesessions PRIVATE
     $<$<CXX_COMPILER_ID:GNU,Clang,AppleClang>:-ffile-prefix-map=${CMAKE_SOURCE_DIR}=.>
     $<$<AND:$<CXX_COMPILER_ID:GNU,Clang,AppleClang>,$<BOOL:$ENV{HOME}>>:-ffile-prefix-map=$ENV{HOME}=.>
     $<$<CXX_COMPILER_ID:GNU,Clang,AppleClang>:-ffile-prefix-map=/home/agent=.>
-    $<$<CXX_COMPILER_ID:GNU,Clang,AppleClang>:-ffile-prefix-map=/Users/builder=.>)
+    $<$<CXX_COMPILER_ID:GNU,Clang,AppleClang>:-ffile-prefix-map=/Users/builder=.>
+    $<$<AND:$<CONFIG:Release,RelWithDebInfo>,$<CXX_COMPILER_ID:GNU,Clang,AppleClang>>:-fstack-protector-strong>
+    $<$<AND:$<CONFIG:Release,RelWithDebInfo>,$<CXX_COMPILER_ID:GNU,Clang,AppleClang>>:-D_FORTIFY_SOURCE=3>
+    $<$<AND:$<CONFIG:Release,RelWithDebInfo>,$<CXX_COMPILER_ID:GNU,Clang,AppleClang>>:-fPIE>
+    $<$<CXX_COMPILER_ID:GNU,Clang,AppleClang>:-Wformat-security>)
+if(UNIX AND NOT APPLE)
+    target_link_options(bridgesessions PRIVATE
+        $<$<CONFIG:Release,RelWithDebInfo>:-pie>
+        $<$<CONFIG:Release,RelWithDebInfo>:-Wl,-z,relro,-z,now,-z,noexecstack>)
+elseif(MSVC)
+    target_compile_options(bridgesessions PRIVATE /guard:cf)
+    target_link_options(bridgesessions PRIVATE /DYNAMICBASE /NXCOMPAT /GUARD:CF)
+elseif(MINGW)
+    target_link_options(bridgesessions PRIVATE -Wl,--dynamicbase,--nxcompat,--high-entropy-va)
+endif()
 
 target_link_libraries(bridgesessions
     OpenSSL::SSL OpenSSL::Crypto
@@ -115,6 +129,7 @@ add_test(NAME cli_keygen_refuses_identity_overwrite
         -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_keygen_refuse.cmake)
 
 # ── Tests ──────────────────────────────────────────────────────
+if(BUILD_TESTING)
 file(GLOB TEST_SOURCES "tests/*.cpp")
 include(Catch)
 foreach(TEST_SRC ${TEST_SOURCES})
@@ -193,4 +208,5 @@ if(BRIDGESESSIONS_PYTHON)
         set_tests_properties(panel_daemon_restart_disconnect PROPERTIES
             ENVIRONMENT "PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}")
     endif()
+endif()
 endif()

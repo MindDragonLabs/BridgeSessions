@@ -27,9 +27,9 @@ def _ensure_deps():
 
 _ensure_deps()
 
-from PIL import Image, ImageDraw, ImageFont
-import pystray
-from pystray import MenuItem, Menu
+from PIL import Image, ImageDraw, ImageFont  # noqa: E402
+import pystray  # noqa: E402
+from pystray import MenuItem, Menu  # noqa: E402
 
 # ── Constants ─────────────────────────────────────────────────────
 BIN_NAME = os.environ.get("BS_BIN", "bridgesessions")
@@ -205,7 +205,7 @@ def update_tooltip(icon):
             lines = _fleet_cache
         if lines:
             # Count peer lines (skip header lines)
-            peer_lines = [l for l in lines if l.strip() and not l.startswith("#")]
+            peer_lines = [line for line in lines if line.strip() and not line.startswith("#")]
             icon.title = f"BridgeSessions ({len(peer_lines)} peers)"
         else:
             icon.title = "BridgeSessions"

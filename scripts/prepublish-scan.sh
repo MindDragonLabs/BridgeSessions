@@ -27,7 +27,7 @@ PEM_PAT='-----BEGIN [A-Z ]*PRIVATE KEY-----'
 BLOCKLIST="${BS_PUBLISH_BLOCKLIST:-$HOME/.config/bridgesessions/publish-blocklist}"
 
 # ── WARN tier ────────────────────────────────────────────────────
-WARN_PAT='Year25careful|password|ipc-token|api[_-]?key|BEGIN [A-Z ]*PRIVATE KEY|fecv3|nunn-shadow|shadow-df8uluc8'
+WARN_PAT='password|ipc-token|api[_-]?key|BEGIN [A-Z ]*PRIVATE KEY'
 
 # Paths never scanned: release binaries and the scanner itself
 EXCL='^(dist/|scripts/prepublish-scan\.sh|scripts/pre-push\.hook)'

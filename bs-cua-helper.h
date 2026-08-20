@@ -304,13 +304,16 @@ inline CuaResponseMsg cua_helper_execute(const CuaRequestMsg& req) {
     switch (req.action) {
         case 0: {  // screen_info
             auto r = CGDisplayBounds(CGMainDisplayID());
-            resp.screen_w = (int16_t)r.size.width;
-            resp.screen_h = (int16_t)r.size.height;
+            resp.screen_w = static_cast<uint32_t>(std::max(0.0, r.size.width));
+            resp.screen_h = static_cast<uint32_t>(std::max(0.0, r.size.height));
             resp.status = 0;
             return resp;
         }
         case 1: {  // key press
-            int kc = cua_hid_to_cg(req.hid_key);
+            if (req.hid_key > 0xFFu) {
+                resp.status = 1; resp.error = "hid key out of range"; return resp;
+            }
+            int kc = cua_hid_to_cg(static_cast<uint8_t>(req.hid_key));
             if (kc < 0) { resp.status = 1; resp.error = "unmapped hid key"; return resp; }
             CGEventRef dn = CGEventCreateKeyboardEvent(nullptr, (CGKeyCode)kc, true);
             CGEventRef up = CGEventCreateKeyboardEvent(nullptr, (CGKeyCode)kc, false);
@@ -422,8 +425,8 @@ inline CuaResponseMsg cua_helper_execute(const CuaRequestMsg& req) {
             ::unlink(jpg);
             resp.format = 2; resp.status = 0;  // JPEG after sips conversion
             auto r = CGDisplayBounds(CGMainDisplayID());
-            resp.screen_w = (int16_t)r.size.width;
-            resp.screen_h = (int16_t)r.size.height;
+            resp.screen_w = static_cast<uint32_t>(std::max(0.0, r.size.width));
+            resp.screen_h = static_cast<uint32_t>(std::max(0.0, r.size.height));
             return resp;
         }
         default:

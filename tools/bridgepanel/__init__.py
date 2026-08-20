@@ -7,6 +7,7 @@ is rendered in a clean reading pane with an edit marker for in-browser editing.
 No third-party dependencies. Works over any private network (VPN, LAN, loopback).
 Never binds to a public address.
 """
+# ruff: noqa: F401 -- this module intentionally re-exports the public API.
 from __future__ import annotations
 
 import argparse

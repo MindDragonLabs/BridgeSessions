@@ -244,9 +244,7 @@ def query_remote_scrollback(machine: str, session: str) -> dict:
     This re-attaches to the named session briefly, captures available output,
     and returns. Returns {offset, text, reset, error}.
     """
-    import subprocess, tempfile
 
-    bs_bin = _bs_binary()
     # Use --detach to create a peek that doesn't disrupt the session,
     # then --wait to capture output. Actually, simplest: run a no-op command
     # in the session to get a snapshot of scrollback.

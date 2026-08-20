@@ -12,7 +12,7 @@ from urllib.parse import parse_qs, urlparse
 
 from .api import (build_tree, daemon_connect_session, daemon_create_session,
                   daemon_session_input, query_mesh_tree, query_remote_scrollback,
-                  query_remote_session_info, query_scrollback,
+                  query_scrollback,
                   remote_file_recv, remote_file_send)
 from .consts import APP, MAX_UPLOAD, VERSION, max_file_upload
 from .files import (markdown_to_html, resolve_file, safe_name,
@@ -38,7 +38,10 @@ class BridgePanelHandler(BaseHTTPRequestHandler):
         return self.server.bridgepanel_token  # type: ignore[attr-defined]
 
     def log_message(self, format: str, *args) -> None:  # noqa: A002
-        safe_args = tuple(str(v).replace(self.token, "<token>") for v in args)
+        safe_args = tuple(
+            value.replace(self.token, "<token>") if isinstance(value, str) else value
+            for value in args
+        )
         sys.stderr.write("%s %s\n" % (self.log_date_time_string(), format % safe_args))
 
     def security_headers(self, content_type: str, length: int | None = None) -> None:

@@ -209,12 +209,6 @@ def test_chain_shell_returns_correct_hostname(three_daemon_chain):
 
     # Verify shell on B returns B's hostname (not A's)
     out = a.shell("chain-b", "hostname")
-    # The daemon's node name appears in the shell output via PS1 or echo.
-    # We verify the command executed on a different host than A.
-    local_host = subprocess.run(
-        ["hostname"], capture_output=True, text=True
-    ).stdout.strip()
-
     # The shell should have executed (non-empty output).
     assert len(out) > 0, "Shell command produced no output"
 

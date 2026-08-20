@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
-set -eu
+set -euo pipefail
 # BridgeSessions one-line install + upgrade (Linux / macOS)
 #
-#   curl -fsSL https://github.com/MindDragonLabs/BridgeSessions/releases/download/26.09.19-beta5/scripts/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/MindDragonLabs/BridgeSessions/main/scripts/install.sh | bash
 #
 # Or join a mesh in one command:
 #
 #   curl ... | bash -s -- join <host-addr> <invite-code>
 #
 # On Windows (PowerShell):
-#   irm https://github.com/MindDragonLabs/BridgeSessions/releases/download/26.09.19-beta5/scripts/install.ps1 | iex
+#   irm https://raw.githubusercontent.com/MindDragonLabs/BridgeSessions/main/scripts/install.ps1 | iex
 
 TAG="${BRIDGESESSIONS_TAG:-26.09.19-beta5}"
-BASE="https://raw.githubusercontent.com/MindDragonLabs/BridgeSessions/v${TAG}/dist"
+BASE="https://github.com/MindDragonLabs/BridgeSessions/releases/download/v${TAG}"
 INSTALL_DIR="${HOME}/.local/bin"
 VERSION_FILE="${INSTALL_DIR}/.bridgesessions-version"
 FORCE_UPDATE="${BRIDGESESSIONS_FORCE:-0}"
@@ -125,8 +125,6 @@ if [ "${NEEDS_DOWNLOAD}" = "1" ]; then
   TMP_BIN="${INSTALL_DIR}/.${BIN_NAME}.download.$$"
   trap 'rm -f "${TMP_BIN:-}"' EXIT INT TERM
   curl -fsSL --progress-bar "${BASE}/${BIN}" -o "${TMP_BIN}"
-  chmod +x "${TMP_BIN}"
-  validate_binary "${TMP_BIN}"
   # Clear the quarantine flag macOS stamps on downloaded binaries. Without
   # this, Gatekeeper kills an unnotarized Developer ID binary with SIGKILL
   # (exit 137) on first run — the classic "curl install works, binary dies".
@@ -137,26 +135,34 @@ if [ "${NEEDS_DOWNLOAD}" = "1" ]; then
     xattr -cr "${TMP_BIN}" 2>/dev/null || true
   fi
 
-  # SHA-256 checksum verification
+  # SHA-256 verification is mandatory and precedes parsing or execution.
   TMP_SUMS="${INSTALL_DIR}/.SHA256SUMS.$$"
-  curl -fsSL "${BASE}/SHA256SUMS" -o "${TMP_SUMS}" 2>/dev/null || true
-  if [ -f "${TMP_SUMS}" ]; then
-    EXPECTED_HASH=$(grep " ${BIN}\$" "${TMP_SUMS}" | awk '{print $1}')
-    if [ -n "${EXPECTED_HASH}" ]; then
-      ACTUAL_HASH=$(sha256sum "${TMP_BIN}" 2>/dev/null | awk '{print $1}' || shasum -a 256 "${TMP_BIN}" | awk '{print $1}')
-      if [ "${ACTUAL_HASH}" != "${EXPECTED_HASH}" ]; then
-        echo "ERROR: SHA-256 mismatch!" >&2
-        echo "  expected: ${EXPECTED_HASH}" >&2
-        echo "  actual:   ${ACTUAL_HASH}" >&2
-        rm -f "${TMP_BIN}" "${TMP_SUMS}"
-        exit 1
-      fi
-      echo "→ SHA-256 verified."
-    fi
-  else
-    echo "→ WARNING: could not download SHA256SUMS — skipping checksum verification." >&2
+  if ! curl -fsSL "${BASE}/SHA256SUMS" -o "${TMP_SUMS}"; then
+    echo "ERROR: could not download SHA256SUMS; refusing unverified binary." >&2
+    exit 1
   fi
+  EXPECTED_HASH=$(grep " ${BIN}\$" "${TMP_SUMS}" | awk '{print $1}' | tr 'A-F' 'a-f' || true)
+  if ! printf '%s' "${EXPECTED_HASH}" | grep -qE '^[0-9a-f]{64}$'; then
+    echo "ERROR: SHA256SUMS has no valid entry for ${BIN}." >&2
+    exit 1
+  fi
+  if command -v sha256sum >/dev/null 2>&1; then
+    ACTUAL_HASH=$(sha256sum "${TMP_BIN}" | awk '{print $1}')
+  elif command -v shasum >/dev/null 2>&1; then
+    ACTUAL_HASH=$(shasum -a 256 "${TMP_BIN}" | awk '{print $1}')
+  else
+    echo "ERROR: sha256sum or shasum is required." >&2
+    exit 1
+  fi
+  [ "${ACTUAL_HASH}" = "${EXPECTED_HASH}" ] || {
+    echo "ERROR: SHA-256 mismatch." >&2
+    exit 1
+  }
+  echo "→ SHA-256 verified."
   rm -f "${TMP_SUMS}"
+
+  chmod +x "${TMP_BIN}"
+  validate_binary "${TMP_BIN}"
 
   REPORTED_VERSION=$("${TMP_BIN}" --version)
   EXPECTED_VERSION=${TAG#v}

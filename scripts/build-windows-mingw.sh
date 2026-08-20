@@ -6,7 +6,7 @@ set -euo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO"
 TRIPLE=x86_64-w64-mingw32-g++
-PREFIX="$HOME/bs-win"
+PREFIX="${BS_WIN_PREFIX:-$HOME/bs-win}"
 VERSION="$(cat VERSION)"
 echo "=== REPO: $REPO ==="
 echo "=== VERSION: $VERSION ==="
@@ -18,6 +18,8 @@ ln -sf "$PREFIX/include/CLI11.hpp" /tmp/bs-win-shim/CLI/CLI.hpp
 rm -rf build-win
 mkdir -p build-win
 "$TRIPLE" -static -std=c++23 -O3 -DNDEBUG \
+  -fstack-protector-strong -D_FORTIFY_SOURCE=3 \
+  -Wl,--dynamicbase,--nxcompat,--high-entropy-va \
   -DBS_VERSION="\"$VERSION\"" -DBS_NO_NAT -DBS_NO_WEBRTC -DBS_NO_DHT \
   -isystem "$PREFIX/include" -isystem /tmp/bs-win-shim \
   main.cpp -o build-win/bridgesessions.exe \

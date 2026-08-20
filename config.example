@@ -1,4 +1,4 @@
-# BridgeSessions 2.0.6-alpha2 example
+# BridgeSessions example configuration
 node.name node-a
 node.listen 192.0.2.10:19949
 
@@ -6,12 +6,16 @@ mesh.require_seed_pins true
 mesh.mdns_enabled false
 mesh.ping_interval_secs 10
 mesh.pong_timeout_secs 30
-mesh.reconnect_backoff_max_secs 30
+mesh.reconnect_backoff_max_secs 300
+mesh.join_window_max_secs 300
 
-# Replace with the peer's VPN address and 64-character Ed25519 public key.
+# Replace with the peer's address and 64-character Ed25519 public key.
 seed node-b 192.0.2.11:19949 pubkey=<64-hex-ed25519-public-key>
 
 sessions.default_shell /bin/bash -l
 sessions.persistence_path ~/.bridgesessions/sessions.json
 sessions.authorized_keys_path ~/.bridgesessions/authorized_keys
+receive_dir ~/.bridgesessions/received
 transfer.max_bytes 8589934592
+transfer.allow_sensitive_paths false
+file.dest_allow_home false

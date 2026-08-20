@@ -1,162 +1,64 @@
-# BridgeSessions — Quick Reference (LLM & Human)
-
-**One binary. Mesh terminal relay.** SSH, MOSH, SCP, tmux, WinRM — all one `bridgesessions`.
-
----
+# Quickstart
 
 ## Install
 
 ```bash
-# Linux / macOS
-curl -fsSL https://github.com/MindDragonLabs/BridgeSessions/raw/main/scripts/install.sh | bash
-
-# Windows PowerShell
-irm https://github.com/MindDragonLabs/BridgeSessions/raw/main/scripts/install.ps1 | iex
+curl -fsSL https://raw.githubusercontent.com/MindDragonLabs/BridgeSessions/main/scripts/install.sh | bash
+# Windows PowerShell:
+# irm https://raw.githubusercontent.com/MindDragonLabs/BridgeSessions/main/scripts/install.ps1 | iex
 ```
 
----
-
-## Join a mesh
-
-**Host** generates an invite:
-```
-$ bridgesessions invite
-Invite (valid 2h):  e7a1b2c3d4...
-One-liner:
-  bridgesessions join <host-ip>:19949 e7a1b2c3d4...
-Or with curl install:
-  curl .../install.sh | bash -s -- join <host-ip>:19949 e7a1b2c3d4...
+```bash
+bs --version
+bs doctor
 ```
 
-**Joiner** pastes the one-liner. That's it. Identity generated, config written, host authority established, daemon started.
+## Join
 
-```
-$ bridgesessions join <host-ip>:19949 e7a1b2c3d4 --start
-Identity: c8efdf34adf16b9e...
-Joined. Node: my-laptop  Config: ~/.bridgesessions/config
-→ Daemon started.
+On a pinned seed:
+
+```bash
+bs invite
 ```
 
----
+On the new node, use the printed address/token immediately:
+
+```bash
+bs join <seed-address>:19949 <token> --start
+bs health <peer>
+```
+
+Only explicitly pinned seeds can issue accepted mesh-wide enrollments.
 
 ## Shell
 
-### One-shot command
 ```bash
-$ bs shell test-pc1 -x 'whoami && hostname && uname -r'
-agent
-test-pc1
-6.8.0-test1
+bs shell <peer>
+bs shell <peer> --name agent
+bs shell <peer> --cmd 'hostname && uname -a'
 ```
 
-Exit code propagates. Stdout/stderr streamed live.
+`Ctrl-D` detaches; the remote PTY remains. Reuse `--name` to reattach.
 
-### Named persistent session (tmux built in)
-```bash
-$ bs shell test-pc1 -n hermes -x 'bash -lc "echo START; sleep 30; echo DONE"'
-START
-# ... disconnect, reconnect ...
-$ bs shell test-pc1 -n hermes    # reattach — EXACT SAME PTY, child still running
-DONE
-```
-
-The session survives disconnection. The PTY keeps running. Any peer can reattach.
-
-### Named profile (daemon config)
-In `~/.bridgesessions/config` on the **server**:
-```ini
-session.hermes.command bash -lc 'export TERM=xterm-256color; hermes --tui --yolo'
-```
-
-Then from anywhere:
-```bash
-$ bs shell test-pc1 -n hermes
-# Launches hermes --tui --yolo. Reattach anytime.
-```
-
-### Interactive TUI (full terminal passthrough)
-```bash
-$ bs shell test-pc3 -n zsh
-# Interactive zsh session. Ctrl-D to detach. Resize propagated.
-```
-
-Terminal size auto-detected on connect and propagated on resize (like SSH).
-
----
-
-## File transfer
+## Files and scripts
 
 ```bash
-$ bs file send test-pc1 ./large-file.bin --wait
-PROGRESS phase=send chunks=147/147 bytes=7191040 pct=100.0
-OK sent large-file.bin 7191040 bytes sha256:226a95e...
-
-# Receive lands at ~/.bridgesessions/received/
-$ bs shell test-pc1 -x 'sha256sum ~/.bridgesessions/received/large-file.bin'
-226a95e67859eeaba2d63aaf4d1f8694...  /home/user/.bridgesessions/received/large-file.bin
+bs file send <peer> ./artifact.bin --wait
+bs file send <peer> ./config.toml --dest configs/config.toml --wait
+bs file recv <peer> received/report.md --to ./report.md --wait
+bs run-script <peer> ./deploy.sh
 ```
 
-Hash-verified end-to-end. Works Linux↔macOS↔Windows.
+Success requires the final `OK` after SHA-256 verification.
 
----
+## Computer use
 
-## Mesh management
+Windows/macOS need one `bridgesessions --cua-helper` in the interactive user session. macOS also needs Screen Recording and Accessibility permission.
 
 ```bash
-$ bs peers list          # all known peers (seeds + discovered)
-$ bs health test-pc1         # data-plane health check (not just IPC)
-$ bs stats                # connections, sessions, bytes
-$ bs sessions             # live sessions on this node
+bs cua screen <peer>
+bs cua capture <peer> -o screen.png
+bs cua click <peer> --x 500 --y 300
 ```
 
----
-
-## BridgePanel (web UI)
-
-```
-https://test-pc2.<tailnet>.ts.net/<token>/
-```
-
-- **Machines column**: all mesh peers, health dots, session counts
-- **Sessions column**: click a session → Output/Comms/Docs/Connect tabs
-- **Connect tab**: pick a harness (Hermes/Claude/Codex/Kimi/…), checkbox for --yolo, copy the command
-- **Create modal**: `+` button on any machine → new session from the panel
-- **File pane**: read/edit/save Markdown in-browser
-
-### API
-```
-GET  /api/machines          → mesh tree (peers + sessions)
-GET  /api/tree              → filesystem session tree
-GET  /api/output?session=X  → live scrollback (incremental)
-GET  /api/session/connect?session=hermes&machine=test-pc1  → {"cmd": "bs shell test-pc1 -n hermes"}
-POST /api/save              → write file to session
-```
-
----
-
-## Deep test results (v2.0.9-alpha5)
-
-| Test | Result |
-|------|--------|
-| CTest full suite | **329/329 pass** (5.1s, 329 tests) |
-| Panel tests | **25/25 pass** |
-| `invite` generates token | ✅ 32-char hex, 2h expiry |
-| Invite prints TS IP | ✅ `<host-ip>:19949` (not 0.0.0.0) |
-| `shell test-pc1 -x 'cmd'` | ✅ exit code, stdout, live streaming |
-| `shell test-pc3 -x 'cmd'` | ✅ cross-OS (Linux→macOS) |
-| Named session `-n stress-sess` | ✅ 10-step sequential output, correct ordering |
-| Named session reattach | ✅ `-n hermes` → disconnect → `-n hermes` reattaches |
-| File send test-pc1 (7MB) | ✅ 27 MiB/s, sha256 match |
-| File send test-pc3 (585KB) | ✅ 0.3 MiB/s, sha256 match |
-| `health test-pc1` | ✅ healthy (data-plane ok) |
-| `health test-pc3` | ✅ healthy (data-plane ok) |
-| BridgePanel healthz | ✅ `{"ok":true,"version":"2.0.9-alpha5"}` |
-| BridgePanel /api/machines | ✅ 4 peers, test-pc3 showing 2 sessions |
-| BridgePanel /api/tree | ✅ 3 sessions (default, hermes, health-bs) |
-| BridgePanel /api/session/connect | ✅ `{"cmd":"bs shell test-pc2 -n hermes"}` |
-| Fleet health | ✅ test-pc2/test-pc1/test-pc3 all v2.0.9-alpha5, 4 healthy peers |
-
-### Known limitations
-- **Shadow PCs** on Windows need binary deployment (SSH key + scp works for PC1; PC2 needs key fix)
-- **macOS native build** requires cmake (cross-compilation from Linux not yet packaged; native build verified working)
-- **BridgePanel create session** is a stub (UI functional, backend returns "not yet implemented" — IPC CREATE verb pending)
+Capture before clicking. Continue with [Usage](usage.md), [Configuration](configuration.md), and [Security](https://github.com/MindDragonLabs/BridgeSessions/blob/main/SECURITY.md).

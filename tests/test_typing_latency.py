@@ -15,7 +15,6 @@ from __future__ import annotations
 import os
 import signal
 import subprocess
-import sys
 import tempfile
 import time
 from pathlib import Path
@@ -50,7 +49,7 @@ def _make_config(config_dir: Path, node_name: str, listen_port: int,
         "mesh.ping_interval_secs 5",
         "mesh.reconnect_backoff_max_secs 300",
         "mesh.startup_wait_secs 0",
-        f"mesh.max_peers 10",
+        "mesh.max_peers 10",
     ]
     if seeds:
         for name, addr, port in seeds:
@@ -230,7 +229,7 @@ def test_typing_latency_under_500ms(two_daemons):
     avg_latency = sum(latencies) / len(latencies)
     max_latency = max(latencies)
 
-    print(f"\nLatencies (ms): {[f'{l:.0f}' for l in latencies]}")
+    print(f"\nLatencies (ms): {[f'{latency:.0f}' for latency in latencies]}")
     print(f"Average: {avg_latency:.0f}ms, Max: {max_latency:.0f}ms")
 
     # Assert all latencies are under 500ms.

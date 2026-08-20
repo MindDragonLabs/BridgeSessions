@@ -348,7 +348,7 @@ TEST_CASE("resolve_peer: tier 3 prefix segment match", "[features][resolve_peer]
 
     auto r = mc.resolve_peer("shadow");
     REQUIRE(r.tier == PR::Suffix);
-    REQUIRE(r.name == "shadow-df8uluc8");
+    REQUIRE(r.name == "shadow-worker-1");
 
     fs::remove_all(home);
 }

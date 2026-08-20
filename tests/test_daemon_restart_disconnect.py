@@ -15,7 +15,6 @@ from __future__ import annotations
 import os
 import signal
 import subprocess
-import tempfile
 import time
 from pathlib import Path
 

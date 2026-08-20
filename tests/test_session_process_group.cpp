@@ -27,6 +27,17 @@ using namespace bs::mesh;
 
 static bool pid_alive(pid_t pid) {
     if (pid <= 0) return false;
+#ifdef __linux__
+    std::ifstream stat("/proc/" + std::to_string(pid) + "/stat");
+    std::string line;
+    if (std::getline(stat, line)) {
+        const auto close_paren = line.rfind(')');
+        if (close_paren != std::string::npos && close_paren + 2 < line.size()) {
+            const char state = line[close_paren + 2];
+            if (state == 'Z' || state == 'X') return false;
+        }
+    }
+#endif
     return ::kill(pid, 0) == 0;
 }
 

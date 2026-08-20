@@ -65,9 +65,9 @@ def test_installer_refuses_unsupported_arch_before_download(tmp_path: Path, os_n
     assert not Path(env["CURL_LOG"]).exists()
 
 
-def test_installer_does_not_record_wrong_format_payload(tmp_path: Path):
+def test_installer_does_not_record_unverified_payload(tmp_path: Path):
     result, _ = run_installer(tmp_path, "Linux", "x86_64")
 
     assert result.returncode != 0
-    assert "not a Linux x86-64 ELF executable" in result.stderr
+    assert "SHA256SUMS has no valid entry" in result.stderr
     assert not (tmp_path / "home/.local/bin/.bridgesessions-version").exists()

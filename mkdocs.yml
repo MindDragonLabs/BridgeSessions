@@ -56,6 +56,3 @@ markdown_extensions:
 
 plugins:
   - search
-  - git-revision-date-localized:
-      enable_creation_date: true
-      enable_git_follow: false

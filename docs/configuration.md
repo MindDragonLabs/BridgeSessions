@@ -1,65 +1,40 @@
 # Configuration
 
-BridgeSessions reads its config from a path passed with `--config` (or the
-default location). The file is plain key/value, one directive per line.
-
-## Example
+The normal config is `~/.bridgesessions/config`; override with `--config`.
 
 ```ini
-# ── Mesh identity ──
-node.name          node-a
-node.listen        192.0.2.10:19949
-mesh.pong_timeout_secs 30
-mesh.reconnect_backoff_max_secs 30
-
-# ── Bootstrap peers ──
-seed node-b <seed-peer-host>:<port> pubkey=<64-hex-ed25519-public-key>
-
-# ── Session defaults ──
-# Set this for the server OS: Windows `pwsh.exe -NoLogo`,
-# macOS `/bin/zsh -il`, Linux `/bin/bash -l`.
+node.name node-a
+node.listen 192.0.2.10:19949
+mesh.require_seed_pins true
+mesh.mdns_enabled false
+mesh.reconnect_backoff_max_secs 300
+mesh.join_window_max_secs 300
+seed node-b 192.0.2.11:19949 pubkey=<64-hex-ed25519-public-key>
 sessions.default_shell /bin/bash -l
-
-# ── Persistence ──
 sessions.persistence_path ~/.bridgesessions/sessions.json
 sessions.authorized_keys_path ~/.bridgesessions/authorized_keys
+session.agent.command /bin/bash -lc 'exec hermes --tui'
+receive_dir ~/.bridgesessions/received
+transfer.max_bytes 8589934592
+transfer.allow_sensitive_paths false
+file.dest_allow_home false
 ```
 
-## Directive reference
-
-| Directive | Meaning |
+| Directive | Purpose |
 |---|---|
-| `node.name` | Human-readable name for this node. |
-| `node.listen` | IPv4 address and TCP port to bind for the mesh (default `0.0.0.0:19949`; prefer a VPN address). |
-| `mesh.pong_timeout_secs` | Disconnect if no pong within this window. |
-| `mesh.reconnect_backoff_max_secs` | Ceiling for reconnect backoff. |
-| `seed <name> <host>:<port> pubkey=<hex>` | A pinned bootstrap peer. Repeatable. |
-| `sessions.default_shell` | Shell spawned for a session (per-server OS). |
-| `sessions.persistence_path` | Where session metadata is persisted. |
-| `sessions.authorized_keys_path` | File of authorized ed25519 public keys (hex). |
+| `node.name`, `node.listen` | node identity and mesh bind |
+| `seed ... pubkey=` | pinned bootstrap/enrollment authority |
+| `mesh.require_seed_pins` | reject unpinned seeds; keep enabled |
+| `mesh.ping_interval_secs`, `mesh.pong_timeout_secs` | liveness |
+| `mesh.reconnect_backoff_max_secs` | retry ceiling |
+| `mesh.join_window_max_secs` | unknown-cert join window cap |
+| `sessions.default_shell` | remote shell command |
+| `session.<name>.command` | named-session command |
+| `sessions.authorized_keys_path` | inbound trusted keys |
+| `receive_dir` | inbox and default served-file root |
+| `transfer.max_bytes` | per-file limit |
+| `transfer.allow_sensitive_paths` | arbitrary/sensitive path access; high risk |
 
-## Per-session commands
+Local daemon IPC uses loopback port 19980 plus an owner-only token. Isolated tests may set `BRIDGESESSIONS_IPC_PORT` consistently for daemon and CLI.
 
-A session's command resolves in this order (ADR-007):
-
-1. Client `--cmd` flag (always wins)
-2. `session.<name>.command` in the server config
-3. `sessions.default_shell`
-
-## Example config (production-shaped)
-
-See [`config.example`](../config.example) in the repository root for a sanitized
-template you can copy and adapt.
-
-## Local IPC port
-
-The daemon and CLI use loopback port `19980` by default. For multiple isolated
-instances on one host, set the same override for each daemon and its CLI calls:
-
-```bash
-BRIDGESESSIONS_IPC_PORT=20081 bridgesessions --config-dir /srv/bs-node-a
-BRIDGESESSIONS_IPC_PORT=20081 bridgesessions --config-dir /srv/bs-node-a health node-b
-```
-
-The override must be an integer from 1 through 65535; invalid values fall back
-to `19980`.
+See [`config.example`](https://github.com/MindDragonLabs/BridgeSessions/blob/main/config.example).

@@ -1,0 +1,36 @@
+name: Security
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '17 9 * * 1'
+  workflow_dispatch:
+permissions:
+  contents: read
+  security-events: write
+jobs:
+  codeql:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build libssl-dev libzstd-dev nlohmann-json3-dev libcli11-dev libspdlog-dev
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: c-cpp
+      - run: |
+          cmake -S . -B build/codeql -GNinja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DBUILD_TESTING=OFF
+          cmake --build build/codeql --target bridgesessions --parallel 2
+      - uses: github/codeql-action/analyze@v3
+  secrets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

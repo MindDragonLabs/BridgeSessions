@@ -105,16 +105,15 @@ TEST_CASE("dead_seed_backoff: next_backoff_ms caps at reconnect_backoff_max_secs
     REQUIRE(d100 == cap);
 }
 
-// ── 3. Backoff with default config (30s cap) ──────────────────────────
+// ── 3. Backoff with hardened default config (300s cap) ────────────────
 
-TEST_CASE("dead_seed_backoff: default config caps at 30s",
+TEST_CASE("dead_seed_backoff: default config caps at 300s",
           "[dead_seed][backoff][default]") {
     auto cfg = backoff_cfg("backoff-default");
-    // Default is reconnect_backoff_max_secs = 30
-    REQUIRE(cfg.reconnect_backoff_max_secs == 30);
+    REQUIRE(cfg.reconnect_backoff_max_secs == 300);
     MeshController mc(cfg);
 
-    long cap = 30 * 1000;
+    long cap = 300 * 1000;
     long d = mc.next_backoff_ms_for_test(100);
     REQUIRE(d <= cap);
     REQUIRE(d == cap);

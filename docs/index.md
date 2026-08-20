@@ -7,7 +7,7 @@ BridgeSessions is a trusted-mesh terminal, file-transfer, and desktop-automation
 - [Quickstart](QUICKSTART.md)
 - [Usage](usage.md)
 - [Configuration](configuration.md)
-- [Security](../SECURITY.md)
+- [Security](https://github.com/MindDragonLabs/BridgeSessions/blob/main/SECURITY.md)
 
 ## Understand the system
 
@@ -22,4 +22,4 @@ BridgeSessions is a trusted-mesh terminal, file-transfer, and desktop-automation
 - [Building](building.md)
 - [E2E Framework](E2E-FRAMEWORK.md)
 - [Release provenance](RELEASE-PROVENANCE.md)
-- [Current audit](../AUDIT.md)
+- [Current audit](https://github.com/MindDragonLabs/BridgeSessions/blob/main/AUDIT.md)

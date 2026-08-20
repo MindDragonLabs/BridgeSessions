@@ -1,70 +1,67 @@
 # Usage
 
-The shipping `bridgesessions` binary is the all-in-one client, daemon, and
-diagnostic tool. Older `bs-client`/`bs-server` modular documents are historical.
-
-## Connect to a session
+## Mesh and shells
 
 ```bash
-bridgesessions shell <server>                  # attach to default session
-bridgesessions shell <server> --name hms       # attach to session "hms"
-bridgesessions shell <server> --name logs --cmd="journalctl -f"
+bs peers list
+bs health <peer>
+bs fleet
+bs stats
+bs shell <peer>
+bs shell <peer> --name agent
+bs shell <peer> --cmd 'hostname && uptime'
+bs sessions <peer>
 ```
 
-The short form reuses your SSH `Host` aliases for address discovery only:
+Named sessions survive disconnect. Use one stacked shell or `run-script` for dependent work; separate one-shots do not share state.
+
+## Files
 
 ```bash
-bs shell dev            # short alias for bridgesessions shell dev
-bs dev hms              # positional quick-connect to session "hms"
+bs file send <peer> <local> --wait
+bs file send <peer> <local> --dest <remote> --wait
+bs file recv <peer> <remote> --to <local> --wait
+bs telemetry
 ```
 
-## List / manage sessions
+Transfers are resumable and SHA-256 verified. Peers serve only from `receive_dir` by default.
+
+## Scripts
 
 ```bash
-bridgesessions sessions <server>
+bs run-script <peer> ./task.sh
+bs script add ./task.sh --name task
+bs script push task --peer <peer>
+bs script run task --peer <peer> -- 'arg with spaces'
 ```
 
-## Health & diagnostics
+Aliases are path-safe; cached scripts are content-addressed. Arguments are shell-quoted individually.
+
+## Computer use
 
 ```bash
-bridgesessions doctor            # config + key presence checks
-bridgesessions --version         # → 26.08.10-beta2
+bs cua screen <peer>
+bs cua capture <peer> -o screen.png
+bs cua click <peer> --x 500 --y 300
+bs cua type <peer> --text 'hello'
+bs capture-video <peer> --duration 10 -o capture.mp4
 ```
 
-## Keys
+## Bootstrap and upgrade
 
 ```bash
-bridgesessions keygen                        # write ~/.bridgesessions/id_ed25519.pem
-bridgesessions authorize <hex-pubkey>       # append to server authorized_keys
+bs invite
+bs join <seed-address>:19949 <token> --start
+bs upgrade
+bs upgrade --tag 26.09.19-beta5
 ```
+
+Upgrade downloads GitHub Release assets and requires checksum/version verification.
 
 ## Daemon
 
 ```bash
 bridgesessions --daemon --config ~/.bridgesessions/config
-bridgesessions health <peer>
-bridgesessions stats
 ```
 
-Install as a systemd user service:
-
-```bash
-cp docs/service/bs-server.service ~/.config/systemd/user/bridgesessions.service
-systemctl --user daemon-reload
-systemctl --user enable --now bridgesessions
-```
-
-## Bridge Panel
-
-`bridgesessions pane publish <file>` copies a local Markdown file into a
-BridgePanel session so peers can read it in the web surface. See
-[Bridge Panel](bridge-panel.md).
-
-## Notes
-
-- A disconnected client never kills the session — reattach any time.
-- Keystrokes are sent with `TCP_NODELAY` for lowest latency.
-- Clipboard integration is Windows-only in 26.08.10-beta2.
-- `image` and `anim` are local terminal previews; media transfer uses `file`.
-- Remote `edit` and `vfolder sync` fail closed in 26.08.10-beta2 pending a dedicated
-  transfer transport.
+Platform installers generate service definitions. Do not copy obsolete templates from old tags.
