@@ -8256,6 +8256,11 @@ private:
     // Seeded RNG for reconnect jitter (P2 audit fix — replaces global rand()).
     std::mt19937 rng_{std::random_device{}()};
     std::unordered_map<std::string, std::chrono::steady_clock::time_point> accept_only_until_;
+    // Tie-break defer extension budget per addr (collision-avoidance fix): how many
+    // times the 12s accept-only window may be exponentially extended before one
+    // straight probe dial is allowed. 5 extends → longest defer ≈ 12s·2⁵ = 384s.
+    static constexpr int kTieBreakMaxExtends = 5;
+    std::unordered_map<std::string, int> tiebreak_probe_extends_;
     static constexpr int kTieBreakAcceptWindowMs = 12000;
     static constexpr int kForcedReconnectDeadlineMs = 20000;
 
@@ -8547,9 +8552,12 @@ private:
     void clear_accept_only_for(const std::string& peer_name,
                                const std::string& addr,
                                const std::string& pubkey_hex) {
-        if (!addr.empty()) accept_only_until_.erase(addr);
+        if (!addr.empty()) { accept_only_until_.erase(addr); tiebreak_probe_extends_.erase(addr); }
         std::string listen_addr = peer_listen_addr_for(peer_name, pubkey_hex);
-        if (!listen_addr.empty()) accept_only_until_.erase(listen_addr);
+        if (!listen_addr.empty()) {
+            accept_only_until_.erase(listen_addr);
+            tiebreak_probe_extends_.erase(listen_addr);
+        }
     }
 
     bool should_accept_only_for(const PeerEntry& peer) const {
@@ -8574,7 +8582,35 @@ private:
                       std::to_string(kTieBreakAcceptWindowMs));
             return true;
         }
-        return now < it->second;
+        if (now >= it->second) {
+            // Tie-break defer expired without an inbound from this peer. Extend the
+            // defer exponentially (12s → 24s → 48s … capped) instead of dialing into
+            // a probable simultaneous collision. The smaller-pubkey side (which never
+            // defers) still originates the connection; if the peer is genuinely gone,
+            // the operator-facing `bs reconnect <peer>` path or the cap keeps this
+            // bounded, and any inbound handshake clears the defer immediately
+            // (clear_accept_only_for on promote). One straight dial is allowed per
+            // extension so a stuck smaller side still gets probed eventually.
+            auto& ext = tiebreak_probe_extends_[peer.addr];
+            if (ext < kTieBreakMaxExtends) {
+                ++ext;
+                const int window_ms = static_cast<int>(kTieBreakAcceptWindowMs) << ext;
+                accept_only_until_[peer.addr] =
+                    now + std::chrono::milliseconds(window_ms);
+                log_event("peer_dial_defer_extended",
+                          peer.name + " addr=" + peer.addr + " accept_only_ms=" +
+                          std::to_string(window_ms) + " extend=" + std::to_string(ext));
+                return true;
+            }
+            // Budget exhausted: allow exactly one probe now, then re-defer fresh.
+            tiebreak_probe_extends_.erase(peer.addr);
+            accept_only_until_[peer.addr] =
+                now + std::chrono::milliseconds(kTieBreakAcceptWindowMs);
+            log_event("peer_dial_defer_probe",
+                      peer.name + " addr=" + peer.addr);
+            return false;
+        }
+        return true;
     }
 
     // Find conn index by sock_fd
@@ -9061,7 +9097,22 @@ private:
             auto& ph = pending_handshakes_[i];
             if (now > ph.deadline) {
                 log_event("handshake_deadline", ph.server_side ? "inbound" : ph.expected_addr);
-                if (!ph.server_side) record_dead_seed_failure(ph.expected_addr); // B2
+                // Collision-aware dead-seed accounting (fix): a handshake timeout
+                // while this endpoint is in its tie-break accept-only window is a
+                // probable simultaneous-dial collision, not a dead seed — both sides
+                // dialed, the loser's TCP is torn down after duplicate resolution
+                // converges. Feeding these into the B2 dead-seed streak parked
+                // healthy peers in mutual cooldown (observed 2026-08-21). Only
+                // count failures when we were NOT deferring an inbound.
+                bool tiebreak_collision = false;
+                if (!ph.server_side) {
+                    auto it = accept_only_until_.find(ph.expected_addr);
+                    tiebreak_collision = it != accept_only_until_.end() &&
+                                         now < it->second;
+                }
+                if (!ph.server_side && !tiebreak_collision) {
+                    record_dead_seed_failure(ph.expected_addr); // B2
+                }
                 ph.state = PendingHandshake::State::Failed;
                 to_erase.push_back(i);
                 continue;
@@ -13388,6 +13439,40 @@ public:
             if (!ph.server_side && ph.expected_addr == addr) return true;
         }
         return false;
+    }
+    // Collision-aware dead-seed accounting (2026-08-21 fix) test hooks.
+    void set_our_pubkey_for_test(const std::string& pk) { our_pubkey_ = pk; }
+    bool should_defer_outbound_for_test(const PeerEntry& peer) {
+        return should_defer_outbound_for(peer, std::chrono::steady_clock::now());
+    }
+    void clear_accept_only_for_test(const std::string& peer_name,
+                                    const std::string& addr,
+                                    const std::string& pubkey_hex) {
+        clear_accept_only_for(peer_name, addr, pubkey_hex);
+    }
+    // Force the tie-break accept-only window for addr into the past so
+    // should_defer_outbound_for takes the extension path deterministically.
+    void expire_tiebreak_window_for_test(const std::string& addr) {
+        auto it = accept_only_until_.find(addr);
+        if (it != accept_only_until_.end()) it->second =
+            std::chrono::steady_clock::now() - std::chrono::seconds(1);
+    }
+    [[nodiscard]] bool tiebreak_extension_active_for_test(const std::string& addr) const {
+        return tiebreak_probe_extends_.count(addr) > 0;
+    }
+    [[nodiscard]] int tiebreak_extension_count_for_test(const std::string& addr) const {
+        auto it = tiebreak_probe_extends_.find(addr);
+        return it == tiebreak_probe_extends_.end() ? 0 : it->second;
+    }
+    // Simulate the collision-aware accounting branch of advance_handshakes():
+    // returns whether a handshake_deadline on this outbound addr WOULD count
+    // as a dead-seed failure (true) or be excused as a tie-break collision (false).
+    [[nodiscard]] bool handshake_deadline_counts_as_dead_seed_for_test(
+            const std::string& addr) const {
+        auto it = accept_only_until_.find(addr);
+        bool tiebreak_collision = it != accept_only_until_.end() &&
+                                  std::chrono::steady_clock::now() < it->second;
+        return !tiebreak_collision;
     }
     [[nodiscard]] size_t worker_queue_depth_for_test() const {
         return worker_pool_ ? worker_pool_->pending_count() : 0;
