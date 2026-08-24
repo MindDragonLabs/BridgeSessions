@@ -2,7 +2,7 @@
 
 Notable user-visible changes. Git history contains implementation-level detail.
 
-## 2026.08.24-beta8
+## 2026.08.24-beta7
 
 ### Interactive shell
 
@@ -18,8 +18,6 @@ Notable user-visible changes. Git history contains implementation-level detail.
   instead of fuzzy-remapping to a sibling (`fecv3` → `fecv4`) and hanging.
 - Fuzzy resolve no longer treats digit-only siblings as typos (`fecv3`/`fecv4`,
   `host-1`/`host-2`). Levenshtein auto-match is capped at distance 2.
-
-## 2026.08.24-beta7
 
 ### Onboarding (no roster files)
 
