@@ -8,8 +8,12 @@ TAG="v${VERSION}"
 ASSET_DIR="${BS_RELEASE_DIR:-dist}"
 REPO="${BS_GITHUB_REPO:-MindDragonLabs/BridgeSessions}"
 [[ -z "$(git status --porcelain)" ]] || { echo 'error: dirty tree' >&2; exit 1; }
-[[ "$(git rev-parse HEAD)" == "$(git rev-list -n1 "$TAG")" ]] || { echo 'error: tag != HEAD' >&2; exit 1; }
-[[ "$(git ls-remote origin "refs/tags/$TAG" | awk '{print $1}')" == "$(git rev-parse HEAD)" ]] || { echo 'error: origin tag != HEAD' >&2; exit 1; }
+# Dereference annotated tags (^{commit}) — ls-remote returns the tag object
+# ID for annotated tags, which is never equal to HEAD itself.
+HEAD_COMMIT="$(git rev-parse HEAD)"
+[[ "$HEAD_COMMIT" == "$(git rev-list -n1 "$TAG")" ]] || { echo 'error: tag != HEAD' >&2; exit 1; }
+REMOTE_TAG="$(git ls-remote origin "refs/tags/$TAG" | awk '{print $1}')"
+[[ "$(git rev-parse "${REMOTE_TAG}^{commit}" 2>/dev/null || echo "$REMOTE_TAG")" == "$HEAD_COMMIT" ]] || { echo 'error: origin tag != HEAD' >&2; exit 1; }
 gh api user --jq .login >/dev/null
 assets=(
   "$ASSET_DIR/bridgesessions-linux-x86_64"
