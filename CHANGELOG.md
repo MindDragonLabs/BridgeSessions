@@ -2,6 +2,25 @@
 
 Notable user-visible changes. Git history contains implementation-level detail.
 
+## 2026.08.24-beta7
+
+### Onboarding (no roster files)
+
+- New nodes join the mesh with a single `bs join <addr> <token> --start` one-liner.
+  On success the controller signs a mesh-directory enrollment for the joiner and
+  gossips it to every peer, so each peer auto-trusts and seeds the new node's key
+  with **no manual key copying, no YAML roster edit, and no seed-sync script**.
+- Removed the legacy manual `deploy/rana-shadow/` bundle (hand-written join script
+  + YAML-patching `authorize.sh` + full-path `SHA256SUMS`) that bypassed the native
+  join flow and forced the YAML/roster path.
+
+### Installer checksums
+
+- Installers verify a GitHub Release `SHA256SUMS` entry by **basename**; the
+  release checksum generator writes basenames only. A `SHA256SUMS` keyed by an
+  absolute path no longer passes as a valid entry (previously surfaced as
+  "SHA256SUMS has no valid binary entry").
+
 ## 26.09.19-beta6
 
 ### Security

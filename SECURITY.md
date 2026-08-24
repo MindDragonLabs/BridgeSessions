@@ -2,7 +2,7 @@
 
 ## Supported version
 
-`26.09.19-beta6` is the current beta line. Upgrade older builds before reporting unless reproducing a regression.
+`2026.08.24-beta7` is the current beta line. Upgrade older builds before reporting unless reproducing a regression.
 
 ## Report privately
 
