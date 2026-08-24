@@ -2,6 +2,23 @@
 
 Notable user-visible changes. Git history contains implementation-level detail.
 
+## 2026.08.24-beta8
+
+### Interactive shell
+
+- Ctrl-C is always a remote keystroke. Double Ctrl-C no longer sends `Kill` or
+  disconnects the BridgeSessions client. The session ends only when the remote
+  shell exits (`exit`) or the transport dies.
+- In TUI environments (Hermes TUI), a process-group SIGINT is forwarded as one
+  `0x03` keystroke instead of terminating the local client.
+
+### Peer names
+
+- `bs shell <this-node>` refuses immediately (`Cannot shell to this node`)
+  instead of fuzzy-remapping to a sibling (`fecv3` → `fecv4`) and hanging.
+- Fuzzy resolve no longer treats digit-only siblings as typos (`fecv3`/`fecv4`,
+  `host-1`/`host-2`). Levenshtein auto-match is capped at distance 2.
+
 ## 2026.08.24-beta7
 
 ### Onboarding (no roster files)

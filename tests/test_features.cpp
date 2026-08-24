@@ -460,3 +460,93 @@ TEST_CASE("resolve_peer: short query (<3 chars) skips fuzzy tier", "[features][r
 
     fs::remove_all(home);
 }
+
+TEST_CASE("names_are_numeric_siblings: digit-only single substitution", "[features][resolve_peer]") {
+    REQUIRE(names_are_numeric_siblings("fecv3", "fecv4"));
+    REQUIRE(names_are_numeric_siblings("FECV3", "fecv4"));
+    REQUIRE(names_are_numeric_siblings("host-1", "host-2"));
+    REQUIRE_FALSE(names_are_numeric_siblings("fecv3", "fecv3"));
+    REQUIRE_FALSE(names_are_numeric_siblings("shadow", "shad0w"));  // letter vs digit
+    REQUIRE_FALSE(names_are_numeric_siblings("alpha", "alphaa"));   // insertion
+    REQUIRE_FALSE(names_are_numeric_siblings("fecv3", "fecv10"));   // length differs
+}
+
+TEST_CASE("resolve_peer: self node name is never remapped to a sibling", "[features][resolve_peer]") {
+    auto home = make_test_home("self");
+
+    auto ck = generate_cert_key_pair("self");
+    std::string seed_pk = pubkey_hex_from_pem(ck.second);
+    write_authorized_keys(home, seed_pk);
+
+    MeshConfig cfg;
+    cfg.node_name = "fecv3";
+    cfg.authorized_keys_path = home + "/authorized_keys";
+    cfg.seeds.push_back(PeerEntry{
+        .name = "fecv4",
+        .addr = "10.0.0.4:19949",
+        .pubkey_hex = seed_pk});
+
+    MeshController mc(cfg, home);
+
+    auto r = mc.resolve_peer("fecv3");
+    REQUIRE(r.tier == PR::None_);
+    REQUIRE(r.name.empty());
+
+    fs::remove_all(home);
+}
+
+TEST_CASE("resolve_peer: numeric sibling is not a fuzzy match", "[features][resolve_peer]") {
+    auto home = make_test_home("sibling");
+
+    auto ck = generate_cert_key_pair("sib");
+    std::string seed_pk = pubkey_hex_from_pem(ck.second);
+    write_authorized_keys(home, seed_pk);
+
+    MeshConfig cfg;
+    cfg.node_name = "btcr";
+    cfg.authorized_keys_path = home + "/authorized_keys";
+    cfg.seeds.push_back(PeerEntry{
+        .name = "fecv4",
+        .addr = "10.0.0.4:19949",
+        .pubkey_hex = seed_pk});
+
+    MeshController mc(cfg, home);
+
+    // "fecv3" is Levenshtein-1 from "fecv4" but is a different host, not a typo.
+    auto r = mc.resolve_peer("fecv3");
+    REQUIRE(r.tier == PR::None_);
+    REQUIRE(r.name.empty());
+
+    fs::remove_all(home);
+}
+
+TEST_CASE("resolve_peer: levenshtein cap is 2 (not 3)", "[features][resolve_peer]") {
+    auto home = make_test_home("levcap");
+
+    auto ck = generate_cert_key_pair("levcap");
+    std::string seed_pk = pubkey_hex_from_pem(ck.second);
+    write_authorized_keys(home, seed_pk);
+
+    MeshConfig cfg;
+    cfg.node_name = "test";
+    cfg.authorized_keys_path = home + "/authorized_keys";
+    cfg.seeds.push_back(PeerEntry{
+        .name = "bridge",
+        .addr = "10.0.0.7:19949",
+        .pubkey_hex = seed_pk});
+
+    MeshController mc(cfg, home);
+
+    auto r = mc.resolve_peer("bridgexxx");  // distance 3
+    REQUIRE(r.tier == PR::None_);
+    REQUIRE(r.name.empty());
+
+    fs::remove_all(home);
+}
+
+TEST_CASE("is_local_node_name: case-insensitive self check", "[features][resolve_peer]") {
+    REQUIRE(is_local_node_name("fecv3", "fecv3"));
+    REQUIRE(is_local_node_name("FECV3", "fecv3"));
+    REQUIRE_FALSE(is_local_node_name("fecv4", "fecv3"));
+    REQUIRE_FALSE(is_local_node_name("", "fecv3"));
+}

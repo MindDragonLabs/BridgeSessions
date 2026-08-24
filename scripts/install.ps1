@@ -4,7 +4,7 @@
 #
 
 $ErrorActionPreference = "Stop"
-$TAG = if ($env:BRIDGESESSIONS_TAG) { $env:BRIDGESESSIONS_TAG } else { "2026.08.24-beta7" }
+$TAG = if ($env:BRIDGESESSIONS_TAG) { $env:BRIDGESESSIONS_TAG } else { "2026.08.24-beta8" }
 $BASE = "https://github.com/MindDragonLabs/BridgeSessions/releases/download/v$TAG"
 $INSTALL_DIR = "$env:LOCALAPPDATA\bridgesessions"
 $BIN_PATH = "$INSTALL_DIR\bridgesessions.exe"

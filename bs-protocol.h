@@ -4770,6 +4770,37 @@ void write_peer_line(std::ostream& os, const std::string& prefix, const PeerEntr
     return prev[n];
 }
 
+// Same-length names that differ by exactly one digit (fecv3/fecv4, host-1/host-2)
+// are distinct hosts, not typos. Fuzzy resolve must not remap them.
+[[nodiscard]] inline bool names_are_numeric_siblings(const std::string& a,
+                                                     const std::string& b) {
+    if (a.size() != b.size() || a.empty()) return false;
+    size_t diffs = 0;
+    bool digit_sub = false;
+    for (size_t i = 0; i < a.size(); ++i) {
+        const auto ca = static_cast<unsigned char>(
+            std::tolower(static_cast<unsigned char>(a[i])));
+        const auto cb = static_cast<unsigned char>(
+            std::tolower(static_cast<unsigned char>(b[i])));
+        if (ca == cb) continue;
+        ++diffs;
+        if (std::isdigit(ca) && std::isdigit(cb)) digit_sub = true;
+    }
+    return diffs == 1 && digit_sub;
+}
+
+// Live attach policy: Ctrl-C is always a remote keystroke. Never disconnect.
+[[nodiscard]] inline bool session_ctrl_c_disconnects() { return false; }
+
+#ifndef _WIN32
+// Hermes TUI / process-group SIGINT never appears as 0x03 on stdin.
+// Convert it to one forwarded Ctrl-C keystroke instead of dying.
+inline volatile sig_atomic_t g_shell_sigint_forward = 0;
+inline void shell_sigint_forward_handler(int) noexcept {
+    g_shell_sigint_forward = 1;
+}
+#endif
+
 // Case-insensitive suffix/prefix check for tier-3 matching.
 [[nodiscard]] inline bool name_has_segment(const std::string& name,
                                            const std::string& query) {
@@ -4798,6 +4829,11 @@ void write_peer_line(std::ostream& os, const std::string& prefix, const PeerEntr
             std::tolower(static_cast<unsigned char>(b[i]))) return false;
     }
     return true;
+}
+
+[[nodiscard]] inline bool is_local_node_name(const std::string& query,
+                                             const std::string& node_name) {
+    return !query.empty() && config_peer_name_eq(query, node_name);
 }
 
 [[nodiscard]] bool import_ssh_alias_peer(
@@ -14985,6 +15021,8 @@ public:
 
     [[nodiscard]] PeerResolveResult resolve_peer(const std::string& query) const {
         PeerResolveResult r;
+        // Never treat this node as a remote peer (would fuzzy-remap fecv3→fecv4).
+        if (is_local_node_name(query, config_.node_name)) return r;
         // Tier 1: exact match (case-insensitive)
         std::string addr, pubkey;
         if (peer_lookup(query, addr, pubkey)) {
@@ -14996,6 +15034,7 @@ public:
         std::vector<std::string> segment_matches;
         auto check_segments = [&](const std::vector<PeerEntry>& peers) {
             for (const auto& p : peers) {
+                if (is_local_node_name(p.name, config_.node_name)) continue;
                 if (name_has_segment(p.name, query))
                     segment_matches.push_back(p.name);
             }
@@ -15016,13 +15055,14 @@ public:
             r.suggestions = segment_matches;
             return r; // ambiguous
         }
-        // Tier 4: Levenshtein ≤ 3 (consistent with print_peer_not_found close-check)
+        // Tier 4: Levenshtein ≤ 2 (typos). Digit-only siblings (fecv3/fecv4) are not typos.
         std::vector<std::string> fuzzy_matches;
         auto check_fuzzy = [&](const std::vector<PeerEntry>& peers) {
             for (const auto& p : peers) {
-                if (!query.empty() && query.size() >= 3 &&
-                    p.name.size() >= 3 &&
-                    levenshtein(query, p.name) <= 3)
+                if (query.empty() || query.size() < 3 || p.name.size() < 3) continue;
+                if (is_local_node_name(p.name, config_.node_name)) continue;
+                if (names_are_numeric_siblings(query, p.name)) continue;
+                if (levenshtein(query, p.name) <= 2)
                     fuzzy_matches.push_back(p.name);
             }
         };
@@ -15046,6 +15086,11 @@ public:
 
     // Print "Peer not found" with suggestions and available peers list.
     void print_peer_not_found(const std::string& query) const {
+        if (is_local_node_name(query, config_.node_name)) {
+            std::cerr << "Cannot shell to this node (\"" << config_.node_name
+                      << "\"). You are already here.\n";
+            return;
+        }
         auto result = resolve_peer(query);
         bool showed_suggestions = false;
         if (!result.suggestions.empty()) {
@@ -15060,9 +15105,10 @@ public:
             std::vector<std::string> close;
             auto check_close = [&](const std::vector<PeerEntry>& peers) {
                 for (const auto& p : peers) {
-                    if (!query.empty() && query.size() >= 3 &&
-                        p.name.size() >= 3 &&
-                        levenshtein(query, p.name) <= 3)
+                    if (query.empty() || query.size() < 3 || p.name.size() < 3) continue;
+                    if (is_local_node_name(p.name, config_.node_name)) continue;
+                    if (names_are_numeric_siblings(query, p.name)) continue;
+                    if (levenshtein(query, p.name) <= 2)
                         close.push_back(p.name);
                 }
             };
@@ -15354,6 +15400,11 @@ public:
     int shell_peer(const std::string& peer_name, const std::string& session_name,
                    const std::string& cmd, uint16_t cols, uint16_t rows, const std::string& term,
                    bool signal_forward = true, const std::string& signal_on_detach = "") {
+        if (is_local_node_name(peer_name, config_.node_name)) {
+            std::cerr << "Cannot shell to this node (\"" << config_.node_name
+                      << "\"). You are already here.\n";
+            return 255;
+        }
         // 4-tier peer name resolution (exact → suffix → levenshtein)
         auto resolved = resolve_peer(peer_name);
         if (resolved.name.empty()) {
@@ -15488,8 +15539,27 @@ public:
         } catch (...) {
             return 255;
         }
+#ifndef _WIN32
+        struct sigaction shell_sa{};
+        struct sigaction shell_old_sa{};
+        bool sigint_installed = false;
+        if (signal_forward) {
+            g_shell_sigint_forward = 0;
+            shell_sa.sa_handler = shell_sigint_forward_handler;
+            sigemptyset(&shell_sa.sa_mask);
+            shell_sa.sa_flags = 0;
+            if (sigaction(SIGINT, &shell_sa, &shell_old_sa) == 0)
+                sigint_installed = true;
+        }
+#endif
         auto restore_local_terminal = [&]() {
             terminal_guard->restore();
+#ifndef _WIN32
+            if (sigint_installed) {
+                sigaction(SIGINT, &shell_old_sa, nullptr);
+                sigint_installed = false;
+            }
+#endif
         };
 
         std::string pending_input;
@@ -15568,39 +15638,17 @@ public:
                     pending_input.clear();
                 }
 
-                auto last_ctrl_c = std::chrono::steady_clock::time_point{};
                 auto forward_local_input = [&](std::string_view input) {
-                    // Double Ctrl-C (two 0x03 within 600ms) hard-terminates the
-                    // session: send a Kill signal for the whole process group and
-                    // leave the attach loop, instead of forwarding the second 0x03
-                    // as a keystroke. A single Ctrl-C still forwards normally so
-                    // nested TUIs can cancel/quit themselves.
-                    if (!input.empty() && input.find('\x03') != std::string_view::npos) {
-                        size_t ctrlc = 0;
-                        for (char ch : input) if (ch == '\x03') ++ctrlc;
-                        const auto now = std::chrono::steady_clock::now();
-                        const bool double_press =
-                            ctrlc >= 2 ||
-                            (last_ctrl_c != std::chrono::steady_clock::time_point{} &&
-                             (now - last_ctrl_c) <= std::chrono::milliseconds(600));
-                        if (double_press) {
-                            last_ctrl_c = std::chrono::steady_clock::time_point{};
-                            try {
-                                SignalMsg kill;
-                                kill.signal = SignalMsg::SignalType::Kill;
-                                write_frame(sc.ssl.get(), kill, CONTROL_STREAM_ID);
-                            } catch (...) {}
-                            local_stop = true;
-                            transport_alive = false;
-                            return;
-                        }
-                        last_ctrl_c = now;
+                    // Every keystroke, including every Ctrl-C (0x03), goes to
+                    // the remote PTY. Nested apps handle SIGINT themselves;
+                    // the session stays up until the remote shell exits.
+                    // Reconnect-wait still uses local_input_requests_disconnect().
+                    if (session_ctrl_c_disconnects() &&
+                        local_input_requests_disconnect(input)) {
+                        local_stop = true;
+                        transport_alive = false;
+                        return;
                     }
-                    // Every keystroke, including a single Ctrl-C (0x03), goes
-                    // to the remote PTY. Nested TUIs (Claude Code) use double
-                    // Ctrl-C to quit themselves — the client must not steal it.
-                    // Leave the attach loop only on remote SessionDied / Detach,
-                    // stdin EOF, or Ctrl-C while waiting to reconnect.
                     KeystrokeMsg km;
                     km.data.assign(input.data(), input.size());
                     try {
@@ -15650,6 +15698,11 @@ public:
                             forward_local_input(std::string_view(
                                 stdin_buf.data(), static_cast<size_t>(n)));
                         }
+                    }
+                    if (g_shell_sigint_forward) {
+                        g_shell_sigint_forward = 0;
+                        if (!local_stop && transport_alive)
+                            forward_local_input(std::string_view("\x03", 1));
                     }
                     if (!local_stop && transport_alive &&
                         ((ready > 0 && FD_ISSET((int)sc.sfd, &read_fds)) || SSL_pending(sc.ssl.get()) > 0)) {
