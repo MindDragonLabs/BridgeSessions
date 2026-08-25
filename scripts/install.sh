@@ -16,6 +16,10 @@ BASE="https://github.com/MindDragonLabs/BridgeSessions/releases/download/v${TAG}
 INSTALL_DIR="${HOME}/.local/bin"
 VERSION_FILE="${INSTALL_DIR}/.bridgesessions-version"
 FORCE_UPDATE="${BRIDGESESSIONS_FORCE:-0}"
+# Resolved again after BIN_NAME is known; set early so EXIT traps can restart.
+BIN_ABS=""
+CONFIG_PATH="${HOME}/.bridgesessions/config"
+DAEMON_WAS_STOPPED=0
 
 os=$(uname -s)
 arch=$(uname -m)
@@ -36,6 +40,7 @@ case "${os}-${arch}" in
     ;;
 esac
 
+BIN_ABS="${INSTALL_DIR}/${BIN_NAME}"
 mkdir -p "${INSTALL_DIR}"
 
 validate_binary() {
@@ -62,17 +67,20 @@ validate_binary() {
 }
 
 # ── 1. Stop existing daemon before update ──────────────────────────
+# Never persist-disable the unit. A disable + failed resume left fecv3
+# refusing inbound `bs shell` (TCP errno 61) after the 2026-08-25 swap.
 stop_daemon() {
+  DAEMON_WAS_STOPPED=1
   case "${os}" in
     Darwin)
       launchctl bootout "gui/$(id -u)/com.bridgesessions.mesh" 2>/dev/null || true
       pkill -f "bridgesessions.*--config" 2>/dev/null || true
       ;;
     Linux)
-      # Stop systemd service FIRST to prevent auto-restart from re-locking the binary
+      # Runtime mask blocks Restart=always during the swap. It is cleared
+      # on reboot and always unmasked in start_daemon.
+      systemctl --user mask --runtime bridgesessions.service 2>/dev/null || true
       systemctl --user stop bridgesessions.service 2>/dev/null || true
-      # Mask temporarily to prevent respawn during swap
-      systemctl --user disable bridgesessions.service 2>/dev/null || true
       pkill -f "bridgesessions.*--config" 2>/dev/null || true
       ;;
   esac
@@ -88,21 +96,31 @@ stop_daemon() {
 start_daemon() {
   case "${os}" in
     Darwin)
-      launchctl bootstrap "gui/$(id -u)" "${HOME}/Library/LaunchAgents/com.bridgesessions.mesh.plist" 2>/dev/null || \
+      launchctl kickstart -k "gui/$(id -u)/com.bridgesessions.mesh" 2>/dev/null || \
+        launchctl bootstrap "gui/$(id -u)" "${HOME}/Library/LaunchAgents/com.bridgesessions.mesh.plist" 2>/dev/null || \
         launchctl load -w "${HOME}/Library/LaunchAgents/com.bridgesessions.mesh.plist" 2>/dev/null || true
       ;;
     Linux)
+      systemctl --user unmask bridgesessions.service 2>/dev/null || true
       systemctl --user daemon-reload 2>/dev/null || true
-      systemctl --user enable bridgesessions.service 2>/dev/null || true
-      systemctl --user start bridgesessions.service 2>/dev/null || true
+      systemctl --user enable --now bridgesessions.service 2>/dev/null || true
       # Fallback: if systemd not available, start manually
       if ! systemctl --user is-active bridgesessions.service >/dev/null 2>&1; then
         if ! pgrep -f "bridgesessions.*--config" >/dev/null 2>&1; then
-          nohup "${BIN_ABS}" --config "${CONFIG_PATH}" >/dev/null 2>&1 &
+          if [ -n "${BIN_ABS}" ] && [ -x "${BIN_ABS}" ]; then
+            nohup "${BIN_ABS}" --daemon --config "${CONFIG_PATH}" >/dev/null 2>&1 &
+          fi
         fi
       fi
       ;;
   esac
+}
+
+restore_daemon() {
+  rm -f "${TMP_BIN:-}" "${TMP_SUMS:-}"
+  if [ "${DAEMON_WAS_STOPPED}" = "1" ]; then
+    start_daemon || true
+  fi
 }
 
 CURRENT=""
@@ -123,7 +141,7 @@ if [ "${NEEDS_DOWNLOAD}" = "1" ]; then
 
   echo "→ Downloading bridgesessions ${TAG} for ${os}-${arch}..."
   TMP_BIN="${INSTALL_DIR}/.${BIN_NAME}.download.$$"
-  trap 'rm -f "${TMP_BIN:-}"' EXIT INT TERM
+  trap restore_daemon EXIT INT TERM
   curl -fsSL --progress-bar "${BASE}/${BIN}" -o "${TMP_BIN}"
   # Clear the quarantine flag macOS stamps on downloaded binaries. Without
   # this, Gatekeeper kills an unnotarized Developer ID binary with SIGKILL
@@ -192,7 +210,6 @@ if [ "${NEEDS_DOWNLOAD}" = "1" ]; then
   # Clean up old binary after successful swap
   rm -f "${INSTALL_DIR}/${BIN_NAME}.old" 2>/dev/null || true
   echo "${TAG}" > "${VERSION_FILE}"
-  trap - EXIT INT TERM
   echo "→ Binary updated."
 else
   validate_binary "${INSTALL_DIR}/${BIN_NAME}"
@@ -694,6 +711,7 @@ if [ $# -ge 2 ] && [ "$1" = "join" ]; then
   # Ensure old daemon is stopped before join (prevents conflicts)
   echo "→ Stopping existing daemon before join..."
   stop_daemon
+  trap restore_daemon EXIT INT TERM
   sleep 1
 
   # Strip duplicate --start flag (invite output already includes it)

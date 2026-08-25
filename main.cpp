@@ -11,6 +11,9 @@
 #ifdef __APPLE__
 #include <mach-o/dyld.h>
 #endif
+#ifdef __linux__
+#include <unistd.h>
+#endif
 
 // Tag validation is defined in bs-protocol.h (shared with tests).
 
@@ -115,6 +118,65 @@ static std::string daemon_simple_ipc(const std::string& cmd, int wait_ms,
     CLOSESOCK(sfd);
     while (!acc.empty() && (acc.back() == '\r' || acc.back() == '\n')) acc.pop_back();
     return acc;
+}
+
+std::string current_exe_path(const char* argv0) {
+    std::string self = argv0 ? argv0 : "bridgesessions";
+#ifdef __APPLE__
+    char exe_path[4096] = {};
+    uint32_t size = sizeof(exe_path);
+    if (_NSGetExecutablePath(exe_path, &size) == 0) self = exe_path;
+#elif defined(__linux__)
+    char rp[4096];
+    ssize_t n = ::readlink("/proc/self/exe", rp, sizeof(rp) - 1);
+    if (n > 0) { rp[n] = 0; self = rp; }
+#endif
+    return self;
+}
+
+// Pause the platform service so the binary can be swapped. Never persist-disable
+// the systemd unit: disable + a failed resume left fecv3 refusing inbound
+// sessions (TCP errno 61) after the 2026-08-25 upgrade.
+void pause_mesh_daemon() {
+#ifdef __APPLE__
+    std::system("launchctl bootout gui/$(id -u)/com.bridgesessions.mesh 2>/dev/null");
+    std::system("launchctl bootout gui/$(id -u)/com.bridgesessions.cua-helper 2>/dev/null");
+#elif defined(__linux__)
+    std::system("systemctl --user mask --runtime bridgesessions.service 2>/dev/null");
+    std::system("systemctl --user stop bridgesessions.service 2>/dev/null");
+#elif defined(_WIN32)
+    std::system("schtasks /end /tn BridgeSessions 2>nul");
+#endif
+}
+
+bool start_detached_daemon(const std::string& exe, const std::string& cfg_path) {
+#ifdef _WIN32
+    std::string cmd = "start /B \"\" \"" + exe + "\" --daemon --config \"" + cfg_path + "\"";
+#else
+    std::string cmd = "nohup '" + exe + "' --daemon --config '" + cfg_path + "' > /dev/null 2>&1 &";
+#endif
+    return std::system(cmd.c_str()) == 0;
+}
+
+bool resume_mesh_daemon(const std::string& exe, const std::string& cfg_path) {
+#ifdef __APPLE__
+    int rc = std::system(
+        "launchctl kickstart -k gui/$(id -u)/com.bridgesessions.mesh 2>/dev/null || "
+        "launchctl bootstrap gui/$(id -u) \"$HOME/Library/LaunchAgents/com.bridgesessions.mesh.plist\" 2>/dev/null");
+    std::system(
+        "launchctl bootstrap gui/$(id -u) \"$HOME/Library/LaunchAgents/com.bridgesessions.cua-helper.plist\" 2>/dev/null");
+    if (rc == 0) return true;
+#elif defined(__linux__)
+    std::system("systemctl --user unmask bridgesessions.service 2>/dev/null");
+    std::system("systemctl --user daemon-reload 2>/dev/null");
+    std::system("systemctl --user enable --now bridgesessions.service 2>/dev/null");
+    if (std::system("systemctl --user is-active bridgesessions.service >/dev/null 2>&1") == 0)
+        return true;
+#elif defined(_WIN32)
+    std::system("schtasks /change /tn BridgeSessions /enable >nul 2>nul");
+    if (std::system("schtasks /run /tn BridgeSessions") == 0) return true;
+#endif
+    return start_detached_daemon(exe, cfg_path);
 }
 
 // ── authorize: register a hex-encoded ed25519 public key ──────────
@@ -1092,55 +1154,15 @@ int main(int argc, char** argv) {
         }
         std::cout << "Joined. Node: " << cfg.node_name << "  Config: " << config_path << "\n";
         if (join_start) {
-            // Start daemon in background. Prefer the platform service manager
-            // (launchd/systemd) if installed — it keeps the daemon alive and
-            // avoids double-binding IPC. Fallback: nohup with our own path
-            // (bare `bridgesessions` may not be on PATH in this shell).
+            // Prefer launchd/systemd so the node stays inbound-reachable.
+            // Always enable --now (do not require the unit to already be enabled).
             std::cout << "→ Starting daemon...\n";
-            bool started = false;
-#ifdef __APPLE__
-            {
-                std::string plist = home_dir + "/../Library/LaunchAgents/com.bridgesessions.mesh.plist";
-                std::error_code ec;
-                if (std::filesystem::exists(plist, ec)) {
-                    int rc = std::system((std::string("launchctl kickstart -k gui/$(id -u)/com.bridgesessions.mesh 2>/dev/null || launchctl bootstrap gui/$(id -u) \"") + plist + "\" 2>/dev/null").c_str());
-                    started = (rc == 0);
-                }
-            }
-#elif defined(__linux__)
-            if (std::system("systemctl --user is-enabled bridgesessions.service >/dev/null 2>&1") == 0) {
-                started = (std::system("systemctl --user restart bridgesessions.service 2>/dev/null") == 0);
-            }
-#endif
-            if (!started) {
-                // Self path: argv[0] may not resolve; prefer the real exe path.
-                std::string self = argv[0];
-#ifdef __APPLE__
-                char exe_path[4096] = {};
-                uint32_t size = sizeof(exe_path);
-                if (_NSGetExecutablePath(exe_path, &size) == 0) self = exe_path;
-#elif defined(__linux__)
-                {
-                    char rp[4096];
-                    ssize_t n = ::readlink("/proc/self/exe", rp, sizeof(rp) - 1);
-                    if (n > 0) { rp[n] = 0; self = rp; }
-                }
-#endif
-                std::string cfg_path = home_dir + "/config";
-#ifdef _WIN32
-                std::string cmd = "start /B \"\" \"" + self + "\" --daemon --config \"" + cfg_path + "\"";
-#else
-                std::string cmd = "nohup '" + self + "' --daemon --config '" + cfg_path + "' > /dev/null 2>&1 &";
-#endif
-                int rc = std::system(cmd.c_str());
-                if (rc != 0) {
-                    std::cout << "→ Could not auto-start daemon (system rc=" << rc
-                              << "). Start it manually: bridgesessions --daemon\n";
-                } else {
-                    std::cout << "→ Daemon started. Run 'bridgesessions health <peer>' to verify.\n";
-                }
-            } else {
+            std::string self = current_exe_path(argv[0]);
+            std::string cfg_path = home_dir + "/config";
+            if (resume_mesh_daemon(self, cfg_path)) {
                 std::cout << "→ Daemon started (via service manager). Run 'bridgesessions health <peer>' to verify.\n";
+            } else {
+                std::cout << "→ Could not auto-start daemon. Start it manually: bridgesessions --daemon\n";
             }
         } else {
             std::cout << "Start daemon: bridgesessions --daemon\n";
@@ -1599,15 +1621,7 @@ int main(int argc, char** argv) {
         // Stop daemon before swap
         std::cout << "→ Stopping daemon...\n";
         bs::log::get("upgrade")->info("stopping daemon");
-#ifdef __APPLE__
-        std::system("launchctl bootout gui/$(id -u)/com.bridgesessions.mesh 2>/dev/null");
-        std::system("launchctl bootout gui/$(id -u)/com.bridgesessions.cua-helper 2>/dev/null");
-#elif defined(__linux__)
-        std::system("systemctl --user stop bridgesessions.service 2>/dev/null");
-        std::system("systemctl --user disable bridgesessions.service 2>/dev/null");
-#elif defined(_WIN32)
-        std::system("schtasks /end /tn BridgeSessions 2>nul");
-#endif
+        pause_mesh_daemon();
         // Kill daemon processes (NOT the CLI itself — exclude own PID).
         // 'pkill -9 -f bridgesessions' would match the running upgrade CLI's
         // own command line and SIGKILL it mid-swap. Use a precise kill of the
@@ -1637,6 +1651,7 @@ int main(int argc, char** argv) {
                 std::cerr << "upgrade: binary swap failed (cp fallback) — rolling back\n";
                 ::rename(old_path.c_str(), bin_path.c_str());
                 ::unlink(tmp_path.c_str());
+                resume_mesh_daemon(current_exe_path(argv[0]), home_dir + "/config");
                 return 1;
             }
         }
@@ -1659,15 +1674,7 @@ int main(int argc, char** argv) {
         // Restart daemon
         std::cout << "→ Starting daemon...\n";
         bs::log::get("upgrade")->info("restarting daemon");
-#ifdef __APPLE__
-        std::system("launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.bridgesessions.mesh.plist 2>/dev/null");
-        std::system("launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.bridgesessions.cua-helper.plist 2>/dev/null");
-#elif defined(__linux__)
-        std::system("systemctl --user enable bridgesessions.service 2>/dev/null");
-        std::system("systemctl --user start bridgesessions.service 2>/dev/null");
-#elif defined(_WIN32)
-        std::system("schtasks /run /tn BridgeSessions");
-#endif
+        resume_mesh_daemon(current_exe_path(argv[0]), home_dir + "/config");
 #ifdef _WIN32
         Sleep(3000);
 #else
@@ -1697,15 +1704,7 @@ int main(int argc, char** argv) {
             ::rename(old_path.c_str(), bin_path.c_str());
             // Restart daemon after rollback so system isn't left with daemon stopped
             std::cerr << "  Restarting daemon...\n";
-#ifdef __APPLE__
-            std::system("launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.bridgesessions.mesh.plist 2>/dev/null");
-            std::system("launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.bridgesessions.cua-helper.plist 2>/dev/null");
-#elif defined(__linux__)
-            std::system("systemctl --user enable bridgesessions.service 2>/dev/null");
-            std::system("systemctl --user start bridgesessions.service 2>/dev/null");
-#elif defined(_WIN32)
-            std::system("schtasks /run /tn BridgeSessions");
-#endif
+            resume_mesh_daemon(current_exe_path(argv[0]), home_dir + "/config");
             return 1;
         }
         return 0;

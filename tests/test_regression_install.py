@@ -297,3 +297,26 @@ class TestJoinClientAddrFixes:
         text = MAIN_CPP.read_text()
         assert 'launchctl kickstart' in text, \
             "join --start must prefer the launchd service over bare nohup"
+        assert 'systemctl --user enable --now bridgesessions.service' in text, \
+            "join/upgrade must enable --now even if the unit was disabled"
+        assert 'systemctl --user disable bridgesessions.service' not in text, \
+            "upgrade must never persist-disable the systemd unit"
+
+
+class TestInstallLeavesDaemonEnabled:
+    """2026-08-25: fecv3 inbound refused after upgrade left the unit disabled."""
+
+    def test_install_sh_never_persist_disables(self):
+        text = read_script()
+        assert 'systemctl --user disable bridgesessions.service' not in text
+        assert 'mask --runtime' in text
+        assert 'enable --now' in text
+        assert 'restore_daemon' in text
+        assert 'DAEMON_WAS_STOPPED' in text
+
+    def test_install_ps1_always_restores_daemon(self):
+        text = (REPO_ROOT / "scripts" / "install.ps1").read_text()
+        assert 'Restore-BridgeSessionsDaemon' in text
+        assert 'ExecutionTimeLimit' in text
+        assert '--daemon --config' in text
+        assert 'Enable-ScheduledTask' in text

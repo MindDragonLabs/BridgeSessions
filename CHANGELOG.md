@@ -12,6 +12,10 @@ Notable user-visible changes. Git history contains implementation-level detail.
 
 - Auto-upgrade version compare treats `26.MM.DD` and `2026.MM.DD` as the same calendar year instead of using ASCII order.
 - Simultaneous-dial collision livelock fixed (from `main`: `0367ef5`).
+- Install/upgrade no longer persist-disables the systemd user unit. A failed
+  swap used to leave the node with no listener, so inbound `bs shell` got
+  TCP refused. Pause now uses a runtime mask; every failure path re-enables
+  and starts the daemon. Windows installer also forces `ExecutionTimeLimit=0`.
 
 ### Interactive shell
 

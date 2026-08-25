@@ -13,6 +13,19 @@ $CONFIG_DIR = "$env:USERPROFILE\.bridgesessions"
 $CONFIG_PATH = "$CONFIG_DIR\config"
 
 # -- 1. DETECT AND KILL ALL RUNNING DAEMONS (including Session 0) ------------
+$ErrorActionPreference = "Stop"
+function Restore-BridgeSessionsDaemon {
+    try {
+        $t = Get-ScheduledTask -TaskName "BridgeSessions" -ErrorAction SilentlyContinue
+        if ($t) {
+            Enable-ScheduledTask -TaskName "BridgeSessions" -ErrorAction SilentlyContinue | Out-Null
+            Start-ScheduledTask -TaskName "BridgeSessions" -ErrorAction SilentlyContinue
+        } elseif (Test-Path $BIN_PATH) {
+            Start-Process -FilePath $BIN_PATH -ArgumentList "--daemon","--config",$CONFIG_PATH -WindowStyle Hidden
+        }
+    } catch {}
+}
+try {
 $wasRunning = $false
 try {
     # Get-CimInstance finds processes across ALL sessions (Session 0 phantoms
@@ -129,9 +142,9 @@ if ($userPath -notlike "*$INSTALL_DIR*") {
 }
 
 # -- 7. SCHEDULED TASK: DAEMON -----------------------------------------------
-$daemonAction = New-ScheduledTaskAction -Execute $BIN_PATH -Argument "--config `"$CONFIG_PATH`""
+$daemonAction = New-ScheduledTaskAction -Execute $BIN_PATH -Argument "--daemon --config `"$CONFIG_PATH`""
 $daemonTrigger = New-ScheduledTaskTrigger -AtStartup
-$daemonSettings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)
+$daemonSettings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit ([TimeSpan]::Zero)
 
 $daemonTask = Get-ScheduledTask -TaskName "BridgeSessions" -ErrorAction SilentlyContinue
 if ($daemonTask) {
@@ -143,7 +156,7 @@ if ($daemonTask) {
         Register-ScheduledTask -TaskName "BridgeSessions" -Action $daemonAction -Trigger $daemonTrigger -Settings $daemonSettings -RunLevel Highest -Force | Out-Null
     } catch {
         Write-Host "→ Could not register daemon task with elevated privileges. Trying schtasks..."
-        schtasks /create /tn "BridgeSessions" /tr "`"$BIN_PATH`" --config `"$CONFIG_PATH`"" /sc onstart /ru SYSTEM /f 2>$null
+        schtasks /create /tn "BridgeSessions" /tr "`"$BIN_PATH`" --daemon --config `"$CONFIG_PATH`"" /sc onstart /ru SYSTEM /f 2>$null
     }
 }
 Write-Host "→ Daemon scheduled task installed (BridgeSessions)."
@@ -179,13 +192,17 @@ try {
         Write-Host "→ Daemon running (PID $($daemonProc.ProcessId))."
     } else {
         Write-Host "→ WARNING: Daemon did not start. Run manually:"
-        Write-Host "   $BIN_PATH --config `"$CONFIG_PATH`""
+        Write-Host "   $BIN_PATH --daemon --config `"$CONFIG_PATH`""
     }
 } catch {
     Write-Host "→ WARNING: Could not verify daemon status."
 }
 
 Write-Host "→ Daemon started."
+
+} finally {
+    Restore-BridgeSessionsDaemon
+}
 
 # -- 10. INSTALL TRAY APP -----------------------------------------------------
 $TRAY_SCRIPT_SRC = "$PSScriptRoot\bs_tray.ps1"
