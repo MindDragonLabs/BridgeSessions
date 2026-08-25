@@ -2,7 +2,7 @@
 
 Notable user-visible changes. Git history contains implementation-level detail.
 
-## Unreleased
+## 2026.08.24-beta7
 
 ### Security
 
@@ -11,6 +11,39 @@ Notable user-visible changes. Git history contains implementation-level detail.
 ### Reliability
 
 - Auto-upgrade version compare treats `26.MM.DD` and `2026.MM.DD` as the same calendar year instead of using ASCII order.
+- Simultaneous-dial collision livelock fixed (from `main`: `0367ef5`).
+
+### Interactive shell
+
+- Ctrl-C is always a remote keystroke. Double Ctrl-C no longer sends `Kill` or
+  disconnects the BridgeSessions client. The session ends only when the remote
+  shell exits (`exit`) or the transport dies.
+- In TUI environments (Hermes TUI), a process-group SIGINT is forwarded as one
+  `0x03` keystroke instead of terminating the local client.
+
+### Peer names
+
+- `bs shell <this-node>` refuses immediately (`Cannot shell to this node`)
+  instead of fuzzy-remapping to a sibling (`fecv3` → `fecv4`) and hanging.
+- Fuzzy resolve no longer treats digit-only siblings as typos (`fecv3`/`fecv4`,
+  `host-1`/`host-2`). Levenshtein auto-match is capped at distance 2.
+
+### Onboarding (no roster files)
+
+- New nodes join the mesh with a single `bs join <addr> <token> --start` one-liner.
+  On success the controller signs a mesh-directory enrollment for the joiner and
+  gossips it to every peer, so each peer auto-trusts and seeds the new node's key
+  with **no manual key copying, no YAML roster edit, and no seed-sync script**.
+- Removed the legacy manual `deploy/rana-shadow/` bundle (hand-written join script
+  + YAML-patching `authorize.sh` + full-path `SHA256SUMS`) that bypassed the native
+  join flow and forced the YAML/roster path.
+
+### Installer checksums
+
+- Installers verify a GitHub Release `SHA256SUMS` entry by **basename**; the
+  release checksum generator writes basenames only. A `SHA256SUMS` keyed by an
+  absolute path no longer passes as a valid entry (previously surfaced as
+  "SHA256SUMS has no valid binary entry").
 
 ## 26.09.19-beta6
 

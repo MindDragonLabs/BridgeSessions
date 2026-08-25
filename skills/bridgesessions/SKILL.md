@@ -3,7 +3,7 @@ name: bridgesessions
 description: Use when operating or developing BridgeSessions mesh peers.
 license: BUSL-1.1
 metadata:
-  version: "26.09.19-beta6"
+  version: "2026.08.24-beta7"
   product: BridgeSessions
   forge: "github.com/MindDragonLabs/BridgeSessions"
 ---
