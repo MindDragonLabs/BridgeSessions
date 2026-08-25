@@ -7,7 +7,7 @@ import {
   SkipLink,
   TrustStrip,
 } from "@/components/Chrome";
-import { DESCRIPTION, PRODUCT } from "@/lib/product";
+import { DESCRIPTION, PRODUCT, VERSION } from "@/lib/product";
 import "./globals.css";
 
 const plexSans = IBM_Plex_Sans({
@@ -29,7 +29,11 @@ const display = Instrument_Serif({
 });
 
 export const metadata: Metadata = {
-  title: `${PRODUCT} — one binary, machines you already control`,
+  title: {
+    default: PRODUCT,
+    absolute: `${PRODUCT} ${VERSION}`,
+    template: "%s",
+  },
   description: DESCRIPTION,
   applicationName: PRODUCT,
 };

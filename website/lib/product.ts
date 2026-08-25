@@ -74,45 +74,62 @@ export const NAV = [
   { href: "/#recovery", label: "Recovery" },
 ] as const;
 
-export const WORKSTREAMS = [
+/** Public site IA. Not an internal checklist. */
+export const SITE_IA = [
   {
-    id: "product-truth",
-    num: "01",
-    title: "Product truth",
-    href: "/#product-truth",
-    brief:
-      "Exact version, TLS 1.2 compatibility, one install answer, GitHub-only source, BSL, beta boundaries.",
-  },
-  {
-    id: "positioning",
-    num: "02",
-    title: "Positioning",
-    href: "/#positioning",
-    brief:
-      "Control layer for machines you own. Agents and humans. Not enterprise IAM. Not hostile multi-tenant.",
-  },
-  {
-    id: "conversion",
-    num: "03",
-    title: "Conversion path",
     href: "/install",
-    brief:
-      "One CTA: install the current GitHub release. Wow path, recovery via repo docs, issues and SECURITY.md.",
+    title: "Install",
+    brief: "One answer: current GitHub release, then bs --version and bs doctor.",
   },
   {
-    id: "trust",
-    num: "04",
-    title: "Trust and proof",
+    href: "/#demo",
+    title: "Demo",
+    brief: "Reattach a named shell, move a file, capture a screen.",
+  },
+  {
     href: "/#security",
-    brief:
-      "Pins, authorized_keys, invite window, host-level auth, loopback IPC. CUA permissions. Internal review.",
+    title: "Security",
+    brief: "Pinned Ed25519 mesh, host-level authorization, invite window.",
   },
   {
-    id: "ia",
-    num: "05",
-    title: "Find it",
-    href: "/#map",
-    brief:
-      "Homepage plus /install. Demo, security, limitations, CUA, Bridge Panel, agents, recovery.",
+    href: "/#limitations",
+    title: "Limitations",
+    brief: "Small operator meshes. Three shipping artifacts. Beta upgrade discipline.",
+  },
+  {
+    href: "/#cua",
+    title: "CUA",
+    brief: "Desktop capture and input on a trusted peer. Host-level, not low privilege.",
+  },
+  {
+    href: "/#panel",
+    title: "Bridge Panel",
+    brief: "Optional local Markdown review UI. Not a new trust root.",
+  },
+  {
+    href: "/#agents",
+    title: "Agents",
+    brief: "Same CLI as a human. Repo skill for Claude, Codex, and OpenCode.",
+  },
+  {
+    href: "/#recovery",
+    title: "Recovery",
+    brief: "Unload leftovers, stop the tray, remove the binary, leave the mesh.",
   },
 ] as const;
+
+/** KeepAlive LaunchAgents must be booted out before the plists are deleted. */
+export const RECOVERY_MAC_BOOTOUT_CUA =
+  "launchctl bootout gui/$(id -u)/com.bridgesessions.cua-helper";
+export const RECOVERY_MAC_BOOTOUT_MENUBAR =
+  "launchctl bootout gui/$(id -u)/com.minddragon.bridgesessions.menubar";
+export const RECOVERY_MAC_BOOTOUT_MESH =
+  "launchctl bootout gui/$(id -u)/com.bridgesessions.mesh";
+
+/** Stop the tray first so it cannot restart the helper, then end the task. */
+export const RECOVERY_WIN_STOP_TRAY =
+  "Get-CimInstance Win32_Process |\n  Where-Object { $_.CommandLine -like '*bs_tray.ps1*' } |\n  ForEach-Object { Stop-Process -Id $_.ProcessId -Force }";
+export const RECOVERY_WIN_END_CUA_TASK =
+  'schtasks /End /TN "BridgeSessions-CuaHelper"';
+export const RECOVERY_WIN_KILL_HELPER =
+  "Get-CimInstance Win32_Process |\n  Where-Object { $_.CommandLine -like '*--cua-helper*' } |\n  ForEach-Object { Stop-Process -Id $_.ProcessId -Force }";

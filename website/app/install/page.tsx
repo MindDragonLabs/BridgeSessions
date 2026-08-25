@@ -12,6 +12,11 @@ import {
   LINUX_MAC_CLI,
   PRODUCT,
   QUICKSTART_URL,
+  RECOVERY_MAC_BOOTOUT_CUA,
+  RECOVERY_MAC_BOOTOUT_MENUBAR,
+  RECOVERY_WIN_END_CUA_TASK,
+  RECOVERY_WIN_KILL_HELPER,
+  RECOVERY_WIN_STOP_TRAY,
   RELEASE_TAG_URL,
   SECURITY_ADVISORY_URL,
   SHIPPING_ARCH_LINE,
@@ -25,7 +30,9 @@ import {
 } from "@/lib/product";
 
 export const metadata: Metadata = {
-  title: `Install ${PRODUCT} ${VERSION}`,
+  title: {
+    absolute: `Install ${PRODUCT} ${VERSION}`,
+  },
   description: `Install the current GitHub release ${VERSION}. Ships linux-x86_64, macos-arm64, and windows-x86_64.exe.`,
 };
 
@@ -33,7 +40,7 @@ export default function InstallPage() {
   return (
     <>
       <Section>
-        <Eyebrow>03 / Conversion path</Eyebrow>
+        <Eyebrow>Install</Eyebrow>
         <p className="mt-4 inline-flex items-center gap-2 rounded-[3px] border border-ember/40 bg-ember/10 px-2 py-1 font-mono text-[11px] tracking-[0.12em] text-ember uppercase">
           Beta {VERSION}
         </p>
@@ -167,25 +174,57 @@ export default function InstallPage() {
             <code className="text-paper">BridgeSessions</code>.
           </li>
           <li>
-            Stop CUA helper / tray / menubar startup entries the installers
-            create. macOS LaunchAgents:{" "}
-            <code className="text-paper">com.bridgesessions.cua-helper</code>{" "}
-            and optional{" "}
-            <code className="text-paper">
-              com.minddragon.bridgesessions.menubar
-            </code>{" "}
-            under <code className="text-paper">~/Library/LaunchAgents/</code>.
-            Windows: Task Scheduler{" "}
-            <code className="text-paper">BridgeSessions-CuaHelper</code> and
-            the Startup shortcut{" "}
-            <code className="text-paper">BridgeSessions Tray.lnk</code>.
-            Linux: remove{" "}
+            On macOS the CUA helper LaunchAgent is KeepAlive. Unload it (and
+            the optional menubar agent) before deleting the plists, or launchd
+            restarts them:
+          </li>
+        </ul>
+        <div className="mt-4 grid gap-4">
+          <Command caption="Unload macOS CUA helper" code={RECOVERY_MAC_BOOTOUT_CUA} />
+          <Command
+            caption="Unload macOS menubar"
+            code={RECOVERY_MAC_BOOTOUT_MENUBAR}
+          />
+        </div>
+        <p className="mt-4 max-w-3xl text-sm leading-relaxed text-steel">
+          Then remove{" "}
+          <code className="text-paper">
+            ~/Library/LaunchAgents/com.bridgesessions.cua-helper.plist
+          </code>{" "}
+          and{" "}
+          <code className="text-paper">
+            ~/Library/LaunchAgents/com.minddragon.bridgesessions.menubar.plist
+          </code>
+          .
+        </p>
+        <p className="mt-6 max-w-3xl text-sm leading-relaxed text-paper/85">
+          On Windows the Startup shortcut{" "}
+          <code className="text-paper">BridgeSessions Tray.lnk</code> runs{" "}
+          <code className="text-paper">bs_tray.ps1</code>, which restarts the
+          helper. Stop the tray and end the{" "}
+          <code className="text-paper">BridgeSessions-CuaHelper</code> task
+          before deleting files:
+        </p>
+        <div className="mt-4 grid gap-4">
+          <Command caption="Stop Windows tray" code={RECOVERY_WIN_STOP_TRAY} />
+          <Command
+            caption="End BridgeSessions-CuaHelper"
+            code={RECOVERY_WIN_END_CUA_TASK}
+          />
+          <Command
+            caption="Kill leftover --cua-helper"
+            code={RECOVERY_WIN_KILL_HELPER}
+          />
+        </div>
+        <ul className="mt-6 max-w-3xl space-y-2 text-sm text-paper/85">
+          <li>
+            Then delete the Startup shortcut, unregister the task if you want
+            it gone at next logon, and remove leftover files. Linux: remove{" "}
             <code className="text-paper">
               ~/.config/autostart/bridgesessions-tray.desktop
             </code>{" "}
             and stop <code className="text-paper">bs_tray.py</code> if it is
-            running. Then delete those plist / task / shortcut / desktop
-            files. Names come from{" "}
+            running. Names come from{" "}
             <code className="text-paper">scripts/install.sh</code> and{" "}
             <code className="text-paper">scripts/install.ps1</code>.
           </li>

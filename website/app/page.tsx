@@ -22,6 +22,11 @@ import {
   PRODUCT,
   PROVENANCE_URL,
   QUICKSTART_URL,
+  RECOVERY_MAC_BOOTOUT_CUA,
+  RECOVERY_MAC_BOOTOUT_MENUBAR,
+  RECOVERY_WIN_END_CUA_TASK,
+  RECOVERY_WIN_KILL_HELPER,
+  RECOVERY_WIN_STOP_TRAY,
   RELEASE_TAG_URL,
   REPO_URL,
   SHIPPING_ARCH_LINE,
@@ -29,6 +34,7 @@ import {
   SECURITY_ADVISORY_URL,
   SECURITY_MD_URL,
   SHA256SUMS_URL,
+  SITE_IA,
   SKILL_URL,
   STATE_DIR,
   TLS_DETAIL,
@@ -36,7 +42,6 @@ import {
   USAGE_URL,
   VERSION,
   WINDOWS_BIN,
-  WORKSTREAMS,
 } from "@/lib/product";
 
 export default function Home() {
@@ -44,7 +49,7 @@ export default function Home() {
     <>
       <section id="positioning" className="grid-field scroll-mt-24 border-b border-border">
         <div className="mx-auto max-w-6xl px-4 py-16 sm:px-6 sm:py-20">
-          <Eyebrow>02 / Positioning</Eyebrow>
+          <Eyebrow>BridgeSessions</Eyebrow>
           <p className="mt-4 inline-flex items-center gap-2 rounded-[3px] border border-ember/40 bg-ember/10 px-2 py-1 font-mono text-[11px] tracking-[0.12em] text-ember uppercase">
             Beta {VERSION}
           </p>
@@ -83,84 +88,31 @@ export default function Home() {
       </section>
 
       <Section id="map">
-        <Eyebrow>05 / Find it</Eyebrow>
+        <Eyebrow>On this site</Eyebrow>
         <h2 className="font-display mt-3 text-4xl text-paper">
-          Five workstreams, on this site.
+          Install, demo, security, recovery.
         </h2>
         <p className="mt-3 max-w-2xl text-sm leading-relaxed text-steel">
           Homepage plus a focused <Link href="/install" className="text-signal">/install</Link>{" "}
-          page. Every card below is a real destination.
+          page. Every card is a real destination.
         </p>
-        <ol className="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-          {WORKSTREAMS.map((item) => (
-            <li key={item.id}>
+        <ol className="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          {SITE_IA.map((item) => (
+            <li key={item.href}>
               <Link
                 href={item.href}
                 className="block h-full rounded-[3px] border border-border bg-panel p-4 hover:border-signal/50"
               >
-                <p className="font-mono text-[11px] tracking-[0.16em] text-signal uppercase">
-                  {item.num}
-                </p>
-                <h3 className="mt-2 text-base text-paper">{item.title}</h3>
+                <h3 className="text-base text-paper">{item.title}</h3>
                 <p className="mt-2 text-sm leading-relaxed text-steel">{item.brief}</p>
               </Link>
             </li>
           ))}
         </ol>
-        <ul className="mt-8 grid gap-2 font-mono text-[12px] text-steel sm:grid-cols-2">
-          <li>
-            <Link href="/install" className="text-signal">
-              /install
-            </Link>{" "}
-            — one install answer
-          </li>
-          <li>
-            <a href="#demo" className="text-signal">
-              #demo
-            </a>{" "}
-            — 15–25s placeholder + wow path
-          </li>
-          <li>
-            <a href="#security" className="text-signal">
-              #security
-            </a>{" "}
-            — trust model
-          </li>
-          <li>
-            <a href="#limitations" className="text-signal">
-              #limitations
-            </a>{" "}
-            — beta boundaries
-          </li>
-          <li>
-            <a href="#cua" className="text-signal">
-              #cua
-            </a>{" "}
-            — desktop permissions
-          </li>
-          <li>
-            <a href="#panel" className="text-signal">
-              #panel
-            </a>{" "}
-            — Bridge Panel
-          </li>
-          <li>
-            <a href="#agents" className="text-signal">
-              #agents
-            </a>{" "}
-            — Claude, Codex, OpenCode
-          </li>
-          <li>
-            <a href="#recovery" className="text-signal">
-              #recovery
-            </a>{" "}
-            — binary path and mesh exit
-          </li>
-        </ul>
       </Section>
 
-      <Section id="product-truth">
-        <Eyebrow>01 / Product truth</Eyebrow>
+      <Section id="release">
+        <Eyebrow>Release</Eyebrow>
         <h2 className="font-display mt-3 text-4xl text-paper">
           What ships today.
         </h2>
@@ -209,7 +161,7 @@ export default function Home() {
       </Section>
 
       <Section id="conversion">
-        <Eyebrow>03 / Conversion path</Eyebrow>
+        <Eyebrow>Install</Eyebrow>
         <h2 className="font-display mt-3 text-4xl text-paper">
           Install the current GitHub release.
         </h2>
@@ -283,7 +235,7 @@ export default function Home() {
       </Section>
 
       <Section id="security">
-        <Eyebrow>04 / Trust and proof</Eyebrow>
+        <Eyebrow>Security</Eyebrow>
         <h2 className="font-display mt-3 text-4xl text-paper">
           Trust model.
         </h2>
@@ -470,24 +422,21 @@ export default function Home() {
               come from the installers.
             </p>
           </Card>
-          <Card title="CUA helper, tray, menubar" kicker="Startup leftovers">
+          <Card title="CUA helper, tray, menubar" kicker="Unload before delete">
             <p>
-              macOS LaunchAgents also include{" "}
-              <code className="text-paper">com.bridgesessions.cua-helper</code>{" "}
-              and optional{" "}
-              <code className="text-paper">
-                com.minddragon.bridgesessions.menubar
-              </code>
-              . Windows: Task Scheduler{" "}
-              <code className="text-paper">BridgeSessions-CuaHelper</code> and
-              Startup shortcut{" "}
-              <code className="text-paper">BridgeSessions Tray.lnk</code>.
-              Linux:{" "}
+              macOS CUA helper is a KeepAlive LaunchAgent. Unload it (and the
+              optional menubar agent) before deleting the plists, or launchd
+              restarts them. Windows: the Startup shortcut{" "}
+              <code className="text-paper">BridgeSessions Tray.lnk</code> runs{" "}
+              <code className="text-paper">bs_tray.ps1</code>, which restarts
+              the helper. Stop the tray and end{" "}
+              <code className="text-paper">BridgeSessions-CuaHelper</code>{" "}
+              before deleting files. Linux: stop{" "}
+              <code className="text-paper">bs_tray.py</code> and remove{" "}
               <code className="text-paper">
                 ~/.config/autostart/bridgesessions-tray.desktop
               </code>
-              . Stop them, then remove those launch-agent / scheduled-task /
-              shortcut files. Do not invent an uninstall script.
+              . Do not invent an uninstall script.
             </p>
           </Card>
           <Card title="Remove the binary" kicker="Installer path">
@@ -521,6 +470,28 @@ export default function Home() {
               docs.
             </p>
           </Card>
+        </div>
+        <div className="mt-6 grid gap-4 lg:grid-cols-2">
+          <Command caption="Unload macOS CUA helper" code={RECOVERY_MAC_BOOTOUT_CUA} />
+          <Command
+            caption="Unload macOS menubar"
+            code={RECOVERY_MAC_BOOTOUT_MENUBAR}
+          />
+          <Command caption="Stop Windows tray" code={RECOVERY_WIN_STOP_TRAY} />
+          <Command
+            caption="End BridgeSessions-CuaHelper"
+            code={RECOVERY_WIN_END_CUA_TASK}
+          />
+        </div>
+        <p className="mt-4 text-sm text-steel">
+          After the tray is stopped, kill any leftover helper process, then
+          delete files:
+        </p>
+        <div className="mt-3">
+          <Command
+            caption="Kill leftover --cua-helper"
+            code={RECOVERY_WIN_KILL_HELPER}
+          />
         </div>
         <p className="mt-6 text-sm text-steel">
           Bugs: <ExtLink href={ISSUES_URL}>GitHub issues</ExtLink>.
