@@ -826,6 +826,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#peer-discovery" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Peer discovery
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#desktop-prerequisites" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -837,10 +848,43 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#evidence" class="md-nav__link">
+  <a href="#what-a-run-records" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Evidence
+        What a run records
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#mixed-version-coverage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Mixed-version coverage
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cua-coverage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CUA coverage
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#installer-coverage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Installer coverage
       
     </span>
   </a>
@@ -852,6 +896,28 @@
     <span class="md-ellipsis">
       
         Release gate
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#local-development" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Local development
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#when-the-framework-is-wrong" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        When the framework is wrong
       
     </span>
   </a>
@@ -969,6 +1035,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#peer-discovery" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Peer discovery
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#desktop-prerequisites" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -980,10 +1057,43 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#evidence" class="md-nav__link">
+  <a href="#what-a-run-records" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Evidence
+        What a run records
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#mixed-version-coverage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Mixed-version coverage
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cua-coverage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CUA coverage
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#installer-coverage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Installer coverage
       
     </span>
   </a>
@@ -995,6 +1105,28 @@
     <span class="md-ellipsis">
       
         Release gate
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#local-development" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Local development
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#when-the-framework-is-wrong" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        When the framework is wrong
       
     </span>
   </a>
@@ -1022,26 +1154,26 @@
 
 
 <h1 id="e2e-framework">E2E Framework<a class="headerlink" href="#e2e-framework" title="Permanent link">&para;</a></h1>
-<p>Unit tests prove local contracts. E2E lanes prove the real mesh, desktop session, installer, and platform packaging.</p>
+<p>Unit tests prove local contracts. E2E lanes prove the real mesh, the real desktop session, the real installer, and the real platform packaging. The framework is layered so each lane runs only when it adds information beyond the lanes below it.</p>
 <h2 id="layers">Layers<a class="headerlink" href="#layers" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
 <tr>
 <th>Layer</th>
 <th>Scope</th>
-<th>Default</th>
+<th>When to run</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td>L0</td>
-<td>CTest and Python tests</td>
+<td>CTest and Python unit tests</td>
 <td>every change</td>
 </tr>
 <tr>
 <td>L1</td>
-<td>local loopback daemon/client</td>
-<td>protocol changes</td>
+<td>local loopback daemon plus client</td>
+<td>protocol or transfer changes</td>
 </tr>
 <tr>
 <td>L2</td>
@@ -1050,7 +1182,7 @@
 </tr>
 <tr>
 <td>L3</td>
-<td>Windows/macOS/Linux desktop helper and tray</td>
+<td>Windows, macOS, Linux desktop helper and tray</td>
 <td>CUA changes</td>
 </tr>
 <tr>
@@ -1060,8 +1192,9 @@
 </tr>
 </tbody>
 </table>
+<p>L0 is the contract suite. L1 is the protocol suite. L2 is the mesh suite. L3 is the desktop suite. L4 is the installer suite. A change that touches more than one lane runs every lane it touches.</p>
 <h2 id="run">Run<a class="headerlink" href="#run" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1"># Discover every healthy configured seed</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1"># Discover every healthy configured seed and run every lane it can</span>
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>scripts/e2e-fleet-test.sh<span class="w"> </span>--all
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>
 <a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="c1"># Explicit sanitized peer list</span>
@@ -1072,34 +1205,74 @@
 <a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="nv">BS_E2E_PEERS</span><span class="o">=</span><span class="s2">"linux-peer,macos-peer,windows-peer"</span><span class="w"> </span><span class="se">\</span>
 <a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="w">  </span>python3<span class="w"> </span>tests/e2e/runner.py<span class="w"> </span>--layers<span class="w"> </span>L2,L3<span class="w"> </span>--json<span class="w"> </span>/tmp/bs-e2e.json
 </code></pre></div>
-<p>Pass live peer names through arguments/environment variables. Never hardcode a private fleet in the repository.</p>
+<p>Pass live peer names through arguments or environment variables. Never hardcode a private fleet in the repository. The peer list is sanitized at the script boundary; the runner redacts operator paths, addresses, and hostnames from the JSON summary.</p>
+<h2 id="peer-discovery">Peer discovery<a class="headerlink" href="#peer-discovery" title="Permanent link">&para;</a></h2>
+<p><code>scripts/e2e-fleet-test.sh --discover</code> walks the configured mesh and lists every peer that responds to <code>bs health</code>. Use the output to compose a <code>BS_E2E_PEERS</code> list. Discovery never opens a write path; it is read-only.</p>
 <h2 id="desktop-prerequisites">Desktop prerequisites<a class="headerlink" href="#desktop-prerequisites" title="Permanent link">&para;</a></h2>
 <ul>
-<li><strong>Linux:</strong> disposable VM with a logged-in desktop and display/input tools.</li>
-<li><strong>Windows:</strong> interactive user session, one CUA helper, Explorer desktop.</li>
-<li><strong>macOS:</strong> logged-in user, signed helper/app, Screen Recording and Accessibility grants.</li>
+<li><strong>Linux.</strong> A disposable VM with a logged-in desktop and the platform's display and input tools available. The helper starts once per test run and stops after.</li>
+<li><strong>Windows.</strong> An interactive user session, one CUA helper, and an Explorer desktop available for window-management tests.</li>
+<li><strong>macOS.</strong> A logged-in user, the signed helper and app, and Screen Recording and Accessibility grants confirmed by a probe step before the lanes run.</li>
 </ul>
-<p>Idempotent setup/probe helpers live under <code>tests/e2e/harness/</code>. They are test infrastructure, not installation entry points.</p>
-<h2 id="evidence">Evidence<a class="headerlink" href="#evidence" title="Permanent link">&para;</a></h2>
-<p>A complete run records:</p>
+<p>Idempotent setup and probe helpers live under <code>tests/e2e/harness/</code>. They are test infrastructure, not installation entry points. Do not run them as installers on a real machine.</p>
+<h2 id="what-a-run-records">What a run records<a class="headerlink" href="#what-a-run-records" title="Permanent link">&para;</a></h2>
+<p>A complete run records the following evidence:</p>
 <ul>
-<li>exact local binary version,</li>
-<li>peer/version matrix,</li>
-<li>command exit codes and output,</li>
-<li>file checksum results,</li>
-<li>screenshots/video metadata for desktop lanes,</li>
-<li>JSON summary,</li>
-<li>skipped lanes with reasons.</li>
+<li>exact local binary version (from <code>bs --version</code>),</li>
+<li>the peer-and-version matrix for the run,</li>
+<li>command exit codes and captured output,</li>
+<li>file checksum results for transfer lanes,</li>
+<li>screenshot and video metadata for desktop lanes,</li>
+<li>a JSON summary file with the structured outcome,</li>
+<li>skipped lanes with the reason for each skip.</li>
 </ul>
-<p>E2E artifacts are local/CI outputs and must not be committed.</p>
+<p>E2E artifacts are local or CI outputs. They are not part of the repository. Add them to <code>.gitignore</code> if you produce them locally.</p>
+<h2 id="mixed-version-coverage">Mixed-version coverage<a class="headerlink" href="#mixed-version-coverage" title="Permanent link">&para;</a></h2>
+<p>Protocol and transfer changes must add mixed-version tests. The mixed-version matrix runs the new binary against the previous release on every supported platform. Same-version loopback is not enough; the framework insists on a real version difference.</p>
+<h2 id="cua-coverage">CUA coverage<a class="headerlink" href="#cua-coverage" title="Permanent link">&para;</a></h2>
+<p>CUA changes run the L3 lane on every supported platform. The lane covers:</p>
+<ul>
+<li>screen capture at the configured size and quality,</li>
+<li>pointer move and click at known coordinates,</li>
+<li>keyboard type and HID key press,</li>
+<li>scroll with bounded amount,</li>
+<li>video capture at a bounded duration.</li>
+</ul>
+<p>Each step asserts the helper's return value and compares a captured frame against a stored baseline when the change affects rendering.</p>
+<h2 id="installer-coverage">Installer coverage<a class="headerlink" href="#installer-coverage" title="Permanent link">&para;</a></h2>
+<p>Installer and upgrade changes run L4 on disposable profiles. The lane covers:</p>
+<ul>
+<li>clean install on a fresh profile,</li>
+<li>upgrade on top of the previous release,</li>
+<li>a failure path that the installer must recover from,</li>
+<li>uninstall and residue check.</li>
+</ul>
+<p>The release gate fails if a required failure becomes a skip. A lane that is genuinely impossible to run must say so explicitly in the run output; it must not silently vanish.</p>
 <h2 id="release-gate">Release gate<a class="headerlink" href="#release-gate" title="Permanent link">&para;</a></h2>
+<p>The release pipeline runs the gates in order:</p>
 <ol>
-<li>Run L0.</li>
-<li>Run L1/L2 for protocol or transfer changes.</li>
-<li>Run affected L3 platforms for CUA changes.</li>
-<li>Run L4 on disposable profiles for installer/upgrade changes.</li>
-<li>Fix product or harness failures; do not convert a required failure into a skip.</li>
+<li>L0.</li>
+<li>L1 and L2 for protocol or transfer changes.</li>
+<li>L3 on every affected platform for CUA changes.</li>
+<li>L4 on disposable profiles for installer and upgrade changes.</li>
+<li>The pre-publish scan from <a href="../RELEASE-PROVENANCE/">Release provenance</a>.</li>
 </ol>
+<p>A failure at any gate stops the release. Fix product or harness failures; do not convert a required failure into a skip.</p>
+<h2 id="local-development">Local development<a class="headerlink" href="#local-development" title="Permanent link">&para;</a></h2>
+<p>A developer can run a subset of the framework against a local mesh:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="c1"># local loopback daemon plus client</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>python3<span class="w"> </span>tests/e2e/runner.py<span class="w"> </span>--layers<span class="w"> </span>L0,L1
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="c1"># single live peer</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="nv">BS_E2E_PEERS</span><span class="o">=</span>local-peer<span class="w"> </span>python3<span class="w"> </span>tests/e2e/runner.py<span class="w"> </span>--layers<span class="w"> </span>L2
+</code></pre></div>
+<p>Local output goes to <code>tests/e2e/output/</code>. Inspect the JSON summary first; screenshots and video only when the lane failed.</p>
+<h2 id="when-the-framework-is-wrong">When the framework is wrong<a class="headerlink" href="#when-the-framework-is-wrong" title="Permanent link">&para;</a></h2>
+<ul>
+<li>A test passes because the harness was modified to match the new behavior. Revert the harness and check whether the new behavior is correct.</li>
+<li>A test passes because a real failure was marked as expected. The framework never marks real failures as expected; a flaky lane is fixed, not silenced.</li>
+<li>A test passes only on one platform. The mesh is cross-platform; a platform-specific pass is a partial result, not a green build.</li>
+</ul>
 
 
 

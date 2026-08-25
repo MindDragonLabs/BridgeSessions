@@ -856,10 +856,32 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#the-useful-difference" class="md-nav__link">
+  <a href="#compared-to-a-traditional-stack" class="md-nav__link">
     <span class="md-ellipsis">
       
-        The useful difference
+        Compared to a traditional stack
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-useful-difference-the-connection-is-not-the-session" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The useful difference: the connection is not the session
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#files-and-desktop-use-the-same-identity" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Files and desktop use the same identity
       
     </span>
   </a>
@@ -878,10 +900,21 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#agent-workflow" class="md-nav__link">
+  <a href="#a-typical-agent-loop" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Agent workflow
+        A typical agent loop
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#when-bridgesessions-is-the-wrong-tool" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        When BridgeSessions is the wrong tool
       
     </span>
   </a>
@@ -893,6 +926,28 @@
     <span class="md-ellipsis">
       
         Trade-offs
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#operating-posture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Operating posture
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#related" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Related
       
     </span>
   </a>
@@ -934,10 +989,32 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#the-useful-difference" class="md-nav__link">
+  <a href="#compared-to-a-traditional-stack" class="md-nav__link">
     <span class="md-ellipsis">
       
-        The useful difference
+        Compared to a traditional stack
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-useful-difference-the-connection-is-not-the-session" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The useful difference: the connection is not the session
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#files-and-desktop-use-the-same-identity" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Files and desktop use the same identity
       
     </span>
   </a>
@@ -956,10 +1033,21 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#agent-workflow" class="md-nav__link">
+  <a href="#a-typical-agent-loop" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Agent workflow
+        A typical agent loop
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#when-bridgesessions-is-the-wrong-tool" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        When BridgeSessions is the wrong tool
       
     </span>
   </a>
@@ -971,6 +1059,28 @@
     <span class="md-ellipsis">
       
         Trade-offs
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#operating-posture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Operating posture
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#related" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Related
       
     </span>
   </a>
@@ -998,7 +1108,8 @@
 
 
 <h1 id="why-bridgesessions">Why BridgeSessions<a class="headerlink" href="#why-bridgesessions" title="Permanent link">&para;</a></h1>
-<p>Remote work often combines a transport, a multiplexer, a file copier, platform-specific Windows automation, and ad hoc agent tooling. BridgeSessions puts the common path behind one peer identity and one CLI.</p>
+<p>Remote work often combines a transport, a multiplexer, a file copier, platform-specific Windows automation, and ad hoc agent tooling. BridgeSessions puts the common path behind one peer identity and one CLI. The point is not "yet another remote shell." The point is that the identity, the session, and the file move all live on the same pinned mesh.</p>
+<h2 id="compared-to-a-traditional-stack">Compared to a traditional stack<a class="headerlink" href="#compared-to-a-traditional-stack" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
 <tr>
@@ -1009,70 +1120,102 @@
 </thead>
 <tbody>
 <tr>
-<td>encrypted shell</td>
+<td>Encrypted shell</td>
 <td>SSH</td>
-<td>mutual-TLS mesh shell</td>
+<td>Mutual-TLS mesh shell with pinned Ed25519</td>
 </tr>
 <tr>
-<td>survive disconnect</td>
-<td>tmux/Zellij</td>
-<td>server-owned named PTY/ConPTY</td>
+<td>Survive disconnect</td>
+<td><code>tmux</code> or <code>zellij</code> on top of SSH</td>
+<td>Server-owned named PTY/ConPTY, attachments are temporary</td>
 </tr>
 <tr>
-<td>copy files</td>
+<td>Copy files</td>
 <td>SCP/SFTP</td>
-<td>resumable, hash-verified file protocol</td>
+<td>Resumable, hash-verified file protocol</td>
+</tr>
+<tr>
+<td>Run a script on a peer</td>
+<td><code>ssh host 'bash -s'</code></td>
+<td><code>bs run-script</code> ships the file and runs it</td>
 </tr>
 <tr>
 <td>Windows automation</td>
-<td>WinRM/RDP helpers</td>
-<td>same peer mesh plus CUA helper</td>
+<td>WinRM, RDP helpers</td>
+<td>Same peer mesh plus CUA helper</td>
 </tr>
 <tr>
-<td>agent artifacts</td>
-<td>paste/base64/chat uploads</td>
-<td>files, capture, and Bridge Panel</td>
+<td>Desktop capture</td>
+<td>separate RDP/VNC session</td>
+<td><code>bs cua capture</code>, <code>bs capture-video</code></td>
+</tr>
+<tr>
+<td>Agent artifacts</td>
+<td>paste, base64, chat uploads</td>
+<td>Files, captures, and the optional Bridge Panel</td>
 </tr>
 </tbody>
 </table>
-<h2 id="the-useful-difference">The useful difference<a class="headerlink" href="#the-useful-difference" title="Permanent link">&para;</a></h2>
-<p>The network connection is not the session. The remote daemon owns the terminal and child process; clients attach and detach. A laptop sleep, Wi-Fi change, or client restart does not require restarting the shell or agent TUI.</p>
+<p>Each row is a real workflow that operators assemble from parts. BridgeSessions is the assembly done.</p>
+<h2 id="the-useful-difference-the-connection-is-not-the-session">The useful difference: the connection is not the session<a class="headerlink" href="#the-useful-difference-the-connection-is-not-the-session" title="Permanent link">&para;</a></h2>
+<p>The remote daemon owns the terminal and the child process. Clients attach and detach. A laptop sleep, a Wi-Fi change, or a client restart does not require restarting the shell or the agent TUI inside it. The same named session is waiting on the other side.</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>bs<span class="w"> </span>shell<span class="w"> </span>build-peer<span class="w"> </span>--name<span class="w"> </span>agent
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="c1"># detach, reconnect later</span>
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>bs<span class="w"> </span>shell<span class="w"> </span>build-peer<span class="w"> </span>--name<span class="w"> </span>agent
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="c1"># network drops, laptop sleeps, you walk away</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="c1"># come back later</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>bs<span class="w"> </span>shell<span class="w"> </span>build-peer<span class="w"> </span>--name<span class="w"> </span>agent
 </code></pre></div>
-<p>Files and desktop captures use the same pinned peer identity:</p>
+<p>The remote state survives. The agent inside the shell kept running.</p>
+<h2 id="files-and-desktop-use-the-same-identity">Files and desktop use the same identity<a class="headerlink" href="#files-and-desktop-use-the-same-identity" title="Permanent link">&para;</a></h2>
+<p>Files, desktop captures, and CUA input travel on the same pinned peer identity. There is no separate service to authenticate to and no second authorization boundary to maintain.</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>bs<span class="w"> </span>file<span class="w"> </span>send<span class="w"> </span>build-peer<span class="w"> </span>./artifact.bin<span class="w"> </span>--wait
 <a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>bs<span class="w"> </span>cua<span class="w"> </span>capture<span class="w"> </span>desktop-peer<span class="w"> </span>-o<span class="w"> </span>screen.png
 </code></pre></div>
+<p>The CLI, the daemon, and the helper all check the same Ed25519 pin.</p>
 <h2 id="built-for-operator-controlled-meshes">Built for operator-controlled meshes<a class="headerlink" href="#built-for-operator-controlled-meshes" title="Permanent link">&para;</a></h2>
 <ul>
 <li>One Ed25519 identity per node.</li>
 <li>Explicit seed pins and inbound <code>authorized_keys</code>.</li>
 <li>One TCP port for mesh traffic.</li>
 <li>Linux, macOS, and Windows peers.</li>
-<li>Structured progress/output that agents can parse.</li>
+<li>Structured progress and output that scripts and agents can parse.</li>
 </ul>
-<p>This is not a public multi-tenant remote-access service. Authorizing a peer is close to granting shell access; the security boundary is the peer key and the host account.</p>
-<h2 id="agent-workflow">Agent workflow<a class="headerlink" href="#agent-workflow" title="Permanent link">&para;</a></h2>
-<p>A typical loop is:</p>
+<p>This is not a public multi-tenant remote-access service. Authorizing a peer is close to granting shell access. The security boundary is the peer key and the host account.</p>
+<h2 id="a-typical-agent-loop">A typical agent loop<a class="headerlink" href="#a-typical-agent-loop" title="Permanent link">&para;</a></h2>
+<p>A coding agent or a build pipeline usually repeats the same shape:</p>
 <ol>
-<li>attach to a durable build/session peer,</li>
-<li>run or upload work,</li>
-<li>capture a remote desktop when GUI context matters,</li>
-<li>transfer the artifact,</li>
-<li>publish a concise report to Bridge Panel.</li>
+<li>Attach to a durable build or session peer with <code>--name</code>.</li>
+<li>Run or upload work in that session.</li>
+<li>Capture a remote desktop when the workflow needs GUI context.</li>
+<li>Transfer the artifact back, wait for the final <code>OK</code>.</li>
+<li>Publish a concise report to Bridge Panel.</li>
 </ol>
-<p>Bridge Panel is optional and loopback-only by default. It is a document review surface, not a new trust root.</p>
+<p>Each step uses the same mesh identity and the same CLI. There is no glue to write between SSH, SCP, RDP, and a clipboard sync tool.</p>
+<h2 id="when-bridgesessions-is-the-wrong-tool">When BridgeSessions is the wrong tool<a class="headerlink" href="#when-bridgesessions-is-the-wrong-tool" title="Permanent link">&para;</a></h2>
+<ul>
+<li>You need a public multi-tenant service. BridgeSessions assumes operator-controlled peer sets.</li>
+<li>You have a single machine and no need for persistent sessions. A local shell is enough.</li>
+<li>You need MOSH-style UDP roaming across aggressive NAT. BridgeSessions uses TCP/TLS and application-level reattach.</li>
+<li>You want a managed SaaS. There is no managed service to subscribe to.</li>
+</ul>
 <h2 id="trade-offs">Trade-offs<a class="headerlink" href="#trade-offs" title="Permanent link">&para;</a></h2>
 <ul>
-<li>TCP/TLS favors deployability over MOSH-style UDP roaming.</li>
-<li><code>select()</code> and host-level authorization target small trusted fleets, not internet scale.</li>
-<li>CUA depends on user-session helpers and OS permissions.</li>
-<li>A compromised authorized node can affect other nodes that trust it.</li>
-<li>Beta releases require active upgrade discipline.</li>
+<li>TCP/TLS favors deployability over MOSH-style UDP roaming. Sleep recovery works through application-level reattach, not transport-level migration.</li>
+<li>A single event loop keeps reasoning simple but caps concurrency per process. The mesh scales by adding nodes, not threads.</li>
+<li>Authorization is host-level, not capability-scoped. Adding per-command policy is a feature for later; today the peer key is the boundary.</li>
+<li>CUA depends on user-session helpers and OS permissions. The desktop lane is the most setup-heavy part of the system.</li>
+<li>A compromised authorized node can affect every node that trusts it. The mesh does not pretend to be safer than the keys in <code>authorized_keys</code>.</li>
+<li>Beta releases require active upgrade discipline. The protocol is additive, but operators upgrade.</li>
 </ul>
-<p>See <a href="../design/">Design</a>, <a href="https://github.com/MindDragonLabs/BridgeSessions/blob/main/SECURITY.md">Security</a>, and <a href="../QUICKSTART/">Quickstart</a>.</p>
+<h2 id="operating-posture">Operating posture<a class="headerlink" href="#operating-posture" title="Permanent link">&para;</a></h2>
+<p>The mesh assumes you control the peers and the network between them. A typical deployment runs on a private LAN or a VPN. Exposing port <code>19949</code> to the public internet is allowed only when the operator accepts the corresponding risk.</p>
+<h2 id="related">Related<a class="headerlink" href="#related" title="Permanent link">&para;</a></h2>
+<ul>
+<li><a href="../QUICKSTART/">Quickstart</a> — install, join, first shell</li>
+<li><a href="../design/">Design</a> — architecture and core decisions</li>
+<li><a href="../protocol/">Protocol</a> — wire format and handshake</li>
+<li><a href="https://github.com/MindDragonLabs/BridgeSessions/blob/main/SECURITY.md">Security</a> — trust boundary and reporting</li>
+<li><a href="../building/">Building</a> — compile and sign</li>
+</ul>
 
 
 

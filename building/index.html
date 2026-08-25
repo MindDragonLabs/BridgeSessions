@@ -777,10 +777,21 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#sanitizers" class="md-nav__link">
+  <a href="#developer-build" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Sanitizers
+        Developer build
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#source-only-release-build" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Source-only release build
       
     </span>
   </a>
@@ -792,6 +803,50 @@
     <span class="md-ellipsis">
       
         Release platforms
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#macos-signing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        macOS signing
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#windows-cross-compile" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Windows cross-compile
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#sanitizers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sanitizers
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#public-tree-scan" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Public-tree scan
       
     </span>
   </a>
@@ -914,10 +969,21 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#sanitizers" class="md-nav__link">
+  <a href="#developer-build" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Sanitizers
+        Developer build
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#source-only-release-build" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Source-only release build
       
     </span>
   </a>
@@ -929,6 +995,50 @@
     <span class="md-ellipsis">
       
         Release platforms
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#macos-signing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        macOS signing
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#windows-cross-compile" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Windows cross-compile
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#sanitizers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sanitizers
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#public-tree-scan" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Public-tree scan
       
     </span>
   </a>
@@ -956,8 +1066,10 @@
 
 
 <h1 id="building">Building<a class="headerlink" href="#building" title="Permanent link">&para;</a></h1>
-<p>BridgeSessions requires C++23 and CMake 3.25+.</p>
+<p>BridgeSessions needs C++23 and CMake 3.25 or newer.</p>
 <p>Dependencies: OpenSSL 3, zstd, spdlog/fmt, CLI11, nlohmann-json, and Catch2 3 for tests.</p>
+<p>Current release stamp: <strong><code>26.08.25-beta7</code></strong>. The version string lives in the <code>VERSION</code> file at the repo root. CMake reads that file. Bump <code>VERSION</code> before you rebuild a release.</p>
+<h2 id="developer-build">Developer build<a class="headerlink" href="#developer-build" title="Permanent link">&para;</a></h2>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1"># macOS</span>
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>brew<span class="w"> </span>install<span class="w"> </span>cmake<span class="w"> </span>ninja<span class="w"> </span>openssl@3<span class="w"> </span>zstd<span class="w"> </span>fmt<span class="w"> </span>spdlog<span class="w"> </span>cli11<span class="w"> </span>nlohmann-json<span class="w"> </span>catch2
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>
@@ -965,25 +1077,70 @@
 <a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>cmake<span class="w"> </span>--build<span class="w"> </span>build<span class="w"> </span>--parallel
 <a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>ctest<span class="w"> </span>--test-dir<span class="w"> </span>build<span class="w"> </span>--output-on-failure
 </code></pre></div>
-<p>Source-only release build:</p>
+<h2 id="source-only-release-build">Source-only release build<a class="headerlink" href="#source-only-release-build" title="Permanent link">&para;</a></h2>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>cmake<span class="w"> </span>-S<span class="w"> </span>.<span class="w"> </span>-B<span class="w"> </span>build/release<span class="w"> </span>-GNinja<span class="w"> </span>-DCMAKE_BUILD_TYPE<span class="o">=</span>Release<span class="w"> </span>-DBUILD_TESTING<span class="o">=</span>OFF
 <a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>cmake<span class="w"> </span>--build<span class="w"> </span>build/release<span class="w"> </span>--target<span class="w"> </span>bridgesessions<span class="w"> </span>--parallel
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>./build/release/bridgesessions<span class="w"> </span>--version
 </code></pre></div>
-<p>Release builds enable stack protection, fortified libc, PIE/RELRO/NX on Linux and ASLR/NX/Control Flow Guard where supported on Windows.</p>
-<h2 id="sanitizers">Sanitizers<a class="headerlink" href="#sanitizers" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>cmake<span class="w"> </span>-S<span class="w"> </span>.<span class="w"> </span>-B<span class="w"> </span>build/asan<span class="w"> </span>-GNinja<span class="w"> </span>-DCMAKE_BUILD_TYPE<span class="o">=</span>Debug<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">  </span>-DCMAKE_CXX_FLAGS<span class="o">=</span><span class="s1">'-fsanitize=address,undefined -fno-omit-frame-pointer'</span><span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">  </span>-DCMAKE_EXE_LINKER_FLAGS<span class="o">=</span><span class="s1">'-fsanitize=address,undefined'</span>
-<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>cmake<span class="w"> </span>--build<span class="w"> </span>build/asan<span class="w"> </span>--parallel<span class="w"> </span><span class="m">2</span>
-<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>ctest<span class="w"> </span>--test-dir<span class="w"> </span>build/asan<span class="w"> </span>--output-on-failure
-</code></pre></div>
+<p>Release builds enable stack protection, fortified libc, PIE/RELRO/NX on Linux, and ASLR/NX/Control Flow Guard where the Windows toolchain supports them.</p>
 <h2 id="release-platforms">Release platforms<a class="headerlink" href="#release-platforms" title="Permanent link">&para;</a></h2>
-<ul>
-<li>Linux x86_64: <code>scripts/Dockerfile.static-linux</code> (OpenSSL 3.5 LTS, supported dependencies)</li>
-<li>Windows x86_64: <code>scripts/build-windows-mingw.sh</code> or native MSVC/vcpkg</li>
-<li>macOS arm64: native static dependency build, Developer ID sign, notarize</li>
-</ul>
-<p><code>dist/</code> is ignored local staging. Generated artifacts belong in GitHub Releases, not commits. See <a href="../RELEASE-PROVENANCE/">Release provenance</a>.</p>
+<table>
+<thead>
+<tr>
+<th>Platform</th>
+<th>How</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Linux x86_64</td>
+<td><code>scripts/Dockerfile.static-linux</code> (OpenSSL 3 LTS, static third-party libs). The binary may still link glibc.</td>
+</tr>
+<tr>
+<td>Windows x86_64</td>
+<td><code>scripts/build-windows-mingw.sh</code> or native MSVC/vcpkg. Imports must be OS DLLs only.</td>
+</tr>
+<tr>
+<td>macOS arm64</td>
+<td>Native build. Sign with Developer ID. Notarize for Gatekeeper.</td>
+</tr>
+</tbody>
+</table>
+<p><code>dist/</code> is local staging. Git ignores it. Publish artifacts through GitHub Releases. See <a href="../RELEASE-PROVENANCE/">Release provenance</a>.</p>
+<h2 id="macos-signing">macOS signing<a class="headerlink" href="#macos-signing" title="Permanent link">&para;</a></h2>
+<p><code>scripts/sign-macos.sh</code> signs a Mach-O with the first <strong>Developer ID Application</strong> identity in the keychain. It refuses ad-hoc signing.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>./scripts/sign-macos.sh<span class="w"> </span>build/bridgesessions<span class="w"> </span>dist/bridgesessions-macos-arm64
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>codesign<span class="w"> </span>--verify<span class="w"> </span>--strict<span class="w"> </span>--verbose<span class="o">=</span><span class="m">2</span><span class="w"> </span>dist/bridgesessions-macos-arm64
+</code></pre></div>
+<p>Set <code>BS_DEV_ID</code> if more than one identity exists.</p>
+<p>If the build Mac has no Developer ID certificate, build there and sign on a Mac that has the certificate. Copy only the unsigned binary and the entitlements. Do not email an unprotected <code>.p12</code>.</p>
+<p>To keep two signing Macs:</p>
+<ol>
+<li>On the Mac that already signs, open Keychain Access.</li>
+<li>Export <strong>Developer ID Application</strong> as a <code>.p12</code>. Use a long password.</li>
+<li>Copy the <code>.p12</code> over the mesh or another encrypted path. Do not commit it.</li>
+<li>On the second Mac: <code>security import cert.p12 -k ~/Library/Keychains/login.keychain-db -T /usr/bin/codesign</code>.</li>
+<li>Confirm with <code>security find-identity -v -p codesigning</code>.</li>
+<li>Delete the <code>.p12</code> from both disks after the import.</li>
+</ol>
+<p>You also need the Apple WWDR intermediate. The private key never belongs in git.</p>
+<p><code>scripts/install-local-macos.sh</code> installs a local build to <code>~/.local/bin</code> and signs it. An unsigned or ad-hoc local install can die with SIGKILL (exit 137).</p>
+<h2 id="windows-cross-compile">Windows cross-compile<a class="headerlink" href="#windows-cross-compile" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>./scripts/build-windows-mingw.sh
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>file<span class="w"> </span>dist/bridgesessions-windows-x86_64.exe
+</code></pre></div>
+<p>The script looks for MinGW static libs in <code>BS_WIN_PREFIX</code>, then <code>/opt/bs-win</code>, then <code>~/bs-win</code>.</p>
+<h2 id="sanitizers">Sanitizers<a class="headerlink" href="#sanitizers" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>cmake<span class="w"> </span>-S<span class="w"> </span>.<span class="w"> </span>-B<span class="w"> </span>build/asan<span class="w"> </span>-GNinja<span class="w"> </span>-DCMAKE_BUILD_TYPE<span class="o">=</span>Debug<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">  </span>-DCMAKE_CXX_FLAGS<span class="o">=</span><span class="s1">'-fsanitize=address,undefined -fno-omit-frame-pointer'</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">  </span>-DCMAKE_EXE_LINKER_FLAGS<span class="o">=</span><span class="s1">'-fsanitize=address,undefined'</span>
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>cmake<span class="w"> </span>--build<span class="w"> </span>build/asan<span class="w"> </span>--parallel<span class="w"> </span><span class="m">2</span>
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>ctest<span class="w"> </span>--test-dir<span class="w"> </span>build/asan<span class="w"> </span>--output-on-failure
+</code></pre></div>
+<h2 id="public-tree-scan">Public-tree scan<a class="headerlink" href="#public-tree-scan" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>bash<span class="w"> </span>scripts/prepublish-scan.sh
+</code></pre></div>
+<p>The scan must pass before you publish. It blocks private addresses, key material, and operator names from a local blocklist.</p>
 
 
 

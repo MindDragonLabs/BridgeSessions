@@ -723,6 +723,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#what-cua-covers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What CUA covers
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#commands" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -742,6 +753,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Architecture">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#platform-notes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Platform notes
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -755,6 +783,17 @@
   
     <nav class="md-nav" aria-label="Setup">
       <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#linux" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Linux
+      
+    </span>
+  </a>
+  
+</li>
         
           <li class="md-nav__item">
   <a href="#windows" class="md-nav__link">
@@ -806,10 +845,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#troubleshooting" class="md-nav__link">
+  <a href="#failure-modes-and-recovery" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Troubleshooting
+        Failure modes and recovery
       
     </span>
   </a>
@@ -986,6 +1025,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#what-cua-covers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What CUA covers
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#commands" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1005,6 +1055,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Architecture">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#platform-notes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Platform notes
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -1018,6 +1085,17 @@
   
     <nav class="md-nav" aria-label="Setup">
       <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#linux" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Linux
+      
+    </span>
+  </a>
+  
+</li>
         
           <li class="md-nav__item">
   <a href="#windows" class="md-nav__link">
@@ -1069,10 +1147,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#troubleshooting" class="md-nav__link">
+  <a href="#failure-modes-and-recovery" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Troubleshooting
+        Failure modes and recovery
       
     </span>
   </a>
@@ -1100,44 +1178,110 @@
 
 
 <h1 id="computer-use-automation-cua">Computer-use automation (CUA)<a class="headerlink" href="#computer-use-automation-cua" title="Permanent link">&para;</a></h1>
-<p><code>bs cua</code> captures and controls a trusted peer's interactive desktop through the BridgeSessions mesh.</p>
+<p><code>bs cua</code> and <code>bs capture-video</code> capture and control a trusted peer's interactive desktop through the BridgeSessions mesh. The capability works only against peers in <code>authorized_keys</code>. Spectator attachments are rejected before any CUA action, including video capture.</p>
+<h2 id="what-cua-covers">What CUA covers<a class="headerlink" href="#what-cua-covers" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Action</th>
+<th>Command family</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Read the screen</td>
+<td><code>bs cua screen</code>, <code>bs cua capture</code></td>
+<td>Returns a single frame as PNG or JPEG.</td>
+</tr>
+<tr>
+<td>Move the mouse</td>
+<td><code>bs cua move</code></td>
+<td>Coordinates are absolute, in screen pixels.</td>
+</tr>
+<tr>
+<td>Click</td>
+<td><code>bs cua click</code></td>
+<td>Buttons: <code>left</code>, <code>right</code>, <code>middle</code>.</td>
+</tr>
+<tr>
+<td>Type text</td>
+<td><code>bs cua type</code></td>
+<td>UTF-8 text, no control characters.</td>
+</tr>
+<tr>
+<td>Press a key</td>
+<td><code>bs cua key</code></td>
+<td>USB HID usage ID plus optional modifiers.</td>
+</tr>
+<tr>
+<td>Scroll</td>
+<td><code>bs cua scroll</code></td>
+<td>Direction and amount in wheel notches.</td>
+</tr>
+<tr>
+<td>Record a video</td>
+<td><code>bs capture-video</code></td>
+<td>Bounded duration. Returns MP4.</td>
+</tr>
+</tbody>
+</table>
+<p>Capture first, then act. Always run <code>bs cua screen</code> (or capture to an image) and confirm dimensions before clicking. Coordinates from an old capture do not survive a window move or resolution change.</p>
 <h2 id="commands">Commands<a class="headerlink" href="#commands" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>bs<span class="w"> </span>cua<span class="w"> </span>screen<span class="w"> </span>&lt;peer&gt;
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>bs<span class="w"> </span>cua<span class="w"> </span>capture<span class="w"> </span>&lt;peer&gt;<span class="w"> </span>-o<span class="w"> </span>screen.png
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>bs<span class="w"> </span>cua<span class="w"> </span>capture<span class="w"> </span>&lt;peer&gt;<span class="w"> </span>-o<span class="w"> </span>screen.jpg<span class="w"> </span>--format<span class="w"> </span><span class="m">2</span><span class="w"> </span>--quality<span class="w"> </span><span class="m">70</span>
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>bs<span class="w"> </span>cua<span class="w"> </span>move<span class="w"> </span>&lt;peer&gt;<span class="w"> </span>--x<span class="w"> </span><span class="m">500</span><span class="w"> </span>--y<span class="w"> </span><span class="m">300</span>
-<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>bs<span class="w"> </span>cua<span class="w"> </span>click<span class="w"> </span>&lt;peer&gt;<span class="w"> </span>--x<span class="w"> </span><span class="m">500</span><span class="w"> </span>--y<span class="w"> </span><span class="m">300</span><span class="w"> </span>--button<span class="w"> </span>left
-<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>bs<span class="w"> </span>cua<span class="w"> </span><span class="nb">type</span><span class="w"> </span>&lt;peer&gt;<span class="w"> </span>--text<span class="w"> </span><span class="s1">'hello'</span>
-<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>bs<span class="w"> </span>cua<span class="w"> </span>key<span class="w"> </span>&lt;peer&gt;<span class="w"> </span>--code<span class="w"> </span><span class="m">40</span><span class="w"> </span>--modifiers<span class="w"> </span>ctrl
-<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>bs<span class="w"> </span>cua<span class="w"> </span>scroll<span class="w"> </span>&lt;peer&gt;<span class="w"> </span>--direction<span class="w"> </span>down<span class="w"> </span>--amount<span class="w"> </span><span class="m">5</span>
-<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>bs<span class="w"> </span>capture-video<span class="w"> </span>&lt;peer&gt;<span class="w"> </span>--duration<span class="w"> </span><span class="m">10</span><span class="w"> </span>-o<span class="w"> </span>capture.mp4
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1"># read the current desktop</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>bs<span class="w"> </span>cua<span class="w"> </span>screen<span class="w"> </span>&lt;peer&gt;
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>bs<span class="w"> </span>cua<span class="w"> </span>capture<span class="w"> </span>&lt;peer&gt;<span class="w"> </span>-o<span class="w"> </span>screen.png
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>bs<span class="w"> </span>cua<span class="w"> </span>capture<span class="w"> </span>&lt;peer&gt;<span class="w"> </span>-o<span class="w"> </span>screen.jpg<span class="w"> </span>--format<span class="w"> </span><span class="m">2</span><span class="w"> </span>--quality<span class="w"> </span><span class="m">70</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="c1"># pointer and buttons</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>bs<span class="w"> </span>cua<span class="w"> </span>move<span class="w"> </span>&lt;peer&gt;<span class="w"> </span>--x<span class="w"> </span><span class="m">500</span><span class="w"> </span>--y<span class="w"> </span><span class="m">300</span>
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>bs<span class="w"> </span>cua<span class="w"> </span>click<span class="w"> </span>&lt;peer&gt;<span class="w"> </span>--x<span class="w"> </span><span class="m">500</span><span class="w"> </span>--y<span class="w"> </span><span class="m">300</span><span class="w"> </span>--button<span class="w"> </span>left
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>bs<span class="w"> </span>cua<span class="w"> </span>scroll<span class="w"> </span>&lt;peer&gt;<span class="w"> </span>--direction<span class="w"> </span>down<span class="w"> </span>--amount<span class="w"> </span><span class="m">5</span>
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>
+<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="c1"># keyboard</span>
+<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>bs<span class="w"> </span>cua<span class="w"> </span><span class="nb">type</span><span class="w"> </span>&lt;peer&gt;<span class="w"> </span>--text<span class="w"> </span><span class="s1">'hello'</span>
+<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>bs<span class="w"> </span>cua<span class="w"> </span>key<span class="w"> </span>&lt;peer&gt;<span class="w"> </span>--code<span class="w"> </span><span class="m">40</span><span class="w"> </span>--modifiers<span class="w"> </span>ctrl
+<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>
+<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a><span class="c1"># bounded desktop recording</span>
+<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>bs<span class="w"> </span>capture-video<span class="w"> </span>&lt;peer&gt;<span class="w"> </span>--duration<span class="w"> </span><span class="m">10</span><span class="w"> </span>-o<span class="w"> </span>capture.mp4
 </code></pre></div>
-<p>Always capture first and confirm screen dimensions before clicking.</p>
+<p>The image format defaults to PNG. JPEG accepts <code>--quality</code> from 1 to 100. Video is encoded on the peer with the platform's native pipeline (ScreenCaptureKit on macOS, Media Foundation on Windows, an external tool on Linux) and returned as a single MP4.</p>
 <h2 id="architecture">Architecture<a class="headerlink" href="#architecture" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>operator CLI ── mutual TLS ── peer daemon ── token-auth loopback IPC ── user-session helper
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>operator CLI ── mutual TLS (19949) ── peer daemon ── token-auth loopback IPC ── user-session helper
 </code></pre></div>
+<p>Three processes cooperate per action.</p>
+<ol>
+<li><strong>Operator CLI</strong> sends a CUA request over the mesh transport. The transport is mutual TLS with a pinned Ed25519 peer key.</li>
+<li><strong>Peer daemon</strong> validates the request, checks the caller is not a spectator, and forwards the request over loopback IPC.</li>
+<li><strong>User-session helper</strong> runs as the logged-in user. It owns the desktop session and can capture the screen and inject input.</li>
+</ol>
+<p>The helper listens only on loopback (default port <code>19986</code>). Every request is authenticated with an owner-only random token stored under <code>~/.bridgesessions/</code>. The mesh daemon never touches the desktop directly.</p>
+<h3 id="platform-notes">Platform notes<a class="headerlink" href="#platform-notes" title="Permanent link">&para;</a></h3>
 <ul>
-<li><strong>Linux:</strong> capture/input can run in the user's daemon session; common desktop tools may be required.</li>
-<li><strong>Windows:</strong> the mesh daemon may run in Session 0. Start one <code>bridgesessions --cua-helper</code> in the logged-in user's session.</li>
-<li><strong>macOS:</strong> run the helper in the logged-in user's session. Capture uses ScreenCaptureKit; input uses accessibility APIs.</li>
+<li><strong>Linux.</strong> Capture and input usually work from the user daemon session. Desktop tools such as <code>xdotool</code>, <code>grim</code>, or <code>ffmpeg</code> may be required depending on the compositor. The helper is one process per interactive session.</li>
+<li><strong>Windows.</strong> The mesh daemon often runs in Session 0. Start one <code>bridgesessions --cua-helper</code> in the logged-in user's session to reach the interactive desktop.</li>
+<li><strong>macOS.</strong> The helper must run in the logged-in user's session. Capture uses ScreenCaptureKit; input uses accessibility APIs. Permission grants are sticky and survive helper restarts.</li>
 </ul>
-<p>The helper listens only on loopback (default 19986) and authenticates every request with an owner-only random token under <code>~/.bridgesessions/</code>.</p>
 <h2 id="setup">Setup<a class="headerlink" href="#setup" title="Permanent link">&para;</a></h2>
+<h3 id="linux">Linux<a class="headerlink" href="#linux" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>bridgesessions<span class="w"> </span>--cua-helper
+</code></pre></div>
+<p>The helper process writes its token file under <code>~/.bridgesessions/</code>. The mesh daemon reads the same token to authenticate loopback IPC.</p>
 <h3 id="windows">Windows<a class="headerlink" href="#windows" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="n">bridgesessions</span> <span class="p">-</span><span class="n">-cua-helper</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="n">bridgesessions</span> <span class="p">-</span><span class="n">-cua-helper</span>
 </code></pre></div>
-<p>For persistent use, create an at-logon task in the interactive user's context. Do not run multiple helpers against one token file.</p>
+<p>Create an at-logon task in the interactive user's context for persistent use. Do not run multiple helpers against one token file. Each helper writes its own token; two helpers racing one token cause auth mismatch.</p>
 <h3 id="macos">macOS<a class="headerlink" href="#macos" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>bridgesessions<span class="w"> </span>--cua-helper
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>bridgesessions<span class="w"> </span>--cua-helper
 </code></pre></div>
-<p>Grant the installed, Developer ID-signed app/binary:</p>
+<p>The installed, Developer ID-signed app and helper need:</p>
 <ul>
-<li>Screen Recording (capture/video),</li>
-<li>Accessibility (mouse/keyboard).</li>
+<li><strong>Screen Recording</strong> for capture and video,</li>
+<li><strong>Accessibility</strong> for mouse and keyboard.</li>
 </ul>
-<p>Restart the helper after changing permissions. Do not reset TCC during routine upgrades.</p>
+<p>Grant both. Restart the helper after granting. Do not run <code>tccutil reset</code> for the BridgeSessions bundle during routine upgrades. The reset wipes the grants and breaks capture until the user re-grants.</p>
 <h2 id="hid-keys">HID keys<a class="headerlink" href="#hid-keys" title="Permanent link">&para;</a></h2>
-<p><code>cua key</code> uses USB HID keyboard usage IDs.</p>
+<p><code>cua key</code> uses USB HID keyboard usage IDs. Common values:</p>
 <table>
 <thead>
 <tr>
@@ -1155,76 +1299,95 @@
 <td style="text-align: right;">22</td>
 </tr>
 <tr>
-<td>Enter</td>
+<td><code>Enter</code></td>
 <td style="text-align: right;">40</td>
 </tr>
 <tr>
-<td>Escape</td>
+<td><code>Escape</code></td>
 <td style="text-align: right;">41</td>
 </tr>
 <tr>
-<td>Backspace</td>
+<td><code>Backspace</code></td>
 <td style="text-align: right;">42</td>
 </tr>
 <tr>
-<td>Tab</td>
+<td><code>Tab</code></td>
 <td style="text-align: right;">43</td>
 </tr>
 <tr>
-<td>Space</td>
+<td><code>Space</code></td>
 <td style="text-align: right;">44</td>
 </tr>
 <tr>
-<td>Right / Left / Down / Up</td>
-<td style="text-align: right;">79 / 80 / 81 / 82</td>
+<td>Right arrow</td>
+<td style="text-align: right;">79</td>
+</tr>
+<tr>
+<td>Left arrow</td>
+<td style="text-align: right;">80</td>
+</tr>
+<tr>
+<td>Down arrow</td>
+<td style="text-align: right;">81</td>
+</tr>
+<tr>
+<td>Up arrow</td>
+<td style="text-align: right;">82</td>
 </tr>
 </tbody>
 </table>
-<p>Modifiers are comma-separated: <code>ctrl</code>, <code>shift</code>, <code>alt</code>, <code>meta</code>.</p>
+<p>Modifiers are comma-separated. The accepted names are <code>ctrl</code>, <code>shift</code>, <code>alt</code>, <code>meta</code>. Combine them as needed, for example <code>ctrl,shift</code>. The helper translates the names and HID code into the platform-native key event.</p>
 <h2 id="security">Security<a class="headerlink" href="#security" title="Permanent link">&para;</a></h2>
 <ul>
 <li>Spectator attachments are rejected before any CUA action, including video capture.</li>
-<li>Helper IPC is loopback-only and token-authenticated.</li>
-<li>Coordinates and payload sizes are validated.</li>
-<li>Capture/input results are returned to the requesting peer; the helper does not intentionally persist them.</li>
-<li>A trusted peer can still observe or control the desktop. CUA is not a low-privilege capability.</li>
+<li>Helper IPC is loopback-only and token-authenticated. The token is owner-readable only.</li>
+<li>Coordinates, payload sizes, and durations are validated. Out-of-range values fail before the helper acts.</li>
+<li>Capture and input results return to the requesting peer. The helper does not intentionally persist them.</li>
+<li>CUA is not a low-privilege capability. A trusted peer can observe and control the desktop. Treat an authorized peer as having full interactive access to the user session that hosts the helper.</li>
 </ul>
-<h2 id="troubleshooting">Troubleshooting<a class="headerlink" href="#troubleshooting" title="Permanent link">&para;</a></h2>
+<h2 id="failure-modes-and-recovery">Failure modes and recovery<a class="headerlink" href="#failure-modes-and-recovery" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
 <tr>
 <th>Symptom</th>
-<th>Check</th>
+<th>Likely cause</th>
+<th>Action</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>helper unavailable/auth mismatch</td>
-<td>stop duplicate helpers; restart one helper and the daemon</td>
+<td>Helper unavailable, auth mismatch</td>
+<td>duplicate helpers against one token</td>
+<td>stop duplicates; restart one helper and the daemon</td>
 </tr>
 <tr>
-<td>black/empty macOS capture</td>
-<td>Screen Recording grant and helper restart</td>
+<td>Black or empty macOS capture</td>
+<td>Screen Recording grant missing or stale</td>
+<td>grant, then restart the helper</td>
 </tr>
 <tr>
 <td>macOS input ignored</td>
-<td>Accessibility grant</td>
+<td>Accessibility grant missing</td>
+<td>grant, then restart the helper</td>
 </tr>
 <tr>
 <td>Windows input hits wrong desktop</td>
-<td>helper must be in the intended interactive session</td>
+<td>helper in a different session than the target</td>
+<td>start the helper in the intended interactive session</td>
 </tr>
 <tr>
-<td>wrong click target</td>
-<td>run <code>cua screen</code>, capture, then recalculate coordinates</td>
+<td>Click lands in the wrong place</td>
+<td>screen resized since <code>cua screen</code></td>
+<td>run <code>cua screen</code>, capture again, recalculate</td>
 </tr>
 <tr>
-<td>port 19986 busy</td>
-<td>terminate stale helper</td>
+<td>Port <code>19986</code> busy</td>
+<td>stale helper from a previous user or container</td>
+<td>terminate the stale process; restart one helper</td>
 </tr>
 </tbody>
 </table>
-<p>For automated desktop verification, use <a href="../E2E-FRAMEWORK/">E2E Framework</a>.</p>
+<p>For automated desktop verification, use the <a href="../E2E-FRAMEWORK/">E2E Framework</a>. The harness wraps <code>bs cua</code> and <code>bs capture-video</code> with screenshot diffs and structured assertions.</p>
 
 
 

@@ -831,6 +831,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#what-a-release-is" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What a release is
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#required-assets" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -864,10 +875,54 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#verify" class="md-nav__link">
+  <a href="#verify-before-publishing" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Verify
+        Verify before publishing
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#macos-signing-and-notarization" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        macOS signing and notarization
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#linux-hardening" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Linux hardening
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#windows-hardening" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Windows hardening
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#dependency-evidence" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dependency evidence
       
     </span>
   </a>
@@ -886,10 +941,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#dependency-evidence" class="md-nav__link">
+  <a href="#after-publish" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Dependency evidence
+        After publish
       
     </span>
   </a>
@@ -958,6 +1013,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#what-a-release-is" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What a release is
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#required-assets" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -991,10 +1057,54 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#verify" class="md-nav__link">
+  <a href="#verify-before-publishing" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Verify
+        Verify before publishing
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#macos-signing-and-notarization" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        macOS signing and notarization
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#linux-hardening" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Linux hardening
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#windows-hardening" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Windows hardening
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#dependency-evidence" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dependency evidence
       
     </span>
   </a>
@@ -1013,10 +1123,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#dependency-evidence" class="md-nav__link">
+  <a href="#after-publish" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Dependency evidence
+        After publish
       
     </span>
   </a>
@@ -1044,7 +1154,15 @@
 
 
 <h1 id="release-provenance">Release provenance<a class="headerlink" href="#release-provenance" title="Permanent link">&para;</a></h1>
-<p>Generated executables, app bundles, archives, checksums, and SBOMs are release artifacts. They are ignored by git and attached to a GitHub Release whose tag points to the reviewed source commit.</p>
+<p>A BridgeSessions release is the reviewed source tree plus the build outputs that the source produces. Git holds the source and the automation. GitHub Releases hold the artifacts. The release script enforces the boundary.</p>
+<h2 id="what-a-release-is">What a release is<a class="headerlink" href="#what-a-release-is" title="Permanent link">&para;</a></h2>
+<p>A release is a Git tag plus the artifacts attached to it.</p>
+<ul>
+<li>The tag is an annotated tag that points at the reviewed source commit.</li>
+<li>The artifacts are the platform binaries, the checksum manifest, and the SBOM.</li>
+<li>Optional source archives are produced with <code>git archive</code> from the same tag.</li>
+</ul>
+<p>The release script refuses a dirty tree, a tag/HEAD mismatch, an origin-tag mismatch, a missing asset, or an implicit replacement of an existing release. Every failure path is explicit so the operator can fix the cause instead of overriding the script.</p>
 <h2 id="required-assets">Required assets<a class="headerlink" href="#required-assets" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
@@ -1068,32 +1186,34 @@
 </tr>
 <tr>
 <td><code>SHA256SUMS</code></td>
-<td>checksum manifest</td>
+<td>checksum manifest (basename-keyed)</td>
 </tr>
 <tr>
 <td><code>SBOM-binaries.json</code></td>
-<td>CycloneDX artifact/dependency record</td>
+<td>CycloneDX artifact and dependency record</td>
 </tr>
 </tbody>
 </table>
-<p>Optional source archives are generated from the exact tag with <code>git archive</code>; GitHub also publishes automatic source archives.</p>
+<p>The <code>VERSION</code> file at the repo root stamps the build. CMake reads it and bakes it into the binary. The release notes, the binary, and the installer all agree on the stamp.</p>
 <h2 id="build-requirements">Build requirements<a class="headerlink" href="#build-requirements" title="Permanent link">&para;</a></h2>
+<p>A release build must satisfy all of the following:</p>
 <ul>
 <li>clean source tree,</li>
 <li><code>VERSION</code> matches the intended tag,</li>
-<li>supported dependency lines (OpenSSL 3.5 LTS; spdlog newer than 1.15.1),</li>
+<li>supported dependency lines: OpenSSL 3.5 LTS, spdlog newer than 1.15.1, fmt 12.2, Catch2 3.15, CLI11 2.7, nlohmann-json 3.12,</li>
 <li>release hardening flags enabled,</li>
 <li>no operator paths, private hosts, credentials, or debug symbols in public artifacts,</li>
 <li>macOS Developer ID signature and notarization,</li>
-<li>Windows PE ASLR/NX validation,</li>
-<li>Linux PIE/RELRO/NX/stack-protector validation.</li>
+<li>Windows PE with ASLR and NX linker flags validated,</li>
+<li>Linux PIE, RELRO/NX, stack-protector, and fortified libc validated.</li>
 </ul>
+<p>The <code>scripts/prepublish-scan.sh</code> script blocks private addresses, key material, and operator names from a local blocklist before tagging. The blocklist covers home paths, Tailscale CGNAT ranges, common operator hostnames, and 64-hex patterns that are not placeholders. A release that fails the scan does not publish.</p>
 <h2 id="stage-locally">Stage locally<a class="headerlink" href="#stage-locally" title="Permanent link">&para;</a></h2>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>scripts/package-release.sh<span class="w"> </span>--release
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>scripts/release-checksums.sh
 </code></pre></div>
-<p><code>dist/</code> is local staging and is ignored by git.</p>
-<h2 id="verify">Verify<a class="headerlink" href="#verify" title="Permanent link">&para;</a></h2>
+<p><code>dist/</code> is local staging. Git ignores it. The script writes the platform binaries, the checksum manifest, and the SBOM into <code>dist/</code>. Publishing is a separate step.</p>
+<h2 id="verify-before-publishing">Verify before publishing<a class="headerlink" href="#verify-before-publishing" title="Permanent link">&para;</a></h2>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="c1"># Source and tests</span>
 <a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>cmake<span class="w"> </span>-S<span class="w"> </span>.<span class="w"> </span>-B<span class="w"> </span>build/release<span class="w"> </span>-DCMAKE_BUILD_TYPE<span class="o">=</span>Release
 <a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>cmake<span class="w"> </span>--build<span class="w"> </span>build/release<span class="w"> </span>--parallel
@@ -1107,19 +1227,50 @@
 <a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a>file<span class="w"> </span>dist/bridgesessions-*
 <a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a>strings<span class="w"> </span>dist/bridgesessions-linux-x86_64<span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>-E<span class="w"> </span><span class="s1">'^/home/|^/Users/'</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nb">exit</span><span class="w"> </span><span class="m">1</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="nb">true</span>
 </code></pre></div>
-<p>Run each binary on its target OS and compare <code>--version</code> with <code>VERSION</code>. Run the affected E2E layers from <a href="../E2E-FRAMEWORK/">E2E Framework</a>.</p>
+<p>Run each binary on its target OS and compare <code>--version</code> with <code>VERSION</code>. Run the affected E2E layers from the <a href="../E2E-FRAMEWORK/">E2E Framework</a>. The release gate fails the build when any required layer does not pass.</p>
+<h2 id="macos-signing-and-notarization">macOS signing and notarization<a class="headerlink" href="#macos-signing-and-notarization" title="Permanent link">&para;</a></h2>
+<p><code>scripts/sign-macos.sh</code> signs a Mach-O with the first Developer ID Application identity in the keychain. The script refuses ad-hoc signing.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>./scripts/sign-macos.sh<span class="w"> </span>build/bridgesessions<span class="w"> </span>dist/bridgesessions-macos-arm64
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>codesign<span class="w"> </span>--verify<span class="w"> </span>--strict<span class="w"> </span>--verbose<span class="o">=</span><span class="m">2</span><span class="w"> </span>dist/bridgesessions-macos-arm64
+</code></pre></div>
+<p>Set <code>BS_DEV_ID</code> if more than one identity exists.</p>
+<p>If the build Mac has no Developer ID certificate, build there and sign on a Mac that does. Copy only the unsigned binary and the entitlements. Do not email an unprotected <code>.p12</code>.</p>
+<p><code>scripts/notarize-macos.sh</code> uploads the signed bundle to Apple's notary service and staples the ticket. The release cannot be uploaded without a valid notarization record.</p>
+<p>Re-signing the release artifact on a machine that does not have the Developer ID certificate strips the seal and can make Gatekeeper kill the process at launch. The installer does not re-sign.</p>
+<h2 id="linux-hardening">Linux hardening<a class="headerlink" href="#linux-hardening" title="Permanent link">&para;</a></h2>
+<p><code>scripts/Dockerfile.static-linux</code> produces a static binary with OpenSSL 3 LTS and static third-party libraries. The binary may still link glibc depending on the build options. Linux release hardening validates:</p>
+<ul>
+<li>Position Independent Executable,</li>
+<li>RELRO with immediate bindings,</li>
+<li>NX stack,</li>
+<li>Stack protector,</li>
+<li>Fortified libc.</li>
+</ul>
+<h2 id="windows-hardening">Windows hardening<a class="headerlink" href="#windows-hardening" title="Permanent link">&para;</a></h2>
+<p><code>scripts/build-windows-mingw.sh</code> produces a MinGW cross-build. Imports must be OS DLLs only. Windows release hardening validates:</p>
+<ul>
+<li>ASLR and NX linker flags,</li>
+<li>Control Flow Guard when the toolchain supports it.</li>
+</ul>
+<p>The installer uses a verified temporary PE and atomic move. The installer verifies the GitHub Release <code>SHA256SUMS</code> entry before it replaces the running binary.</p>
+<h2 id="dependency-evidence">Dependency evidence<a class="headerlink" href="#dependency-evidence" title="Permanent link">&para;</a></h2>
+<p>Record the exact compiler, OS image, and dependency versions in the GitHub Release notes or in the SBOM. Do not copy binaries or checksum files forward from an older tag. Every tag is a fresh build from the source commit the tag points at.</p>
 <h2 id="publish">Publish<a class="headerlink" href="#publish" title="Permanent link">&para;</a></h2>
 <ol>
 <li>Commit the source-only tree.</li>
-<li>Push <code>main</code> and wait for Build/Test and Security workflows.</li>
+<li>Push <code>main</code> and wait for the Build/Test and Security workflows to be green.</li>
 <li>Create or move the annotated release tag only after green CI.</li>
 <li>Push the tag.</li>
 <li>Run <code>scripts/github-release.sh</code> to create the prerelease and upload verified assets.</li>
-<li>Read the release back with <code>gh release view</code> and compare every remote digest/size with local files.</li>
+<li>Read the release back with <code>gh release view</code> and compare every remote digest and size with the local files.</li>
 </ol>
-<p>The release script refuses a dirty tree, tag/HEAD mismatch, origin-tag mismatch, missing asset, or implicit replacement of an existing release.</p>
-<h2 id="dependency-evidence">Dependency evidence<a class="headerlink" href="#dependency-evidence" title="Permanent link">&para;</a></h2>
-<p>Record exact compiler, OS image, and dependency versions in the GitHub Release notes or SBOM. Do not copy binaries or checksum files forward from an older tag.</p>
+<p>The release script refuses to publish when any of the checks above would fail. The operator's job is to keep the source tree and the dependencies ready; the script's job is to keep the release honest.</p>
+<h2 id="after-publish">After publish<a class="headerlink" href="#after-publish" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Move or update the tag if a release is republished. Force-updating a tag is allowed by the repository ruleset; deleting a tag is not.</li>
+<li>Announce the release in the changelog. The CHANGELOG top section is the source of truth for user-visible changes.</li>
+<li>Watch the GitHub Action that watches the tag. A failed download digest or a bad signed installer is a release bug and warrants a hotfix tag.</li>
+</ul>
 
 
 

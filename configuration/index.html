@@ -591,6 +591,24 @@
         
       
       
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
       <a href="./" class="md-nav__link md-nav__link--active">
         
   
@@ -607,6 +625,58 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#bind-rules" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Bind rules
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#local-ipc" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Local IPC
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#files-and-inbox" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Files and inbox
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
       
     </li>
   
@@ -848,6 +918,47 @@
     
   
   
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#bind-rules" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Bind rules
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#local-ipc" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Local IPC
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#files-and-inbox" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Files and inbox
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
 </nav>
                   </div>
                 </div>
@@ -867,7 +978,8 @@
 
 
 <h1 id="configuration">Configuration<a class="headerlink" href="#configuration" title="Permanent link">&para;</a></h1>
-<p>The normal config is <code>~/.bridgesessions/config</code>; override with <code>--config</code>.</p>
+<p>The normal config file is <code>~/.bridgesessions/config</code>. Override the path with <code>--config</code>.</p>
+<p>The format is one directive per line.</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="na">node.name node-a</span>
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="na">node.listen 192.0.2.10</span><span class="o">:</span><span class="s">19949</span>
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="na">mesh.require_seed_pins true</span>
@@ -884,6 +996,7 @@
 <a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a><span class="na">transfer.allow_sensitive_paths false</span>
 <a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a><span class="na">file.dest_allow_home false</span>
 </code></pre></div>
+<p>The addresses above are documentation-only. Use addresses that belong to your network.</p>
 <table>
 <thead>
 <tr>
@@ -894,55 +1007,65 @@
 <tbody>
 <tr>
 <td><code>node.name</code>, <code>node.listen</code></td>
-<td>node identity and mesh bind</td>
+<td>Node identity and mesh bind</td>
 </tr>
 <tr>
 <td><code>seed ... pubkey=</code></td>
-<td>pinned bootstrap/enrollment authority</td>
+<td>Pinned bootstrap and enrollment authority</td>
 </tr>
 <tr>
 <td><code>mesh.require_seed_pins</code></td>
-<td>reject unpinned seeds; keep enabled</td>
+<td>Reject unpinned seeds. Keep this enabled.</td>
 </tr>
 <tr>
 <td><code>mesh.ping_interval_secs</code>, <code>mesh.pong_timeout_secs</code></td>
-<td>liveness</td>
+<td>Liveness</td>
 </tr>
 <tr>
 <td><code>mesh.reconnect_backoff_max_secs</code></td>
-<td>retry ceiling</td>
+<td>Retry ceiling</td>
 </tr>
 <tr>
 <td><code>mesh.join_window_max_secs</code></td>
-<td>unknown-cert join window cap</td>
+<td>Unknown-cert join window cap</td>
 </tr>
 <tr>
 <td><code>sessions.default_shell</code></td>
-<td>remote shell command</td>
+<td>Remote shell command</td>
 </tr>
 <tr>
 <td><code>session.&lt;name&gt;.command</code></td>
-<td>named-session command</td>
+<td>Named-session command</td>
 </tr>
 <tr>
 <td><code>sessions.authorized_keys_path</code></td>
-<td>inbound trusted keys</td>
+<td>Inbound trusted keys</td>
 </tr>
 <tr>
 <td><code>receive_dir</code></td>
-<td>inbox and default served-file root</td>
+<td>Inbox and default served-file root</td>
 </tr>
 <tr>
 <td><code>transfer.max_bytes</code></td>
-<td>per-file limit</td>
+<td>Per-file limit</td>
 </tr>
 <tr>
 <td><code>transfer.allow_sensitive_paths</code></td>
-<td>arbitrary/sensitive path access; high risk</td>
+<td>Arbitrary path access. High risk.</td>
 </tr>
 </tbody>
 </table>
-<p>Local daemon IPC uses loopback port 19980 plus an owner-only token. Isolated tests may set <code>BRIDGESESSIONS_IPC_PORT</code> consistently for daemon and CLI.</p>
+<h2 id="bind-rules">Bind rules<a class="headerlink" href="#bind-rules" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Bind the address that other nodes can reach.</li>
+<li>Loopback-only listen hides the node from the mesh.</li>
+<li>A wildcard bind needs a host firewall.</li>
+</ul>
+<p>See <a href="../always-online-seed/">Always-online seed</a> for a central node.</p>
+<h2 id="local-ipc">Local IPC<a class="headerlink" href="#local-ipc" title="Permanent link">&para;</a></h2>
+<p>The CLI talks to the local daemon on loopback port <strong>19980</strong>. The channel uses an owner-only token. Isolated tests may set <code>BRIDGESESSIONS_IPC_PORT</code> for both the daemon and the CLI.</p>
+<h2 id="files-and-inbox">Files and inbox<a class="headerlink" href="#files-and-inbox" title="Permanent link">&para;</a></h2>
+<p><code>receive_dir</code> is the inbox. Bridge Panel lists that directory by default. Remote <code>bs file</code> serving stays inside this root unless you set <code>transfer.allow_sensitive_paths</code>. That flag removes a major safeguard.</p>
 <p>See <a href="https://github.com/MindDragonLabs/BridgeSessions/blob/main/config.example"><code>config.example</code></a>.</p>
 
 
