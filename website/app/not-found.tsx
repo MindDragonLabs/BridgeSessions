@@ -7,18 +7,18 @@ export default function NotFound() {
         404
       </p>
       <h1 className="font-display mt-4 text-4xl text-paper">
-        That path is not on this site.
+        This path does not exist.
       </h1>
       <p className="mt-4 max-w-lg text-sm text-steel">
-        The marketing tree is homepage plus /install. Product docs stay in the
-        GitHub repo.
+        This site has a homepage and /install. Operator docs are in the GitHub
+        repository.
       </p>
       <p className="mt-8">
         <Link
           href="/install"
           className="font-mono text-[12px] tracking-[0.12em] text-signal uppercase"
         >
-          Try the release
+          Install
         </Link>
       </p>
     </section>

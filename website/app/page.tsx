@@ -1,523 +1,201 @@
 import Link from "next/link";
-import { Card, Command, ExtLink, Eyebrow, Section } from "@/components/Blocks";
+import { Card, Command, ExtLink, Section } from "@/components/Blocks";
 import {
   AGENT_SKILL_INSTALL_URL,
   AUDIT_URL,
   BETA_BOUNDARY,
   BINARY,
   CLI,
-  CONFIG_URL,
   CUA_URL,
-  DESIGN_URL,
   DOCS_SITE,
-  INSTALL_PS1,
-  INSTALL_SH,
-  ISSUES_URL,
   LANGUAGE,
-  LICENSE_LINE,
+  LICENSE_CHANGE_DATE,
+  LICENSE_CHANGE_TO,
+  LICENSE_SHORT,
   LICENSE_URL,
-  LINUX_MAC_BIN,
-  LINUX_MAC_CLI,
   PANEL_URL,
   PRODUCT,
-  PROVENANCE_URL,
-  QUICKSTART_URL,
-  RECOVERY_MAC_BOOTOUT_CUA,
-  RECOVERY_MAC_BOOTOUT_MENUBAR,
-  RECOVERY_WIN_END_CUA_TASK,
-  RECOVERY_WIN_KILL_HELPER,
-  RECOVERY_WIN_STOP_TRAY,
   RELEASE_TAG_URL,
   REPO_URL,
   SHIPPING_ARCH_LINE,
   SHIPPING_ASSETS,
-  SECURITY_ADVISORY_URL,
   SECURITY_MD_URL,
-  SHA256SUMS_URL,
-  SITE_IA,
   SKILL_URL,
   STATE_DIR,
   TLS_DETAIL,
   TRANSPORT,
-  USAGE_URL,
   VERSION,
-  WINDOWS_BIN,
 } from "@/lib/product";
 
 export default function Home() {
   return (
     <>
-      <section id="positioning" className="grid-field scroll-mt-24 border-b border-border">
+      <section className="grid-field scroll-mt-24 border-b border-border">
         <div className="mx-auto max-w-6xl px-4 py-16 sm:px-6 sm:py-20">
-          <Eyebrow>BridgeSessions</Eyebrow>
-          <p className="mt-4 inline-flex items-center gap-2 rounded-[3px] border border-ember/40 bg-ember/10 px-2 py-1 font-mono text-[11px] tracking-[0.12em] text-ember uppercase">
-            Beta {VERSION}
+          <p className="inline-flex items-center gap-2 rounded-[3px] border border-ember/40 bg-ember/10 px-2 py-1 font-mono text-[11px] tracking-[0.12em] text-ember uppercase">
+            {VERSION}
           </p>
-          <h1 className="font-display mt-6 max-w-[16ch] text-[3.1rem] leading-[0.92] text-paper sm:text-6xl">
-            One binary.
-            <br />
-            Machines you
-            <br />
-            already control.
+          <h1 className="font-display mt-6 text-[3.1rem] leading-[0.92] text-paper sm:text-6xl">
+            {PRODUCT}
           </h1>
-          <p className="mt-6 max-w-xl text-base leading-relaxed text-paper/85 sm:text-lg">
-            {PRODUCT} is the control layer for machines you already operate. One{" "}
-            {LANGUAGE} executable — {BINARY} / {CLI} — for humans and agents.
-            This beta ships {SHIPPING_ARCH_LINE}.
+          <p className="mt-6 max-w-xl text-base leading-relaxed text-paper/85">
+            {PRODUCT} is one {LANGUAGE} program. The binary name is {BINARY}.
+            The command name is {CLI}.
           </p>
-          <p className="mt-4 max-w-xl text-sm leading-relaxed text-steel">
-            Persistent shells, verified files, and computer-use automation share
-            one pinned peer identity. Not enterprise IAM. Not hostile
-            multi-tenant access.
+          <p className="mt-3 max-w-xl text-sm leading-relaxed text-steel">
+            The program starts shells, sends files, and controls a desktop on a
+            pinned peer mesh.
+          </p>
+          <p className="mt-3 max-w-xl text-sm leading-relaxed text-steel">
+            This release has three artifacts: {SHIPPING_ARCH_LINE}.
+          </p>
+          <p className="mt-3 max-w-xl text-sm leading-relaxed text-steel">
+            The source and the release are on GitHub. The mesh uses {TRANSPORT}.{" "}
+            {TLS_DETAIL}
+          </p>
+          <p className="mt-3 max-w-xl text-sm leading-relaxed text-steel">
+            The license is {LICENSE_SHORT}. {LICENSE_SHORT} is source-available.
+            {LICENSE_SHORT} is not an Open Source license. The license changes
+            to {LICENSE_CHANGE_TO} on {LICENSE_CHANGE_DATE}.
+          </p>
+          <p className="mt-3 max-w-xl text-sm leading-relaxed text-steel">
+            {BETA_BOUNDARY}
           </p>
           <div className="mt-8">
             <Link
               href="/install"
               className="inline-flex rounded-[3px] bg-signal px-4 py-2.5 font-mono text-[12px] tracking-[0.12em] text-signal-ink uppercase"
             >
-              Try the release
+              Install
             </Link>
           </div>
           <dl className="mt-10 grid gap-3 border-t border-border pt-6 sm:grid-cols-2 lg:grid-cols-4">
             <Fact label="Version" value={VERSION} />
             <Fact label="Transport" value={TRANSPORT} />
-            <Fact label="Compatibility" value={TLS_DETAIL} />
-            <Fact label="Ships" value={SHIPPING_ARCH_LINE} />
+            <Fact label="TLS" value={TLS_DETAIL} />
+            <Fact label="Artifacts" value={SHIPPING_ARCH_LINE} />
           </dl>
+          <p className="mt-6 text-sm text-steel">
+            GitHub: <ExtLink href={REPO_URL}>{REPO_URL}</ExtLink>
+          </p>
+          <p className="mt-2 text-sm text-steel">
+            Release: <ExtLink href={RELEASE_TAG_URL}>{RELEASE_TAG_URL}</ExtLink>
+          </p>
+          <p className="mt-2 text-sm text-steel">
+            License: <ExtLink href={LICENSE_URL}>{LICENSE_URL}</ExtLink>
+          </p>
         </div>
       </section>
 
-      <Section id="map">
-        <Eyebrow>On this site</Eyebrow>
-        <h2 className="font-display mt-3 text-4xl text-paper">
-          Install, demo, security, recovery.
-        </h2>
-        <p className="mt-3 max-w-2xl text-sm leading-relaxed text-steel">
-          Homepage plus a focused <Link href="/install" className="text-signal">/install</Link>{" "}
-          page. Every card is a real destination.
-        </p>
-        <ol className="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          {SITE_IA.map((item) => (
-            <li key={item.href}>
-              <Link
-                href={item.href}
-                className="block h-full rounded-[3px] border border-border bg-panel p-4 hover:border-signal/50"
-              >
-                <h3 className="text-base text-paper">{item.title}</h3>
-                <p className="mt-2 text-sm leading-relaxed text-steel">{item.brief}</p>
-              </Link>
-            </li>
-          ))}
-        </ol>
-      </Section>
-
-      <Section id="release">
-        <Eyebrow>Release</Eyebrow>
-        <h2 className="font-display mt-3 text-4xl text-paper">
-          What ships today.
-        </h2>
-        <p className="mt-3 max-w-2xl text-sm leading-relaxed text-steel">
-          One answer to “what do I install?”: the current GitHub release{" "}
-          <span className="text-paper">{VERSION}</span>. GitHub is the only
-          primary repo and release channel.
-        </p>
-        <div className="mt-8 grid gap-3 md:grid-cols-2">
-          <Card title="Version" kicker="Badge">
-            <p className="font-mono text-signal">{VERSION}</p>
-            <p className="mt-2">
-              Public beta. Probe live with{" "}
-              <code className="text-paper">{CLI} --version</code>.
-            </p>
-          </Card>
-          <Card title="Transport" kicker="Mesh">
-            <p>{TRANSPORT}.</p>
-            <p className="mt-2">{TLS_DETAIL}</p>
-          </Card>
-          <Card title="Install answer" kicker="One path">
-            <p>
-              Installer commands for the three shipping artifacts live on{" "}
-              <Link href="/install" className="text-signal">
-                /install
-              </Link>
-              : {SHIPPING_ASSETS.join(", ")}. Checksums:{" "}
-              <ExtLink href={SHA256SUMS_URL}>SHA256SUMS</ExtLink> on the{" "}
-              <ExtLink href={RELEASE_TAG_URL}>{VERSION}</ExtLink> GitHub
-              Release.
-            </p>
-          </Card>
-          <Card title="License" kicker="Source-available">
-            <p>
-              <ExtLink href={LICENSE_URL}>{LICENSE_LINE}</ExtLink>
-            </p>
-          </Card>
-        </div>
-        <p className="mt-6 text-sm text-steel">
-          Repo: <ExtLink href={REPO_URL}>{REPO_URL}</ExtLink>
-          <span className="mx-2">·</span>
-          Release: <ExtLink href={RELEASE_TAG_URL}>{RELEASE_TAG_URL}</ExtLink>
-          <span className="mx-2">·</span>
-          Docs: <ExtLink href={DOCS_SITE}>{DOCS_SITE}</ExtLink>
-        </p>
-      </Section>
-
-      <Section id="conversion">
-        <Eyebrow>Install</Eyebrow>
-        <h2 className="font-display mt-3 text-4xl text-paper">
-          Install the current GitHub release.
-        </h2>
-        <p className="mt-3 max-w-2xl text-sm leading-relaxed text-steel">
-          One primary CTA. Then verify, join a pinned seed, and try the
-          impressive thing: persistent reattach, a verified file move, or a CUA
-          capture.
-        </p>
-        <div className="mt-8 grid gap-4 lg:grid-cols-2">
-          <Command caption="linux-x86_64 / macos-arm64" code={INSTALL_SH} />
-          <Command caption="windows-x86_64.exe · PowerShell" code={INSTALL_PS1} />
-        </div>
-        <p className="mt-6">
-          <Link
-            href="/install"
-            className="inline-flex rounded-[3px] bg-signal px-4 py-2.5 font-mono text-[12px] tracking-[0.12em] text-signal-ink uppercase"
-          >
-            Try the release
-          </Link>
-        </p>
-        <p className="mt-4 text-sm text-steel">
-          After install: <code className="text-paper">{CLI} --version</code> and{" "}
-          <code className="text-paper">{CLI} doctor</code>. Full join and wow
-          path on <Link href="/install" className="text-signal">/install</Link>.
-          Problems: <ExtLink href={ISSUES_URL}>GitHub issues</ExtLink>. Vulns:{" "}
-          <ExtLink href={SECURITY_MD_URL}>SECURITY.md</ExtLink>, not a public
-          issue.
-        </p>
-      </Section>
-
-      <Section id="demo" className="bg-panel/40">
-        <Eyebrow>Demo</Eyebrow>
-        <h2 className="font-display mt-3 text-4xl text-paper">
-          Fifteen to twenty-five seconds.
-        </h2>
-        <p className="mt-3 max-w-2xl text-sm leading-relaxed text-steel">
-          Labeled placeholder. No video file is shipped with this site. Run the
-          wow path on a mesh you control.
-        </p>
-        <div
-          className="mt-8 flex min-h-[220px] flex-col justify-between rounded-[3px] border border-dashed border-border bg-ink p-5 sm:min-h-[280px] sm:p-8"
-          aria-label="15 to 25 second demo placeholder"
-        >
-          <p className="font-mono text-[11px] tracking-[0.18em] text-ember uppercase">
-            Demo slot · 15–25s · placeholder · no video file
-          </p>
-          <p className="font-display max-w-[18ch] text-3xl text-paper sm:text-4xl">
-            Reattach. Move a file. Capture a screen.
-          </p>
-          <p className="max-w-xl text-sm text-steel">
-            The remote daemon owns the PTY. <code className="text-paper">Ctrl-D</code>{" "}
-            detaches. Reuse <code className="text-paper">--name</code> to come
-            back. Files wait for a final <code className="text-paper">OK</code>{" "}
-            after SHA-256. Capture before you click.
-          </p>
-        </div>
-        <div className="mt-6 grid gap-4 lg:grid-cols-3">
-          <Command
-            caption="Persistent reattach"
-            code={`${CLI} shell <peer> --name agent\n# Ctrl-D detaches\n${CLI} shell <peer> --name agent`}
-          />
-          <Command
-            caption="Verified file move"
-            code={`${CLI} file send <peer> ./artifact.bin --wait`}
-          />
-          <Command
-            caption="CUA capture"
-            code={`${CLI} cua capture <peer> -o screen.png`}
-          />
-        </div>
-      </Section>
-
       <Section id="security">
-        <Eyebrow>Security</Eyebrow>
-        <h2 className="font-display mt-3 text-4xl text-paper">
-          Trust model.
-        </h2>
+        <h2 className="font-display text-4xl text-paper">Security</h2>
         <p className="mt-3 max-w-2xl text-sm leading-relaxed text-steel">
           {BETA_BOUNDARY}
         </p>
         <div className="mt-8 grid gap-3 md:grid-cols-2">
-          <Card title="Authorized key" kicker="Host access">
-            A key in <code className="text-paper">authorized_keys</code> has
-            near-interactive host access. Authorization is host-level, not
-            per-command.
+          <Card title="Authorized key">
+            A key in <code className="text-paper">authorized_keys</code> gives
+            near-interactive access. Authorization is at peer level. It is not
+            per command.
           </Card>
-          <Card title="Pinned mesh" kicker="Ed25519">
-            Seed and direct connections require explicit Ed25519 pins.
-            Certificate key, Hello key/name, and configured pin must agree.
+          <Card title="Ed25519 pins">
+            Seed and direct connections need explicit Ed25519 pins. The
+            certificate key, Hello key, and configured pin must agree.
           </Card>
-          <Card title="Invite window" kicker="Join">
-            A bounded invite window temporarily accepts an unknown certificate
-            only to submit a single-use token. Only pinned seeds may issue
-            accepted mesh-wide enrollments. See{" "}
-            <ExtLink href={QUICKSTART_URL}>Quickstart</ExtLink>.
+          <Card title="Invite">
+            An invite window accepts an unknown certificate only to submit one
+            token. Only a pinned seed can issue a mesh enrollment.
           </Card>
-          <Card title="Loopback IPC" kicker="Local daemon">
-            Local daemon IPC is loopback-only and token-authenticated. Default
-            loopback port is 19980. Do not treat local IPC as a mesh trust
-            root.
+          <Card title="Local IPC">
+            Local daemon IPC uses loopback and a token. The default port is
+            19980. Do not use local IPC as the mesh trust root.
           </Card>
         </div>
         <p className="mt-6 text-sm text-steel">
-          Policy: <ExtLink href={SECURITY_MD_URL}>SECURITY.md</ExtLink>. Design
-          limits: <ExtLink href={DESIGN_URL}>design.md</ExtLink>.
-        </p>
-      </Section>
-
-      <Section id="limitations">
-        <Eyebrow>Limitations / beta</Eyebrow>
-        <h2 className="font-display mt-3 text-4xl text-paper">
-          Beta on purpose.
-        </h2>
-        <ul className="mt-6 max-w-3xl space-y-3 text-sm leading-relaxed text-paper/85">
-          <li>
-            {PRODUCT} targets small, operator-controlled meshes — not internet
-            scale.
-          </li>
-          <li>
-            Peer authorization is host-level, not capability-scoped. A
-            compromised authorized node can affect nodes that trust it.
-          </li>
-          <li>
-            {TLS_DETAIL} Keys remain explicitly pinned.
-          </li>
-          <li>
-            CUA depends on a user-session helper and OS permissions on Windows
-            and macOS.
-          </li>
-          <li>
-            This beta ships only {SHIPPING_ARCH_LINE}. It does not ship Linux
-            ARM or Intel Mac binaries.
-          </li>
-          <li>
-            Beta releases require active upgrade discipline. Installers require
-            a matching GitHub Release <code className="text-paper">SHA256SUMS</code>{" "}
-            entry and embedded version before replacement.
-          </li>
-        </ul>
-        <p className="mt-6 text-sm text-steel">
-          <ExtLink href={AUDIT_URL}>AUDIT.md</ExtLink> is an internal review of
-          the shipping tree. It is not a third-party audit. Release verification
-          evidence lives in{" "}
-          <ExtLink href={PROVENANCE_URL}>docs/RELEASE-PROVENANCE.md</ExtLink>{" "}
-          and the GitHub Release{" "}
-          <ExtLink href={SHA256SUMS_URL}>SHA256SUMS</ExtLink> for {VERSION}.
+          Read <ExtLink href={SECURITY_MD_URL}>SECURITY.md</ExtLink>.{" "}
+          <ExtLink href={AUDIT_URL}>AUDIT.md</ExtLink> is an internal review. It
+          is not a third-party audit.
         </p>
       </Section>
 
       <Section id="cua">
-        <Eyebrow>CUA permissions</Eyebrow>
-        <h2 className="font-display mt-3 text-4xl text-paper">
-          Desktop control is host-level.
-        </h2>
+        <h2 className="font-display text-4xl text-paper">CUA</h2>
         <p className="mt-3 max-w-2xl text-sm leading-relaxed text-steel">
-          <code className="text-paper">{CLI} cua</code> captures and drives a
-          trusted peer&apos;s interactive desktop. A trusted peer can observe or
-          control that desktop. CUA is not a low-privilege capability. Details
-          in <ExtLink href={CUA_URL}>docs/cua.md</ExtLink>.
+          The command <code className="text-paper">{CLI} cua</code> captures the
+          desktop of a trusted peer. It also sends mouse and keyboard input.
         </p>
         <div className="mt-8 grid gap-3 md:grid-cols-2">
-          <Card title="Spectators" kicker="Input deny">
-            Spectator attachments cannot send CUA input, including video
+          <Card title="Helper">
+            On Windows and macOS, start one{" "}
+            <code className="text-paper">{BINARY} --cua-helper</code> in the
+            user session. Do not start a second helper on the same token file.
+          </Card>
+          <Card title="macOS">
+            Give Screen Recording and Accessibility to the signed binary.
+            Restart the helper after you change permissions.
+          </Card>
+          <Card title="Spectator">
+            A spectator attachment cannot send CUA input. This includes video
             capture.
           </Card>
-          <Card title="Windows / macOS helper" kicker="User session">
-            Start one <code className="text-paper">{BINARY} --cua-helper</code>{" "}
-            in the interactive user session. Do not run duplicate helpers
-            against one token file.
-          </Card>
-          <Card title="macOS TCC" kicker="Signed binary">
-            Grant Screen Recording (capture/video) and Accessibility
-            (mouse/keyboard) to the installed, Developer ID-signed app or
-            binary. Restart the helper after changing permissions.
-          </Card>
-          <Card title="Helper IPC" kicker="Loopback">
-            The helper listens only on loopback (default 19986) and
-            authenticates every request with an owner-only token under{" "}
+          <Card title="Helper IPC">
+            The helper listens on loopback. The default port is 19986. Each
+            request uses an owner-only token in{" "}
             <code className="text-paper">{STATE_DIR}</code>.
           </Card>
         </div>
+        <p className="mt-6 text-sm text-steel">
+          Capture the screen before you click. Read{" "}
+          <ExtLink href={CUA_URL}>docs/cua.md</ExtLink>.
+        </p>
       </Section>
 
       <Section id="panel">
-        <Eyebrow>Bridge Panel</Eyebrow>
-        <h2 className="font-display mt-3 text-4xl text-paper">
-          Optional Markdown review.
-        </h2>
+        <h2 className="font-display text-4xl text-paper">Bridge Panel</h2>
         <p className="mt-3 max-w-2xl text-sm leading-relaxed text-steel">
-          Bridge Panel is a local web UI for reviewing Markdown and session
-          output from humans or agents. It is optional. It is not a new trust
-          root. See <ExtLink href={PANEL_URL}>docs/bridge-panel.md</ExtLink>.
+          Bridge Panel is a local web UI for Markdown and session output. It is
+          optional. It is not a mesh trust root.
         </p>
         <div className="mt-8 grid gap-4 lg:grid-cols-2">
-          <Command caption="Start from the repo" code="python3 -m tools.bridgepanel" />
+          <Command caption="Start Bridge Panel" code="python3 -m tools.bridgepanel" />
           <Command
             caption="Publish a document"
             code={`${CLI} pane publish report.md --session default --type documents --title 'Audit report'`}
           />
         </div>
-        <ul className="mt-6 max-w-3xl space-y-2 text-sm text-paper/85">
-          <li>Binds 127.0.0.1:9770 by default.</li>
-          <li>Talks to the local daemon over token-authenticated loopback IPC.</li>
-          <li>Writes require a generated bearer token.</li>
-          <li>Do not expose the panel directly to the internet.</li>
-        </ul>
+        <p className="mt-6 max-w-3xl text-sm leading-relaxed text-paper/85">
+          The default bind address is 127.0.0.1:9770. Writes need a bearer
+          token. Do not expose Bridge Panel to the internet.
+        </p>
+        <p className="mt-3 text-sm text-steel">
+          Read <ExtLink href={PANEL_URL}>docs/bridge-panel.md</ExtLink>.
+        </p>
       </Section>
 
       <Section id="agents">
-        <Eyebrow>Agent path</Eyebrow>
-        <h2 className="font-display mt-3 text-4xl text-paper">
-          Same CLI as a human.
-        </h2>
+        <h2 className="font-display text-4xl text-paper">Agents</h2>
         <p className="mt-3 max-w-2xl text-sm leading-relaxed text-steel">
-          An agent on a machine you own can attach, move an artifact, and
-          capture a desktop through the same pinned peer. Repo skills for
-          Claude, Codex, and OpenCode live in{" "}
+          An agent uses the same {CLI} commands as a person. The repository
+          skill is{" "}
           <ExtLink href={SKILL_URL}>skills/bridgesessions/SKILL.md</ExtLink>.
         </p>
-        <Command
-          caption="One command each — shell, file, capture"
-          code={`${CLI} shell <peer> --cmd 'hostname && uptime'\n${CLI} file send <peer> ./artifact.bin --wait\n${CLI} cua capture <peer> -o screen.png`}
-        />
-        <p className="mt-6 text-sm text-steel">
-          Install harness links with{" "}
+        <p className="mt-4 text-sm text-steel">
+          Install skill links with{" "}
           <ExtLink href={AGENT_SKILL_INSTALL_URL}>
             scripts/install-agent-skill.sh
           </ExtLink>
-          . Always-on operator rules: <code className="text-paper">AGENTS.md</code>.
-        </p>
-      </Section>
-
-      <Section id="recovery">
-        <Eyebrow>Uninstall / recovery</Eyebrow>
-        <h2 className="font-display mt-3 text-4xl text-paper">
-          Stop, remove, leave.
-        </h2>
-        <p className="mt-3 max-w-2xl text-sm leading-relaxed text-steel">
-          <code className="text-paper">scripts/uninstall.sh</code> and{" "}
-          <code className="text-paper">uninstall.ps1</code> do not exist. Do
-          not invent them. Recovery is stop the daemon and leftover
-          startup entries, remove the binary, remove state, then leave the
-          mesh.
-        </p>
-        <div className="mt-8 grid gap-3 md:grid-cols-2">
-          <Card title="Stop the daemon" kicker="Installer-created services">
-            <p>
-              Linux:{" "}
-              <code className="text-paper">
-                systemctl --user stop bridgesessions.service
-              </code>
-              . macOS:{" "}
-              <code className="text-paper">
-                launchctl bootout gui/$(id -u)/com.bridgesessions.mesh
-              </code>
-              . Windows: stop the Task Scheduler task{" "}
-              <code className="text-paper">BridgeSessions</code>. Those names
-              come from the installers.
-            </p>
-          </Card>
-          <Card title="CUA helper, tray, menubar" kicker="Unload before delete">
-            <p>
-              macOS CUA helper is a KeepAlive LaunchAgent. Unload it (and the
-              optional menubar agent) before deleting the plists, or launchd
-              restarts them. Windows: the Startup shortcut{" "}
-              <code className="text-paper">BridgeSessions Tray.lnk</code> runs{" "}
-              <code className="text-paper">bs_tray.ps1</code>, which restarts
-              the helper. Stop the tray and end{" "}
-              <code className="text-paper">BridgeSessions-CuaHelper</code>{" "}
-              before deleting files. Linux: stop{" "}
-              <code className="text-paper">bs_tray.py</code> and remove{" "}
-              <code className="text-paper">
-                ~/.config/autostart/bridgesessions-tray.desktop
-              </code>
-              . Do not invent an uninstall script.
-            </p>
-          </Card>
-          <Card title="Remove the binary" kicker="Installer path">
-            <p>
-              Linux/macOS ({SHIPPING_ASSETS[0]} / {SHIPPING_ASSETS[1]}):{" "}
-              <code className="text-paper">{LINUX_MAC_BIN}</code> and{" "}
-              <code className="text-paper">{LINUX_MAC_CLI}</code>. Windows (
-              {SHIPPING_ASSETS[2]}):{" "}
-              <code className="text-paper">{WINDOWS_BIN}</code>.
-            </p>
-          </Card>
-          <Card title="Remove state" kicker="Config and keys">
-            <p>
-              Remove <code className="text-paper">{STATE_DIR}</code> (Windows:{" "}
-              <code className="text-paper">%USERPROFILE%\.bridgesessions</code>
-              ). That directory holds config, identity,{" "}
-              <code className="text-paper">authorized_keys</code>, sessions,
-              received files, and IPC tokens. See{" "}
-              <ExtLink href={CONFIG_URL}>docs/configuration.md</ExtLink>.
-            </p>
-          </Card>
-          <Card title="Leave a mesh" kicker="Membership">
-            <p>
-              Remove this node&apos;s key from other peers&apos;{" "}
-              <code className="text-paper">authorized_keys</code>. Drop local
-              seed pins and inbound keys in {STATE_DIR}. Read{" "}
-              <ExtLink href={CONFIG_URL}>Configuration</ExtLink>,{" "}
-              <ExtLink href={USAGE_URL}>Usage</ExtLink>, and{" "}
-              <ExtLink href={SECURITY_MD_URL}>SECURITY.md</ExtLink>. There is
-              no <code className="text-paper">bs leave</code> command in the
-              docs.
-            </p>
-          </Card>
-        </div>
-        <div className="mt-6 grid gap-4 lg:grid-cols-2">
-          <Command caption="Unload macOS CUA helper" code={RECOVERY_MAC_BOOTOUT_CUA} />
-          <Command
-            caption="Unload macOS menubar"
-            code={RECOVERY_MAC_BOOTOUT_MENUBAR}
-          />
-          <Command caption="Stop Windows tray" code={RECOVERY_WIN_STOP_TRAY} />
-          <Command
-            caption="End BridgeSessions-CuaHelper"
-            code={RECOVERY_WIN_END_CUA_TASK}
-          />
-        </div>
-        <p className="mt-4 text-sm text-steel">
-          After the tray is stopped, kill any leftover helper process, then
-          delete files:
-        </p>
-        <div className="mt-3">
-          <Command
-            caption="Kill leftover --cua-helper"
-            code={RECOVERY_WIN_KILL_HELPER}
-          />
-        </div>
-        <p className="mt-6 text-sm text-steel">
-          Bugs: <ExtLink href={ISSUES_URL}>GitHub issues</ExtLink>.
-          Vulnerabilities:{" "}
-          <ExtLink href={SECURITY_ADVISORY_URL}>private GitHub advisory</ExtLink>{" "}
-          as described in <ExtLink href={SECURITY_MD_URL}>SECURITY.md</ExtLink>
-          — do not file vuln details as a public issue.
+          . Operator rules are in <code className="text-paper">AGENTS.md</code>.
         </p>
       </Section>
 
       <Section>
-        <Eyebrow>Docs</Eyebrow>
-        <h2 className="font-display mt-3 text-4xl text-paper">
-          Product docs stay in the repo.
-        </h2>
+        <h2 className="font-display text-4xl text-paper">Docs</h2>
         <p className="mt-3 max-w-2xl text-sm leading-relaxed text-steel">
-          This marketing tree is not a cutover of a public domain. Canonical
-          operator docs: <ExtLink href={DOCS_SITE}>{DOCS_SITE}</ExtLink> and{" "}
-          <code className="text-paper">docs/</code> on GitHub.
+          Operator docs are in <code className="text-paper">docs/</code> on
+          GitHub and at <ExtLink href={DOCS_SITE}>{DOCS_SITE}</ExtLink>.
         </p>
-        <p className="mt-6 text-sm">
-          <ExtLink href={QUICKSTART_URL}>Quickstart</ExtLink>
-          <span className="mx-2 text-steel">·</span>
-          <ExtLink href={USAGE_URL}>Usage</ExtLink>
-          <span className="mx-2 text-steel">·</span>
-          <ExtLink href={RELEASE_TAG_URL}>Release {VERSION}</ExtLink>
+        <p className="mt-4 text-sm text-steel">
+          Artifacts in this release: {SHIPPING_ASSETS.join(", ")}.
         </p>
       </Section>
     </>

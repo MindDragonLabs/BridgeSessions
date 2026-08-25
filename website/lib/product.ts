@@ -11,7 +11,7 @@ export const LISTEN_PORT = 19949;
 export const TRANSPORT = `Ed25519 mutual TLS over TCP/${LISTEN_PORT}`;
 export const TLS_PROFILE = "TLS 1.2 compatibility profile";
 export const TLS_DETAIL =
-  "Current compatibility profile negotiates TLS 1.2.";
+  "The compatibility profile negotiates TLS 1.2.";
 
 export const REPO_URL = "https://github.com/MindDragonLabs/BridgeSessions";
 export const RELEASE_TAG_URL = `${REPO_URL}/releases/tag/v${VERSION}`;
@@ -55,76 +55,32 @@ export const LICENSE_NAME = "Business Source License 1.1";
 export const LICENSE_SHORT = "BSL 1.1";
 export const LICENSE_CHANGE_DATE = "2030-07-16";
 export const LICENSE_CHANGE_TO = "Apache-2.0";
-export const LICENSE_LINE = `${LICENSE_SHORT}, source-available — not an Open Source license. Change date ${LICENSE_CHANGE_DATE} → ${LICENSE_CHANGE_TO}.`;
+export const LICENSE_LINE = `${LICENSE_SHORT}, source-available. Not an Open Source license. Change date ${LICENSE_CHANGE_DATE} → ${LICENSE_CHANGE_TO}.`;
 
 export const BETA_BOUNDARY =
-  "An authorized peer has near-interactive host access. Use it only on machines and networks you control.";
+  "An authorized key gives near-interactive access. Use this program only on computers that you control.";
 
 export const DESCRIPTION =
-  "A single C++23 executable for persistent shells, verified files, and computer-use automation across a pinned peer mesh. For humans and agents. This beta ships linux-x86_64, macos-arm64, and windows-x86_64.exe.";
+  "BridgeSessions is one C++23 program. It starts shells, sends files, and controls a desktop on a pinned peer mesh.";
 
 export const NAV = [
   { href: "/install", label: "Install" },
-  { href: "/#demo", label: "Demo" },
   { href: "/#security", label: "Security" },
-  { href: "/#limitations", label: "Limitations" },
   { href: "/#cua", label: "CUA" },
-  { href: "/#panel", label: "Panel" },
+  { href: "/#panel", label: "Bridge Panel" },
   { href: "/#agents", label: "Agents" },
-  { href: "/#recovery", label: "Recovery" },
-] as const;
-
-/** Public site IA. Not an internal checklist. */
-export const SITE_IA = [
-  {
-    href: "/install",
-    title: "Install",
-    brief: "One answer: current GitHub release, then bs --version and bs doctor.",
-  },
-  {
-    href: "/#demo",
-    title: "Demo",
-    brief: "Reattach a named shell, move a file, capture a screen.",
-  },
-  {
-    href: "/#security",
-    title: "Security",
-    brief: "Pinned Ed25519 mesh, host-level authorization, invite window.",
-  },
-  {
-    href: "/#limitations",
-    title: "Limitations",
-    brief: "Small operator meshes. Three shipping artifacts. Beta upgrade discipline.",
-  },
-  {
-    href: "/#cua",
-    title: "CUA",
-    brief: "Desktop capture and input on a trusted peer. Host-level, not low privilege.",
-  },
-  {
-    href: "/#panel",
-    title: "Bridge Panel",
-    brief: "Optional local Markdown review UI. Not a new trust root.",
-  },
-  {
-    href: "/#agents",
-    title: "Agents",
-    brief: "Same CLI as a human. Repo skill for Claude, Codex, and OpenCode.",
-  },
-  {
-    href: "/#recovery",
-    title: "Recovery",
-    brief: "Unload leftovers, stop the tray, remove the binary, leave the mesh.",
-  },
 ] as const;
 
 /** KeepAlive LaunchAgents must be booted out before the plists are deleted. */
+export const RECOVERY_MAC_BOOTOUT_MESH =
+  "launchctl bootout gui/$(id -u)/com.bridgesessions.mesh";
 export const RECOVERY_MAC_BOOTOUT_CUA =
   "launchctl bootout gui/$(id -u)/com.bridgesessions.cua-helper";
 export const RECOVERY_MAC_BOOTOUT_MENUBAR =
   "launchctl bootout gui/$(id -u)/com.minddragon.bridgesessions.menubar";
-export const RECOVERY_MAC_BOOTOUT_MESH =
-  "launchctl bootout gui/$(id -u)/com.bridgesessions.mesh";
+export const RECOVERY_LINUX_STOP_DAEMON =
+  "systemctl --user stop bridgesessions.service";
+export const RECOVERY_WIN_END_MESH_TASK = 'schtasks /End /TN "BridgeSessions"';
 
 /** Stop the tray first so it cannot restart the helper, then end the task. */
 export const RECOVERY_WIN_STOP_TRAY =

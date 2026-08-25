@@ -35,7 +35,7 @@ export function SiteHeader() {
             Menu
           </summary>
           <nav
-            aria-label="Mobile"
+            aria-label="Site"
             className="absolute right-0 z-50 mt-2 w-56 rounded-[3px] border border-border bg-panel p-2"
           >
             {NAV.map((item) => (
@@ -50,7 +50,7 @@ export function SiteHeader() {
           </nav>
         </details>
         <nav
-          aria-label="Primary"
+          aria-label="Site"
           className="hidden min-w-0 items-center gap-4 overflow-x-auto font-mono text-[11px] tracking-[0.12em] text-steel uppercase sm:flex"
         >
           {NAV.map((item) => (
@@ -63,7 +63,7 @@ export function SiteHeader() {
           href="/install"
           className="shrink-0 font-mono text-[11px] tracking-[0.12em] text-signal uppercase"
         >
-          Try the release
+          Install
         </Link>
       </div>
     </header>
@@ -76,7 +76,7 @@ export function LiveLine() {
       <p className="mx-auto flex max-w-6xl items-center gap-x-6 overflow-x-auto px-4 py-2 font-mono text-[11px] tracking-[0.14em] text-steel uppercase sm:px-6">
         <span className="inline-flex shrink-0 items-center gap-2 text-signal">
           <span className="live-dot" aria-hidden />
-          live line {VERSION}
+          {VERSION}
         </span>
         <span className="shrink-0">{TRANSPORT}</span>
         <span className="shrink-0">{TLS_PROFILE}</span>
@@ -90,7 +90,7 @@ export function TrustStrip() {
     <div className="border-b border-border">
       <div className="mx-auto flex max-w-6xl flex-col gap-2 px-4 py-3 text-[12px] leading-relaxed text-steel sm:px-6 sm:text-[13px]">
         <p>
-          Primary repo:{" "}
+          GitHub:{" "}
           <a href={REPO_URL} rel="noopener noreferrer" className="break-all text-paper">
             {REPO_URL}
           </a>
@@ -101,7 +101,7 @@ export function TrustStrip() {
           </a>
         </p>
         <p>
-          Public beta. {BETA_BOUNDARY}{" "}
+          {BETA_BOUNDARY}{" "}
           <a href={SECURITY_MD_URL} rel="noopener noreferrer" className="text-paper">
             SECURITY.md
           </a>
@@ -116,10 +116,10 @@ export function SiteFooter() {
     <footer className="border-t border-border">
       <div className="mx-auto max-w-6xl space-y-3 px-4 py-6 text-[12px] leading-relaxed text-steel sm:px-6">
         <p className="font-mono text-[11px] tracking-[0.12em] uppercase">
-          {PRODUCT} · {VERSION} · public beta · marketing source in this GitHub repo · not a production cutover
+          {PRODUCT} {VERSION}
         </p>
         <p>
-          Repo:{" "}
+          GitHub:{" "}
           <a href={REPO_URL} rel="noopener noreferrer" className="break-all text-paper">
             {REPO_URL}
           </a>
@@ -132,7 +132,7 @@ export function SiteFooter() {
         <p>
           {BETA_BOUNDARY}{" "}
           <a href={SECURITY_MD_URL} rel="noopener noreferrer" className="text-paper">
-            Read SECURITY.md
+            SECURITY.md
           </a>
         </p>
       </div>
