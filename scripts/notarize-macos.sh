@@ -41,48 +41,54 @@ if [ -z "$APP_STORE_CONNECT_KEY_ID" ] || [ -z "$APP_STORE_CONNECT_ISSUER" ] || [
     exit 1
 fi
 
-echo "=== 1. Create .app bundle ==="
-BUNDLE="/tmp/${BUNDLE_ID##*.}.app"
-rm -rf "$BUNDLE"
-mkdir -p "$BUNDLE/Contents/MacOS"
-cp "$SOURCE" "$BUNDLE/Contents/MacOS/bridgesessions"
-cp "$INFO_PLIST" "$BUNDLE/Contents/Info.plist"
-
-echo "=== 2. Code sign with Developer ID ==="
-codesign --force --deep --options runtime \
+echo "=== 1. Sign the standalone binary ==="
+# Sign the bare Mach-O, not a copy inside an .app. A Mach-O signed inside a
+# bundle binds to the bundle's Info.plist; extracting it later yields
+# "invalid Info.plist" and Gatekeeper kills the binary (SIGKILL 9).
+SIGNED="/tmp/bridgesessions-standalone-signed"
+cp "$SOURCE" "$SIGNED"
+xattr -cr "$SIGNED" 2>/dev/null || true
+codesign --remove-signature "$SIGNED" 2>/dev/null || true
+codesign --force --options runtime \
     --entitlements "$ENTITLEMENTS" \
     --sign "$IDENTITY" \
     --timestamp \
-    "$BUNDLE"
+    --identifier "$BUNDLE_ID" \
+    "$SIGNED"
 
-echo "=== 3. Verify signature ==="
-codesign --verify --strict --verbose=2 "$BUNDLE" 2>&1
+echo "=== 2. Verify signature ==="
+codesign --verify --strict --verbose=2 "$SIGNED" 2>&1
 
-echo "=== 4. Create ZIP for notarization ==="
+echo "=== 3. Zip the bare binary for notarization ==="
 ZIP="/tmp/bridgesessions-notarize.zip"
-ditto -c -k --keepParent "$BUNDLE" "$ZIP"
+rm -f "$ZIP"
+( cd /tmp && ditto -c -k "$(basename "$SIGNED")" "$(basename "$ZIP")" )
 
-echo "=== 5. Submit for notarization ==="
+echo "=== 4. Submit for notarization ==="
 xcrun notarytool submit "$ZIP" \
     --key-id "$APP_STORE_CONNECT_KEY_ID" \
     --key "$APP_STORE_CONNECT_KEY_FILE" \
     --issuer "$APP_STORE_CONNECT_ISSUER" \
     --wait
 
-echo "=== 6. Staple the ticket ==="
-xcrun stapler staple "$BUNDLE"
+echo "=== 5. Staple (best effort; online cdhash check is the real gate) ==="
+# stapler on bare Mach-O often fails with Error 73 (no header pad room).
+# That is fine: Gatekeeper verifies the cdhash against Apple's notarization
+# service online on first run. A stapled ticket only matters offline.
+xcrun stapler staple "$SIGNED" 2>&1 || \
+    echo "note: staple skipped (Error 73 is normal for bare Mach-O; online notarization still applies)"
 
-echo "=== 7. Verify notarization ==="
-xcrun stapler validate "$BUNDLE"
-spctl --assess --type execute -vv "$BUNDLE"
+echo "=== 6. Verify ==="
+codesign --verify --strict "$SIGNED"
+"$SIGNED" --version >/dev/null && echo "runs locally: OK"
 
-echo "=== 8. Extract signed + notarized binary ==="
-cp "$BUNDLE/Contents/MacOS/bridgesessions" "$OUTPUT"
+echo "=== 7. Ship the standalone binary ==="
+cp "$SIGNED" "$OUTPUT"
 chmod +x "$OUTPUT"
 
 echo ""
 echo "=== Done ==="
 echo "Signed + notarized binary: $OUTPUT"
-echo "Gatekeeper: $(spctl --assess --type execute -vv "$OUTPUT" 2>&1 | head -1)"
+echo "(spctl on a bare Mach-O always says 'not an app'; Gatekeeper validates the cdhash online.)"
 
-rm -rf "$BUNDLE" "$ZIP"
+rm -f "$ZIP" "$SIGNED"
