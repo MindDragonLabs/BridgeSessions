@@ -1164,6 +1164,7 @@
 <ul>
 <li>The feature ships behind <code>features.volume_browse</code>. The default is off. Off means today's panel.</li>
 <li><code>browse_roots.json</code> is per host, with an absolute path allowlist. The shipped file is empty.</li>
+<li>Default pinned volumes per host come from <code>BRIDGEPANEL_VOLUME_PINS</code> (format: <code>host1:C,D,E;host2:C,D</code>). The shipped default is empty; hostnames are deployment config, not source.</li>
 <li>A panel restart reads the new config. No daemon restart is required for an ACL change.</li>
 <li>Volume enumeration runs on the daemon over <code>bs run-script</code>. The script hash is pinned panel-side and re-validated on every release.</li>
 </ul>
