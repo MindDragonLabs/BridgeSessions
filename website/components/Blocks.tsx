@@ -11,34 +11,46 @@ export function Eyebrow({ children }: { children: ReactNode }) {
 
 export function Section({
   id,
+  title,
+  kicker,
   children,
   className = "",
 }: {
   id?: string;
+  title?: string;
+  kicker?: string;
   children: ReactNode;
   className?: string;
 }) {
   return (
-    <section
-      id={id}
-      className={`scroll-mt-24 border-b border-border ${className}`}
-    >
-      <div className="mx-auto max-w-6xl px-4 py-14 sm:px-6 sm:py-16">
-        {children}
-      </div>
+    <section id={id} className={`mt-16 scroll-mt-24 ${className}`}>
+      {kicker ? (
+        <p className="font-mono text-[11px] tracking-[0.12em] text-steel uppercase">
+          {kicker}
+        </p>
+      ) : null}
+      {title ? (
+        <h2 className={`font-display text-3xl text-paper ${kicker ? "mt-2" : ""}`}>
+          {title}
+        </h2>
+      ) : null}
+      <div className={title || kicker ? "mt-5" : undefined}>{children}</div>
     </section>
   );
 }
 
 export function Command({
   code,
+  text,
   caption,
 }: {
-  code: string;
+  code?: string;
+  text?: string;
   caption?: string;
 }) {
+  const value = code ?? text ?? "";
   return (
-    <figure className="overflow-hidden rounded-[3px] border border-border bg-ink">
+    <figure className="mt-3 overflow-hidden rounded-[3px] border border-border bg-panel">
       {caption ? (
         <figcaption className="border-b border-border px-3 py-2 font-mono text-[11px] tracking-[0.14em] text-steel uppercase">
           {caption}
@@ -46,9 +58,9 @@ export function Command({
       ) : null}
       <div className="relative">
         <pre className="overflow-x-auto p-3 pr-16 font-mono text-[13px] leading-relaxed text-paper/90 sm:p-4">
-          <code>{code}</code>
+          <code>{value}</code>
         </pre>
-        <CopyButton text={code} />
+        <CopyButton text={value} />
       </div>
     </figure>
   );
@@ -64,32 +76,10 @@ export function ExtLink({
   return (
     <a
       href={href}
-      className="text-signal underline decoration-signal/30 underline-offset-4 hover:decoration-signal"
+      className="text-paper underline underline-offset-4 hover:text-signal"
       rel="noopener noreferrer"
     >
       {children}
     </a>
-  );
-}
-
-export function Card({
-  title,
-  children,
-  kicker,
-}: {
-  title: string;
-  children: ReactNode;
-  kicker?: string;
-}) {
-  return (
-    <article className="rounded-[3px] border border-border bg-panel p-4 sm:p-5">
-      {kicker ? (
-        <p className="font-mono text-[11px] tracking-[0.16em] text-steel uppercase">
-          {kicker}
-        </p>
-      ) : null}
-      <h3 className="mt-1 text-lg text-paper">{title}</h3>
-      <div className="mt-2 text-sm leading-relaxed text-paper/80">{children}</div>
-    </article>
   );
 }

@@ -1,17 +1,10 @@
-/** Shipping product facts. Keep aligned with VERSION, SECURITY.md, LICENSE, and repo docs. */
+/** Shipping facts. Keep aligned with VERSION and repo docs. */
 
 export const VERSION = "2026.08.24-beta7";
 
 export const PRODUCT = "BridgeSessions";
 export const BINARY = "bridgesessions";
 export const CLI = "bs";
-export const LANGUAGE = "C++23";
-
-export const LISTEN_PORT = 19949;
-export const TRANSPORT = `Ed25519 mutual TLS over TCP/${LISTEN_PORT}`;
-export const TLS_PROFILE = "TLS 1.2 compatibility profile";
-export const TLS_DETAIL =
-  "The compatibility profile negotiates TLS 1.2.";
 
 export const REPO_URL = "https://github.com/MindDragonLabs/BridgeSessions";
 export const RELEASE_TAG_URL = `${REPO_URL}/releases/tag/v${VERSION}`;
@@ -24,21 +17,15 @@ export const SHIPPING_ASSETS = [
   "bridgesessions-windows-x86_64.exe",
 ] as const;
 export const SHIPPING_ARCH_LINE =
-  "linux-x86_64, macos-arm64, and windows-x86_64.exe";
+  "Linux x86_64, Mac Apple silicon, Windows x86_64";
 export const ISSUES_URL = `${REPO_URL}/issues`;
 export const SECURITY_ADVISORY_URL = `${REPO_URL}/security/advisories/new`;
 export const SECURITY_MD_URL = `${REPO_URL}/blob/main/SECURITY.md`;
-export const LICENSE_URL = `${REPO_URL}/blob/main/LICENSE`;
-export const AUDIT_URL = `${REPO_URL}/blob/main/AUDIT.md`;
 export const SKILL_URL = `${REPO_URL}/blob/main/skills/bridgesessions/SKILL.md`;
 export const AGENT_SKILL_INSTALL_URL = `${REPO_URL}/blob/main/scripts/install-agent-skill.sh`;
 export const QUICKSTART_URL = `${REPO_URL}/blob/main/docs/QUICKSTART.md`;
 export const USAGE_URL = `${REPO_URL}/blob/main/docs/usage.md`;
-export const CONFIG_URL = `${REPO_URL}/blob/main/docs/configuration.md`;
 export const CUA_URL = `${REPO_URL}/blob/main/docs/cua.md`;
-export const PANEL_URL = `${REPO_URL}/blob/main/docs/bridge-panel.md`;
-export const DESIGN_URL = `${REPO_URL}/blob/main/docs/design.md`;
-export const PROVENANCE_URL = `${REPO_URL}/blob/main/docs/RELEASE-PROVENANCE.md`;
 export const DOCS_SITE = "https://minddragonlabs.github.io/BridgeSessions";
 
 export const INSTALL_SH =
@@ -51,27 +38,11 @@ export const LINUX_MAC_CLI = "~/.local/bin/bs";
 export const WINDOWS_BIN = "%LOCALAPPDATA%\\bridgesessions\\bridgesessions.exe";
 export const STATE_DIR = "~/.bridgesessions/";
 
-export const LICENSE_NAME = "Business Source License 1.1";
-export const LICENSE_SHORT = "BSL 1.1";
-export const LICENSE_CHANGE_DATE = "2030-07-16";
-export const LICENSE_CHANGE_TO = "Apache-2.0";
-export const LICENSE_LINE = `${LICENSE_SHORT}, source-available. Not an Open Source license. Change date ${LICENSE_CHANGE_DATE} → ${LICENSE_CHANGE_TO}.`;
-
-export const BETA_BOUNDARY =
-  "An authorized key gives near-interactive access. Use this program only on computers that you control.";
-
 export const DESCRIPTION =
-  "BridgeSessions is one C++23 program. It starts shells, sends files, and controls a desktop on a pinned peer mesh.";
+  "You and your AI agent use the same tool to work on another machine.";
 
-export const NAV = [
-  { href: "/install", label: "Install" },
-  { href: "/#security", label: "Security" },
-  { href: "/#cua", label: "CUA" },
-  { href: "/#panel", label: "Bridge Panel" },
-  { href: "/#agents", label: "Agents" },
-] as const;
+export const NAV = [{ href: "/install", label: "Install" }] as const;
 
-/** KeepAlive LaunchAgents must be booted out before the plists are deleted. */
 export const RECOVERY_MAC_BOOTOUT_MESH =
   "launchctl bootout gui/$(id -u)/com.bridgesessions.mesh";
 export const RECOVERY_MAC_BOOTOUT_CUA =
@@ -81,8 +52,6 @@ export const RECOVERY_MAC_BOOTOUT_MENUBAR =
 export const RECOVERY_LINUX_STOP_DAEMON =
   "systemctl --user stop bridgesessions.service";
 export const RECOVERY_WIN_END_MESH_TASK = 'schtasks /End /TN "BridgeSessions"';
-
-/** Stop the tray first so it cannot restart the helper, then end the task. */
 export const RECOVERY_WIN_STOP_TRAY =
   "Get-CimInstance Win32_Process |\n  Where-Object { $_.CommandLine -like '*bs_tray.ps1*' } |\n  ForEach-Object { Stop-Process -Id $_.ProcessId -Force }";
 export const RECOVERY_WIN_END_CUA_TASK =

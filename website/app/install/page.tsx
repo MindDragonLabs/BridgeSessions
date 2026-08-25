@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
-import Link from "next/link";
-import { Command, ExtLink, Section } from "@/components/Blocks";
+import { Command, Section } from "@/components/Blocks";
 import {
+  AGENT_SKILL_INSTALL_URL,
+  BINARY,
   CLI,
-  CONFIG_URL,
   CUA_URL,
   INSTALL_PS1,
   INSTALL_SH,
@@ -11,7 +11,6 @@ import {
   LINUX_MAC_BIN,
   LINUX_MAC_CLI,
   PRODUCT,
-  QUICKSTART_URL,
   RECOVERY_LINUX_STOP_DAEMON,
   RECOVERY_MAC_BOOTOUT_CUA,
   RECOVERY_MAC_BOOTOUT_MENUBAR,
@@ -21,299 +20,220 @@ import {
   RECOVERY_WIN_KILL_HELPER,
   RECOVERY_WIN_STOP_TRAY,
   RELEASE_TAG_URL,
-  SECURITY_ADVISORY_URL,
-  SHIPPING_ARCH_LINE,
-  SHIPPING_ASSETS,
-  SECURITY_MD_URL,
   SHA256SUMS_URL,
+  SHIPPING_ARCH_LINE,
+  SKILL_URL,
   STATE_DIR,
-  USAGE_URL,
-  VERSION,
   WINDOWS_BIN,
 } from "@/lib/product";
 
 export const metadata: Metadata = {
-  title: {
-    absolute: `Install ${PRODUCT} ${VERSION}`,
-  },
-  description: `Install ${PRODUCT} ${VERSION} from GitHub. Artifacts: linux-x86_64, macos-arm64, and windows-x86_64.exe.`,
+  title: `Install ${PRODUCT}`,
+  description: "Install BridgeSessions, then join a machine, run a command, move a file, or look at the screen.",
 };
 
 export default function InstallPage() {
   return (
-    <>
-      <Section>
-        <p className="inline-flex items-center gap-2 rounded-[3px] border border-ember/40 bg-ember/10 px-2 py-1 font-mono text-[11px] tracking-[0.12em] text-ember uppercase">
-          {VERSION}
+    <div className="mx-auto max-w-3xl px-4 py-12 sm:px-6 sm:py-16">
+      <h1 className="font-display text-5xl text-paper">Install</h1>
+      <p className="mt-4 max-w-xl text-[15px] leading-relaxed text-steel">
+        One installer. Paste it. Then type <span className="font-mono text-paper">{CLI} --version</span>.
+        That is the whole first step.
+      </p>
+
+      <Section id="get" kicker="01" title="Get the program">
+        <p className="mb-3 font-mono text-[11px] tracking-[0.12em] text-mute uppercase">
+          Linux and Mac
         </p>
-        <h1 className="font-display mt-6 text-[2.6rem] leading-[0.95] text-paper sm:text-5xl">
-          Install {PRODUCT}
-        </h1>
-        <p className="mt-4 max-w-2xl text-base leading-relaxed text-paper/85">
-          GitHub is the only source for this release. This release has three
-          artifacts: {SHIPPING_ARCH_LINE}.
+        <Command text={INSTALL_SH} />
+        <p className="mt-4 mb-3 font-mono text-[11px] tracking-[0.12em] text-mute uppercase">
+          Windows
         </p>
-        <p className="mt-3 max-w-2xl text-sm leading-relaxed text-steel">
-          The installer stops if the GitHub Release{" "}
-          <code className="text-paper">SHA256SUMS</code> entry or the embedded
-          version does not match.
+        <Command text={INSTALL_PS1} />
+        <p className="mt-4 text-[15px] leading-relaxed text-steel">
+          It drops the program at <span className="font-mono text-paper">{LINUX_MAC_BIN}</span>{" "}
+          (<span className="font-mono text-paper">{LINUX_MAC_CLI}</span> is the short name) on
+          Linux and Mac, or <span className="font-mono text-paper">{WINDOWS_BIN}</span> on
+          Windows. If <span className="font-mono text-paper">bs</span> is not found, add that
+          folder to your PATH and open a new terminal.
+        </p>
+        <p className="mt-4 text-[15px] leading-relaxed text-steel">
+          Prefer a file you can see first? The{" "}
+          <a href={RELEASE_TAG_URL} rel="noopener noreferrer" className="text-paper underline">
+            GitHub release
+          </a>{" "}
+          has the three builds: {SHIPPING_ARCH_LINE}.
         </p>
       </Section>
 
-      <Section>
-        <h2 className="text-2xl text-paper">linux-x86_64 and macos-arm64</h2>
-        <p className="mt-3 text-sm text-steel">Run this command.</p>
-        <div className="mt-4">
-          <Command caption="install.sh" code={INSTALL_SH} />
-        </div>
-        <p className="mt-4 text-sm text-steel">
-          The installer gets <code className="text-paper">{SHIPPING_ASSETS[0]}</code>{" "}
-          or <code className="text-paper">{SHIPPING_ASSETS[1]}</code>.
+      <Section id="verify" kicker="02" title="Make sure it is the real file">
+        <p className="mb-4 text-[15px] leading-relaxed text-steel">
+          Download{" "}
+          <a href={SHA256SUMS_URL} rel="noopener noreferrer" className="text-paper underline">
+            SHA256SUMS
+          </a>{" "}
+          next to the binary. Then:
         </p>
-        <p className="mt-2 text-sm text-steel">
-          The installer puts the binary in{" "}
-          <code className="text-paper">{LINUX_MAC_BIN}</code>. It also puts{" "}
-          <code className="text-paper">{CLI}</code> in{" "}
-          <code className="text-paper">{LINUX_MAC_CLI}</code>.
+        <Command text={`sha256sum -c SHA256SUMS --ignore-missing`} />
+        <p className="mt-4 mb-3 font-mono text-[11px] tracking-[0.12em] text-mute uppercase">
+          Mac
+        </p>
+        <Command text={`shasum -a 256 -c SHA256SUMS`} />
+        <p className="mt-4 mb-3 font-mono text-[11px] tracking-[0.12em] text-mute uppercase">
+          Windows
+        </p>
+        <Command
+          text={`Get-FileHash .\\bridgesessions-windows-x86_64.exe -Algorithm SHA256`}
+        />
+      </Section>
+
+      <Section id="check" kicker="03" title="See that it runs">
+        <Command text={`${CLI} --version`} />
+        <Command text={`${CLI} doctor`} />
+        <p className="mt-4 text-[15px] leading-relaxed text-steel">
+          Doctor tells you if the install looks healthy. If something is off, it
+          usually says what to fix.
         </p>
       </Section>
 
-      <Section>
-        <h2 className="text-2xl text-paper">windows-x86_64.exe</h2>
-        <p className="mt-3 text-sm text-steel">Run this command in PowerShell.</p>
-        <div className="mt-4">
-          <Command caption="install.ps1" code={INSTALL_PS1} />
-        </div>
-        <p className="mt-4 text-sm text-steel">
-          The installer gets <code className="text-paper">{SHIPPING_ASSETS[2]}</code>.
+      <Section id="join" kicker="04" title="Join another machine">
+        <p className="mb-4 text-[15px] leading-relaxed text-steel">
+          On the machine you want to reach, start the program and leave it
+          running. Then pair from your laptop. The first time, you pin that
+          machine on purpose so you know who you are talking to.
         </p>
-        <p className="mt-2 text-sm text-steel">
-          The installer puts the binary in{" "}
-          <code className="text-paper">{WINDOWS_BIN}</code>.
-        </p>
-      </Section>
-
-      <Section>
-        <h2 className="text-2xl text-paper">Verify</h2>
-        <p className="mt-3 text-sm text-steel">Show the version.</p>
-        <div className="mt-4">
-          <Command caption="Version" code={`${CLI} --version`} />
-        </div>
-        <p className="mt-4 text-sm text-steel">
-          The output must be <span className="text-paper">{VERSION}</span>.
-        </p>
-        <p className="mt-4 text-sm text-steel">Run the doctor command.</p>
-        <div className="mt-4">
-          <Command caption="Doctor" code={`${CLI} doctor`} />
-        </div>
-        <p className="mt-4 text-sm text-steel">
-          Then read <ExtLink href={QUICKSTART_URL}>docs/QUICKSTART.md</ExtLink>.
+        <Command text={`${BINARY} --daemon`} />
+        <Command text={`${CLI} join`} />
+        <Command text={`${CLI} peers list`} />
+        <p className="mt-4 text-[15px] leading-relaxed text-steel">
+          After that, use the name you see in the list. Do not guess if two names
+          look close.
         </p>
       </Section>
 
-      <Section>
-        <h2 className="text-2xl text-paper">Manual binaries</h2>
-        <p className="mt-3 max-w-2xl text-sm leading-relaxed text-steel">
-          Use the installer if you can. If you get the files yourself, use the
-          GitHub release tag. Do not use a{" "}
-          <code className="text-paper">/latest</code> URL.
+      <Section id="shell" kicker="05" title="Run something over there">
+        <p className="mb-4 text-[15px] leading-relaxed text-steel">
+          Stack the work in one command. Opening a folder in one call and
+          running the job in the next does not keep that folder.
         </p>
-        <p className="mt-3 text-sm text-steel">
-          Check <code className="text-paper">SHA256SUMS</code>. The assets are{" "}
-          {SHIPPING_ASSETS.join(", ")}.
+        <Command text={`${CLI} shell <peer> --cmd "uname -a"`} />
+        <Command
+          text={`${CLI} shell <peer> --cmd "bash -lc 'cd /app && npm install && npm test'"`}
+        />
+        <p className="mt-4 text-[15px] leading-relaxed text-steel">
+          Longer than a couple of lines? Send a script instead.
         </p>
-        <ul className="mt-6 space-y-2 text-sm">
-          <li>
-            Release tag: <ExtLink href={RELEASE_TAG_URL}>{RELEASE_TAG_URL}</ExtLink>
-          </li>
-          <li>
-            Checksums: <ExtLink href={SHA256SUMS_URL}>{SHA256SUMS_URL}</ExtLink>
-          </li>
-        </ul>
+        <Command text={`${CLI} run-script <peer> deploy.sh`} />
       </Section>
 
-      <Section>
-        <h2 className="text-2xl text-paper">Join</h2>
-        <p className="mt-3 text-sm text-steel">On a pinned seed, run this command.</p>
-        <div className="mt-4">
-          <Command caption="Invite" code={`${CLI} invite`} />
-        </div>
-        <p className="mt-4 text-sm text-steel">
-          On the new peer, run this command immediately.
+      <Section id="file" kicker="06" title="Move a file">
+        <p className="mb-4 text-[15px] leading-relaxed text-steel">
+          Same program. Send something over, or pull a log or a screenshot back.
+          Wait for it to finish.
         </p>
-        <div className="mt-4">
-          <Command
-            caption="Join"
-            code={`${CLI} join <seed-address>:19949 <single-use-token> --start`}
-          />
-        </div>
+        <Command
+          text={`${CLI} file send <peer> ./local.bin /remote/path/local.bin --wait`}
+        />
+        <Command
+          text={`${CLI} file recv <peer> /remote/path/app.log ./app.log --wait`}
+        />
       </Section>
 
-      <Section>
-        <h2 className="text-2xl text-paper">Shell</h2>
-        <p className="mt-3 text-sm text-steel">Start a named shell.</p>
-        <div className="mt-4">
-          <Command
-            caption="Start"
-            code={`${CLI} shell <peer> --name agent`}
-          />
-        </div>
-        <p className="mt-4 text-sm text-steel">
-          Press Ctrl-D to detach. The remote PTY stays.
+      <Section id="capture" kicker="07" title="See the screen. Click if you have to.">
+        <p className="mb-4 text-[15px] leading-relaxed text-steel">
+          On a Mac or Windows desktop, look first. Then click. On those
+          machines the helper has to be running in the logged-in user session.
         </p>
-        <p className="mt-3 text-sm text-steel">
-          Run the same command to attach again.
-        </p>
-        <div className="mt-4">
-          <Command
-            caption="Attach again"
-            code={`${CLI} shell <peer> --name agent`}
-          />
-        </div>
-      </Section>
-
-      <Section>
-        <h2 className="text-2xl text-paper">File</h2>
-        <p className="mt-3 text-sm text-steel">Send a file and wait for the result.</p>
-        <div className="mt-4">
-          <Command
-            caption="Send"
-            code={`${CLI} file send <peer> ./artifact.bin --wait`}
-          />
-        </div>
-        <p className="mt-4 text-sm text-steel">Get a file and wait for the result.</p>
-        <div className="mt-4">
-          <Command
-            caption="Receive"
-            code={`${CLI} file recv <peer> received/report.md --to ./report.md --wait`}
-          />
-        </div>
-      </Section>
-
-      <Section>
-        <h2 className="text-2xl text-paper">CUA</h2>
-        <p className="mt-3 text-sm text-steel">Capture the screen before you click.</p>
-        <div className="mt-4">
-          <Command
-            caption="Capture"
-            code={`${CLI} cua capture <peer> -o screen.png`}
-          />
-        </div>
-        <p className="mt-4 max-w-2xl text-sm leading-relaxed text-steel">
-          On Windows and macOS, start one{" "}
-          <code className="text-paper">bridgesessions --cua-helper</code> in the
-          user session. On macOS, give Screen Recording and Accessibility.
-        </p>
-        <p className="mt-3 text-sm text-steel">
-          Read <ExtLink href={CUA_URL}>docs/cua.md</ExtLink>.
-        </p>
-      </Section>
-
-      <Section id="recovery">
-        <h2 className="text-2xl text-paper">Recovery</h2>
-        <p className="mt-3 max-w-2xl text-sm leading-relaxed text-steel">
-          <code className="text-paper">scripts/uninstall.sh</code> and{" "}
-          <code className="text-paper">uninstall.ps1</code> do not exist. Do
-          not invent them.
-        </p>
-        <p className="mt-4 text-sm text-steel">Stop the daemon.</p>
-        <div className="mt-4 grid gap-4">
-          <Command caption="Linux" code={RECOVERY_LINUX_STOP_DAEMON} />
-          <Command caption="macOS mesh" code={RECOVERY_MAC_BOOTOUT_MESH} />
-          <Command caption="Windows mesh task" code={RECOVERY_WIN_END_MESH_TASK} />
-        </div>
-        <p className="mt-6 max-w-3xl text-sm leading-relaxed text-paper/85">
-          On macOS the CUA helper LaunchAgent is KeepAlive. Unload the helper
-          and the menubar agent before you remove the plist files.
-        </p>
-        <div className="mt-4 grid gap-4">
-          <Command caption="Unload macOS CUA helper" code={RECOVERY_MAC_BOOTOUT_CUA} />
-          <Command
-            caption="Unload macOS menubar"
-            code={RECOVERY_MAC_BOOTOUT_MENUBAR}
-          />
-        </div>
-        <p className="mt-4 max-w-3xl text-sm leading-relaxed text-steel">
-          Then remove{" "}
-          <code className="text-paper">
-            ~/Library/LaunchAgents/com.bridgesessions.cua-helper.plist
-          </code>{" "}
-          and{" "}
-          <code className="text-paper">
-            ~/Library/LaunchAgents/com.minddragon.bridgesessions.menubar.plist
-          </code>
+        <Command text={`${CLI} cua screen <peer>`} />
+        <Command text={`${CLI} cua capture <peer>`} />
+        <Command text={`${CLI} cua click <peer> --x 100 --y 200`} />
+        <p className="mt-4 text-[15px] leading-relaxed text-steel">
+          More on that in the{" "}
+          <a href={CUA_URL} rel="noopener noreferrer" className="text-paper underline">
+            desktop notes
+          </a>
           .
         </p>
-        <p className="mt-6 max-w-3xl text-sm leading-relaxed text-paper/85">
-          On Windows, <code className="text-paper">BridgeSessions Tray.lnk</code>{" "}
-          starts <code className="text-paper">bs_tray.ps1</code>. That script
-          starts the helper again. Stop the tray first. Then end the{" "}
-          <code className="text-paper">BridgeSessions-CuaHelper</code> task.
-          Then remove files.
+      </Section>
+
+      <Section id="agents" kicker="08" title="Let an agent use it">
+        <p className="mb-4 text-[15px] leading-relaxed text-steel">
+          Claude, Codex, and OpenCode can use the same moves. The skill is in
+          the repo.
         </p>
-        <div className="mt-4 grid gap-4">
-          <Command caption="Stop Windows tray" code={RECOVERY_WIN_STOP_TRAY} />
-          <Command
-            caption="End BridgeSessions-CuaHelper"
-            code={RECOVERY_WIN_END_CUA_TASK}
-          />
-          <Command
-            caption="Stop leftover --cua-helper"
-            code={RECOVERY_WIN_KILL_HELPER}
-          />
-        </div>
-        <p className="mt-6 max-w-3xl text-sm leading-relaxed text-paper/85">
-          Then delete the Startup shortcut. Unregister the task if you do not
-          want it at the next logon. On Linux, stop{" "}
-          <code className="text-paper">bs_tray.py</code> and remove{" "}
-          <code className="text-paper">
-            ~/.config/autostart/bridgesessions-tray.desktop
-          </code>
-          .
-        </p>
-        <p className="mt-4 text-sm text-steel">
-          These names come from <code className="text-paper">scripts/install.sh</code>{" "}
-          and <code className="text-paper">scripts/install.ps1</code>.
-        </p>
-        <p className="mt-4 text-sm text-paper/85">
-          Remove the binary: <code className="text-paper">{LINUX_MAC_BIN}</code>,{" "}
-          <code className="text-paper">{LINUX_MAC_CLI}</code>, or{" "}
-          <code className="text-paper">{WINDOWS_BIN}</code>.
-        </p>
-        <p className="mt-3 text-sm text-paper/85">
-          Remove state: <code className="text-paper">{STATE_DIR}</code>. On
-          Windows the path is{" "}
-          <code className="text-paper">%USERPROFILE%\.bridgesessions</code>.
-        </p>
-        <p className="mt-3 text-sm text-paper/85">
-          To leave a mesh, remove this peer key from other peers&apos;{" "}
-          <code className="text-paper">authorized_keys</code>. Also remove local
-          seed pins. Read <ExtLink href={CONFIG_URL}>docs/configuration.md</ExtLink>,{" "}
-          <ExtLink href={USAGE_URL}>docs/usage.md</ExtLink>, and{" "}
-          <ExtLink href={SECURITY_MD_URL}>SECURITY.md</ExtLink>.
+        <Command
+          text={`curl -fsSL https://raw.githubusercontent.com/MindDragonLabs/BridgeSessions/main/scripts/install-agent-skill.sh | bash`}
+        />
+        <p className="mt-4 text-[15px] leading-relaxed text-steel">
+          Read the{" "}
+          <a href={SKILL_URL} rel="noopener noreferrer" className="text-paper underline">
+            skill
+          </a>{" "}
+          or the{" "}
+          <a href={AGENT_SKILL_INSTALL_URL} rel="noopener noreferrer" className="text-paper underline">
+            installer
+          </a>{" "}
+          if you want to see what it puts on disk.
         </p>
       </Section>
 
-      <Section>
-        <h2 className="text-2xl text-paper">Bugs and vulnerabilities</h2>
-        <p className="mt-4 text-sm text-paper/85">
-          Report unexpected behavior on{" "}
-          <ExtLink href={ISSUES_URL}>GitHub issues</ExtLink>.
+      <Section id="recovery" kicker="09" title="Take it off a machine">
+        <p className="mb-4 text-[15px] leading-relaxed text-steel">
+          There is no uninstall script. Stop what is running, then delete the
+          files. State lives in <span className="font-mono text-paper">{STATE_DIR}</span>.
         </p>
-        <p className="mt-3 text-sm text-paper/85">
-          Report a vulnerability as specified in{" "}
-          <ExtLink href={SECURITY_MD_URL}>SECURITY.md</ExtLink>. Open a{" "}
-          <ExtLink href={SECURITY_ADVISORY_URL}>
-            private GitHub security advisory
-          </ExtLink>
-          . Do not put vulnerability details in a public issue.
+        <p className="mb-3 font-medium text-paper">Mac</p>
+        <p className="mb-3 text-[15px] leading-relaxed text-steel">
+          Kick the launch agents out first. Then delete the files.
         </p>
-        <p className="mt-8">
-          <Link href="/" className="text-signal">
-            Home
-          </Link>
+        <Command text={RECOVERY_MAC_BOOTOUT_MESH} />
+        <Command text={RECOVERY_MAC_BOOTOUT_CUA} />
+        <Command text={RECOVERY_MAC_BOOTOUT_MENUBAR} />
+        <Command
+          text={`rm -f ~/Library/LaunchAgents/com.bridgesessions.mesh.plist \\
+  ~/Library/LaunchAgents/com.bridgesessions.cua-helper.plist \\
+  ~/Library/LaunchAgents/com.minddragon.bridgesessions.menubar.plist`}
+        />
+        <Command
+          text={`rm -f ~/.local/bin/${BINARY} ~/.local/bin/${CLI} \\
+  ~/Library/Application\\ Support/BridgeSessions/bridge-menubar.app`}
+        />
+        <Command text={`rm -rf ${STATE_DIR}`} />
+        <p className="mt-6 mb-3 font-medium text-paper">Linux</p>
+        <Command text={RECOVERY_LINUX_STOP_DAEMON} />
+        <Command
+          text={`systemctl --user disable bridgesessions.service 2>/dev/null || true`}
+        />
+        <Command
+          text={`rm -f ~/.config/systemd/user/bridgesessions.service \\
+  ~/.config/autostart/bridgesessions.desktop \\
+  ~/.local/bin/${BINARY} ~/.local/bin/${CLI}`}
+        />
+        <Command text={`rm -rf ${STATE_DIR}`} />
+        <p className="mt-6 mb-3 font-medium text-paper">Windows</p>
+        <p className="mb-3 text-[15px] leading-relaxed text-steel">
+          Stop the tray and the helper before you delete anything.
+        </p>
+        <Command text={RECOVERY_WIN_END_MESH_TASK} />
+        <Command text={RECOVERY_WIN_STOP_TRAY} />
+        <Command text={RECOVERY_WIN_END_CUA_TASK} />
+        <Command text={RECOVERY_WIN_KILL_HELPER} />
+        <Command
+          text={`schtasks /Delete /TN "BridgeSessions" /F
+schtasks /Delete /TN "BridgeSessions-CuaHelper" /F`}
+        />
+        <Command
+          text={`Remove-Item -Recurse -Force "$env:LOCALAPPDATA\\bridgesessions"
+Remove-Item -Recurse -Force "$env:USERPROFILE\\.bridgesessions"`}
+        />
+        <p className="mt-6 text-[15px] leading-relaxed text-steel">
+          If a leftover process will not die, say so on{" "}
+          <a href={ISSUES_URL} rel="noopener noreferrer" className="text-paper underline">
+            GitHub issues
+          </a>
+          . Do not invent a cleaner script and call it ours.
         </p>
       </Section>
-    </>
+    </div>
   );
 }

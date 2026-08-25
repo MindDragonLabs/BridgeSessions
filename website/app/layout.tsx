@@ -1,13 +1,7 @@
 import type { Metadata } from "next";
 import { IBM_Plex_Mono, IBM_Plex_Sans, Instrument_Serif } from "next/font/google";
-import {
-  LiveLine,
-  SiteFooter,
-  SiteHeader,
-  SkipLink,
-  TrustStrip,
-} from "@/components/Chrome";
-import { DESCRIPTION, PRODUCT, VERSION } from "@/lib/product";
+import { SiteFooter, SiteHeader, SkipLink } from "@/components/Chrome";
+import { DESCRIPTION, PRODUCT } from "@/lib/product";
 import "./globals.css";
 
 const plexSans = IBM_Plex_Sans({
@@ -31,7 +25,7 @@ const display = Instrument_Serif({
 export const metadata: Metadata = {
   title: {
     default: PRODUCT,
-    absolute: `${PRODUCT} ${VERSION}`,
+    absolute: `${PRODUCT} — One program. Every computer you already have.`,
     template: "%s",
   },
   description: DESCRIPTION,
@@ -47,8 +41,6 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       <body className="flex min-h-full flex-col bg-ink text-paper antialiased">
         <SkipLink />
         <SiteHeader />
-        <LiveLine />
-        <TrustStrip />
         <main id="content" className="flex-1">
           {children}
         </main>

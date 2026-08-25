@@ -9,6 +9,7 @@
   --panel: #0c0e12;
   --border: #262b33;
   --signal-ink: #12140a;
+  --mute: #6f6a60;
 }
 
 @theme inline {
@@ -20,6 +21,7 @@
   --color-panel: var(--panel);
   --color-border: var(--border);
   --color-signal-ink: var(--signal-ink);
+  --color-mute: var(--mute);
   --font-sans: var(--font-plex-sans), "IBM Plex Sans", ui-sans-serif, system-ui,
     sans-serif;
   --font-mono: var(--font-plex-mono), "IBM Plex Mono", ui-monospace, monospace;
