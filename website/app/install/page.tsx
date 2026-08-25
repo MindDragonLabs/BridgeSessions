@@ -167,6 +167,29 @@ export default function InstallPage() {
             <code className="text-paper">BridgeSessions</code>.
           </li>
           <li>
+            Stop CUA helper / tray / menubar startup entries the installers
+            create. macOS LaunchAgents:{" "}
+            <code className="text-paper">com.bridgesessions.cua-helper</code>{" "}
+            and optional{" "}
+            <code className="text-paper">
+              com.minddragon.bridgesessions.menubar
+            </code>{" "}
+            under <code className="text-paper">~/Library/LaunchAgents/</code>.
+            Windows: Task Scheduler{" "}
+            <code className="text-paper">BridgeSessions-CuaHelper</code> and
+            the Startup shortcut{" "}
+            <code className="text-paper">BridgeSessions Tray.lnk</code>.
+            Linux: remove{" "}
+            <code className="text-paper">
+              ~/.config/autostart/bridgesessions-tray.desktop
+            </code>{" "}
+            and stop <code className="text-paper">bs_tray.py</code> if it is
+            running. Then delete those plist / task / shortcut / desktop
+            files. Names come from{" "}
+            <code className="text-paper">scripts/install.sh</code> and{" "}
+            <code className="text-paper">scripts/install.ps1</code>.
+          </li>
+          <li>
             Remove the binary:{" "}
             <code className="text-paper">{LINUX_MAC_BIN}</code> /{" "}
             <code className="text-paper">{LINUX_MAC_CLI}</code> or{" "}

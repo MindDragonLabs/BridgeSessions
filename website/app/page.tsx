@@ -450,7 +450,9 @@ export default function Home() {
         <p className="mt-3 max-w-2xl text-sm leading-relaxed text-steel">
           <code className="text-paper">scripts/uninstall.sh</code> and{" "}
           <code className="text-paper">uninstall.ps1</code> do not exist. Do
-          not invent them. Recovery is four operator actions.
+          not invent them. Recovery is stop the daemon and leftover
+          startup entries, remove the binary, remove state, then leave the
+          mesh.
         </p>
         <div className="mt-8 grid gap-3 md:grid-cols-2">
           <Card title="Stop the daemon" kicker="Installer-created services">
@@ -464,9 +466,28 @@ export default function Home() {
                 launchctl bootout gui/$(id -u)/com.bridgesessions.mesh
               </code>
               . Windows: stop the Task Scheduler task{" "}
-              <code className="text-paper">BridgeSessions</code> (and{" "}
-              <code className="text-paper">BridgeSessions-CuaHelper</code> if
-              present). Those names come from the installers.
+              <code className="text-paper">BridgeSessions</code>. Those names
+              come from the installers.
+            </p>
+          </Card>
+          <Card title="CUA helper, tray, menubar" kicker="Startup leftovers">
+            <p>
+              macOS LaunchAgents also include{" "}
+              <code className="text-paper">com.bridgesessions.cua-helper</code>{" "}
+              and optional{" "}
+              <code className="text-paper">
+                com.minddragon.bridgesessions.menubar
+              </code>
+              . Windows: Task Scheduler{" "}
+              <code className="text-paper">BridgeSessions-CuaHelper</code> and
+              Startup shortcut{" "}
+              <code className="text-paper">BridgeSessions Tray.lnk</code>.
+              Linux:{" "}
+              <code className="text-paper">
+                ~/.config/autostart/bridgesessions-tray.desktop
+              </code>
+              . Stop them, then remove those launch-agent / scheduled-task /
+              shortcut files. Do not invent an uninstall script.
             </p>
           </Card>
           <Card title="Remove the binary" kicker="Installer path">
