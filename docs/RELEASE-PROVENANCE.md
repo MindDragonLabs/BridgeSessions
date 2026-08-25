@@ -37,7 +37,7 @@ A release build must satisfy all of the following:
 - Windows PE with ASLR and NX linker flags validated,
 - Linux PIE, RELRO/NX, stack-protector, and fortified libc validated.
 
-The `scripts/prepublish-scan.sh` script blocks private addresses, key material, and operator names from a local blocklist before tagging. The blocklist covers home paths, Tailscale CGNAT ranges, common operator hostnames, and 64-hex patterns that are not placeholders. A release that fails the scan does not publish.
+The `scripts/prepublish-scan.sh` script blocks private addresses, key material, and operator names from a local blocklist before tagging. The blocklist covers home paths, Tailscale CGNAT ranges, common operator hostnames, and 64-hex patterns that are not placeholders. A release that fails the scan does not publish. A companion private allowlist (`~/.config/bridgesessions/publish-allowlist`, outside the repo) exempts legitimate baked-in strings — currently the Developer ID certificate subject embedded in codesigned macOS binaries, which this gate requires. Blocklist matching is case-sensitive (hostnames are lowercase).
 
 ## Stage locally
 

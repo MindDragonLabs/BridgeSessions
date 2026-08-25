@@ -25,6 +25,7 @@ PEM_PAT='-----BEGIN [A-Z ]*PRIVATE KEY-----'
 # <angle-bracket> placeholders are stripped before matching. Test dummies
 # (TEST-PC1, 192.168.1.x, RFC5737 TEST-NET) match nothing and are permitted.
 BLOCKLIST="${BS_PUBLISH_BLOCKLIST:-$HOME/.config/bridgesessions/publish-blocklist}"
+ALLOWLIST="${BS_PUBLISH_ALLOWLIST:-$HOME/.config/bridgesessions/publish-allowlist}"
 
 # ── WARN tier ────────────────────────────────────────────────────
 WARN_PAT='password|ipc-token|api[_-]?key|BEGIN [A-Z ]*PRIVATE KEY'
@@ -81,7 +82,14 @@ scan_dist() {
     if [ -f "$BLOCKLIST" ]; then
       while IFS= read -r pat; do
         case "$pat" in ''|'#'*) continue ;; esac
-        strings "$b" 2>/dev/null | grep -qiE -- "$pat" && { echo "BLOCK: network blocklist pattern [$pat] in binary $b"; FAILED=1; }
+        # ALLOWLIST (PRIVATE overlay, lives outside the repo like the blocklist)
+        # exempts legitimate baked-in strings — e.g. the Developer ID
+        # certificate subject embedded in a codesign signature, which release
+        # provenance REQUIRES. Matching strings lines are dropped before the
+        # blocklist match. Build-path bake-in checks above stay fully active.
+        s=$(strings "$b" 2>/dev/null)
+        [ -f "$ALLOWLIST" ] && s=$(printf '%s\n' "$s" | grep -vE -f "$ALLOWLIST" || true)
+        printf '%s\n' "$s" | grep -qiE -- "$pat" && { echo "BLOCK: network blocklist pattern [$pat] in binary $b"; FAILED=1; }
       done < "$BLOCKLIST"
     fi
   done
