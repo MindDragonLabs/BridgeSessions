@@ -14,9 +14,17 @@ export const TLS_DETAIL =
   "Current compatibility profile negotiates TLS 1.2.";
 
 export const REPO_URL = "https://github.com/MindDragonLabs/BridgeSessions";
-export const RELEASES_URL = `${REPO_URL}/releases`;
 export const RELEASE_TAG_URL = `${REPO_URL}/releases/tag/v${VERSION}`;
 export const SHA256SUMS_URL = `${REPO_URL}/releases/download/v${VERSION}/SHA256SUMS`;
+
+/** beta7 ships these three artifacts only. Do not imply Linux ARM or Intel Mac. */
+export const SHIPPING_ASSETS = [
+  "bridgesessions-linux-x86_64",
+  "bridgesessions-macos-arm64",
+  "bridgesessions-windows-x86_64.exe",
+] as const;
+export const SHIPPING_ARCH_LINE =
+  "linux-x86_64, macos-arm64, and windows-x86_64.exe";
 export const ISSUES_URL = `${REPO_URL}/issues`;
 export const SECURITY_ADVISORY_URL = `${REPO_URL}/security/advisories/new`;
 export const SECURITY_MD_URL = `${REPO_URL}/blob/main/SECURITY.md`;
@@ -47,13 +55,13 @@ export const LICENSE_NAME = "Business Source License 1.1";
 export const LICENSE_SHORT = "BSL 1.1";
 export const LICENSE_CHANGE_DATE = "2030-07-16";
 export const LICENSE_CHANGE_TO = "Apache-2.0";
-export const LICENSE_LINE = `${LICENSE_SHORT}, source-available. Converts to ${LICENSE_CHANGE_TO} on ${LICENSE_CHANGE_DATE}.`;
+export const LICENSE_LINE = `${LICENSE_SHORT}, source-available — not an Open Source license. Change date ${LICENSE_CHANGE_DATE} → ${LICENSE_CHANGE_TO}.`;
 
 export const BETA_BOUNDARY =
   "An authorized peer has near-interactive host access. Use it only on machines and networks you control.";
 
 export const DESCRIPTION =
-  "A single C++23 executable for persistent shells, verified files, and computer-use automation across a pinned peer mesh. For humans and agents, on machines you already control.";
+  "A single C++23 executable for persistent shells, verified files, and computer-use automation across a pinned peer mesh. For humans and agents. This beta ships linux-x86_64, macos-arm64, and windows-x86_64.exe.";
 
 export const NAV = [
   { href: "/install", label: "Install" },

@@ -13,8 +13,9 @@ import {
   PRODUCT,
   QUICKSTART_URL,
   RELEASE_TAG_URL,
-  RELEASES_URL,
   SECURITY_ADVISORY_URL,
+  SHIPPING_ARCH_LINE,
+  SHIPPING_ASSETS,
   SECURITY_MD_URL,
   SHA256SUMS_URL,
   STATE_DIR,
@@ -25,7 +26,7 @@ import {
 
 export const metadata: Metadata = {
   title: `Install ${PRODUCT} ${VERSION}`,
-  description: `Install the current GitHub release ${VERSION}. One answer for Linux, macOS, and Windows.`,
+  description: `Install the current GitHub release ${VERSION}. Ships linux-x86_64, macos-arm64, and windows-x86_64.exe.`,
 };
 
 export default function InstallPage() {
@@ -41,6 +42,7 @@ export default function InstallPage() {
         </h1>
         <p className="mt-4 max-w-2xl text-base leading-relaxed text-paper/85">
           This is the one install answer. GitHub is the only primary source.
+          This beta ships {SHIPPING_ARCH_LINE} — not Linux ARM, not Intel Mac.
           Installers fail closed unless the GitHub Release{" "}
           <code className="text-paper">SHA256SUMS</code> entry and embedded
           version match.
@@ -48,24 +50,27 @@ export default function InstallPage() {
       </Section>
 
       <Section>
-        <Eyebrow>Linux / macOS</Eyebrow>
+        <Eyebrow>linux-x86_64 / macos-arm64</Eyebrow>
         <h2 className="mt-3 text-2xl text-paper">One curl.</h2>
         <div className="mt-6">
           <Command caption="Installer" code={INSTALL_SH} />
         </div>
         <p className="mt-4 text-sm text-steel">
-          Places <code className="text-paper">{LINUX_MAC_BIN}</code> and{" "}
+          Fetches <code className="text-paper">{SHIPPING_ASSETS[0]}</code> or{" "}
+          <code className="text-paper">{SHIPPING_ASSETS[1]}</code>. Places{" "}
+          <code className="text-paper">{LINUX_MAC_BIN}</code> and{" "}
           <code className="text-paper">{LINUX_MAC_CLI}</code>.
         </p>
       </Section>
 
       <Section>
-        <Eyebrow>Windows</Eyebrow>
+        <Eyebrow>windows-x86_64.exe</Eyebrow>
         <h2 className="mt-3 text-2xl text-paper">One PowerShell line.</h2>
         <div className="mt-6">
           <Command caption="PowerShell" code={INSTALL_PS1} />
         </div>
         <p className="mt-4 text-sm text-steel">
+          Fetches <code className="text-paper">{SHIPPING_ASSETS[2]}</code>.
           Places <code className="text-paper">{WINDOWS_BIN}</code>.
         </p>
       </Section>
@@ -88,14 +93,13 @@ export default function InstallPage() {
         <h2 className="mt-3 text-2xl text-paper">GitHub Releases + SHA256SUMS.</h2>
         <p className="mt-3 max-w-2xl text-sm leading-relaxed text-steel">
           Prefer the installer. If you fetch assets by hand, use the{" "}
-          {VERSION} release and check the published checksums.
+          {VERSION} prerelease tag — not a <code className="text-paper">/latest</code>{" "}
+          URL — and check the published checksums. Assets:{" "}
+          {SHIPPING_ASSETS.join(", ")}.
         </p>
         <ul className="mt-6 space-y-2 text-sm">
           <li>
             Release tag: <ExtLink href={RELEASE_TAG_URL}>{RELEASE_TAG_URL}</ExtLink>
-          </li>
-          <li>
-            All releases: <ExtLink href={RELEASES_URL}>{RELEASES_URL}</ExtLink>
           </li>
           <li>
             Checksums: <ExtLink href={SHA256SUMS_URL}>{SHA256SUMS_URL}</ExtLink>
@@ -143,27 +147,40 @@ export default function InstallPage() {
 
       <Section id="recovery">
         <Eyebrow>Uninstall / recovery</Eyebrow>
-        <h2 className="mt-3 text-2xl text-paper">Point at the repo docs.</h2>
+        <h2 className="mt-3 text-2xl text-paper">Stop, remove, leave.</h2>
         <p className="mt-3 max-w-2xl text-sm leading-relaxed text-steel">
-          There is no dedicated uninstall script in the repository. This page
-          does not invent one.
+          <code className="text-paper">scripts/uninstall.sh</code> and{" "}
+          <code className="text-paper">uninstall.ps1</code> do not exist. This
+          page does not invent them.
         </p>
         <ul className="mt-6 max-w-3xl space-y-2 text-sm text-paper/85">
           <li>
-            Linux/macOS binary:{" "}
+            Stop the daemon: Linux{" "}
+            <code className="text-paper">
+              systemctl --user stop bridgesessions.service
+            </code>
+            ; macOS{" "}
+            <code className="text-paper">
+              launchctl bootout gui/$(id -u)/com.bridgesessions.mesh
+            </code>
+            ; Windows Task Scheduler task{" "}
+            <code className="text-paper">BridgeSessions</code>.
+          </li>
+          <li>
+            Remove the binary:{" "}
             <code className="text-paper">{LINUX_MAC_BIN}</code> /{" "}
-            <code className="text-paper">{LINUX_MAC_CLI}</code>
+            <code className="text-paper">{LINUX_MAC_CLI}</code> or{" "}
+            <code className="text-paper">{WINDOWS_BIN}</code>
           </li>
           <li>
-            Windows binary: <code className="text-paper">{WINDOWS_BIN}</code>
+            Remove state: <code className="text-paper">{STATE_DIR}</code>{" "}
+            (Windows:{" "}
+            <code className="text-paper">%USERPROFILE%\.bridgesessions</code>)
           </li>
           <li>
-            State, keys, and tokens:{" "}
-            <code className="text-paper">{STATE_DIR}</code>
-          </li>
-          <li>
-            Leaving a mesh is membership — pinned seeds and inbound{" "}
-            <code className="text-paper">authorized_keys</code>. Start from{" "}
+            Leave a mesh: remove this node&apos;s key from other peers&apos;{" "}
+            <code className="text-paper">authorized_keys</code> and drop local
+            seed pins. See{" "}
             <ExtLink href={CONFIG_URL}>Configuration</ExtLink>,{" "}
             <ExtLink href={USAGE_URL}>Usage</ExtLink>, and{" "}
             <ExtLink href={SECURITY_MD_URL}>SECURITY.md</ExtLink>.

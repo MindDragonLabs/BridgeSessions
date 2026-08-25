@@ -23,8 +23,9 @@ import {
   PROVENANCE_URL,
   QUICKSTART_URL,
   RELEASE_TAG_URL,
-  RELEASES_URL,
   REPO_URL,
+  SHIPPING_ARCH_LINE,
+  SHIPPING_ASSETS,
   SECURITY_ADVISORY_URL,
   SECURITY_MD_URL,
   SHA256SUMS_URL,
@@ -47,17 +48,17 @@ export default function Home() {
           <p className="mt-4 inline-flex items-center gap-2 rounded-[3px] border border-ember/40 bg-ember/10 px-2 py-1 font-mono text-[11px] tracking-[0.12em] text-ember uppercase">
             Beta {VERSION}
           </p>
-          <h1 className="font-display mt-6 max-w-[14ch] text-[3.1rem] leading-[0.92] text-paper sm:text-6xl">
+          <h1 className="font-display mt-6 max-w-[16ch] text-[3.1rem] leading-[0.92] text-paper sm:text-6xl">
             One binary.
             <br />
-            Every machine
+            Machines you
             <br />
-            you already own.
+            already control.
           </h1>
           <p className="mt-6 max-w-xl text-base leading-relaxed text-paper/85 sm:text-lg">
             {PRODUCT} is the control layer for machines you already operate. One{" "}
-            {LANGUAGE} executable — {BINARY} / {CLI} — for humans and agents
-            across Linux, macOS, and Windows.
+            {LANGUAGE} executable — {BINARY} / {CLI} — for humans and agents.
+            This beta ships {SHIPPING_ARCH_LINE}.
           </p>
           <p className="mt-4 max-w-xl text-sm leading-relaxed text-steel">
             Persistent shells, verified files, and computer-use automation share
@@ -76,7 +77,7 @@ export default function Home() {
             <Fact label="Version" value={VERSION} />
             <Fact label="Transport" value={TRANSPORT} />
             <Fact label="Compatibility" value={TLS_DETAIL} />
-            <Fact label="Platforms" value="Linux · macOS · Windows" />
+            <Fact label="Ships" value={SHIPPING_ARCH_LINE} />
           </dl>
         </div>
       </section>
@@ -182,13 +183,14 @@ export default function Home() {
           </Card>
           <Card title="Install answer" kicker="One path">
             <p>
-              Linux/macOS and Windows installer commands live on{" "}
+              Installer commands for the three shipping artifacts live on{" "}
               <Link href="/install" className="text-signal">
                 /install
               </Link>
-              . Manual binaries and{" "}
-              <ExtLink href={SHA256SUMS_URL}>SHA256SUMS</ExtLink> are GitHub
-              Release assets for {VERSION}.
+              : {SHIPPING_ASSETS.join(", ")}. Checksums:{" "}
+              <ExtLink href={SHA256SUMS_URL}>SHA256SUMS</ExtLink> on the{" "}
+              <ExtLink href={RELEASE_TAG_URL}>{VERSION}</ExtLink> GitHub
+              Release.
             </p>
           </Card>
           <Card title="License" kicker="Source-available">
@@ -200,7 +202,7 @@ export default function Home() {
         <p className="mt-6 text-sm text-steel">
           Repo: <ExtLink href={REPO_URL}>{REPO_URL}</ExtLink>
           <span className="mx-2">·</span>
-          Releases: <ExtLink href={RELEASES_URL}>{RELEASES_URL}</ExtLink>
+          Release: <ExtLink href={RELEASE_TAG_URL}>{RELEASE_TAG_URL}</ExtLink>
           <span className="mx-2">·</span>
           Docs: <ExtLink href={DOCS_SITE}>{DOCS_SITE}</ExtLink>
         </p>
@@ -217,8 +219,8 @@ export default function Home() {
           capture.
         </p>
         <div className="mt-8 grid gap-4 lg:grid-cols-2">
-          <Command caption="Linux / macOS" code={INSTALL_SH} />
-          <Command caption="Windows PowerShell" code={INSTALL_PS1} />
+          <Command caption="linux-x86_64 / macos-arm64" code={INSTALL_SH} />
+          <Command caption="windows-x86_64.exe · PowerShell" code={INSTALL_PS1} />
         </div>
         <p className="mt-6">
           <Link
@@ -338,6 +340,10 @@ export default function Home() {
             and macOS.
           </li>
           <li>
+            This beta ships only {SHIPPING_ARCH_LINE}. It does not ship Linux
+            ARM or Intel Mac binaries.
+          </li>
+          <li>
             Beta releases require active upgrade discipline. Installers require
             a matching GitHub Release <code className="text-paper">SHA256SUMS</code>{" "}
             entry and embedded version before replacement.
@@ -439,45 +445,59 @@ export default function Home() {
       <Section id="recovery">
         <Eyebrow>Uninstall / recovery</Eyebrow>
         <h2 className="font-display mt-3 text-4xl text-paper">
-          Where the bits live.
+          Stop, remove, leave.
         </h2>
         <p className="mt-3 max-w-2xl text-sm leading-relaxed text-steel">
-          The repo does not ship a dedicated uninstall script. Do not invent
-          one. Use the installer sources and product docs.
+          <code className="text-paper">scripts/uninstall.sh</code> and{" "}
+          <code className="text-paper">uninstall.ps1</code> do not exist. Do
+          not invent them. Recovery is four operator actions.
         </p>
         <div className="mt-8 grid gap-3 md:grid-cols-2">
-          <Card title="Linux / macOS binary" kicker="Installer path">
+          <Card title="Stop the daemon" kicker="Installer-created services">
             <p>
-              <code className="text-paper">{LINUX_MAC_BIN}</code> with a{" "}
-              <code className="text-paper">{LINUX_MAC_CLI}</code> symlink.
-              Platform service units are generated by{" "}
-              <code className="text-paper">scripts/install.sh</code>.
+              Linux:{" "}
+              <code className="text-paper">
+                systemctl --user stop bridgesessions.service
+              </code>
+              . macOS:{" "}
+              <code className="text-paper">
+                launchctl bootout gui/$(id -u)/com.bridgesessions.mesh
+              </code>
+              . Windows: stop the Task Scheduler task{" "}
+              <code className="text-paper">BridgeSessions</code> (and{" "}
+              <code className="text-paper">BridgeSessions-CuaHelper</code> if
+              present). Those names come from the installers.
             </p>
           </Card>
-          <Card title="Windows binary" kicker="Installer path">
+          <Card title="Remove the binary" kicker="Installer path">
             <p>
-              <code className="text-paper">{WINDOWS_BIN}</code>. State still
-              uses the user profile{" "}
-              <code className="text-paper">{STATE_DIR}</code> directory.
+              Linux/macOS ({SHIPPING_ASSETS[0]} / {SHIPPING_ASSETS[1]}):{" "}
+              <code className="text-paper">{LINUX_MAC_BIN}</code> and{" "}
+              <code className="text-paper">{LINUX_MAC_CLI}</code>. Windows (
+              {SHIPPING_ASSETS[2]}):{" "}
+              <code className="text-paper">{WINDOWS_BIN}</code>.
             </p>
           </Card>
-          <Card title="State directory" kicker="Config and keys">
+          <Card title="Remove state" kicker="Config and keys">
             <p>
-              <code className="text-paper">{STATE_DIR}</code> holds config,
-              identity, <code className="text-paper">authorized_keys</code>,
-              sessions, received files, and IPC tokens. See{" "}
+              Remove <code className="text-paper">{STATE_DIR}</code> (Windows:{" "}
+              <code className="text-paper">%USERPROFILE%\.bridgesessions</code>
+              ). That directory holds config, identity,{" "}
+              <code className="text-paper">authorized_keys</code>, sessions,
+              received files, and IPC tokens. See{" "}
               <ExtLink href={CONFIG_URL}>docs/configuration.md</ExtLink>.
             </p>
           </Card>
-          <Card title="Leaving a mesh" kicker="Membership">
+          <Card title="Leave a mesh" kicker="Membership">
             <p>
-              Mesh membership is the pinned seeds and inbound{" "}
-              <code className="text-paper">authorized_keys</code> in that state
-              directory. Read{" "}
+              Remove this node&apos;s key from other peers&apos;{" "}
+              <code className="text-paper">authorized_keys</code>. Drop local
+              seed pins and inbound keys in {STATE_DIR}. Read{" "}
               <ExtLink href={CONFIG_URL}>Configuration</ExtLink>,{" "}
               <ExtLink href={USAGE_URL}>Usage</ExtLink>, and{" "}
-              <ExtLink href={SECURITY_MD_URL}>SECURITY.md</ExtLink> instead of a
-              made-up leave command.
+              <ExtLink href={SECURITY_MD_URL}>SECURITY.md</ExtLink>. There is
+              no <code className="text-paper">bs leave</code> command in the
+              docs.
             </p>
           </Card>
         </div>

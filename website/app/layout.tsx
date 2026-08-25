@@ -29,7 +29,7 @@ const display = Instrument_Serif({
 });
 
 export const metadata: Metadata = {
-  title: `${PRODUCT} — one binary, every machine you own`,
+  title: `${PRODUCT} — one binary, machines you already control`,
   description: DESCRIPTION,
   applicationName: PRODUCT,
 };
