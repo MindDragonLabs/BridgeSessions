@@ -36,10 +36,29 @@ _HIDDEN_EXACT = {
 }
 _HIDDEN_PREFIX = ("id_rsa", "id_dsa", "id_ecdsa", "id_ed25519", "id_")
 _HIDDEN_SUFFIX = (".pem", ".key", ".p12", ".pfx")
-DEFAULT_PINS = {
-    "avirserver2016": ("C", "D", "E"),
-    "avirserver2020": ("C", "D", "E"),
-}
+
+
+def _load_default_pins() -> dict[str, tuple[str, ...]]:
+    """Default volume pins per host, from BRIDGEPANEL_VOLUME_PINS.
+
+    Format: "host1:C,D,E;host2:C,D" — hostnames are deployment-specific and
+    belong in environment config, never in the public source tree.
+    """
+    raw = os.environ.get("BRIDGEPANEL_VOLUME_PINS", "").strip()
+    pins: dict[str, tuple[str, ...]] = {}
+    for entry in raw.split(";"):
+        entry = entry.strip()
+        if not entry or ":" not in entry:
+            continue
+        host, drives = entry.split(":", 1)
+        host = host.strip()
+        toks = tuple(d.strip() for d in drives.split(",") if d.strip())
+        if host and toks:
+            pins[host] = toks
+    return pins
+
+
+DEFAULT_PINS = _load_default_pins()
 
 
 def volume_browse_enabled() -> bool:

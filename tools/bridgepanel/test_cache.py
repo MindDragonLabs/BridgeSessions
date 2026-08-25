@@ -49,11 +49,11 @@ class TestListingCache(unittest.TestCase):
 
     def test_tree_ttl(self):
         os.environ["BRIDGEPANEL_TREE_CACHE_TTL"] = "0.01"
-        cache.tree_put({"node": "fecv3", "peers": []})
+        cache.tree_put({"node": "node-3", "peers": []})
         hit = cache.tree_get()
         self.assertIsNotNone(hit)
         assert hit is not None
-        self.assertEqual(hit["node"], "fecv3")
+        self.assertEqual(hit["node"], "node-3")
         time.sleep(0.03)
         self.assertIsNone(cache.tree_get())
 

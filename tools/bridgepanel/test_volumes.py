@@ -16,7 +16,7 @@ from bridgepanel import volumes as vol  # noqa: E402
 
 class TestInboxVolume(unittest.TestCase):
     def test_inbox_is_always_first_and_writable(self):
-        v = vol.inbox_volume("avirserver2016")
+        v = vol.inbox_volume("win-node-1")
         self.assertEqual(v["token"], "inbox")
         self.assertEqual(v["kind"], "inbox")
         self.assertTrue(v["writable"])
@@ -26,12 +26,12 @@ class TestInboxVolume(unittest.TestCase):
     def test_assemble_puts_inbox_first(self):
         disks = [
             vol.classify_windows_volume(
-                "avirserver2016", "D:", 3, "ReFS",
+                "win-node-1", "D:", 3, "ReFS",
                 int(8378.9 * 1e9), int(4311.1 * 1e9), "New Volume",
                 pins=("C", "D", "E"),
             ),
         ]
-        out = vol.assemble_volumes("avirserver2016", disks)
+        out = vol.assemble_volumes("win-node-1", disks)
         self.assertEqual(out[0]["token"], "inbox")
         self.assertEqual(out[1]["token"], "D")
 
@@ -39,7 +39,7 @@ class TestInboxVolume(unittest.TestCase):
 class TestWindowsClassify(unittest.TestCase):
     def test_hides_system_reserved(self):
         self.assertIsNone(vol.classify_windows_volume(
-            "avirserver2016", "F:", 3, "NTFS",
+            "win-node-1", "F:", 3, "NTFS",
             int(0.5 * 1e9), int(0.1 * 1e9), "System Reserved",
         ))
 
@@ -50,7 +50,7 @@ class TestWindowsClassify(unittest.TestCase):
 
     def test_c_is_primary(self):
         v = vol.classify_windows_volume(
-            "avirserver2016", "C:", 3, "NTFS",
+            "win-node-1", "C:", 3, "NTFS",
             int(232.3 * 1e9), int(92.3 * 1e9), "",
             pins=("C", "D", "E"),
         )
@@ -63,7 +63,7 @@ class TestWindowsClassify(unittest.TestCase):
 
     def test_d_pinned_stays_primary_despite_size(self):
         v = vol.classify_windows_volume(
-            "avirserver2016", "D:", 3, "ReFS",
+            "win-node-1", "D:", 3, "ReFS",
             int(8378.9 * 1e9), int(4311.1 * 1e9), "New Volume",
             pins=("C", "D", "E"),
         )
@@ -72,7 +72,7 @@ class TestWindowsClassify(unittest.TestCase):
 
     def test_g_veeam_is_other_disks(self):
         v = vol.classify_windows_volume(
-            "avirserver2016", "G:", 3, "ReFS",
+            "win-node-1", "G:", 3, "ReFS",
             int(14899.9 * 1e9), int(14805.4 * 1e9), "VeeamRepo",
             pins=("C", "D", "E"),
         )
@@ -83,18 +83,18 @@ class TestWindowsClassify(unittest.TestCase):
 class TestLinuxClassify(unittest.TestCase):
     def test_hides_boot_and_tmpfs(self):
         self.assertIsNone(vol.classify_linux_mount(
-            "fecv3", "/boot", "ext3", 988_700_000, 49_800_000,
+            "node-3", "/boot", "ext3", 988_700_000, 49_800_000,
         ))
         self.assertIsNone(vol.classify_linux_mount(
-            "fecv3", "/run", "tmpfs", 16_000_000_000, 15_000_000_000,
+            "node-3", "/run", "tmpfs", 16_000_000_000, 15_000_000_000,
         ))
 
     def test_root_and_srvnvme(self):
         root = vol.classify_linux_mount(
-            "fecv3", "/", "ext4", int(869.1 * 1e9), int(369.4 * 1e9),
+            "node-3", "/", "ext4", int(869.1 * 1e9), int(369.4 * 1e9),
         )
         nvme = vol.classify_linux_mount(
-            "fecv3", "/srvnvme", "ext4", int(1.3 * 1e12), int(1.0 * 1e12),
+            "node-3", "/srvnvme", "ext4", int(1.3 * 1e12), int(1.0 * 1e12),
         )
         self.assertEqual(root["token"], "/")
         self.assertEqual(root["label"], "/")
@@ -188,11 +188,11 @@ class TestUploadRootGuard(unittest.TestCase):
             path = os.path.join(tmp.name, "browse_roots.json")
             with open(path, "w", encoding="utf-8") as fh:
                 json.dump({
-                    "fecv3": [{"path": "/tmp/outbox-test", "token": "outbox", "label": "Outbox", "writable": True}],
+                    "node-3": [{"path": "/tmp/outbox-test", "token": "outbox", "label": "Outbox", "writable": True}],
                 }, fh)
-            self.assertTrue(vol.root_writable("outbox", "fecv3"))
-            self.assertFalse(vol.root_writable("C", "fecv3"))
-            vols = vol.apply_acl("fecv3", [vol.inbox_volume("fecv3")])
+            self.assertTrue(vol.root_writable("outbox", "node-3"))
+            self.assertFalse(vol.root_writable("C", "node-3"))
+            vols = vol.apply_acl("node-3", [vol.inbox_volume("node-3")])
             tokens = [v["token"] for v in vols]
             self.assertIn("outbox", tokens)
             extra = next(v for v in vols if v["token"] == "outbox")

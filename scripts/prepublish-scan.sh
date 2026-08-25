@@ -52,7 +52,10 @@ scan_files() {
       hits=""
       while IFS= read -r f; do
         [ -f "$f" ] || continue
-        sed 's/<[^>]*>//g' "$f" 2>/dev/null | grep -qiE -- "$pat" && hits="$hits$f\n"
+        # Case-sensitive: blocklist entries are operator hostnames (always
+        # lowercase). Case-insensitive matching false-positives on strings
+        # like "Visual Studio" that merely contain a blocked token.
+        sed 's/<[^>]*>//g' "$f" 2>/dev/null | grep -qE -- "$pat" && hits="$hits$f\n"
       done <<< "$files"
       hits=$(printf '%b' "$hits" | sed '/^$/d')
       [ -n "$hits" ] && { echo "BLOCK: network blocklist pattern [$pat] in $label:"; echo "$hits" | sed 's/^/  /'; FAILED=1; }

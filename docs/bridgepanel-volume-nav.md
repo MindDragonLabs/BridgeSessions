@@ -134,6 +134,7 @@ POST /api/upload                                               // existing
 
 - The feature ships behind `features.volume_browse`. The default is off. Off means today's panel.
 - `browse_roots.json` is per host, with an absolute path allowlist. The shipped file is empty.
+- Default pinned volumes per host come from `BRIDGEPANEL_VOLUME_PINS` (format: `host1:C,D,E;host2:C,D`). The shipped default is empty; hostnames are deployment config, not source.
 - A panel restart reads the new config. No daemon restart is required for an ACL change.
 - Volume enumeration runs on the daemon over `bs run-script`. The script hash is pinned panel-side and re-validated on every release.
 
