@@ -30,6 +30,7 @@
 
 #include <thread>
 #include <chrono>
+#include <filesystem>
 #include <string>
 #include <vector>
 
@@ -274,6 +275,44 @@ TEST_CASE("P1 spectator: attach sets spectator flag; Keystroke is rejected (no P
 }
 
 // ── P1-5: interactive (non-spectator) attach records a non-spectator attachment ──────
+
+TEST_CASE("P1 spectator: CuaVideoCaptureMsg is rejected before ffmpeg", "[p1][spectator][cua]") {
+    auto cfg = base_cfg("p1-specvid");
+    MeshController mc(cfg);
+    const std::string key(64, 'v');
+    auto c = make_conn("specvid", key);
+
+    AttachMsg a = make_attach("vidsess", 80, 24);
+    a.spectator = true;
+    hi(mc, c, Message{a});
+    REQUIRE(c.spectator == true);
+
+    const auto tmp = std::filesystem::path(private_tmp_dir());
+    std::error_code ec;
+    std::vector<std::filesystem::path> before;
+    if (std::filesystem::exists(tmp, ec)) {
+        for (const auto& entry : std::filesystem::directory_iterator(tmp, ec)) {
+            const auto name = entry.path().filename().string();
+            if (name.rfind("bsv", 0) == 0) before.push_back(entry.path());
+        }
+    }
+
+    CuaVideoCaptureMsg req;
+    req.request_id = 7;
+    req.fps = 5;
+    req.duration_sec = 60;
+    hi(mc, c, Message{req});
+
+    std::vector<std::filesystem::path> after;
+    if (std::filesystem::exists(tmp, ec)) {
+        for (const auto& entry : std::filesystem::directory_iterator(tmp, ec)) {
+            const auto name = entry.path().filename().string();
+            if (name.rfind("bsv", 0) == 0) after.push_back(entry.path());
+        }
+    }
+    REQUIRE(after.size() == before.size());
+    REQUIRE(c.spectator == true);
+}
 
 TEST_CASE("P1 interactive: non-spectator attach records interactive attachment (Keystroke not blocked)", "[p1][spectator]") {
     auto cfg = base_cfg("p1-int");
