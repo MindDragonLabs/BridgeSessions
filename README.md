@@ -71,6 +71,8 @@ bash scripts/prepublish-scan.sh
 
 [Quickstart](docs/QUICKSTART.md) · [Usage](docs/usage.md) · [Configuration](docs/configuration.md) · [Design](docs/design.md) · [Protocol](docs/protocol.md) · [CUA](docs/cua.md) · [Building](docs/building.md) · [Audit](AUDIT.md)
 
+Marketing site source lives in [`website/`](website/) (Next.js). It is not a production domain cutover. Product documentation stays in [`docs/`](docs/).
+
 Generated binaries, app bundles, archives, checksums, and SBOMs are ignored by git and published through GitHub Releases.
 
 ## License

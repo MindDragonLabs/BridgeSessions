@@ -1,0 +1,94 @@
+@import "tailwindcss";
+
+:root {
+  --ink: #07080a;
+  --paper: #ebe6d8;
+  --steel: #a8a293;
+  --signal: #d4ff2a;
+  --ember: #ff5c35;
+  --panel: #0c0e12;
+  --border: #262b33;
+  --signal-ink: #12140a;
+}
+
+@theme inline {
+  --color-ink: var(--ink);
+  --color-paper: var(--paper);
+  --color-steel: var(--steel);
+  --color-signal: var(--signal);
+  --color-ember: var(--ember);
+  --color-panel: var(--panel);
+  --color-border: var(--border);
+  --color-signal-ink: var(--signal-ink);
+  --font-sans: var(--font-plex-sans), "IBM Plex Sans", ui-sans-serif, system-ui,
+    sans-serif;
+  --font-mono: var(--font-plex-mono), "IBM Plex Mono", ui-monospace, monospace;
+  --font-display: var(--font-display-face), "Instrument Serif", ui-serif, Georgia,
+    serif;
+}
+
+html {
+  background: var(--ink);
+  color: var(--paper);
+  scroll-behavior: smooth;
+}
+
+body {
+  background: var(--ink);
+  color: var(--paper);
+  font-family: var(--font-sans);
+  text-rendering: optimizeLegibility;
+  min-height: 100%;
+}
+
+::selection {
+  background: color-mix(in oklab, var(--signal) 35%, transparent);
+  color: var(--paper);
+}
+
+:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: 3px;
+}
+
+.font-display {
+  font-family: var(--font-display);
+}
+
+.grid-field {
+  background-image: linear-gradient(90deg, #ebe6d809 1px, transparent 1px),
+    linear-gradient(#ebe6d809 1px, transparent 1px);
+  background-position: top;
+  background-size: 56px 56px;
+}
+
+.live-dot {
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 999px;
+  background: var(--signal);
+  box-shadow: 0 0 0 0 color-mix(in oklab, var(--signal) 55%, transparent);
+  animation: pulse-dot 2.2s ease-out infinite;
+}
+
+@keyframes pulse-dot {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in oklab, var(--signal) 55%, transparent);
+  }
+  70% {
+    box-shadow: 0 0 0 8px transparent;
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  .live-dot {
+    animation: none;
+  }
+}
