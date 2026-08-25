@@ -1207,7 +1207,7 @@
 <li>Windows PE with ASLR and NX linker flags validated,</li>
 <li>Linux PIE, RELRO/NX, stack-protector, and fortified libc validated.</li>
 </ul>
-<p>The <code>scripts/prepublish-scan.sh</code> script blocks private addresses, key material, and operator names from a local blocklist before tagging. The blocklist covers home paths, Tailscale CGNAT ranges, common operator hostnames, and 64-hex patterns that are not placeholders. A release that fails the scan does not publish.</p>
+<p>The <code>scripts/prepublish-scan.sh</code> script blocks private addresses, key material, and operator names from a local blocklist before tagging. The blocklist covers home paths, Tailscale CGNAT ranges, common operator hostnames, and 64-hex patterns that are not placeholders. A release that fails the scan does not publish. A companion private allowlist (<code>~/.config/bridgesessions/publish-allowlist</code>, outside the repo) exempts legitimate baked-in strings — currently the Developer ID certificate subject embedded in codesigned macOS binaries, which this gate requires. Blocklist matching is case-sensitive (hostnames are lowercase).</p>
 <h2 id="stage-locally">Stage locally<a class="headerlink" href="#stage-locally" title="Permanent link">&para;</a></h2>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>scripts/package-release.sh<span class="w"> </span>--release
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>scripts/release-checksums.sh
