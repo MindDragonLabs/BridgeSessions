@@ -2,6 +2,16 @@
 
 Notable user-visible changes. Git history contains implementation-level detail.
 
+## Unreleased
+
+### Security
+
+- Spectator attachments are rejected for remote video capture (`CuaVideoCaptureMsg`), matching the existing CUA input deny.
+
+### Reliability
+
+- Auto-upgrade version compare treats `26.MM.DD` and `2026.MM.DD` as the same calendar year instead of using ASCII order.
+
 ## 26.09.19-beta6
 
 ### Security

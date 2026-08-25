@@ -839,6 +839,15 @@ TEST_CASE("version_is_older compares date-based tags", "[config][release][versio
     REQUIRE_FALSE(version_is_older("26.08.12-beta3+frm2", "26.08.12-beta3"));
     REQUIRE(version_is_older("26.08.10-beta2+frm2", "26.08.12-beta3+frm2"));
     REQUIRE_FALSE(version_is_older("26.09.01-beta1", "26.08.12-beta3"));
+    // Mixed YY / YYYY schemes must not use raw ASCII compare.
+    REQUIRE_FALSE(version_is_older("2026.08.24-beta7", "26.08.24-beta7"));
+    REQUIRE_FALSE(version_is_older("26.08.24-beta7", "2026.08.24-beta7"));
+    REQUIRE(version_is_older("26.08.12-beta3", "2026.08.24-beta7"));
+    REQUIRE(version_is_older("2026.08.24-beta6", "2026.08.24-beta7"));
+    // Calendar truth: 2026-08-24 is before 2026-09-19. The published
+    // 2026.08.24-beta7 / 26.09.19-beta6 pair is date-inverted vs ship order.
+    REQUIRE(version_is_older("2026.08.24-beta7", "26.09.19-beta6"));
+    REQUIRE_FALSE(version_is_older("26.09.19-beta6", "2026.08.24-beta7"));
 }
 
 TEST_CASE("release and mesh Hello share the canonical version",

@@ -760,15 +760,73 @@ enum FrameFlags : uint8_t {
     return plus == std::string_view::npos ? v : v.substr(0, plus);
 }
 
+// Parsed calendar tag: YY.MM.DD or YYYY.MM.DD, optional -betaN (or other suffix).
+// Two-digit years are 2000+YY so 26.08.24 and 2026.08.24 compare equal.
+struct VersionParts {
+    int year = 0;
+    int month = 0;
+    int day = 0;
+    std::string rest;
+    bool ok = false;
+};
+
+[[nodiscard]] inline VersionParts parse_version_tag(std::string_view raw) {
+    VersionParts p;
+    const auto v = version_core(raw);
+    if (v.empty()) return p;
+    size_t i = 0;
+    int year = 0;
+    size_t year_digits = 0;
+    while (i < v.size() && std::isdigit(static_cast<unsigned char>(v[i])) && year_digits < 4) {
+        year = year * 10 + (v[i] - '0');
+        ++i;
+        ++year_digits;
+    }
+    if (year_digits == 0 || year_digits == 3 || i >= v.size() || v[i] != '.') return p;
+    if (year_digits == 2) year += 2000;
+    ++i;
+    int month = 0;
+    size_t month_digits = 0;
+    while (i < v.size() && std::isdigit(static_cast<unsigned char>(v[i])) && month_digits < 2) {
+        month = month * 10 + (v[i] - '0');
+        ++i;
+        ++month_digits;
+    }
+    if (month_digits == 0 || i >= v.size() || v[i] != '.') return p;
+    ++i;
+    int day = 0;
+    size_t day_digits = 0;
+    while (i < v.size() && std::isdigit(static_cast<unsigned char>(v[i])) && day_digits < 2) {
+        day = day * 10 + (v[i] - '0');
+        ++i;
+        ++day_digits;
+    }
+    if (day_digits == 0 || month < 1 || month > 12 || day < 1 || day > 31) return p;
+    p.year = year;
+    p.month = month;
+    p.day = day;
+    p.rest = std::string(v.substr(i));
+    p.ok = true;
+    return p;
+}
+
 // True if `remote` is strictly older than `local` for date-based tags
-// YY.MM.DD[-betaN] (lexicographic works for zero-padded YY.MM.DD).
+// YY.MM.DD[-betaN] or YYYY.MM.DD[-betaN]. Lexicographic compare is unsafe
+// across the two schemes: "2026.08.24-beta7" < "26.09.19-beta6" as ASCII.
 [[nodiscard]] inline bool version_is_older(std::string_view remote, std::string_view local) {
-    auto r = version_core(remote);
-    auto l = version_core(local);
-    if (r.empty() || l.empty()) return false;
-    if (r == l) return false;
-    // Prefer pure string compare for our scheme (26.08.06-beta1 < 26.08.12-beta3).
-    return r < l;
+    auto r = parse_version_tag(remote);
+    auto l = parse_version_tag(local);
+    if (!r.ok || !l.ok) {
+        auto rc = version_core(remote);
+        auto lc = version_core(local);
+        if (rc.empty() || lc.empty() || rc == lc) return false;
+        return rc < lc;
+    }
+    if (r.year != l.year) return r.year < l.year;
+    if (r.month != l.month) return r.month < l.month;
+    if (r.day != l.day) return r.day < l.day;
+    if (r.rest == l.rest) return false;
+    return r.rest < l.rest;
 }
 
 struct Frame {
@@ -11986,8 +12044,19 @@ public:
         }
 
         // CuaVideoCaptureMsg — remote video capture (2.0.12)
+        // Same P1 invariant as CuaRequestMsg: spectators may not capture.
         if (std::holds_alternative<CuaVideoCaptureMsg>(msg)) {
             auto& req = std::get<CuaVideoCaptureMsg>(msg);
+            if (conn.spectator) {
+                log_event("cua_video_rejected_spectator", conn.attached_session
+                          ? conn.attached_session->name : "?");
+                CuaVideoCaptureResultMsg resp;
+                resp.request_id = req.request_id;
+                resp.status = 1;
+                resp.error = "spectator cannot drive computer use";
+                (void)enqueue_frame(conn, resp, CONTROL_STREAM_ID);
+                return;
+            }
             CuaVideoCaptureResultMsg resp = video_capture_execute(req);
             resp.request_id = req.request_id;
             (void)enqueue_frame(conn, resp, CONTROL_STREAM_ID);

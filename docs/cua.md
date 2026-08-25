@@ -72,7 +72,7 @@ Modifiers are comma-separated: `ctrl`, `shift`, `alt`, `meta`.
 
 ## Security
 
-- Spectator attachments are rejected before any CUA action.
+- Spectator attachments are rejected before any CUA action, including video capture.
 - Helper IPC is loopback-only and token-authenticated.
 - Coordinates and payload sizes are validated.
 - Capture/input results are returned to the requesting peer; the helper does not intentionally persist them.
