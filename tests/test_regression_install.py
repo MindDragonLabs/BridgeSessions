@@ -304,7 +304,7 @@ class TestJoinClientAddrFixes:
 
 
 class TestInstallLeavesDaemonEnabled:
-    """2026-08-25: fecv3 inbound refused after upgrade left the unit disabled."""
+    """2026-08-25: regression — inbound refused after upgrade left the unit disabled."""
 
     def test_install_sh_never_persist_disables(self):
         text = read_script()

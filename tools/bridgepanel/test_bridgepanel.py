@@ -24,6 +24,10 @@ import bridgepanel as bp  # noqa: E402
 
 
 class TestPureFunctions(unittest.TestCase):
+    def setUp(self):
+        from bridgepanel.cache import clear_caches
+        clear_caches()
+
     def test_safe_name_strips_path_separators(self):
         self.assertNotIn("/", bp.safe_name("../../etc/passwd"))
         self.assertNotIn("\\", bp.safe_name("a\\b\\c"))
@@ -188,10 +192,10 @@ class TestPureFunctions(unittest.TestCase):
     def test_mesh_tree_merges_offline_seeds_from_fleet(self):
         # MESH_TREE lists only live peers; FLEET adds offline seeds. The merged
         # tree must include the offline seed so the panel renders it.
-        mesh_payload = (b'{"node":"macbook","uptime_s":10,'
+        mesh_payload = (b'{"node":"desktop-1","uptime_s":10,'
                         b'"peers":[{"name":"test-peer","addr":"1.2.3.4:19949","healthy":true,"last_pong_s":1,"sessions":[]}],'
                         b'"sessions":[]}\n')
-        fleet_payload = (b'{"macbook":{"name":"macbook","addr":"0.0.0.0:19949","status":"self"},'
+        fleet_payload = (b'{"desktop-1":{"name":"desktop-1","addr":"0.0.0.0:19949","status":"self"},'
                          b'"test-peer":{"name":"test-peer","addr":"1.2.3.4:19949","status":"healthy"},'
                          b'"offline-peer":{"name":"offline-peer","addr":"5.6.7.8:19949","status":"offline","source":"seed"}}\n')
         self._fake_ipc_factory([mesh_payload, fleet_payload])
@@ -208,7 +212,7 @@ class TestPureFunctions(unittest.TestCase):
 
     def test_mesh_tree_does_not_dup_live_peer_from_fleet(self):
         # A live peer present in both MESH_TREE and FLEET must not be duplicated.
-        mesh_payload = (b'{"node":"macbook","uptime_s":10,'
+        mesh_payload = (b'{"node":"desktop-1","uptime_s":10,'
                         b'"peers":[{"name":"test-peer","addr":"1.2.3.4:19949","healthy":true,"last_pong_s":1,"sessions":[]}],'
                         b'"sessions":[]}\n')
         fleet_payload = (b'{"test-peer":{"name":"test-peer","addr":"1.2.3.4:19949","status":"healthy"}}\n')
@@ -317,6 +321,10 @@ class TestHttpSurface(unittest.TestCase):
         t = threading.Thread(target=cls.server.serve_forever, daemon=True)
         t.start()
 
+    def setUp(self):
+        from bridgepanel.cache import clear_caches
+        clear_caches()
+
     @classmethod
     def tearDownClass(cls):
         cls.server.shutdown()
@@ -350,30 +358,35 @@ class TestHttpSurface(unittest.TestCase):
         status, raw = self._req("GET", f"/{self.token}/")
         self.assertEqual(status, 200)
         raw = raw.decode("utf-8") if isinstance(raw, bytes) else raw
-        # Header bar + three-column shell (redesign): machines/sessions columns.
-        self.assertIn('class="col-head">Machines', raw)
-        self.assertIn('id="sessionsHead">Sessions<', raw)
+        self.assertIn('class="col-head">Hosts', raw)
+        self.assertIn('id="filesHead">Files<', raw)
+        self.assertNotIn('id="sessionsHead"', raw)
+        self.assertNotIn('id="newSessionBtn"', raw)
+        self.assertNotIn('id="createModal"', raw)
+        self.assertIn('id="volrow"', raw)
         self.assertIn('id="breadcrumb"', raw)
-        # Build tag placeholder is replaced by the panel version, not hardcoded.
+        self.assertIn('id="treeToggle"', raw)
+        self.assertIn('id="destHint"', raw)
+        self.assertIn('id="listBanner"', raw)
+        self.assertIn("bp-list-cache", raw)
+        self.assertIn("/api/volumes", raw)
+        self.assertNotIn('label: "received"', raw)
+        self.assertIn('id="splitHosts"', raw)
+        self.assertIn('id="splitFiles"', raw)
+        self.assertIn('initSplitters', raw)
+        self.assertNotIn('windows · inbox', raw)
+        self.assertNotIn('this node', raw)
+        self.assertNotIn('m.os || ""', raw)
         self.assertNotIn("__BUILD_TAG__", raw)
         self.assertIn(bp.BUILDTAG, raw)
-        # Exactly one toolbar with the four action buttons.
         self.assertIn('class="toolbar"', raw)
-        for btn in ("editBtn", "saveBtn", "cancelBtn", "copyBtn"):
+        for btn in ("editBtn", "saveBtn", "cancelBtn", "copyBtn", "downloadBtn"):
             self.assertIn(f'id="{btn}"', raw)
-        # New-session modal keeps the harness picker + auto-approve toggle.
-        self.assertIn('id="cmHarness"', raw)
-        self.assertIn('id="cmYolo"', raw)
-        self.assertIn('value="commandcode"', raw)
-        # Buttons ship as text (no emoji).
         self.assertNotIn("📋", raw)
         self.assertNotIn("✏️", raw)
-        # Session tree: User/Bots groups, harness detection, CUA helper node.
-        self.assertIn("sgroup-head", raw)
-        self.assertIn("function harnessOf", raw)
-        self.assertIn("computer-use helper", raw)
-        # Machines are ordered alphabetically (not live-first).
         self.assertIn("Alphabetical by machine name", raw)
+        self.assertIn("/api/files", raw)
+        self.assertIn("id=\"fileInput\"", raw)
 
     def test_tree_ok(self):
         status, raw = self._req("GET", f"/{self.token}/api/tree")
@@ -559,15 +572,66 @@ class TestHttpSurface(unittest.TestCase):
             if conn is not None:
                 conn.close()
 
-    def test_index_has_session_graph_and_stream(self):
+    def test_index_is_file_manager(self):
         status, raw = self._req("GET", f"/{self.token}/")
         self.assertEqual(status, 200)
         html = raw.decode("utf-8") if isinstance(raw, bytes) else raw
-        self.assertIn("parent_id will drive true hierarchy", html)
-        self.assertIn("function nestByPrefix", html)
-        self.assertIn("/api/stream", html)
-        self.assertIn("/api/session/input", html)
-        self.assertIn("id=\"outputInput\"", html)
+        self.assertIn("/api/files", html)
+        self.assertIn("/api/remote-file", html)
+        self.assertIn("/api/upload", html)
+        self.assertNotIn("/api/stream", html)
+        self.assertNotIn("/api/session/input", html)
+        self.assertNotIn("id=\"outputInput\"", html)
+        self.assertNotIn("function nestByPrefix", html)
+        self.assertIn("toastui-editor-all.min.js", html)
+        self.assertIn("codemirror-bundle.min.js", html)
+        self.assertIn("filepond.min.js", html)
+        self.assertIn("id=\"cmHost\"", html)
+        self.assertIn("id=\"langPick\"", html)
+        self.assertIn("id=\"newFileBtn\"", html)
+        self.assertIn("id=\"newDirBtn\"", html)
+        self.assertIn("/api/mkdir", html)
+        self.assertIn("detectLanguage", html)
+        self.assertIn("BridgeCM", html)
+        self.assertIn("usageStatistics: false", html)
+        self.assertNotIn("__ASSET_BASE__", html)
+        self.assertNotIn("__LANG_TABLE__", html)
+        self.assertIn('"python"', html)
+        self.assertIn(f"/{self.token}/static/", html)
+
+    def test_static_vendors_served(self):
+        for name, needle in (
+            ("toastui-editor-all.min.js", b"toastui"),
+            ("toastui-editor.min.css", b"toastui"),
+            ("filepond.min.js", b"FilePond"),
+            ("filepond.min.css", b"filepond"),
+            ("filepond-plugin-file-validate-size.min.js", b"FilePond"),
+            ("codemirror-bundle.min.js", b"BridgeCM"),
+        ):
+            status, raw = self._req("GET", f"/{self.token}/static/{name}")
+            self.assertEqual(status, 200, name)
+            self.assertIn(needle, raw)
+
+    def test_static_unknown_and_traversal(self):
+        status, _ = self._req("GET", f"/{self.token}/static/nope.js")
+        self.assertEqual(status, 404)
+        status, _ = self._req("GET", f"/{self.token}/static/../server.py")
+        self.assertEqual(status, 404)
+        status, _ = self._req("GET", f"/{self.token}/static/%2e%2e/server.py")
+        self.assertEqual(status, 404)
+
+    def test_csp_allows_same_origin_assets(self):
+        conn = HTTPConnection("127.0.0.1", self.port, timeout=5)
+        try:
+            conn.request("GET", f"/{self.token}/")
+            r = conn.getresponse()
+            r.read()
+            csp = r.getheader("Content-Security-Policy") or ""
+        finally:
+            conn.close()
+        self.assertIn("script-src 'self' 'unsafe-inline'", csp)
+        self.assertIn("style-src 'self' 'unsafe-inline'", csp)
+        self.assertIn("img-src 'self' data: blob:", csp)
 
     def test_remote_file_binary_stream(self):
         import bridgepanel.server as srv
@@ -586,7 +650,7 @@ class TestHttpSurface(unittest.TestCase):
             conn = HTTPConnection("127.0.0.1", self.port, timeout=5)
             conn.request(
                 "GET",
-                f"/{self.token}/api/remote-file?machine=peer&path=/tmp/shot.png",
+                f"/{self.token}/api/remote-file?machine=peer&path=shot.png",
             )
             r = conn.getresponse()
             self.assertEqual(r.status, 200)
@@ -712,11 +776,243 @@ class TestHttpSurface(unittest.TestCase):
         ):
             self.assertFalse(hasattr(bp_api, name), name)
 
-    def test_loopback_bind_guard(self):
+    def test_bind_guard(self):
+        self.assertTrue(bp._bind_is_allowed("127.0.0.1"))
+        self.assertTrue(bp._bind_is_allowed("10.2.2.2"))
+        self.assertTrue(bp._bind_is_allowed("192.168.10.20"))
+        self.assertFalse(bp._bind_is_allowed("0.0.0.0"))
+        self.assertFalse(bp._bind_is_allowed("1.2.3.4"))
         with self.assertRaises(ValueError):
             bp.serve("0.0.0.0", 9770)
         with self.assertRaises(ValueError):
             bp.serve("1.2.3.4", 9770)
+
+
+    def test_safe_relpath_rejects_escape(self):
+        self.assertEqual(bp.safe_relpath(""), "")
+        self.assertEqual(bp.safe_relpath("note.md"), "note.md")
+        self.assertEqual(bp.safe_relpath("docs/note.md"), "docs/note.md")
+        self.assertEqual(bp.safe_relpath("../etc/passwd"), "")
+        self.assertEqual(bp.safe_relpath("/tmp/x"), "")
+        self.assertEqual(bp.safe_relpath("C:\\Windows"), "")
+
+    def test_list_receive_dir_local(self):
+        inbox = os.path.join(self.tmp.name, "inbox")
+        os.makedirs(inbox)
+        with open(os.path.join(inbox, "hello.md"), "w", encoding="utf-8") as fh:
+            fh.write("# Hi\n")
+        with open(os.path.join(inbox, "pic.png"), "wb") as fh:
+            fh.write(b"\x89PNG")
+        old = os.environ.get("BRIDGEPANEL_RECEIVE_DIR")
+        os.environ["BRIDGEPANEL_RECEIVE_DIR"] = inbox
+        try:
+            listing = bp.list_receive_dir("")
+            names = {i["name"]: i for i in listing["items"]}
+            self.assertTrue(listing["ok"])
+            self.assertIn("hello.md", names)
+            self.assertEqual(names["hello.md"]["kind"], "md")
+            self.assertEqual(names["pic.png"]["kind"], "image")
+        finally:
+            if old is None:
+                os.environ.pop("BRIDGEPANEL_RECEIVE_DIR", None)
+            else:
+                os.environ["BRIDGEPANEL_RECEIVE_DIR"] = old
+
+    def test_files_api_lists_local_inbox(self):
+        inbox = os.path.join(self.tmp.name, "inbox-api")
+        os.makedirs(inbox)
+        with open(os.path.join(inbox, "note.md"), "w", encoding="utf-8") as fh:
+            fh.write("body\n")
+        old = os.environ.get("BRIDGEPANEL_RECEIVE_DIR")
+        os.environ["BRIDGEPANEL_RECEIVE_DIR"] = inbox
+        try:
+            status, raw = self._req("GET", f"/{self.token}/api/files?machine=(local)")
+            self.assertEqual(status, 200)
+            payload = json.loads(raw)
+            self.assertTrue(payload["ok"])
+            names = [i["name"] for i in payload["items"]]
+            self.assertIn("note.md", names)
+            self.assertEqual(payload.get("root"), "inbox")
+        finally:
+            if old is None:
+                os.environ.pop("BRIDGEPANEL_RECEIVE_DIR", None)
+            else:
+                os.environ["BRIDGEPANEL_RECEIVE_DIR"] = old
+
+    def test_volumes_api_inbox_first(self):
+        status, raw = self._req("GET", f"/{self.token}/api/volumes?machine=(local)")
+        self.assertEqual(status, 200)
+        payload = json.loads(raw)
+        vols = payload.get("volumes") or []
+        self.assertGreaterEqual(len(vols), 1)
+        self.assertEqual(vols[0]["token"], "inbox")
+        self.assertTrue(vols[0]["writable"])
+        tokens = [v["token"] for v in vols]
+        self.assertNotIn("/boot", tokens)
+        if "/" in tokens:
+            self.assertIn("/", tokens)
+
+    def test_files_rejects_bad_volume_path(self):
+        status, raw = self._req(
+            "GET",
+            f"/{self.token}/api/files?machine=(local)&root=/&path=../etc",
+        )
+        self.assertEqual(status, 200)
+        payload = json.loads(raw)
+        self.assertFalse(payload.get("ok", True))
+        self.assertEqual(payload.get("error"), "path_rejected")
+
+    def test_upload_rejects_non_inbox_root(self):
+        body = {"machine": "(local)", "root": "C", "path": "x.md", "content": "nope"}
+        status, raw = self._req("POST", f"/{self.token}/api/upload", body)
+        self.assertEqual(status, 200)
+        payload = json.loads(raw)
+        self.assertFalse(payload.get("ok", True))
+        self.assertEqual(payload.get("error"), "write_inbox_only")
+
+    def test_upload_allows_acl_outbox(self):
+        cfg = os.environ["BRIDGEPANEL_CONFIG"]
+        outbox = os.path.join(self.tmp.name, "outbox")
+        os.makedirs(outbox, exist_ok=True)
+        acl = {
+            "(local)": [{"path": outbox, "token": "outbox", "label": "Outbox", "writable": True}],
+            "desktop-1": [{"path": outbox, "token": "outbox", "label": "Outbox", "writable": True}],
+        }
+        with open(os.path.join(cfg, "browse_roots.json"), "w", encoding="utf-8") as fh:
+            json.dump(acl, fh)
+        body = {"machine": "(local)", "root": "outbox", "path": "acl.md", "content": "from-acl"}
+        status, raw = self._req("POST", f"/{self.token}/api/upload", body)
+        self.assertEqual(status, 200)
+        payload = json.loads(raw)
+        self.assertTrue(payload.get("ok"), payload)
+        dest = os.path.join(outbox, "acl.md")
+        self.assertTrue(os.path.isfile(dest))
+        with open(dest, encoding="utf-8") as fh:
+            self.assertEqual(fh.read(), "from-acl")
+
+    def test_files_api_requires_machine(self):
+        status, _ = self._req("GET", f"/{self.token}/api/files")
+        self.assertEqual(status, 400)
+
+    def test_remote_file_rejects_absolute_path(self):
+        status, _ = self._req(
+            "GET",
+            f"/{self.token}/api/remote-file?machine=peer&path=/etc/passwd",
+        )
+        self.assertEqual(status, 400)
+
+    def test_local_upload_and_preview(self):
+        inbox = os.path.join(self.tmp.name, "inbox-up")
+        os.makedirs(inbox)
+        old = os.environ.get("BRIDGEPANEL_RECEIVE_DIR")
+        os.environ["BRIDGEPANEL_RECEIVE_DIR"] = inbox
+        try:
+            status, raw = self._req(
+                "POST",
+                f"/{self.token}/api/upload",
+                {"machine": "(local)", "path": "saved.md", "content": "# Saved\n"},
+            )
+            self.assertEqual(status, 200)
+            self.assertTrue(json.loads(raw)["ok"])
+            path = os.path.join(inbox, "saved.md")
+            self.assertTrue(os.path.isfile(path))
+            status2, raw2 = self._req(
+                "GET",
+                f"/{self.token}/api/remote-file?machine=(local)&path=saved.md",
+            )
+            self.assertEqual(status2, 200)
+            payload = json.loads(raw2)
+            self.assertTrue(payload["ok"])
+            self.assertIn("Saved", payload["raw"])
+        finally:
+            if old is None:
+                os.environ.pop("BRIDGEPANEL_RECEIVE_DIR", None)
+            else:
+                os.environ["BRIDGEPANEL_RECEIVE_DIR"] = old
+
+    def test_files_api_marks_cached_on_second_hit(self):
+        inbox = os.path.join(self.tmp.name, "inbox-cache")
+        os.makedirs(inbox)
+        with open(os.path.join(inbox, "a.md"), "w", encoding="utf-8") as fh:
+            fh.write("x\n")
+        old = os.environ.get("BRIDGEPANEL_RECEIVE_DIR")
+        os.environ["BRIDGEPANEL_RECEIVE_DIR"] = inbox
+        try:
+            status1, raw1 = self._req("GET", f"/{self.token}/api/files?machine=(local)")
+            self.assertEqual(status1, 200)
+            first = json.loads(raw1)
+            self.assertTrue(first["ok"])
+            self.assertFalse(first.get("cached"))
+            status2, raw2 = self._req("GET", f"/{self.token}/api/files?machine=(local)")
+            self.assertEqual(status2, 200)
+            second = json.loads(raw2)
+            self.assertTrue(second.get("cached"))
+            self.assertFalse(second.get("stale"))
+            status3, raw3 = self._req(
+                "GET", f"/{self.token}/api/files?machine=(local)&refresh=1"
+            )
+            self.assertEqual(status3, 200)
+            third = json.loads(raw3)
+            self.assertFalse(third.get("cached"))
+        finally:
+            if old is None:
+                os.environ.pop("BRIDGEPANEL_RECEIVE_DIR", None)
+            else:
+                os.environ["BRIDGEPANEL_RECEIVE_DIR"] = old
+
+    def test_inline_image_etag_304(self):
+        import hashlib
+        import bridgepanel.server as srv
+        blob = b"\x89PNG\r\n"
+        orig = srv.remote_file_recv
+        srv.remote_file_recv = lambda machine, path: {
+            "ok": True,
+            "name": "shot.png",
+            "size": len(blob),
+            "content_type": "image/png",
+            "is_text": False,
+            "kind": "image",
+            "data": blob,
+        }
+        etag = '"' + hashlib.sha256(blob).hexdigest()[:16] + '"'
+        conn = None
+        try:
+            conn = HTTPConnection("127.0.0.1", self.port, timeout=5)
+            conn.request(
+                "GET",
+                f"/{self.token}/api/remote-file?machine=peer&path=shot.png&inline=1",
+            )
+            r = conn.getresponse()
+            body = r.read()
+            self.assertEqual(r.status, 200)
+            self.assertEqual(body, blob)
+            self.assertIn("max-age=60", r.getheader("Cache-Control") or "")
+            self.assertEqual(r.getheader("ETag"), etag)
+            conn.close()
+            conn = HTTPConnection("127.0.0.1", self.port, timeout=5)
+            conn.request(
+                "GET",
+                f"/{self.token}/api/remote-file?machine=peer&path=shot.png&inline=1",
+                headers={"If-None-Match": etag},
+            )
+            r = conn.getresponse()
+            r.read()
+            self.assertEqual(r.status, 304)
+        finally:
+            srv.remote_file_recv = orig
+            if conn is not None:
+                conn.close()
+
+    def test_static_is_cacheable(self):
+        conn = HTTPConnection("127.0.0.1", self.port, timeout=5)
+        try:
+            conn.request("GET", f"/{self.token}/static/filepond.min.js")
+            r = conn.getresponse()
+            r.read()
+            self.assertEqual(r.status, 200)
+            self.assertIn("max-age=86400", r.getheader("Cache-Control") or "")
+        finally:
+            conn.close()
 
 
 class TestLauncher(unittest.TestCase):

@@ -20,13 +20,16 @@ import time
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 
-from .api import (build_tree, bs_ipc, bs_ipc_token, query_bs_sessions,
+from .api import (build_tree, bs_ipc, bs_ipc_token, is_self_node,
+                  list_host_files, list_host_volumes, query_bs_sessions,
                   query_mesh_tree, query_scrollback)  # noqa: F401 — test access
 from .consts import (APP, BUILDTAG, DEFAULT_BIND, DEFAULT_PORT, VERSION,
                      config_home, data_home, sessions_dir, state_path,
                      token_path)
-from .files import (inline_markup, markdown_to_html, resolve_file, safe_name,
-                    safe_session_name, safe_type)  # noqa: F401 — test access
+from .files import (file_kind, inline_markup, list_receive_dir, markdown_to_html,
+                    receive_dir, resolve_file, resolve_receive_path, safe_name,
+                    safe_relpath, safe_session_name,
+                    safe_type)  # noqa: F401 — test access
 from .server import BridgePanelHandler  # noqa: F401 — server use
 
 
@@ -106,6 +109,32 @@ def _seed_sample_data() -> None:
 
 # ── CLI ────────────────────────────────────────────────────────
 
+def _bind_is_allowed(bind: str) -> bool:
+    """Loopback, Tailscale CGNAT, or RFC1918. Never 0.0.0.0 / public."""
+    host = (bind or "").strip().strip("[]")
+    if host in ("127.0.0.1", "localhost", "::1") or host.startswith("127."):
+        return True
+    parts = host.split(".")
+    if len(parts) != 4:
+        return False
+    try:
+        octs = [int(p) for p in parts]
+    except ValueError:
+        return False
+    if any(o < 0 or o > 255 for o in octs):
+        return False
+    a, b = octs[0], octs[1]
+    if a == 100 and 64 <= b <= 127:
+        return True
+    if a == 10:
+        return True
+    if a == 192 and b == 168:
+        return True
+    if a == 172 and 16 <= b <= 31:
+        return True
+    return False
+
+
 def _bind_is_loopback(bind: str) -> bool:
     host = (bind or "").strip().strip("[]")
     if host in ("127.0.0.1", "localhost", "::1"):
@@ -114,9 +143,9 @@ def _bind_is_loopback(bind: str) -> bool:
 
 
 def serve(bind: str, port: int) -> None:
-    if not _bind_is_loopback(bind):
+    if not _bind_is_allowed(bind):
         raise ValueError(
-            f"Refusing non-loopback bind {bind!r}; BridgePanel listens on 127.0.0.1 only"
+            f"Refusing public bind {bind!r}; use loopback or a Tailscale/RFC1918 address"
         )
     token = ensure_dirs()
     server = ThreadingHTTPServer((bind, port), BridgePanelHandler)

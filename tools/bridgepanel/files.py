@@ -2,11 +2,18 @@
 from __future__ import annotations
 
 import html as _html
+import os
 import re
 from pathlib import Path
 from urllib.parse import unquote
 
 from .consts import sessions_dir as _sessions_dir_root
+
+MD_EXTS = {".md", ".markdown", ".txt"}
+IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
+VIDEO_EXTS = {".mp4", ".webm", ".mov", ".mkv"}
+PDF_EXTS = {".pdf"}
+_REL_OK = re.compile(r"^[A-Za-z0-9._/-]*$")
 
 
 def data_home_path() -> Path:
@@ -179,3 +186,98 @@ def markdown_to_html(text: str) -> str:
             f'<pre class="code"><code>{_html.escape(chr(10).join(code_lines))}</code></pre>'
         )
     return "\n".join(out)
+
+
+# ── Host inbox (receive_dir) ───────────────────────────────────
+
+def receive_dir() -> Path:
+    raw = os.environ.get("BRIDGEPANEL_RECEIVE_DIR")
+    if raw:
+        return Path(raw)
+    return Path.home() / ".bridgesessions" / "received"
+
+
+def safe_relpath(value: str) -> str:
+    """Relative inbox path. Empty = inbox root. Rejects abs/~ / .. / odd chars."""
+    value = unquote(value or "").replace("\\", "/").strip()
+    if not value or value in (".", "./"):
+        return ""
+    if value.startswith("/") or value.startswith("~") or ":" in value:
+        return ""
+    parts: list[str] = []
+    for part in value.split("/"):
+        if part in ("", "."):
+            continue
+        if part == ".." or not _REL_OK.match(part):
+            return ""
+        parts.append(part[:180])
+    return "/".join(parts)[:400]
+
+
+def resolve_receive_path(rel: str, *, must_exist: bool = False) -> Path | None:
+    """Resolve rel under receive_dir. None if it would escape."""
+    rel = safe_relpath(rel)
+    base = receive_dir()
+    try:
+        base_r = base.resolve()
+        target = (base_r / rel).resolve() if rel else base_r
+        target.relative_to(base_r)
+    except (ValueError, OSError):
+        return None
+    if must_exist and not target.exists():
+        return None
+    return target
+
+
+def file_kind(name: str, is_dir: bool = False) -> str:
+    if is_dir:
+        return "dir"
+    ext = Path(name).suffix.lower()
+    if ext in MD_EXTS:
+        return "md"
+    if ext in IMAGE_EXTS:
+        return "image"
+    if ext in VIDEO_EXTS:
+        return "video"
+    if ext in PDF_EXTS:
+        return "pdf"
+    from .lang import is_code_name
+    if is_code_name(name):
+        return "code"
+    return "file"
+
+
+def list_receive_dir(rel: str = "") -> dict:
+    """List one directory of the local inbox. Never walks outside receive_dir."""
+    rel = safe_relpath(rel)
+    target = resolve_receive_path(rel)
+    if target is None:
+        return {"ok": False, "error": "path escape", "path": rel, "items": []}
+    if not target.exists():
+        return {"ok": True, "path": rel, "count": 0, "items": []}
+    if not target.is_dir():
+        return {"ok": False, "error": "not a directory", "path": rel, "items": []}
+    items: list[dict] = []
+    try:
+        for entry in os.scandir(target):
+            if entry.name.startswith("."):
+                continue
+            try:
+                is_dir = entry.is_dir(follow_symlinks=False)
+                is_lnk = entry.is_symlink()
+                if is_lnk:
+                    continue
+                st = entry.stat(follow_symlinks=False)
+            except OSError:
+                continue
+            items.append({
+                "name": entry.name,
+                "dir": is_dir,
+                "size": 0 if is_dir else int(st.st_size),
+                "mtime": int(st.st_mtime),
+                "kind": file_kind(entry.name, is_dir),
+            })
+    except OSError as exc:
+        return {"ok": False, "error": str(exc), "path": rel, "items": []}
+    items.sort(key=lambda x: (not x["dir"], x["name"].lower()))
+    return {"ok": True, "path": rel, "count": len(items), "items": items}

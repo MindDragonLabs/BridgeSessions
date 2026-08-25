@@ -135,7 +135,7 @@ std::string current_exe_path(const char* argv0) {
 }
 
 // Pause the platform service so the binary can be swapped. Never persist-disable
-// the systemd unit: disable + a failed resume left fecv3 refusing inbound
+// the systemd unit: disable + a failed resume left a peer refusing inbound
 // sessions (TCP errno 61) after the 2026-08-25 upgrade.
 void pause_mesh_daemon() {
 #ifdef __APPLE__

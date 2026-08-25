@@ -2,22 +2,38 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import html as _html
 import json
 import sys
 import time
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler
+from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from .api import (build_tree, daemon_connect_session, daemon_create_session,
-                  daemon_session_input, query_mesh_tree, query_remote_scrollback,
-                  query_scrollback,
-                  remote_file_recv, remote_file_send)
+                  daemon_session_input, is_self_node, list_host_files,
+                  list_host_volumes, query_mesh_tree, query_remote_scrollback,
+                  query_scrollback, read_local_inbox_file, read_volume_file,
+                  remote_file_recv, remote_file_send, write_local_inbox_file,
+                  write_volume_file)
+from .ops import mkdir_path, rename_path, trash_path
 from .consts import APP, MAX_UPLOAD, VERSION, max_file_upload
-from .files import (markdown_to_html, resolve_file, safe_name,
-                    safe_session_name, safe_type, sessions_dir)
+from .files import (file_kind, markdown_to_html, resolve_file, safe_name,
+                    safe_relpath, safe_session_name, safe_type, sessions_dir)
 from .panel_html import FAVICON_SVG, INDEX_HTML
+
+STATIC_DIR = Path(__file__).resolve().parent / "static"
+STATIC_FILES = {
+    "toastui-editor-all.min.js": "application/javascript; charset=utf-8",
+    "toastui-editor.min.css": "text/css; charset=utf-8",
+    "toastui-editor-dark.min.css": "text/css; charset=utf-8",
+    "filepond.min.js": "application/javascript; charset=utf-8",
+    "filepond.min.css": "text/css; charset=utf-8",
+    "filepond-plugin-file-validate-size.min.js": "application/javascript; charset=utf-8",
+    "codemirror-bundle.min.js": "application/javascript; charset=utf-8",
+}
 
 
 def mesh_node_name() -> str:
@@ -42,29 +58,124 @@ class BridgePanelHandler(BaseHTTPRequestHandler):
             value.replace(self.token, "<token>") if isinstance(value, str) else value
             for value in args
         )
-        sys.stderr.write("%s %s\n" % (self.log_date_time_string(), format % safe_args))
+        src = self.client_address[0] if self.client_address else "-"
+        sys.stderr.write("%s %s %s\n" % (self.log_date_time_string(), src, format % safe_args))
 
-    def security_headers(self, content_type: str, length: int | None = None) -> None:
+    def security_headers(self, content_type: str, length: int | None = None,
+                         cache_control: str | None = None) -> None:
         self.send_header("Content-Type", content_type)
-        self.send_header("Cache-Control", "no-store")
+        self.send_header("Cache-Control", cache_control or "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header("X-Frame-Options", "DENY")
         self.send_header(
             "Content-Security-Policy",
             "default-src 'self'; "
-            "style-src 'unsafe-inline'; "
-            "script-src 'unsafe-inline'; "
-            "img-src 'self' data:; "
+            "style-src 'self' 'unsafe-inline'; "
+            "script-src 'self' 'unsafe-inline'; "
+            "img-src 'self' data: blob:; "
+            "media-src 'self' blob:; "
+            "object-src 'self'; "
+            "frame-src 'self'; "
+            "font-src 'self' data:; "
             "connect-src 'self';"
         )
         if length is not None:
             self.send_header("Content-Length", str(length))
 
-    def send_bytes(self, body: bytes, content_type: str, status: int = 200) -> None:
+    def send_bytes(self, body: bytes, content_type: str, status: int = 200,
+                   cache_control: str | None = None) -> None:
         self.send_response(status)
-        self.security_headers(content_type, len(body))
+        self.security_headers(content_type, len(body), cache_control=cache_control)
         self.end_headers()
         self.wfile.write(body)
+
+    def send_file_bytes(self, body: bytes, content_type: str, filename: str,
+                        inline: bool = False, cacheable: bool = False,
+                        etag: str | None = None, allow_frame: bool = False) -> None:
+        fname = safe_name(filename or "download")
+        disp = "inline" if inline else "attachment"
+        self.send_response(200)
+        self.send_header("Content-Type", content_type or "application/octet-stream")
+        self.send_header("Content-Disposition", f'{disp}; filename="{fname}"')
+        self.send_header("Content-Length", str(len(body)))
+        if cacheable and inline:
+            self.send_header("Cache-Control", "private, max-age=60")
+            if etag:
+                self.send_header("ETag", etag)
+        else:
+            self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        if not allow_frame:
+            self.send_header("X-Frame-Options", "DENY")
+        self.send_header("Referrer-Policy", "no-referrer")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _file_result_response(self, result: dict, download: bool, inline: bool) -> None:
+        if not result.get("ok"):
+            self.send_json(result)
+            return
+        kind = result.get("kind") or file_kind(result.get("name") or "")
+        is_media = kind in ("image", "video", "pdf")
+        if download:
+            self.send_file_bytes(
+                result.get("data") or b"",
+                result.get("content_type") or "application/octet-stream",
+                result.get("name") or "download",
+                inline=False,
+            )
+            return
+        if inline and is_media:
+            body = result.get("data") or b""
+            etag = '"' + hashlib.sha256(body).hexdigest()[:16] + '"'
+            if (self.headers.get("If-None-Match") or "") == etag:
+                self.send_response(304)
+                self.send_header("ETag", etag)
+                self.send_header("Cache-Control", "private, max-age=60")
+                self.send_header("X-Content-Type-Options", "nosniff")
+                self.end_headers()
+                return
+            self.send_file_bytes(
+                body,
+                result.get("content_type") or "application/octet-stream",
+                result.get("name") or "download",
+                inline=True,
+                cacheable=True,
+                etag=etag,
+                allow_frame=(kind == "pdf"),
+            )
+            return
+        if result.get("is_text"):
+            self.send_json({k: v for k, v in result.items() if k != "data"})
+            return
+        self.send_file_bytes(
+            result.get("data") or b"",
+            result.get("content_type") or "application/octet-stream",
+            result.get("name") or "download",
+            inline=False,
+        )
+
+    def _serve_static(self, path: str) -> bool:
+        """Serve a same-origin vendored asset. True if this request is /static/*."""
+        if not path.startswith("/static/"):
+            return False
+        name = path[len("/static/"):]
+        if not name or name != Path(name).name or name not in STATIC_FILES:
+            self.reject(HTTPStatus.NOT_FOUND, "Not found")
+            return True
+        fpath = (STATIC_DIR / name).resolve()
+        if fpath.parent != STATIC_DIR.resolve():
+            self.reject(HTTPStatus.NOT_FOUND, "Not found")
+            return True
+        try:
+            data = fpath.read_bytes()
+        except OSError:
+            self.reject(HTTPStatus.NOT_FOUND, "Not found")
+            return True
+        self.send_bytes(data, STATIC_FILES[name],
+                        cache_control="public, max-age=86400, immutable")
+        return True
 
     def send_json(self, payload: dict, status: int = 200) -> None:
         self.send_bytes(
@@ -184,9 +295,20 @@ class BridgePanelHandler(BaseHTTPRequestHandler):
         path, query = auth
         params = parse_qs(query)
 
+        if self._serve_static(path):
+            return
+
         if path in ("/", ""):
             from .consts import BUILDTAG
-            html = INDEX_HTML.replace("__BUILD_TAG__", f"{BUILDTAG}")
+            from .lang import js_table
+            orig = parsed.path
+            asset_base = f"/{self.token}/" if orig.startswith(f"/{self.token}") else "/"
+            html = (
+                INDEX_HTML
+                .replace("__BUILD_TAG__", f"{BUILDTAG}")
+                .replace("__ASSET_BASE__", asset_base)
+                .replace("__LANG_TABLE__", js_table())
+            )
             self.send_bytes(html.encode("utf-8"), "text/html; charset=utf-8")
         elif path in ("/favicon.ico", "/favicon.svg"):
             self.send_response(200)
@@ -233,6 +355,29 @@ class BridgePanelHandler(BaseHTTPRequestHandler):
                 else f'<pre style="font-family:var(--mono);font-size:13px;white-space:pre-wrap;word-break:break-all">{_html.escape(raw)}</pre>',
                 "editable": True,
             })
+        elif path == "/api/volumes":
+            machine = params.get("machine", [""])[0]
+            if not machine:
+                self.reject(HTTPStatus.BAD_REQUEST, "machine required")
+                return
+            self.send_json(list_host_volumes(machine))
+        elif path == "/api/files":
+            machine = params.get("machine", [""])[0]
+            root = params.get("root", ["inbox"])[0] or "inbox"
+            raw_path = params.get("path", [""])[0]
+            if not machine:
+                self.reject(HTTPStatus.BAD_REQUEST, "machine required")
+                return
+            if root in ("", "inbox"):
+                rel = safe_relpath(raw_path)
+            else:
+                from .volumes import normalize_rel
+                rel = normalize_rel(root, raw_path)
+                if rel is None:
+                    self.send_json({"ok": False, "error": "path_rejected", "root": root, "items": []})
+                    return
+            refresh = params.get("refresh", ["0"])[0].lower() in ("1", "true", "yes")
+            self.send_json(list_host_files(machine, rel, root=root, refresh=refresh))
         elif path == "/api/session/connect":
             session = params.get("session", [""])[0]
             machine = params.get("machine", [""])[0]
@@ -244,39 +389,33 @@ class BridgePanelHandler(BaseHTTPRequestHandler):
             self.send_json({"cmd": cmd, "machine": peer, "session": session})
         elif path == "/api/remote-file":
             machine = params.get("machine", [""])[0]
+            root = params.get("root", ["inbox"])[0] or "inbox"
             remote_path = params.get("path", [""])[0]
             if not machine or not remote_path:
                 self.reject(HTTPStatus.BAD_REQUEST, "machine and path required")
                 return
-            result = remote_file_recv(machine, remote_path)
-            if not result.get("ok"):
-                self.send_json(result)
-                return
             download = params.get("download", ["0"])[0].lower() in ("1", "true", "yes")
-            if download or not result.get("is_text"):
-                body = result.get("data") or b""
-                fname = safe_name(result.get("name") or "download")
-                self.send_response(200)
-                self.send_header(
-                    "Content-Type",
-                    result.get("content_type") or "application/octet-stream",
-                )
-                self.send_header(
-                    "Content-Disposition",
-                    f'attachment; filename="{fname}"',
-                )
-                self.send_header("Content-Length", str(len(body)))
-                self.send_header("Cache-Control", "no-store")
-                self.send_header("X-Content-Type-Options", "nosniff")
-                self.end_headers()
-                self.wfile.write(body)
-                return
-            self.send_json({k: v for k, v in result.items() if k != "data"})
+            inline = params.get("inline", ["0"])[0].lower() in ("1", "true", "yes")
+            if root in ("", "inbox"):
+                remote_path = safe_relpath(remote_path)
+                if not remote_path:
+                    self.reject(HTTPStatus.BAD_REQUEST, "machine and path required")
+                    return
+                if is_self_node(machine):
+                    result = read_local_inbox_file(remote_path)
+                else:
+                    result = remote_file_recv(machine, remote_path)
+                    if result.get("ok"):
+                        result["kind"] = file_kind(result.get("name") or remote_path)
+            else:
+                result = read_volume_file(machine, root, remote_path)
+            self._file_result_response(result, download, inline)
         else:
             self.reject(HTTPStatus.NOT_FOUND, "Not found")
 
     def do_POST(self) -> None:
-        auth = self.authorized_path(require_token=True)
+        # Trusted tailnet IPs may write without the URL token (same rule as GET).
+        auth = self.authorized_path(require_token=False)
         if not auth:
             self.reject(HTTPStatus.NOT_FOUND, "Not found")
             return
@@ -403,12 +542,26 @@ class BridgePanelHandler(BaseHTTPRequestHandler):
                 return
 
             machine = body.get("machine", "")
-            remote_path = body.get("path", "")
+            root = body.get("root") or "inbox"
             content = body.get("content", "")
             content_b64 = body.get("content_b64")
 
-            if not machine or not remote_path:
+            if not machine:
                 self.reject(HTTPStatus.BAD_REQUEST, "Missing machine or path")
+                return
+            from .volumes import normalize_rel, root_writable
+            if root in ("", "inbox"):
+                remote_path = safe_relpath(body.get("path", ""))
+            else:
+                remote_path = normalize_rel(root, body.get("path", ""))
+                if remote_path is None:
+                    self.send_json({"ok": False, "error": "path_rejected"})
+                    return
+            if not remote_path:
+                self.reject(HTTPStatus.BAD_REQUEST, "Missing machine or path")
+                return
+            if not root_writable(root, machine):
+                self.send_json({"ok": False, "error": "write_inbox_only" if root not in ("", "inbox") else "write_not_allowed"})
                 return
 
             if content_b64:
@@ -427,8 +580,47 @@ class BridgePanelHandler(BaseHTTPRequestHandler):
                 self.reject(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, "Content too large")
                 return
 
-            result = remote_file_send(machine, remote_path, data)
+            if root in ("", "inbox"):
+                if is_self_node(machine):
+                    result = write_local_inbox_file(remote_path, data)
+                else:
+                    result = remote_file_send(machine, remote_path, data)
+            else:
+                result = write_volume_file(machine, root, remote_path, data)
             self.send_json(result)
+            return
+
+        if path in ("/api/mkdir", "/api/rename", "/api/trash"):
+            try:
+                length = int(self.headers.get("Content-Length", "0") or 0)
+            except ValueError:
+                self.reject(HTTPStatus.BAD_REQUEST, "Invalid Content-Length")
+                return
+            if length < 0 or length > 65536:
+                self.reject(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, "Content too large")
+                return
+            try:
+                raw_body = self.rfile.read(length) if length else b"{}"
+                body = json.loads(raw_body)
+            except (ValueError, json.JSONDecodeError, OSError):
+                self.reject(HTTPStatus.BAD_REQUEST, "Invalid JSON")
+                return
+            if not isinstance(body, dict):
+                self.reject(HTTPStatus.BAD_REQUEST, "Invalid JSON")
+                return
+            machine = str(body.get("machine") or "")
+            root = str(body.get("root") or "inbox")
+            remote_path = str(body.get("path") or "")
+            if not machine or not remote_path:
+                self.reject(HTTPStatus.BAD_REQUEST, "Missing machine or path")
+                return
+            if path == "/api/mkdir":
+                self.send_json(mkdir_path(machine, root, remote_path))
+                return
+            if path == "/api/rename":
+                self.send_json(rename_path(machine, root, remote_path, str(body.get("name") or "")))
+                return
+            self.send_json(trash_path(machine, root, remote_path))
             return
 
         self.reject(HTTPStatus.NOT_FOUND, "Not found")

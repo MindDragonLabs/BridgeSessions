@@ -2,7 +2,7 @@
 # Provision bs-qa-ubuntu desktop guest on a Linux lab hop for automated CUA/tray.
 # Run on the libvirt host as the operator user (libvirt group). Idempotent.
 #
-# Guest: Ubuntu 24.04 cloud image + cloud-init (user agent, passwordless sudo,
+# Guest: Ubuntu 24.04 cloud image + cloud-init (user bsqa, passwordless sudo,
 #        XFCE auto-login, openssh, xdotool, bridgesessions binary optional).
 set -euo pipefail
 
@@ -78,7 +78,7 @@ local-hostname: ${VM_NAME}
 EOF
 
 # Password: change in vault for production QA; local libvirt only
-# Use SSH key from agent if available
+# Use SSH key from local user if available
 PUBKEY=""
 if [[ -f "$HOME/.ssh/id_ed25519.pub" ]]; then
   PUBKEY=$(cat "$HOME/.ssh/id_ed25519.pub")
@@ -89,12 +89,12 @@ fi
 cat > "$USER_DATA" <<EOF
 #cloud-config
 users:
-  - name: agent
+  - name: bsqa
     sudo: ALL=(ALL) NOPASSWD:ALL
     shell: /bin/bash
     groups: [sudo, adm]
     lock_passwd: false
-    plain_text_passwd: 'bsqa-agent'
+    plain_text_passwd: 'bsqa-pass'
     ssh_authorized_keys:
       - ${PUBKEY:-ssh-ed25519 AAAA invalid-placeholder}
 package_update: true
@@ -117,10 +117,10 @@ write_files:
   - path: /etc/lightdm/lightdm.conf.d/50-bs-autologin.conf
     content: |
       [Seat:*]
-      autologin-user=agent
+      autologin-user=bsqa
       autologin-user-timeout=0
       user-session=xfce
-  - path: /home/agent/.config/autostart/bs-display-ready.desktop
+  - path: /home/bsqa/.config/autostart/bs-display-ready.desktop
     permissions: '0644'
     content: |
       [Desktop Entry]
@@ -131,9 +131,9 @@ write_files:
 runcmd:
   - systemctl enable lightdm || true
   - systemctl set-default graphical.target
-  - mkdir -p /home/agent/.config/autostart
-  - chown -R agent:agent /home/agent
-  - echo "export DISPLAY=:0" >> /home/agent/.bashrc
+  - mkdir -p /home/bsqa/.config/autostart
+  - chown -R bsqa:bsqa /home/bsqa
+  - echo "export DISPLAY=:0" >> /home/bsqa/.bashrc
 final_message: "bs-qa-ubuntu cloud-init done"
 EOF
 
@@ -173,7 +173,7 @@ for i in $(seq 1 60); do
   ADDR=$(virsh domifaddr "$VM_NAME" 2>/dev/null | awk '/ipv4/ {print $4}' | cut -d/ -f1 | head -1 || true)
   if [[ -n "$ADDR" ]]; then
     echo "→ guest IP $ADDR"
-    if ssh -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=no agent@"$ADDR" 'echo SSH_OK' 2>/dev/null; then
+    if ssh -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=no bsqa@"$ADDR" 'echo SSH_OK' 2>/dev/null; then
       echo "KVM_READY ip=$ADDR"
       exit 0
     fi

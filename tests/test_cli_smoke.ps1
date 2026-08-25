@@ -6,7 +6,7 @@ $sdk = "C:\Program Files (x86)\Windows Kits\10"
 $vcpkg = "C:\vcpkg\installed\x64-windows"
 $Env:PATH = "$msvc\bin\Hostx64\x64;$vcpkg\bin;$Env:PATH"
 
-$project = "C:\Users\Shadow\bridgesessions"
+$project = "C:\Users\build\bridgesessions"
 Set-Location $project
 
 $pass = 0

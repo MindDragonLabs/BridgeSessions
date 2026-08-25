@@ -462,13 +462,13 @@ TEST_CASE("resolve_peer: short query (<3 chars) skips fuzzy tier", "[features][r
 }
 
 TEST_CASE("names_are_numeric_siblings: digit-only single substitution", "[features][resolve_peer]") {
-    REQUIRE(names_are_numeric_siblings("fecv3", "fecv4"));
-    REQUIRE(names_are_numeric_siblings("FECV3", "fecv4"));
+    REQUIRE(names_are_numeric_siblings("node-3", "node-4"));
+    REQUIRE(names_are_numeric_siblings("NODE-3", "node-4"));
     REQUIRE(names_are_numeric_siblings("host-1", "host-2"));
-    REQUIRE_FALSE(names_are_numeric_siblings("fecv3", "fecv3"));
+    REQUIRE_FALSE(names_are_numeric_siblings("node-3", "node-3"));
     REQUIRE_FALSE(names_are_numeric_siblings("shadow", "shad0w"));  // letter vs digit
     REQUIRE_FALSE(names_are_numeric_siblings("alpha", "alphaa"));   // insertion
-    REQUIRE_FALSE(names_are_numeric_siblings("fecv3", "fecv10"));   // length differs
+    REQUIRE_FALSE(names_are_numeric_siblings("node-3", "node-10")); // length differs
 }
 
 TEST_CASE("resolve_peer: self node name is never remapped to a sibling", "[features][resolve_peer]") {
@@ -479,16 +479,16 @@ TEST_CASE("resolve_peer: self node name is never remapped to a sibling", "[featu
     write_authorized_keys(home, seed_pk);
 
     MeshConfig cfg;
-    cfg.node_name = "fecv3";
+    cfg.node_name = "node-3";
     cfg.authorized_keys_path = home + "/authorized_keys";
     cfg.seeds.push_back(PeerEntry{
-        .name = "fecv4",
+        .name = "node-4",
         .addr = "10.0.0.4:19949",
         .pubkey_hex = seed_pk});
 
     MeshController mc(cfg, home);
 
-    auto r = mc.resolve_peer("fecv3");
+    auto r = mc.resolve_peer("node-3");
     REQUIRE(r.tier == PR::None_);
     REQUIRE(r.name.empty());
 
@@ -503,17 +503,17 @@ TEST_CASE("resolve_peer: numeric sibling is not a fuzzy match", "[features][reso
     write_authorized_keys(home, seed_pk);
 
     MeshConfig cfg;
-    cfg.node_name = "btcr";
+    cfg.node_name = "node-2";
     cfg.authorized_keys_path = home + "/authorized_keys";
     cfg.seeds.push_back(PeerEntry{
-        .name = "fecv4",
+        .name = "node-4",
         .addr = "10.0.0.4:19949",
         .pubkey_hex = seed_pk});
 
     MeshController mc(cfg, home);
 
-    // "fecv3" is Levenshtein-1 from "fecv4" but is a different host, not a typo.
-    auto r = mc.resolve_peer("fecv3");
+    // "node-3" is Levenshtein-1 from "node-4" but is a different host, not a typo.
+    auto r = mc.resolve_peer("node-3");
     REQUIRE(r.tier == PR::None_);
     REQUIRE(r.name.empty());
 
@@ -545,8 +545,8 @@ TEST_CASE("resolve_peer: levenshtein cap is 2 (not 3)", "[features][resolve_peer
 }
 
 TEST_CASE("is_local_node_name: case-insensitive self check", "[features][resolve_peer]") {
-    REQUIRE(is_local_node_name("fecv3", "fecv3"));
-    REQUIRE(is_local_node_name("FECV3", "fecv3"));
-    REQUIRE_FALSE(is_local_node_name("fecv4", "fecv3"));
-    REQUIRE_FALSE(is_local_node_name("", "fecv3"));
+    REQUIRE(is_local_node_name("node-3", "node-3"));
+    REQUIRE(is_local_node_name("NODE-3", "node-3"));
+    REQUIRE_FALSE(is_local_node_name("node-4", "node-3"));
+    REQUIRE_FALSE(is_local_node_name("", "node-3"));
 }

@@ -1,6 +1,8 @@
 # Configuration
 
-The normal config is `~/.bridgesessions/config`; override with `--config`.
+The normal config file is `~/.bridgesessions/config`. Override the path with `--config`.
+
+The format is one directive per line.
 
 ```ini
 node.name node-a
@@ -20,21 +22,37 @@ transfer.allow_sensitive_paths false
 file.dest_allow_home false
 ```
 
+The addresses above are documentation-only. Use addresses that belong to your network.
+
 | Directive | Purpose |
 |---|---|
-| `node.name`, `node.listen` | node identity and mesh bind |
-| `seed ... pubkey=` | pinned bootstrap/enrollment authority |
-| `mesh.require_seed_pins` | reject unpinned seeds; keep enabled |
-| `mesh.ping_interval_secs`, `mesh.pong_timeout_secs` | liveness |
-| `mesh.reconnect_backoff_max_secs` | retry ceiling |
-| `mesh.join_window_max_secs` | unknown-cert join window cap |
-| `sessions.default_shell` | remote shell command |
-| `session.<name>.command` | named-session command |
-| `sessions.authorized_keys_path` | inbound trusted keys |
-| `receive_dir` | inbox and default served-file root |
-| `transfer.max_bytes` | per-file limit |
-| `transfer.allow_sensitive_paths` | arbitrary/sensitive path access; high risk |
+| `node.name`, `node.listen` | Node identity and mesh bind |
+| `seed ... pubkey=` | Pinned bootstrap and enrollment authority |
+| `mesh.require_seed_pins` | Reject unpinned seeds. Keep this enabled. |
+| `mesh.ping_interval_secs`, `mesh.pong_timeout_secs` | Liveness |
+| `mesh.reconnect_backoff_max_secs` | Retry ceiling |
+| `mesh.join_window_max_secs` | Unknown-cert join window cap |
+| `sessions.default_shell` | Remote shell command |
+| `session.<name>.command` | Named-session command |
+| `sessions.authorized_keys_path` | Inbound trusted keys |
+| `receive_dir` | Inbox and default served-file root |
+| `transfer.max_bytes` | Per-file limit |
+| `transfer.allow_sensitive_paths` | Arbitrary path access. High risk. |
 
-Local daemon IPC uses loopback port 19980 plus an owner-only token. Isolated tests may set `BRIDGESESSIONS_IPC_PORT` consistently for daemon and CLI.
+## Bind rules
+
+- Bind the address that other nodes can reach.
+- Loopback-only listen hides the node from the mesh.
+- A wildcard bind needs a host firewall.
+
+See [Always-online seed](always-online-seed.md) for a central node.
+
+## Local IPC
+
+The CLI talks to the local daemon on loopback port **19980**. The channel uses an owner-only token. Isolated tests may set `BRIDGESESSIONS_IPC_PORT` for both the daemon and the CLI.
+
+## Files and inbox
+
+`receive_dir` is the inbox. Bridge Panel lists that directory by default. Remote `bs file` serving stays inside this root unless you set `transfer.allow_sensitive_paths`. That flag removes a major safeguard.
 
 See [`config.example`](https://github.com/MindDragonLabs/BridgeSessions/blob/main/config.example).

@@ -9,9 +9,9 @@
     <key>CFBundleName</key>
     <string>BridgeSessions</string>
     <key>CFBundleVersion</key>
-    <string>26.09.19-beta6</string>
+    <string>26.08.25-beta7</string>
     <key>CFBundleShortVersionString</key>
-    <string>26.09.19</string>
+    <string>26.08.25</string>
     <!-- LSUIElement (not LSBackgroundOnly): no Dock icon, but TCC grant
          dialogs can still surface. LSBackgroundOnly silently drops them. -->
     <key>LSUIElement</key>

@@ -6,7 +6,13 @@ set -euo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO"
 TRIPLE=x86_64-w64-mingw32-g++
-PREFIX="${BS_WIN_PREFIX:-$HOME/bs-win}"
+if [[ -n "${BS_WIN_PREFIX:-}" ]]; then
+  PREFIX="$BS_WIN_PREFIX"
+elif [[ -d /opt/bs-win/include && -f /opt/bs-win/lib/libzstd.a ]]; then
+  PREFIX=/opt/bs-win
+else
+  PREFIX="${HOME}/bs-win"
+fi
 VERSION="$(cat VERSION)"
 echo "=== REPO: $REPO ==="
 echo "=== VERSION: $VERSION ==="

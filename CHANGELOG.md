@@ -2,6 +2,18 @@
 
 Notable user-visible changes. Git history contains implementation-level detail.
 
+## 26.08.25-beta7
+
+Rebuild of the beta7 line. Installers and release artifacts now stamp
+`26.08.25-beta7`. The `26.MM.DD` and `2026.MM.DD` forms compare as the same
+calendar year.
+
+### Packaging
+
+- Linux x86_64, Windows x86_64, and macOS arm64 binaries rebuilt from this tag.
+- Default installer tag is `26.08.25-beta7`.
+- macOS `Info.plist` bundle version matches the tag.
+
 ## 2026.08.24-beta7
 
 ### Security
@@ -28,8 +40,8 @@ Notable user-visible changes. Git history contains implementation-level detail.
 ### Peer names
 
 - `bs shell <this-node>` refuses immediately (`Cannot shell to this node`)
-  instead of fuzzy-remapping to a sibling (`fecv3` → `fecv4`) and hanging.
-- Fuzzy resolve no longer treats digit-only siblings as typos (`fecv3`/`fecv4`,
+  instead of fuzzy-remapping to a sibling (`seed-a` → `seed-b`) and hanging.
+- Fuzzy resolve no longer treats digit-only siblings as typos (`seed-a`/`seed-b`,
   `host-1`/`host-2`). Levenshtein auto-match is capped at distance 2.
 
 ### Onboarding (no roster files)
@@ -38,7 +50,7 @@ Notable user-visible changes. Git history contains implementation-level detail.
   On success the controller signs a mesh-directory enrollment for the joiner and
   gossips it to every peer, so each peer auto-trusts and seeds the new node's key
   with **no manual key copying, no YAML roster edit, and no seed-sync script**.
-- Removed the legacy manual `deploy/rana-shadow/` bundle (hand-written join script
+- Removed the legacy manual `deploy/<host>/` bundle (hand-written join script
   + YAML-patching `authorize.sh` + full-path `SHA256SUMS`) that bypassed the native
   join flow and forced the YAML/roster path.
 

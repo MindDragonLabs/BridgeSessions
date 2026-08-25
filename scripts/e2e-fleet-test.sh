@@ -113,8 +113,12 @@ assert_contains() {
 
 # ── peer discovery ──────────────────────────────────────────────────
 list_seed_peers() {
-  # Parse `bs peers list` seed lines: "  [seed] name host:port"
+  # Parse `bs peers list`. Current table: NAME KIND ADDRESS STATUS VERSION
+  # Legacy lines look like: "  [seed] name host:port"
   run_to "$BS_BIN" peers list 2>/dev/null | awk '
+    $1 == "NAME" { next }
+    $1 ~ /^-{3,}/ { next }
+    $2 == "seed" { print $1; next }
     /\[seed\]/ {
       for (i = 1; i <= NF; i++) {
         if ($i == "[seed]" && (i + 1) <= NF) { print $(i + 1); break }
@@ -200,7 +204,7 @@ shell_hostname_cmd() {
 shell_version_cmd() {
   case "$1" in
     windows)
-      echo 'C:\Users\shadow\AppData\Local\bridgesessions\bridgesessions.exe --version 2>nul & if exist %USERPROFILE%\.local\bin\bridgesessions.exe (%USERPROFILE%\.local\bin\bridgesessions.exe --version) else (where bridgesessions 2>nul & bridgesessions --version 2>nul)'
+      echo 'if exist %LOCALAPPDATA%\bridgesessions\bridgesessions.exe (%LOCALAPPDATA%\bridgesessions\bridgesessions.exe --version) else if exist %USERPROFILE%\.local\bin\bridgesessions.exe (%USERPROFILE%\.local\bin\bridgesessions.exe --version) else (where bridgesessions 2>nul & bridgesessions --version 2>nul)'
       ;;
     *)
       echo 'command -v bridgesessions >/dev/null && bridgesessions --version; command -v bs >/dev/null && bs --version; test -x "$HOME/.local/bin/bridgesessions" && "$HOME/.local/bin/bridgesessions" --version; true'

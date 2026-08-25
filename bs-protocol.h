@@ -4828,7 +4828,7 @@ void write_peer_line(std::ostream& os, const std::string& prefix, const PeerEntr
     return prev[n];
 }
 
-// Same-length names that differ by exactly one digit (fecv3/fecv4, host-1/host-2)
+// Same-length names that differ by exactly one digit (node-3/node-4, host-1/host-2)
 // are distinct hosts, not typos. Fuzzy resolve must not remap them.
 [[nodiscard]] inline bool names_are_numeric_siblings(const std::string& a,
                                                      const std::string& b) {
@@ -15175,7 +15175,7 @@ public:
 
     [[nodiscard]] PeerResolveResult resolve_peer(const std::string& query) const {
         PeerResolveResult r;
-        // Never treat this node as a remote peer (would fuzzy-remap fecv3→fecv4).
+        // Never treat this node as a remote peer (would fuzzy-remap node-3→node-4).
         if (is_local_node_name(query, config_.node_name)) return r;
         // Tier 1: exact match (case-insensitive)
         std::string addr, pubkey;
@@ -15209,7 +15209,7 @@ public:
             r.suggestions = segment_matches;
             return r; // ambiguous
         }
-        // Tier 4: Levenshtein ≤ 2 (typos). Digit-only siblings (fecv3/fecv4) are not typos.
+        // Tier 4: Levenshtein ≤ 2 (typos). Digit-only siblings (node-3/node-4) are not typos.
         std::vector<std::string> fuzzy_matches;
         auto check_fuzzy = [&](const std::vector<PeerEntry>& peers) {
             for (const auto& p : peers) {

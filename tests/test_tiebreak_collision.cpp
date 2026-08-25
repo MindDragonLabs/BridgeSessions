@@ -1,7 +1,7 @@
 // test_tiebreak_collision.cpp — Regression tests for the simultaneous-dial
 // collision fix (2026-08-21).
 //
-// Failure mode observed in production (macbook ↔ ranas-mac-studio):
+// Failure mode observed in production (peer-a ↔ peer-b):
 //   1. Two peers restart and dial each other simultaneously.
 //   2. The deterministic duplicate rule keeps the connection opened by the
 //      smaller pubkey; the loser TCP is torn down — its outbound dial
