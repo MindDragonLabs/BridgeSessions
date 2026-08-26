@@ -6651,7 +6651,8 @@ public:
             auto hosted = create_session_hosted(name, command, cols, rows, term,
                                                 app_home_, worker_exe_);
             if (hosted) return hosted;
-            log_event("session_worker_spawn_fallback", name);
+            log_event("session_worker_spawn_fallback",
+                      name + " reason=" + hosted.error().message);
         }
 #endif
         return create_session(name, command, cols, rows, term);

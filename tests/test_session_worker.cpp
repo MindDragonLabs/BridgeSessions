@@ -33,10 +33,17 @@ std::string worker_exe_from_env() {
 }
 
 fs::path make_temp_home() {
-    auto tmp = fs::temp_directory_path() /
-        ("bs_test_session_worker_" + std::to_string(::getpid()) + "_" +
-         std::to_string(std::chrono::steady_clock::now()
-                            .time_since_epoch().count()));
+    // macOS $TMPDIR (/var/folders/<30 chars>/T/) makes the worker unix-socket
+    // path exceed the 104-byte sun_path limit — hosted spawn refuses and the
+    // test would exercise the forkpty fallback instead. Keep the base short.
+#ifdef __APPLE__
+    const fs::path base = "/tmp";
+#else
+    const fs::path base = fs::temp_directory_path();
+#endif
+    auto tmp = base / ("bs_sw_" + std::to_string(::getpid()) + "_" +
+                       std::to_string(std::chrono::steady_clock::now()
+                                          .time_since_epoch().count()));
     fs::create_directories(tmp);
     return tmp;
 }
