@@ -171,6 +171,10 @@ foreach(TEST_SRC ${TEST_SOURCES})
        TEST_NAME STREQUAL "test_mesh_responsiveness")
         catch_discover_tests(${TEST_NAME}
             PROPERTIES RESOURCE_LOCK bridgesessions_ipc)
+    elseif(TEST_NAME STREQUAL "test_session_worker")
+        catch_discover_tests(${TEST_NAME}
+            PROPERTIES ENVIRONMENT
+                "BS_TEST_BS_BINARY=$<TARGET_FILE:bridgesessions>")
     else()
         catch_discover_tests(${TEST_NAME})
     endif()

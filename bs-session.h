@@ -313,6 +313,22 @@ struct Session {
     static constexpr size_t kPtyInputHighWater = 64 * 1024;
     static constexpr size_t kPtyInputLowWater  = 16 * 1024;
     static constexpr size_t kPtyInputMax       = 256 * 1024;
+
+    // ── Session-worker hosting ──────────────────────────────────
+    // When hosted, the PTY and child shell live in a detached
+    // `bridgesessions session-worker` process; master_fd is the worker's
+    // Unix-socket connection carrying the framed worker protocol, and
+    // child_pid is the shell's pid INSIDE the worker (not our child — never
+    // waitpid() or kill() it from the daemon). The daemon may die, restart,
+    // or upgrade; the worker and shell survive and are re-adopted from the
+    // socket directory on the next boot. See bs-session-worker.h.
+    bool hosted = false;
+    pid_t worker_pid = -1;
+    bool worker_died = false;        // WMSG_DIED received or socket EOF/err
+    int worker_exit_code = -1;
+    int worker_signal_num = 0;
+    std::string worker_rx;           // partial-frame reassembly buffer
+    std::string worker_tx;           // framed output queue (partial-write safe)
 #endif
     SessionState state = SessionState::Created;
 
@@ -400,7 +416,11 @@ Session::~Session() {
         close(master_fd);
         master_fd = -1;
     }
-    if (child_pid > 0) {
+    // Hosted sessions: the worker owns the child shell — closing our socket
+    // must never kill it (that is the entire point of the worker split:
+    // daemon restart/upgrade leaves shells alive). Explicit kills go through
+    // the WMSG_SHUTDOWN handshake before Session destruction.
+    if (child_pid > 0 && !hosted) {
         // Kill the whole process group (process group id == the forkpty
         // session-leader pid), so background jobs spawned by the shell die
         // with it instead of outliving the session as orphans.
@@ -437,6 +457,13 @@ Session::Session(Session&& other) noexcept
 #ifndef _WIN32
     , pending_input(std::move(other.pending_input))
     , input_backpressured(other.input_backpressured)
+    , hosted(other.hosted)
+    , worker_pid(other.worker_pid)
+    , worker_died(other.worker_died)
+    , worker_exit_code(other.worker_exit_code)
+    , worker_signal_num(other.worker_signal_num)
+    , worker_rx(std::move(other.worker_rx))
+    , worker_tx(std::move(other.worker_tx))
 #endif
     , state(other.state)
     , scrollback(std::move(other.scrollback))
@@ -461,6 +488,9 @@ Session::Session(Session&& other) noexcept
 #else
     other.master_fd = -1;
     other.child_pid = -1;
+    other.worker_pid = -1;
+    other.worker_died = false;
+    other.hosted = false;
 #endif
 }
 
@@ -509,6 +539,10 @@ void Session::release_exited_runtime() {
     }
     pending_input.clear();
     input_backpressured = false;
+    worker_tx.clear();
+    worker_rx.clear();
+    worker_pid = -1;
+    hosted = false;   // runtime is gone; a later respawn re-establishes hosting
 #endif
 }
 

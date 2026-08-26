@@ -666,6 +666,22 @@ int main(int argc, char** argv) {
     app.add_flag("--daemon", daemon_flag, "Detach from terminal (daemonize)");
     app.add_flag("--cua-helper", cua_helper_flag, "Run CUA helper server (screen capture + input injection in user session)");
 
+#ifndef _WIN32
+    // Internal worker mode: `bridgesessions session-worker --socket …` is
+    // exec'd by the daemon per hosted session (see bs-session-worker.h).
+    // Hidden from help — not a user-facing command.
+    std::string worker_socket, worker_name, worker_command, worker_term = "xterm-256color", worker_app_home;
+    int worker_cols = 80, worker_rows = 24;
+    auto* session_worker_app = app.add_subcommand("session-worker", "internal: per-session PTY worker");
+    session_worker_app->add_option("--socket", worker_socket)->required();
+    session_worker_app->add_option("--name", worker_name)->required();
+    session_worker_app->add_option("--command", worker_command);
+    session_worker_app->add_option("--cols", worker_cols);
+    session_worker_app->add_option("--rows", worker_rows);
+    session_worker_app->add_option("--term", worker_term);
+    session_worker_app->add_option("--app-home", worker_app_home);
+#endif
+
     // Fast path: `bs dev hermes` (the `bs` executable is a symlink to this binary).
     // Unknown peer names are resolved through `ssh -G` for address discovery only;
     // terminal data still travels exclusively over the BridgeSessions protocol.
@@ -943,6 +959,25 @@ int main(int argc, char** argv) {
     pane_publish->add_option("file", pane_file, "Local markdown file to publish")->required();
 
     CLI11_PARSE(app, argc, argv);
+
+#ifndef _WIN32
+    // --daemon: fork BEFORE any logging/thread startup. The async log pool's
+    // thread transiently holds glibc malloc locks; forking after it starts can
+    // wedge the child's first allocation on a lock owned by a thread that does
+    // not exist in the child (observed: daemon hung in log_event_at before it
+    // ever logged). Parent prints the child pid and exits, as before.
+    if (daemon_flag && app.get_subcommands().empty() && quick_peer.empty()) {
+        pid_t pid = fork();
+        if (pid < 0) { std::cerr << "fork failed\n"; return 1; }
+        if (pid > 0) { std::cout << pid << std::endl; return 0; }
+        setsid();
+        if (!freopen("/dev/null", "r", stdin) ||
+            !freopen("/dev/null", "w", stdout) ||
+            !freopen("/dev/null", "w", stderr)) {
+            _exit(1);  // stdio detach failed; nothing reliable left to report on
+        }
+    }
+#endif
 
     // Resolve config path
     std::string home_dir;
@@ -2471,6 +2506,24 @@ int main(int argc, char** argv) {
         return bs::mesh::run_cua_helper(home_dir);
     }
 
+#ifndef _WIN32
+    // Internal: per-session PTY worker (spawned by the daemon; not user-facing).
+    // Hosts the PTY + shell outside the daemon process so sessions survive
+    // daemon restarts and upgrades.
+    if (session_worker_app->parsed()) {
+        bs::mesh::worker::WorkerConfig wc;
+        wc.socket_path = worker_socket;
+        wc.session_name = worker_name;
+        wc.command = worker_command;
+        wc.cols = static_cast<uint16_t>(worker_cols);
+        wc.rows = static_cast<uint16_t>(worker_rows);
+        wc.term = worker_term;
+        wc.app_home = worker_app_home.empty() ? home_dir : worker_app_home;
+        auto res = bs::mesh::worker::run_session_worker_posix(wc);
+        return res.exit_code;
+    }
+#endif
+
     // Bare `bs` from an interactive terminal: open the server → harness
     // selector instead of defaulting to daemon mode. The launchd/systemd
     // daemon runs with stdin not a terminal, so it still falls through to
@@ -2492,20 +2545,12 @@ int main(int argc, char** argv) {
         FILE* nul = fopen("nul", "w");
         if (nul) { fclose(stdout); _dup2(_fileno(nul), _fileno(stdout)); fclose(nul); }
     }
-#else
-    if (daemon_flag) {
-        pid_t pid = fork();
-        if (pid < 0) { std::cerr << "fork failed\n"; return 1; }
-        if (pid > 0) { std::cout << pid << std::endl; return 0; }
-        setsid();
-        if (!freopen("/dev/null", "r", stdin) ||
-            !freopen("/dev/null", "w", stdout) ||
-            !freopen("/dev/null", "w", stderr)) {
-            return 1;  // stdio detach failed; nothing reliable left to report on
-        }
-    }
 #endif
+    // POSIX --daemon forked right after CLI parse (before the log pool starts).
     bs::mesh::MeshController mc(cfg, home_dir);
+#ifndef _WIN32
+    mc.enable_session_hosting();   // workers keep shells alive across upgrades
+#endif
     mc.run();
     return 0;
 }
