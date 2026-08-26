@@ -1298,10 +1298,11 @@
 <li>Tag <code>v26.08.26-r1</code> → commit <code>bbe7410</code> (annotated, pushed before CI green:
   GitHub Actions was in a partial outage; run list for the commit stayed empty).</li>
 <li>Built from tagged source only. Linux x86_64 + Windows x86_64 + source archives
-  built on fecv3 (docker <code>bs-static-builder</code> + MinGW cross toolchain, <code>/opt/bs-win</code>
-  static deps). macOS arm64 built on macmini <code>build/release</code>, signed with
-  Developer ID (Team QL5MD8FKPL) via the MacBook's login-keychain identity,
-  notarized through ASC key QH9V26H342 (submission <code>ed6384ab…</code>, Accepted).</li>
+  built on the Linux build host (docker <code>bs-static-builder</code> + MinGW cross
+  toolchain, <code>/opt/bs-win</code> static deps). macOS arm64 built on the macOS signing
+  host <code>build/release</code>, signed with Developer ID (Team QL5MD8FKPL) via the
+  operator Mac's login-keychain identity, notarized through the App Store
+  Connect API key (submission <code>ed6384ab…</code>, Accepted).</li>
 <li>Local Gatekeeper note: replacing a binary in place (cp over an exec'd path)
   invalidates the cached code-signature mapping; install by rm + cp so the new
   inode gets a clean evaluation.</li>
