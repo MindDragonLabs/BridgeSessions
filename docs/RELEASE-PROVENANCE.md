@@ -128,10 +128,11 @@ The release script refuses to publish when any of the checks above would fail. T
 - Tag `v26.08.26-r1` → commit `bbe7410` (annotated, pushed before CI green:
   GitHub Actions was in a partial outage; run list for the commit stayed empty).
 - Built from tagged source only. Linux x86_64 + Windows x86_64 + source archives
-  built on fecv3 (docker `bs-static-builder` + MinGW cross toolchain, `/opt/bs-win`
-  static deps). macOS arm64 built on macmini `build/release`, signed with
-  Developer ID (Team QL5MD8FKPL) via the MacBook's login-keychain identity,
-  notarized through ASC key QH9V26H342 (submission `ed6384ab…`, Accepted).
+  built on the Linux build host (docker `bs-static-builder` + MinGW cross
+  toolchain, `/opt/bs-win` static deps). macOS arm64 built on the macOS signing
+  host `build/release`, signed with Developer ID (Team QL5MD8FKPL) via the
+  operator Mac's login-keychain identity, notarized through the App Store
+  Connect API key (submission `ed6384ab…`, Accepted).
 - Local Gatekeeper note: replacing a binary in place (cp over an exec'd path)
   invalidates the cached code-signature mapping; install by rm + cp so the new
   inode gets a clean evaluation.

@@ -10,7 +10,7 @@
 #
 # Produces: <build-dir>/bridgesessions  (dynamic link; for release artifacts
 # use scripts/build-linux-static.sh / scripts/build-windows-mingw.sh /
-# the macmini static pipeline — see docs/RELEASE-PROVENANCE.md).
+# the macOS static pipeline — see docs/RELEASE-PROVENANCE.md).
 set -euo pipefail
 
 BUILD_TYPE=Release
