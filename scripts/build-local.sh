@@ -49,11 +49,11 @@ if [[ $CLEAN -eq 1 ]]; then
 fi
 
 echo "→ configure ($BUILD_TYPE, tests=$WITH_TESTS) → $BUILD_DIR"
-cmake -S . -B "$BUILD_DIR" "${GENERATOR[@]}" \
+cmake -S . -B "$BUILD_DIR" ${GENERATOR[@]+"${GENERATOR[@]}"} \
     -DCMAKE_BUILD_TYPE="$BUILD_TYPE" \
     -DBUILD_TESTING=$([[ $WITH_TESTS -eq 1 ]] && echo ON || echo OFF) \
     -DBRIDGESESSIONS_PYTHON=OFF \
-    "${EXTRA[@]}"
+    ${EXTRA[@]+"${EXTRA[@]}"}
 
 echo "→ build"
 cmake --build "$BUILD_DIR" --parallel
