@@ -951,6 +951,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#release-record-v260826-r1-2026-08-26" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Release record — v26.08.26-r1 (2026-08-26)
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1133,6 +1144,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#release-record-v260826-r1-2026-08-26" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Release record — v26.08.26-r1 (2026-08-26)
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1270,6 +1292,22 @@
 <li>Move or update the tag if a release is republished. Force-updating a tag is allowed by the repository ruleset; deleting a tag is not.</li>
 <li>Announce the release in the changelog. The CHANGELOG top section is the source of truth for user-visible changes.</li>
 <li>Watch the GitHub Action that watches the tag. A failed download digest or a bad signed installer is a release bug and warrants a hotfix tag.</li>
+</ul>
+<h2 id="release-record-v260826-r1-2026-08-26">Release record — v26.08.26-r1 (2026-08-26)<a class="headerlink" href="#release-record-v260826-r1-2026-08-26" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Tag <code>v26.08.26-r1</code> → commit <code>bbe7410</code> (annotated, pushed before CI green:
+  GitHub Actions was in a partial outage; run list for the commit stayed empty).</li>
+<li>Built from tagged source only. Linux x86_64 + Windows x86_64 + source archives
+  built on fecv3 (docker <code>bs-static-builder</code> + MinGW cross toolchain, <code>/opt/bs-win</code>
+  static deps). macOS arm64 built on macmini <code>build/release</code>, signed with
+  Developer ID (Team QL5MD8FKPL) via the MacBook's login-keychain identity,
+  notarized through ASC key QH9V26H342 (submission <code>ed6384ab…</code>, Accepted).</li>
+<li>Local Gatekeeper note: replacing a binary in place (cp over an exec'd path)
+  invalidates the cached code-signature mapping; install by rm + cp so the new
+  inode gets a clean evaluation.</li>
+<li><code>release-checksums.sh</code> validated 5 artifacts; <code>prepublish-scan.sh</code> clean
+  (WARN-only, same shape as beta7). <code>github-release.sh</code> published and remote
+  digests verified equal to local SHA256SUMS.</li>
 </ul>
 
 
