@@ -451,6 +451,117 @@ int connect_menu_choice(size_t count) {
     return 0;
 }
 
+// ── Arrow-key menu (interactive TTY) ──────────────────────────────
+// With raw/VT console modes active, arrow keys arrive as ESC [ A / B byte
+// sequences on both POSIX termios and Windows (ENABLE_VIRTUAL_TERMINAL_INPUT),
+// so one parser serves both.
+
+bool stdout_is_terminal() {
+#ifdef _WIN32
+    return _isatty(_fileno(stdout)) != 0;
+#else
+    return ::isatty(STDOUT_FILENO) != 0;
+#endif
+}
+
+// Read one input byte. Returns -1 on EOF/error.
+int menu_read_byte() {
+#ifdef _WIN32
+    char c = 0;
+    DWORD n = 0;
+    if (!ReadFile(GetStdHandle(STD_INPUT_HANDLE), &c, 1, &n, nullptr) || n == 0)
+        return -1;
+    return static_cast<unsigned char>(c);
+#else
+    unsigned char c = 0;
+    ssize_t n = ::read(STDIN_FILENO, &c, 1);
+    return n == 1 ? static_cast<int>(c) : -1;
+#endif
+}
+
+// Read one byte with a deadline (ESC-sequence disambiguation). -2 on timeout.
+int menu_read_byte_timeout(int ms) {
+#ifdef _WIN32
+    HANDLE hIn = GetStdHandle(STD_INPUT_HANDLE);
+    if (WaitForSingleObject(hIn, static_cast<DWORD>(ms)) != WAIT_OBJECT_0) return -2;
+    return menu_read_byte();
+#else
+    fd_set rfds;
+    FD_ZERO(&rfds);
+    FD_SET(STDIN_FILENO, &rfds);
+    timeval tv{ms / 1000, (ms % 1000) * 1000};
+    if (select(STDIN_FILENO + 1, &rfds, nullptr, nullptr, &tv) <= 0) return -2;
+    return menu_read_byte();
+#endif
+}
+
+// RAII: raw input mode + hidden cursor while the menu is up.
+struct MenuTermGuard {
+    bs::mesh::SavedConsole saved;
+    explicit MenuTermGuard() : saved(bs::mesh::enable_raw_mode(true)) {
+        std::cout << "\x1b[?25l" << std::flush;
+    }
+    ~MenuTermGuard() {
+        std::cout << "\x1b[?25h";
+        std::cout.flush();
+        bs::mesh::restore_terminal(saved);
+    }
+};
+
+// Interactive ↑/↓ + Enter selector. Returns 1-based choice, 0 on cancel
+// (Esc alone, q, Ctrl-C) or EOF.
+size_t arrow_menu_select(const std::vector<std::string>& rows) {
+    if (rows.empty()) return 0;
+    MenuTermGuard guard;
+    const size_t n = rows.size();
+    size_t sel = 0;
+    auto draw = [&](bool first) {
+        if (!first) std::cout << "\x1b[" << n << "A";  // back to first row
+        for (size_t i = 0; i < n; ++i) {
+            std::cout << "\r\x1b[2K"
+                      << (i == sel ? "\x1b[7m> " : "  ")
+                      << rows[i]
+                      << (i == sel ? "\x1b[0m" : "")
+                      << "\n";
+        }
+        std::cout << std::flush;
+    };
+    draw(true);
+    for (;;) {
+        int c = menu_read_byte();
+        if (c < 0) return 0;                              // EOF
+        if (c == 3 || c == 'q' || c == 'Q') return 0;     // Ctrl-C / q = cancel
+        if (c == '\r' || c == '\n') return sel + 1;       // Enter
+        if (c == 'k' && sel > 0) { --sel; draw(false); continue; }
+        if (c == 'j' && sel + 1 < n) { ++sel; draw(false); continue; }
+        if (c == 0x1b) {                                  // ESC: arrow or cancel
+            int c2 = menu_read_byte_timeout(80);
+            if (c2 == -2 || c2 == 0x1b) return 0;         // bare Esc = cancel
+            if (c2 != '[' && c2 != 'O') continue;
+            int c3 = menu_read_byte_timeout(80);
+            if (c3 == 'A' && sel > 0) { --sel; draw(false); }
+            else if (c3 == 'B' && sel + 1 < n) { ++sel; draw(false); }
+            else if (c3 == 'H') { sel = 0; draw(false); }
+            else if (c3 == 'F') { sel = n - 1; draw(false); }
+        }
+    }
+}
+
+// Unified menu entry: arrow keys on a real terminal, numbered prompt when
+// stdin/stdout is piped (scripts, e2e). Returns 1-based choice, 0 cancel.
+int connect_menu_pick(const std::string& title,
+                      const std::vector<std::string>& row_labels) {
+    if (bs::mesh::stdin_is_terminal() && stdout_is_terminal()) {
+        std::cout << "\n" << title << "  (↑/↓ move, Enter select, q cancel)\n";
+        return static_cast<int>(arrow_menu_select(row_labels));
+    }
+    std::cout << "\n" << title << "\n";
+    for (size_t i = 0; i < row_labels.size(); ++i)
+        std::cout << "  " << (i + 1) << ") " << row_labels[i] << "\n";
+    std::cout << "> " << std::flush;
+    return connect_menu_choice(row_labels.size());
+}
+
 int cmd_connect_selector(const std::string& config_path,
                          const std::string& home_dir,
                          const std::string& peer_hint,
@@ -459,6 +570,10 @@ int cmd_connect_selector(const std::string& config_path,
     bs::mesh::bootstrap_identity(home_dir);
 
     auto peers = connect_peer_rows(cfg, home_dir);
+    // Never offer this node as its own connect target.
+    peers.erase(std::remove_if(peers.begin(), peers.end(),
+        [&](const ConnectPeerRow& r) { return bs::mesh::is_self_target(cfg, r.name); }),
+        peers.end());
     if (peers.empty()) {
         std::cerr << "No peers configured. Add a seed with `bs peers add` or `bs join`.\n";
         return 2;
@@ -467,16 +582,19 @@ int cmd_connect_selector(const std::string& config_path,
     // ── 1. Server selection ─────────────────────────────────────
     std::string peer = peer_hint;
     if (peer.empty()) {
-        std::cout << "\nBridgeSessions — choose a server:\n";
-        for (size_t i = 0; i < peers.size(); ++i)
-            std::cout << "  " << (i + 1) << ") " << peers[i].name
-                      << (peers[i].status.empty() ? "" : "  [" + peers[i].status + "]")
-                      << "\n";
-        std::cout << "> " << std::flush;
-        int choice = connect_menu_choice(peers.size());
-        if (choice <= 0) { std::cerr << "Invalid selection.\n"; return 2; }
+        std::vector<std::string> rows;
+        rows.reserve(peers.size());
+        for (auto& p : peers)
+            rows.push_back(p.name + (p.status.empty() ? "" : "  [" + p.status + "]"));
+        int choice = connect_menu_pick("BridgeSessions — choose a server:", rows);
+        if (choice <= 0) { std::cerr << "Cancelled.\n"; return 2; }
         peer = peers[static_cast<size_t>(choice - 1)].name;
     } else {
+        if (bs::mesh::is_self_target(cfg, peer)) {
+            std::cerr << "Cannot connect to yourself. This is "
+                      << bs::mesh::self_display_name(cfg) << ".\n";
+            return 2;
+        }
         bool found = false;
         for (auto& p : peers)
             if (p.name == peer) { found = true; break; }
@@ -490,15 +608,14 @@ int cmd_connect_selector(const std::string& config_path,
     auto harnesses = connect_harness_names(cfg);
     std::string harness = harness_hint;
     if (harness.empty()) {
-        std::cout << "\n" << peer << " — choose a harness:\n";
-        for (size_t i = 0; i < harnesses.size(); ++i) {
-            std::string cmd = connect_harness_command(cfg, harnesses[i]);
-            std::cout << "  " << (i + 1) << ") " << harnesses[i]
-                      << (cmd.empty() ? "" : "  → " + cmd) << "\n";
+        std::vector<std::string> rows;
+        rows.reserve(harnesses.size());
+        for (auto& h : harnesses) {
+            std::string hc = connect_harness_command(cfg, h);
+            rows.push_back(h + (hc.empty() ? "" : "  → " + hc));
         }
-        std::cout << "> " << std::flush;
-        int choice = connect_menu_choice(harnesses.size());
-        if (choice <= 0) { std::cerr << "Invalid selection.\n"; return 2; }
+        int choice = connect_menu_pick(peer + " — choose a harness:", rows);
+        if (choice <= 0) { std::cerr << "Cancelled.\n"; return 2; }
         harness = harnesses[static_cast<size_t>(choice - 1)];
     }
 
@@ -516,7 +633,10 @@ int cmd_connect_selector(const std::string& config_path,
     bs::mesh::MeshController mc(cfg, home_dir);
     // Reuse the harness name as the session name for easy reattach:
     // `bs shell <peer> -n <harness>`.
-    return mc.shell_peer(peer, harness, cmd, cols, rows, "xterm-256color");
+    // force_interactive: harness commands are full-screen TUIs — they need the
+    // raw-terminal path; the plain -x path strips ANSI and scrambles them.
+    return mc.shell_peer(peer, harness, cmd, cols, rows, "xterm-256color",
+                         true, "", /*force_interactive=*/true);
 }
 
 } // anonymous namespace
@@ -558,6 +678,7 @@ int main(int argc, char** argv) {
     std::string shell_peer, shell_session = "default", shell_cmd;
     uint16_t shell_cols = 80, shell_rows = 24;
     bool shell_detach = false, shell_wait = false;
+    bool shell_interactive = false;
     bool shell_record = false, shell_signal_forward = true;
     std::string shell_signal_on_detach;
     auto* shell_cmd_app = app.add_subcommand("shell", "Open shell on a peer");
@@ -571,6 +692,9 @@ int main(int argc, char** argv) {
     shell_cmd_app->add_option("--signal-on-detach", shell_signal_on_detach, "Send HUP/TERM/INT/QUIT/KILL to the child when the last peer detaches (default: none)")->check(CLI::IsMember({"HUP","TERM","INT","QUIT","KILL"}));
     shell_cmd_app->add_flag("--detach", shell_detach, "Send command and return immediately (session runs on peer)");
     shell_cmd_app->add_flag("--wait", shell_wait, "Block until the named session exits, then return its exit code");
+    shell_cmd_app->add_flag("-i,--interactive", shell_interactive,
+        "Run the -x command as a full interactive terminal session (raw mode, "
+        "no ANSI stripping) — required for TUI apps like hermes --tui");
 
     // Subcommand: connect — interactive server → harness selector
     std::string connect_peer, connect_harness;
@@ -858,6 +982,13 @@ int main(int argc, char** argv) {
     }
     if (!quick_peer.empty()) {
         bs::mesh::MeshConfig cfg = bs::mesh::load_config(config_path);
+        // Self-connect must be caught before SSH-alias import / trust checks —
+        // otherwise `bs <self>` dies with a misleading "untrusted" refusal.
+        if (bs::mesh::is_self_target(cfg, quick_peer)) {
+            std::cerr << "Cannot connect to yourself. This is "
+                      << bs::mesh::self_display_name(cfg) << ".\n";
+            return 2;
+        }
         if (!bs::mesh::import_ssh_alias_peer(cfg, quick_peer)) {
             std::cerr << quick_peer
                       << " is not a configured BridgeSessions peer or valid SSH alias\n";
@@ -888,6 +1019,10 @@ int main(int argc, char** argv) {
         if (shell_detach) {
             return mc.shell_peer_detach(shell_peer, shell_session, shell_cmd,
                                         shell_cols, shell_rows, "xterm-256color");
+        }
+        if (shell_interactive && !bs::mesh::stdin_is_terminal()) {
+            std::cerr << "shell -i requires an interactive terminal on stdin\n";
+            return 2;
         }
 
         // Commands launched from a real terminal keep full PTY input/output. Piped or
@@ -929,7 +1064,7 @@ int main(int argc, char** argv) {
                                  shell_cols, shell_rows, "xterm-256color",
                                  shell_signal_forward, shell_signal_on_detach);
         }
-        return mc.shell_peer(shell_peer, shell_session, shell_cmd, shell_cols, shell_rows, "xterm-256color", shell_signal_forward, shell_signal_on_detach);
+        return mc.shell_peer(shell_peer, shell_session, shell_cmd, shell_cols, shell_rows, "xterm-256color", shell_signal_forward, shell_signal_on_detach, shell_interactive);
     }
     if (connect_cmd_app->parsed()) {
         return cmd_connect_selector(config_path, home_dir, connect_peer, connect_harness);

@@ -4909,6 +4909,30 @@ inline void shell_sigint_forward_handler(int) noexcept {
     return !query.empty() && config_peer_name_eq(query, node_name);
 }
 
+// OS hostname of this machine ("" on failure). gethostname exists in both
+// POSIX unistd.h and winsock2.h, so this is cross-platform.
+[[nodiscard]] inline std::string local_hostname() {
+    char buf[256];
+    if (::gethostname(buf, sizeof(buf) - 1) != 0) return {};
+    buf[sizeof(buf) - 1] = '\0';
+    return std::string(buf);
+}
+
+// True when `name` refers to this node — by mesh node name or by OS hostname
+// (users type either; `bs <self>` must be caught before trust/import logic).
+[[nodiscard]] inline bool is_self_target(const MeshConfig& cfg,
+                                         const std::string& name) {
+    if (is_local_node_name(name, cfg.node_name)) return true;
+    return is_local_node_name(name, local_hostname());
+}
+
+// Human-facing name for this node in self-connect messages.
+[[nodiscard]] inline std::string self_display_name(const MeshConfig& cfg) {
+    if (!cfg.node_name.empty() && cfg.node_name != "unnamed") return cfg.node_name;
+    std::string h = local_hostname();
+    return h.empty() ? std::string{"this node"} : h;
+}
+
 [[nodiscard]] bool import_ssh_alias_peer(
     MeshConfig& cfg,
     const std::string& alias,
@@ -15577,10 +15601,11 @@ public:
     //          255 on connection/peer failure.
     int shell_peer(const std::string& peer_name, const std::string& session_name,
                    const std::string& cmd, uint16_t cols, uint16_t rows, const std::string& term,
-                   bool signal_forward = true, const std::string& signal_on_detach = "") {
-        if (is_local_node_name(peer_name, config_.node_name)) {
-            std::cerr << "Cannot shell to this node (\"" << config_.node_name
-                      << "\"). You are already here.\n";
+                   bool signal_forward = true, const std::string& signal_on_detach = "",
+                   bool force_interactive = false) {
+        if (is_self_target(config_, peer_name)) {
+            std::cerr << "Cannot connect to yourself. This is "
+                      << self_display_name(config_) << ".\n";
             return 255;
         }
         // 4-tier peer name resolution (exact → suffix → levenshtein)
@@ -15597,7 +15622,11 @@ public:
         std::string addr = resolved.addr;  // non-const: interactive loop re-resolves on reconnect
         std::string expected_pubkey = resolved.pubkey_hex.empty()
             ? trusted_peer_pubkey(config_, resolved.name) : resolved.pubkey_hex;
-        const bool non_interactive = !shell_command_uses_interactive_mode(cmd, stdin_is_terminal());
+        // force_interactive (bs connect selector, `bs shell -i`): run the
+        // command on the peer's PTY with the full raw-terminal passthrough —
+        // the plain `-x` path strips ANSI and would scramble TUIs.
+        const bool non_interactive = !force_interactive &&
+            !shell_command_uses_interactive_mode(cmd, stdin_is_terminal());
 
         // Ephemeral session name for one-shots on the CLI default "default" so
         // concurrent agents do not fight one shared PTY.
