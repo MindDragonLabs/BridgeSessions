@@ -4408,6 +4408,12 @@ struct MeshConfig {
     std::string render_hint = "auto";  // "auto", "markdown", "raw"
     std::unordered_map<std::string, std::string> session_commands;
 
+    // Named agent harness launch commands for `bs connect` / bare `bs`
+    // interactive selector. Key = harness name (e.g. "hermes"), value =
+    // command run on the selected peer. Configured via `harness.<name> <cmd>`
+    // lines in the config file; built-in defaults exist for common harnesses.
+    std::unordered_map<std::string, std::string> harness_commands;
+
     // P5: Virtual folder mappings
     struct VFolderEntry {
         std::string name;
@@ -4717,6 +4723,15 @@ void write_peer_line(std::ostream& os, const std::string& prefix, const PeerEntr
             std::string name = key_str.substr(
                 prefix_len, key_str.size() - prefix_len - suffix_len);
             if (!name.empty()) cfg.session_commands[std::move(name)] = std::string(val);
+        }
+        // ── harness.<name> <command> ──────────────────────────
+        // Launch command for the interactive `bs connect` selector. Examples:
+        //   harness.hermes hermes --tui --yolo
+        //   harness.claude-code claude
+        else if (key_str.rfind("harness.", 0) == 0 &&
+                 key_str.size() > 8) {
+            std::string name = key_str.substr(8);  // "harness." = 8 chars
+            if (!name.empty()) cfg.harness_commands[std::move(name)] = std::string(val);
         }
         // ── seed <name> <addr> ───────────────────────────────
         else if (key_str == "seed") {
@@ -5983,6 +5998,15 @@ struct ResolvedSessionCommand {
         std::sort(profiles.begin(), profiles.end());
         for (const auto& [name, command] : profiles) {
             f << "session." << name << ".command " << command << "\n";
+        }
+    }
+    if (!cfg.harness_commands.empty()) {
+        f << "\n# ── Harness launch commands (`bs connect` selector) ────\n";
+        std::vector<std::pair<std::string, std::string>> harnesses(
+            cfg.harness_commands.begin(), cfg.harness_commands.end());
+        std::sort(harnesses.begin(), harnesses.end());
+        for (const auto& [name, command] : harnesses) {
+            f << "harness." << name << " " << command << "\n";
         }
     }
 

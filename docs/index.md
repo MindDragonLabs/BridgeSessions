@@ -2,7 +2,7 @@
 
 BridgeSessions is a trusted-mesh terminal, file-transfer, and desktop-automation tool. One C++23 executable provides the daemon and the CLI.
 
-Current release: **`26.08.25-beta7`**.
+Current release: **`26.08.26-r1`**.
 
 ## Start here
 

@@ -350,6 +350,35 @@ TEST_CASE("load_config parses server-owned session commands", "[config][session_
     fs::remove_all(fs::path(cfg_path).parent_path());
 }
 
+TEST_CASE("load_config parses harness launch commands", "[config][harness]") {
+    auto cfg_path = write_temp_config(
+        "harness.hermes hermes --tui --yolo\n"
+        "harness.claude-code claude\n"
+        "harness.codex codex --tui\n"
+    );
+
+    MeshConfig cfg = load_config(cfg_path);
+
+    REQUIRE(cfg.harness_commands.size() == 3);
+    REQUIRE(cfg.harness_commands.at("hermes") == "hermes --tui --yolo");
+    REQUIRE(cfg.harness_commands.at("claude-code") == "claude");
+    REQUIRE(cfg.harness_commands.at("codex") == "codex --tui");
+
+    fs::remove_all(fs::path(cfg_path).parent_path());
+}
+
+TEST_CASE("save_config preserves harness launch commands", "[config][harness]") {
+    auto cfg_path = write_temp_config("node.name harness-save\n");
+    MeshConfig cfg = load_config(cfg_path);
+    cfg.harness_commands["hermes"] = "hermes --tui --yolo";
+
+    REQUIRE(save_config(cfg_path, cfg));
+    MeshConfig reloaded = load_config(cfg_path);
+    REQUIRE(reloaded.harness_commands.at("hermes") == "hermes --tui --yolo");
+
+    fs::remove_all(fs::path(cfg_path).parent_path());
+}
+
 TEST_CASE("save_config preserves server-owned session commands", "[config][session_profile]") {
     auto cfg_path = write_temp_config("node.name profile-save\n");
     MeshConfig cfg = load_config(cfg_path);

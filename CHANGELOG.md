@@ -2,6 +2,44 @@
 
 Notable user-visible changes. Git history contains implementation-level detail.
 
+## 26.08.26-r1
+
+Primary main-line release. Calendar version + `-r1` (release) stamp.
+
+### New: `bs connect` — interactive server → harness selector
+
+- `bs` with no arguments from a terminal now opens an interactive selector:
+  pick a server (live FLEET status), then pick an agent harness, and
+  BridgeSessions opens an interactive shell on that server running the
+  harness launch command (e.g. `hermes --tui --yolo`).
+- Explicit form: `bs connect [--peer NAME] [--harness NAME]` (skip menus).
+- Harness launch commands are configurable via `harness.<name> <command>`
+  config lines; built-in defaults exist for hermes, claude-code, codex,
+  opencode, grok, copilot, cursor, and a plain shell.
+- The harness name doubles as the session name, so reattaching later is
+  `bs shell <peer> -n <harness>`.
+- Bare `bs` daemon behavior is preserved: the launchd/systemd daemon runs
+  with stdin not a terminal and still falls through to daemon mode;
+  `bs --daemon` explicitly daemonizes.
+
+### New: BridgePanel paste-path-to-open
+
+- New path input in the files pane: paste a full path (absolute OS path or
+  relative to the current root) including the filename and press Enter —
+  BridgePanel resolves the root, navigates to the parent directory, and
+  opens the file.
+- New API endpoint `/api/open-path?machine=...&root=...&cwd=...&path=...`
+  resolves absolute paths against the local inbox receive_dir and
+  allowlisted volume roots (local and remote), rejects traversal, and
+  verifies existence before navigating.
+
+### Fixes and hygiene
+
+- `save_config` now persists `harness.<name>` launch commands (round-trips
+  with load_config).
+- Config parsing, docs, installer stamps, macOS Info.plist, e2e matrix, and
+  the portable skill all updated to the `26.08.26-r1` release stamp.
+
 ## 26.08.25-beta7
 
 Rebuild of the beta7 line. Installers and release artifacts now stamp

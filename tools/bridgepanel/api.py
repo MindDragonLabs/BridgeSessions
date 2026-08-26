@@ -4,9 +4,11 @@ from __future__ import annotations
 import base64 as _b64
 import json as _json
 import os
+import re
 import socket
 import time
 from pathlib import Path
+from urllib.parse import unquote
 
 from .consts import BS_IPC_PORT, BS_IPC_TIMEOUT, file_timeout_sec, max_file_upload
 from .files import safe_session_name, sessions_dir
@@ -1466,3 +1468,123 @@ def build_tree() -> dict:
     result.sort(key=lambda x: (not x["live"], x["name"]))
 
     return {"sessions": result}
+
+
+# ── Paste-path resolution ───────────────────────────────────────
+
+def resolve_open_path(machine: str, root: str, raw: str, cwd: str = "") -> dict:
+    """Resolve a pasted path (absolute or relative) to a navigable file/dir.
+
+    Accepts:
+      - an absolute OS path (e.g. `/home/u/projects/notes.md`,
+        `C:\\Users\\u\\file.txt`), matched against the machine's browsable
+        roots (inbox receive_dir for the local node, allowlisted volumes
+        otherwise), or
+      - a path relative to the current root + cwd.
+
+    Returns {ok, root, dir, name, kind} so the client can navigate to `dir`
+    and open `name` (or navigate to `dir` alone when `name` is empty — the
+    pasted path was a directory). Paths are verified to exist inside the
+    browsable root; traversal outside is rejected.
+    """
+    from .files import receive_dir as _receive_dir
+    from .volumes import normalize_rel
+
+    tree = query_mesh_tree()
+    root = root or "inbox"
+
+    # Normalize: strip quotes, unquote, unify separators.
+    text = unquote(raw or "").replace("\\", "/").strip().strip("\"'")
+    if not text:
+        return {"ok": False, "error": "empty path"}
+
+    is_abs = text.startswith("/") or bool(re.match(r"^[A-Za-z]:", text))
+
+    if is_abs:
+        # 1) Match against the local inbox receive_dir (self node only).
+        if is_self_node(machine, tree):
+            base = str(_receive_dir()).replace("\\", "/").rstrip("/")
+            base_real = str(_receive_dir().resolve()).replace("\\", "/").rstrip("/")
+            for cand in {base, base_real}:
+                if not cand:
+                    continue
+                if text == cand or text.startswith(cand + "/"):
+                    rel = "" if text == cand else text[len(cand) + 1:]
+                    return _resolve_open_rel(machine, "inbox", rel, tree)
+        # 2) Match against allowlisted volume roots (local or remote).
+        vols = list_host_volumes(machine).get("volumes") or []
+        best = None
+        for v in vols:
+            osp = (v.get("os_path") or "").replace("\\", "/").rstrip("/")
+            if not osp:
+                continue
+            if text == osp or text.startswith(osp + "/"):
+                rel = "" if text == osp else text[len(osp) + 1:]
+                if best is None or len(osp) > len(best[1]):
+                    best = (v.get("token") or "inbox", osp, rel)
+        if best is not None:
+            return _resolve_open_rel(machine, best[0], best[2], tree)
+        return {"ok": False, "error": "path not under a browsable root"}
+    # Relative: resolve against the current root + cwd.
+    joined = "/".join([cwd, text]) if cwd else text
+    cleaned = normalize_rel(root, joined)
+    if cleaned is None:
+        return {"ok": False, "error": "path_rejected"}
+    return _resolve_open_rel(machine, root, cleaned, tree)
+
+
+def _resolve_open_rel(machine: str, root: str, rel: str, tree: dict) -> dict:
+    """Split a root-relative path into (dir, name) and verify existence."""
+    from .files import file_kind
+    from .volumes import normalize_rel
+
+    cleaned = normalize_rel(root, rel)
+    if cleaned is None:
+        return {"ok": False, "error": "path_rejected"}
+    if not cleaned:
+        return {"ok": True, "root": root, "dir": "", "name": "", "kind": "dir"}
+
+    parts = cleaned.split("/")
+    name = parts[-1]
+    parent = "/".join(parts[:-1])
+
+    # Verify by listing the parent dir (reuses cache + remote listing).
+    listing = list_host_files(machine, parent, root=root, refresh=True)
+    if listing.get("ok"):
+        for item in listing.get("items") or []:
+            if item.get("name") == name:
+                if item.get("dir"):
+                    return {"ok": True, "root": root, "dir": cleaned,
+                            "name": "", "kind": "dir"}
+                return {"ok": True, "root": root, "dir": parent,
+                        "name": name, "kind": item.get("kind") or file_kind(name)}
+        # Name not in the parent listing: for self-node, stat the path
+        # directly (list_receive_dir cannot distinguish a missing path from
+        # an empty dir). For remote peers, only accept a real dir.
+        if is_self_node(machine, tree):
+            abs_path = _open_abs_self(machine, root, cleaned)
+            if abs_path is not None and os.path.isdir(abs_path):
+                return {"ok": True, "root": root, "dir": cleaned,
+                        "name": "", "kind": "dir"}
+        return {"ok": False, "error": "not found", "root": root,
+                "dir": parent, "name": name}
+    # Listing failed (offline / policy): fall back to lexical result so the
+    # client can at least attempt navigation and surface the real error.
+    return {"ok": True, "root": root, "dir": parent, "name": name,
+            "kind": file_kind(name), "unverified": True}
+
+
+def _open_abs_self(machine: str, root: str, rel: str) -> str | None:
+    """Absolute path for a root-relative path on the self node, or None."""
+    from .files import receive_dir as _receive_dir
+    from .volumes import resolve_os_path
+
+    if root in ("", "inbox"):
+        base = str(_receive_dir())
+        return os.path.normpath(os.path.join(base, rel)) if rel else base
+    vols = list_host_volumes(machine).get("volumes") or []
+    match = next((v for v in vols if v.get("token") == root), None)
+    if match is None or not match.get("os_path"):
+        return None
+    abs_path, err = resolve_os_path(match["os_path"], rel, windows=False)
+    return abs_path if not err else None

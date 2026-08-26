@@ -2,7 +2,7 @@
 
 ## Supported version
 
-`26.08.25-beta7` is the current beta line. The repository stamps the same version in `VERSION`, in the installer, and in the binary itself. Upgrade older builds before reporting unless you are reproducing a regression that requires the older code.
+`26.08.26-r1` is the current beta line. The repository stamps the same version in `VERSION`, in the installer, and in the binary itself. Upgrade older builds before reporting unless you are reproducing a regression that requires the older code.
 
 The previous beta line is `2026.08.24-beta7`. Mixed beta lines on the same mesh still talk to each other through the protocol compatibility profile; mixed major protocol lines may not. The release pipeline enforces version negotiation at handshake time.
 

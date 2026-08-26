@@ -378,6 +378,16 @@ class BridgePanelHandler(BaseHTTPRequestHandler):
                     return
             refresh = params.get("refresh", ["0"])[0].lower() in ("1", "true", "yes")
             self.send_json(list_host_files(machine, rel, root=root, refresh=refresh))
+        elif path == "/api/open-path":
+            machine = params.get("machine", [""])[0]
+            root = params.get("root", ["inbox"])[0] or "inbox"
+            raw_path = params.get("path", [""])[0]
+            cwd = params.get("cwd", [""])[0]
+            if not machine:
+                self.reject(HTTPStatus.BAD_REQUEST, "machine required")
+                return
+            from .api import resolve_open_path
+            self.send_json(resolve_open_path(machine, root, raw_path, cwd))
         elif path == "/api/session/connect":
             session = params.get("session", [""])[0]
             machine = params.get("machine", [""])[0]

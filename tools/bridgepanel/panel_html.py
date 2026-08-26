@@ -62,6 +62,10 @@ INDEX_HTML = r'''<!doctype html>
   .file-search { flex: none; margin: 0 10px 8px; }
   .file-search input { width: 100%; height: 32px; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 0 10px; font-size: 13px; color: var(--text); outline: none; }
   .file-search input:focus { border-color: var(--accent); }
+  .path-jump { flex: none; margin: 0 10px 8px; }
+  .path-jump input { width: 100%; height: 32px; background: var(--surface2); border: 1px dashed var(--border); border-radius: 8px; padding: 0 10px; font-size: 13px; font-family: var(--mono); color: var(--text); outline: none; }
+  .path-jump input:focus { border-color: var(--accent); border-style: solid; }
+  .path-jump input::placeholder { color: var(--faint); font-family: var(--sans); }
   .hdr-right { margin-left: auto; display: flex; align-items: center; gap: 12px; }
   .summary { font-size: 12.5px; color: var(--muted); }
   .summary b { color: var(--text); font-weight: 600; }
@@ -253,6 +257,9 @@ INDEX_HTML = r'''<!doctype html>
     </div>
     <div class="file-search">
       <input id="fileSearch" placeholder="Filter files…" aria-label="Filter files">
+    </div>
+    <div class="path-jump">
+      <input id="pathJump" placeholder="Paste path to open (Enter)…" aria-label="Paste path to open" spellcheck="false">
     </div>
     <div class="volrow" id="volrow"></div>
     <div class="pathrow" id="pathrow"></div>
@@ -1021,6 +1028,35 @@ INDEX_HTML = r'''<!doctype html>
 
   $("#search").addEventListener("input", e => { query = e.target.value.trim().toLowerCase(); renderMachines(); });
   $("#fileSearch").addEventListener("input", e => { fileQuery = e.target.value.trim().toLowerCase(); renderFiles(); });
+  async function jumpToPath(raw) {
+    if (!selMachine || !raw) return;
+    const text = String(raw).trim();
+    if (!text) return;
+    try {
+      const d = await api("/api/open-path?machine=" + encodeURIComponent(selMachine) +
+        "&root=" + encodeURIComponent(selRoot || "inbox") +
+        "&cwd=" + encodeURIComponent(cwd || "") +
+        "&path=" + encodeURIComponent(text));
+      if (!d.ok) { toast(d.error || "Could not open path", true); return; }
+      selRoot = d.root || "inbox";
+      cwd = d.dir || "";
+      selName = null; curRaw = ""; editing = false;
+      renderVolrow(); updateDestHint(); renderBreadcrumb();
+      await loadListing(true);
+      if (d.name) {
+        openFile(d.name, d.kind || "file");
+      } else {
+        showEmptyPreview(selRoot === "inbox" ? "Select a file in the inbox." : "Select a file.");
+        renderFiles();
+      }
+      $("#pathJump").value = "";
+    } catch (err) {
+      toast("Could not open path: " + String(err.message || err), true);
+    }
+  }
+  $("#pathJump").addEventListener("keydown", e => {
+    if (e.key === "Enter") { e.preventDefault(); jumpToPath(e.target.value); }
+  });
   $("#themeToggle").addEventListener("click", () => {
     applyTheme(theme === "dark" ? "light" : "dark");
     remountMd();

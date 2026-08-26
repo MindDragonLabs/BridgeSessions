@@ -19,3 +19,9 @@ receive_dir ~/.bridgesessions/received
 transfer.max_bytes 8589934592
 transfer.allow_sensitive_paths false
 file.dest_allow_home false
+
+# Launch commands for `bs connect` (interactive server → harness selector).
+# Any name works; built-in defaults exist for hermes/claude-code/codex/
+# opencode/grok/copilot/cursor. The command runs on the selected peer.
+# harness.hermes hermes --tui --yolo
+# harness.claude-code claude

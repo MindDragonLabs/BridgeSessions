@@ -356,6 +356,169 @@ int cmd_doctor(const std::string& config_path, const std::string& app_home) {
     return failures == 0 ? 0 : 1;
 }
 
+// ── connect: interactive server → harness selector ────────────────
+// `bs connect` (and bare `bs` from a terminal) prompts for a peer,
+// then for an agent harness, then opens an interactive shell on that
+// peer running the harness launch command (e.g. `hermes --tui --yolo`).
+// Harness commands come from `harness.<name> <cmd>` config lines,
+// falling back to built-in defaults for known harnesses.
+struct ConnectHarness { std::string name; std::string cmd; };
+
+std::vector<ConnectHarness> default_harness_table() {
+    return {
+        {"hermes",      "hermes --tui --yolo"},
+        {"claude-code", "claude"},
+        {"codex",       "codex"},
+        {"opencode",    "opencode"},
+        {"grok",        "grok"},
+        {"copilot",     "copilot"},
+        {"cursor",      "cursor"},
+        {"shell",       ""},
+    };
+}
+
+std::string connect_harness_command(
+    const bs::mesh::MeshConfig& cfg, const std::string& name) {
+    auto it = cfg.harness_commands.find(name);
+    if (it != cfg.harness_commands.end()) return it->second;
+    for (auto& h : default_harness_table())
+        if (h.name == name) return h.cmd;
+    return "";
+}
+
+std::vector<std::string> connect_harness_names(
+    const bs::mesh::MeshConfig& cfg) {
+    std::vector<std::string> names;
+    std::unordered_set<std::string> seen;
+    for (auto& h : default_harness_table()) {
+        names.push_back(h.name);
+        seen.insert(h.name);
+    }
+    // Config-defined harnesses append (and may shadow via command lookup).
+    for (auto& [name, _cmd] : cfg.harness_commands) {
+        if (!seen.count(name)) { names.push_back(name); seen.insert(name); }
+    }
+    return names;
+}
+
+// Build the peer menu rows (name + status) like `bs peers list` does:
+// FLEET IPC snapshot preferred, config seeds/discovered as fallback.
+struct ConnectPeerRow { std::string name; std::string status; std::string addr; };
+
+std::vector<ConnectPeerRow> connect_peer_rows(
+    const bs::mesh::MeshConfig& cfg, const std::string& home_dir) {
+    std::vector<ConnectPeerRow> rows;
+    std::unordered_set<std::string> seen;
+    std::string fleet_ipc = daemon_simple_ipc("FLEET", 3000, home_dir);
+    if (!fleet_ipc.empty() && fleet_ipc.rfind("ERROR", 0) != 0) {
+        try {
+            auto j = nlohmann::json::parse(fleet_ipc);
+            for (auto& [key, val] : j.items()) {
+                ConnectPeerRow r;
+                r.name = key;
+                r.addr = val.value("addr", "");
+                r.status = val.value("status", "");
+                rows.push_back(std::move(r));
+                seen.insert(key);
+            }
+        } catch (...) { rows.clear(); seen.clear(); }
+    }
+    for (auto& s : cfg.seeds) {
+        if (seen.count(s.name)) continue;
+        rows.push_back({s.name, "offline (config)", s.addr});
+        seen.insert(s.name);
+    }
+    for (auto& d : cfg.discovered) {
+        if (seen.count(d.name)) continue;
+        rows.push_back({d.name, "discovered", d.addr});
+        seen.insert(d.name);
+    }
+    std::sort(rows.begin(), rows.end(),
+              [](const ConnectPeerRow& a, const ConnectPeerRow& b) {
+                  return a.name < b.name;
+              });
+    return rows;
+}
+
+// Read a menu choice (1..count) from stdin. Returns 0 on invalid/EOF.
+int connect_menu_choice(size_t count) {
+    std::string line;
+    if (!std::getline(std::cin, line)) return 0;
+    try {
+        int n = std::stoi(line);
+        if (n >= 1 && static_cast<size_t>(n) <= count) return n;
+    } catch (...) {}
+    return 0;
+}
+
+int cmd_connect_selector(const std::string& config_path,
+                         const std::string& home_dir,
+                         const std::string& peer_hint,
+                         const std::string& harness_hint) {
+    bs::mesh::MeshConfig cfg = bs::mesh::load_config(config_path);
+    bs::mesh::bootstrap_identity(home_dir);
+
+    auto peers = connect_peer_rows(cfg, home_dir);
+    if (peers.empty()) {
+        std::cerr << "No peers configured. Add a seed with `bs peers add` or `bs join`.\n";
+        return 2;
+    }
+
+    // ── 1. Server selection ─────────────────────────────────────
+    std::string peer = peer_hint;
+    if (peer.empty()) {
+        std::cout << "\nBridgeSessions — choose a server:\n";
+        for (size_t i = 0; i < peers.size(); ++i)
+            std::cout << "  " << (i + 1) << ") " << peers[i].name
+                      << (peers[i].status.empty() ? "" : "  [" + peers[i].status + "]")
+                      << "\n";
+        std::cout << "> " << std::flush;
+        int choice = connect_menu_choice(peers.size());
+        if (choice <= 0) { std::cerr << "Invalid selection.\n"; return 2; }
+        peer = peers[static_cast<size_t>(choice - 1)].name;
+    } else {
+        bool found = false;
+        for (auto& p : peers)
+            if (p.name == peer) { found = true; break; }
+        if (!found) {
+            std::cerr << "Unknown peer: " << peer << "\n";
+            return 2;
+        }
+    }
+
+    // ── 2. Harness selection ────────────────────────────────────
+    auto harnesses = connect_harness_names(cfg);
+    std::string harness = harness_hint;
+    if (harness.empty()) {
+        std::cout << "\n" << peer << " — choose a harness:\n";
+        for (size_t i = 0; i < harnesses.size(); ++i) {
+            std::string cmd = connect_harness_command(cfg, harnesses[i]);
+            std::cout << "  " << (i + 1) << ") " << harnesses[i]
+                      << (cmd.empty() ? "" : "  → " + cmd) << "\n";
+        }
+        std::cout << "> " << std::flush;
+        int choice = connect_menu_choice(harnesses.size());
+        if (choice <= 0) { std::cerr << "Invalid selection.\n"; return 2; }
+        harness = harnesses[static_cast<size_t>(choice - 1)];
+    }
+
+    std::string cmd = connect_harness_command(cfg, harness);
+    if (cmd.empty() && harness != "shell") {
+        std::cerr << "No launch command for harness '" << harness
+                  << "'. Add `harness." << harness << " <command>` to the config.\n";
+        return 2;
+    }
+
+    // ── 3. Open the shell ───────────────────────────────────────
+    auto [cols, rows] = bs::mesh::get_winsize();
+    std::cout << "\nConnecting to " << peer << " → " << harness
+              << (cmd.empty() ? "" : " (" + cmd + ")") << "\n\n";
+    bs::mesh::MeshController mc(cfg, home_dir);
+    // Reuse the harness name as the session name for easy reattach:
+    // `bs shell <peer> -n <harness>`.
+    return mc.shell_peer(peer, harness, cmd, cols, rows, "xterm-256color");
+}
+
 } // anonymous namespace
 
 int main(int argc, char** argv) {
@@ -408,6 +571,13 @@ int main(int argc, char** argv) {
     shell_cmd_app->add_option("--signal-on-detach", shell_signal_on_detach, "Send HUP/TERM/INT/QUIT/KILL to the child when the last peer detaches (default: none)")->check(CLI::IsMember({"HUP","TERM","INT","QUIT","KILL"}));
     shell_cmd_app->add_flag("--detach", shell_detach, "Send command and return immediately (session runs on peer)");
     shell_cmd_app->add_flag("--wait", shell_wait, "Block until the named session exits, then return its exit code");
+
+    // Subcommand: connect — interactive server → harness selector
+    std::string connect_peer, connect_harness;
+    auto* connect_cmd_app = app.add_subcommand(
+        "connect", "Pick a server, then a harness, and open a shell on it");
+    connect_cmd_app->add_option("--peer", connect_peer, "Skip the server menu (name)");
+    connect_cmd_app->add_option("--harness", connect_harness, "Skip the harness menu (name)");
 
     // Subcommand: sessions
     std::string sessions_peer;
@@ -760,6 +930,9 @@ int main(int argc, char** argv) {
                                  shell_signal_forward, shell_signal_on_detach);
         }
         return mc.shell_peer(shell_peer, shell_session, shell_cmd, shell_cols, shell_rows, "xterm-256color", shell_signal_forward, shell_signal_on_detach);
+    }
+    if (connect_cmd_app->parsed()) {
+        return cmd_connect_selector(config_path, home_dir, connect_peer, connect_harness);
     }
     if (sessions_cmd_app->parsed()) {
         if (sessions_peer.empty()) {
@@ -2161,6 +2334,15 @@ int main(int argc, char** argv) {
     if (cua_helper_flag) {
         bs::log::get("cua-helper")->info("CUA helper starting (app_home={})", home_dir);
         return bs::mesh::run_cua_helper(home_dir);
+    }
+
+    // Bare `bs` from an interactive terminal: open the server → harness
+    // selector instead of defaulting to daemon mode. The launchd/systemd
+    // daemon runs with stdin not a terminal, so it still falls through to
+    // daemon mode below (never blocks on a menu). `--daemon` always wins.
+    if (app.get_subcommands().empty() && quick_peer.empty() &&
+        !daemon_flag && bs::mesh::stdin_is_terminal()) {
+        return cmd_connect_selector(config_path, home_dir, "", "");
     }
 
     // Default: daemon mode

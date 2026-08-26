@@ -10,7 +10,7 @@
 
 > **Beta software.** An authorized peer has near-interactive host access. Use BridgeSessions only on machines and networks that you control. Read [SECURITY.md](SECURITY.md) before you join a mesh.
 
-Current release tag: **`26.08.25-beta7`**.
+Current release tag: **`26.08.26-r1`**.
 
 ---
 
@@ -62,11 +62,11 @@ irm https://raw.githubusercontent.com/MindDragonLabs/BridgeSessions/main/scripts
 
 ```bash
 # Linux / macOS
-BRIDGESESSIONS_TAG=26.08.25-beta7 \
+BRIDGESESSIONS_TAG=26.08.26-r1 \
   bash -c 'curl -fsSL https://raw.githubusercontent.com/MindDragonLabs/BridgeSessions/main/scripts/install.sh | bash'
 
 # Windows PowerShell
-$env:BRIDGESESSIONS_TAG = '26.08.25-beta7'
+$env:BRIDGESESSIONS_TAG = '26.08.26-r1'
 irm https://raw.githubusercontent.com/MindDragonLabs/BridgeSessions/main/scripts/install.ps1 | iex
 ```
 
@@ -77,7 +77,7 @@ bs --version
 bs doctor
 ```
 
-The version string must contain `26.08.25-beta7`.
+The version string must contain `26.08.26-r1`.
 
 macOS release binaries are Developer ID signed. The installer does not re-sign the file. Re-signing on a machine without the Developer ID certificate strips the seal and can make Gatekeeper kill the process.
 
@@ -225,7 +225,7 @@ Full operator notes: [docs/bridge-panel.md](docs/bridge-panel.md).
 Give an agent these exact steps. Do not ask the agent to compile unless you want a development build.
 
 1. Install the release binary with `scripts/install.sh` or `scripts/install.ps1`.
-2. Confirm `bs --version` prints `26.08.25-beta7`.
+2. Confirm `bs --version` prints `26.08.26-r1`.
 3. If this node is new, join with `bs join <seed-address>:19949 <token> --start`.
 4. If this node is the seed, run `bs invite` and give the token to the joining node only.
 5. Confirm `bs peers list` and `bs health <peer>`.

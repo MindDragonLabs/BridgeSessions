@@ -894,6 +894,103 @@ class TestHttpSurface(unittest.TestCase):
         status, _ = self._req("GET", f"/{self.token}/api/files")
         self.assertEqual(status, 400)
 
+    def test_open_path_relative_file(self):
+        inbox = os.path.join(self.tmp.name, "inbox-open")
+        os.makedirs(os.path.join(inbox, "sub"), exist_ok=True)
+        with open(os.path.join(inbox, "sub", "note.md"), "w", encoding="utf-8") as fh:
+            fh.write("body\n")
+        old = os.environ.get("BRIDGEPANEL_RECEIVE_DIR")
+        os.environ["BRIDGEPANEL_RECEIVE_DIR"] = inbox
+        try:
+            status, raw = self._req(
+                "GET",
+                f"/{self.token}/api/open-path?machine=(local)&path=sub/note.md",
+            )
+            self.assertEqual(status, 200)
+            payload = json.loads(raw)
+            self.assertTrue(payload.get("ok"), payload)
+            self.assertEqual(payload.get("root"), "inbox")
+            self.assertEqual(payload.get("dir"), "sub")
+            self.assertEqual(payload.get("name"), "note.md")
+            self.assertEqual(payload.get("kind"), "md")
+        finally:
+            if old is None:
+                os.environ.pop("BRIDGEPANEL_RECEIVE_DIR", None)
+            else:
+                os.environ["BRIDGEPANEL_RECEIVE_DIR"] = old
+
+    def test_open_path_absolute_inbox_path(self):
+        inbox = os.path.join(self.tmp.name, "inbox-abs")
+        os.makedirs(os.path.join(inbox, "docs"), exist_ok=True)
+        with open(os.path.join(inbox, "docs", "r.txt"), "w", encoding="utf-8") as fh:
+            fh.write("x\n")
+        old = os.environ.get("BRIDGEPANEL_RECEIVE_DIR")
+        os.environ["BRIDGEPANEL_RECEIVE_DIR"] = inbox
+        try:
+            target = os.path.join(inbox, "docs", "r.txt")
+            status, raw = self._req(
+                "GET",
+                f"/{self.token}/api/open-path?machine=(local)&path="
+                + __import__("urllib.parse", fromlist=["quote"]).quote(target),
+            )
+            self.assertEqual(status, 200)
+            payload = json.loads(raw)
+            self.assertTrue(payload.get("ok"), payload)
+            self.assertEqual(payload.get("root"), "inbox")
+            self.assertEqual(payload.get("dir"), "docs")
+            self.assertEqual(payload.get("name"), "r.txt")
+            self.assertEqual(payload.get("kind"), "md")
+        finally:
+            if old is None:
+                os.environ.pop("BRIDGEPANEL_RECEIVE_DIR", None)
+            else:
+                os.environ["BRIDGEPANEL_RECEIVE_DIR"] = old
+
+    def test_open_path_directory(self):
+        inbox = os.path.join(self.tmp.name, "inbox-dir")
+        os.makedirs(os.path.join(inbox, "folder"), exist_ok=True)
+        old = os.environ.get("BRIDGEPANEL_RECEIVE_DIR")
+        os.environ["BRIDGEPANEL_RECEIVE_DIR"] = inbox
+        try:
+            status, raw = self._req(
+                "GET",
+                f"/{self.token}/api/open-path?machine=(local)&path=folder",
+            )
+            self.assertEqual(status, 200)
+            payload = json.loads(raw)
+            self.assertTrue(payload.get("ok"), payload)
+            self.assertEqual(payload.get("dir"), "folder")
+            self.assertEqual(payload.get("name"), "")
+            self.assertEqual(payload.get("kind"), "dir")
+        finally:
+            if old is None:
+                os.environ.pop("BRIDGEPANEL_RECEIVE_DIR", None)
+            else:
+                os.environ["BRIDGEPANEL_RECEIVE_DIR"] = old
+
+    def test_open_path_rejects_escape(self):
+        status, raw = self._req(
+            "GET",
+            f"/{self.token}/api/open-path?machine=(local)&path=../../etc/passwd",
+        )
+        self.assertEqual(status, 200)
+        payload = json.loads(raw)
+        self.assertFalse(payload.get("ok", True))
+        self.assertEqual(payload.get("error"), "path_rejected")
+
+    def test_open_path_requires_machine(self):
+        status, _ = self._req("GET", f"/{self.token}/api/open-path?path=x.md")
+        self.assertEqual(status, 400)
+
+    def test_open_path_not_found(self):
+        status, raw = self._req(
+            "GET",
+            f"/{self.token}/api/open-path?machine=(local)&path=does-not-exist.md",
+        )
+        self.assertEqual(status, 200)
+        payload = json.loads(raw)
+        self.assertFalse(payload.get("ok", True))
+
     def test_remote_file_rejects_absolute_path(self):
         status, _ = self._req(
             "GET",
