@@ -419,6 +419,16 @@ inline WorkerResult run_session_worker_posix(const WorkerConfig& cfg) {
     // Ignore SIGPIPE — write to dead socket returns error, not signal death
     ::signal(SIGPIPE, SIG_IGN);
 
+    // SIGTERM/SIGINT → graceful shutdown (kill the shell group, then exit).
+    // Without this, default SIGTERM would orphan the shell the worker hosts.
+    static volatile sig_atomic_t stop_requested = 0;
+    stop_requested = 0;
+    struct sigaction stop_sa{};
+    stop_sa.sa_handler = [](int) { stop_requested = 1; };
+    sigemptyset(&stop_sa.sa_mask);
+    ::sigaction(SIGTERM, &stop_sa, nullptr);
+    ::sigaction(SIGINT, &stop_sa, nullptr);
+
     // 3. Write PID file for controller discovery
     std::string pid_file = cfg.socket_path + ".pid";
     {
@@ -432,17 +442,63 @@ inline WorkerResult run_session_worker_posix(const WorkerConfig& cfg) {
     // Scrollback buffer (same ring buffer as main daemon)
     RingBuffer<1048576> scrollback;
 
-    // Connected clients (controller connections)
+    // Connected clients (controller connections). Non-blocking with bounded
+    // per-client queues: a daemon dying mid-frame can never wedge the worker.
     struct WorkerClient {
-        int fd;
+        int fd = -1;
+        std::string rx;        // partial-frame reassembly buffer
+        std::string tx;        // framed output queue
+        size_t tx_off = 0;
     };
     std::vector<WorkerClient> clients;
+
+    constexpr size_t kClientRxCap = 16u * 1024u * 1024u + 5;  // max frame + header
+    constexpr size_t kClientTxCap = 4u * 1024u * 1024u;
+
+    // Queue one frame to a client. Returns false when the client's backlog is
+    // saturated — the caller must DROP that client (silently discarding frames
+    // would create undetectable terminal-output gaps and could eat PONG/DIED).
+    auto queue_to_client = [&](WorkerClient& c, WorkerMsgType t,
+                               const void* data, size_t len) {
+        if (c.fd < 0) return false;
+        if (c.tx.size() - c.tx_off + 5 + len > kClientTxCap) return false;
+        uint8_t hdr[5];
+        hdr[0] = static_cast<uint8_t>(t);
+        write_u32be(hdr + 1, static_cast<uint32_t>(len));
+        c.tx.append(reinterpret_cast<const char*>(hdr), 5);
+        if (len > 0 && data)
+            c.tx.append(reinterpret_cast<const char*>(data), len);
+        return true;
+    };
+
+    // Best-effort non-blocking flush of one client's tx queue. Compacts the
+    // consumed prefix periodically so sustained partial progress cannot grow
+    // the buffer without bound. Returns false only on hard error (drop client).
+    auto flush_client = [&](WorkerClient& c) {
+        while (c.tx_off < c.tx.size()) {
+            const ssize_t n = ::write(c.fd, c.tx.data() + c.tx_off,
+                                      c.tx.size() - c.tx_off);
+            if (n > 0) { c.tx_off += static_cast<size_t>(n); continue; }
+            if (n < 0 && errno == EINTR) continue;
+            if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) break;
+            return false;
+        }
+        if (c.tx_off == c.tx.size()) {
+            c.tx.clear();
+            c.tx_off = 0;
+        } else if (c.tx_off >= 64 * 1024) {
+            c.tx.erase(0, c.tx_off);
+            c.tx_off = 0;
+        }
+        return true;
+    };
 
     WorkerResult result{0, 0};
     bool child_died = false;
 
     // 4. Event loop
     while (!child_died) {
+        if (stop_requested) goto worker_shutdown;
         fd_set read_fds;
         fd_set write_fds;
         FD_ZERO(&read_fds);
@@ -456,6 +512,7 @@ inline WorkerResult run_session_worker_posix(const WorkerConfig& cfg) {
         for (const auto& c : clients) {
             if (c.fd >= 0) {
                 FD_SET(c.fd, &read_fds);
+                if (c.tx_off < c.tx.size()) FD_SET(c.fd, &write_fds);
                 if (c.fd > max_fd) max_fd = c.fd;
             }
         }
@@ -475,50 +532,45 @@ inline WorkerResult run_session_worker_posix(const WorkerConfig& cfg) {
         if (FD_ISSET(listen_fd, &read_fds)) {
             int cfd = ::accept(listen_fd, nullptr, nullptr);
             if (cfd >= 0) {
-                // Bound writes to a stalled controller. A slow client is dropped
-                // rather than freezing PTY output for every other client.
-                timeval send_timeout{0, 100000};
-                (void)::setsockopt(cfd, SOL_SOCKET, SO_SNDTIMEO,
-                                   &send_timeout, sizeof(send_timeout));
-
-                // READY payload = UTF-8 session name followed by child pid (u32be).
-                std::string ready_payload = cfg.session_name;
-                uint8_t pid_bytes[4];
-                write_u32be(pid_bytes, static_cast<uint32_t>(child_pid));
-                ready_payload.append(reinterpret_cast<const char*>(pid_bytes),
-                                     sizeof(pid_bytes));
-                bool sent = worker_send(cfd, WMSG_READY, ready_payload);
-                if (sent) {
-                    // Send scrollback to new client
-                    auto sb = scrollback.read_last_lines(8192);
-                    if (!sb.empty()) {
-                        worker_send(cfd, WMSG_SCROLLBACK, sb.data(), sb.size());
-                    }
+                const int cfl = ::fcntl(cfd, F_GETFL, 0);
+                if (cfl < 0 || ::fcntl(cfd, F_SETFL, cfl | O_NONBLOCK) < 0) {
+                    ::close(cfd);
+                } else {
+                    // READY payload = UTF-8 session name followed by child pid
+                    // (u32be), then a scrollback snapshot. Both queue through
+                    // the per-client tx buffer — never block the loop.
                     WorkerClient wc;
                     wc.fd = cfd;
-                    clients.push_back(wc);
-                } else {
-                    ::close(cfd);
+                    std::string ready_payload = cfg.session_name;
+                    uint8_t pid_bytes[4];
+                    write_u32be(pid_bytes, static_cast<uint32_t>(child_pid));
+                    ready_payload.append(reinterpret_cast<const char*>(pid_bytes),
+                                         sizeof(pid_bytes));
+                    bool queued = queue_to_client(wc, WMSG_READY,
+                                    ready_payload.data(), ready_payload.size());
+                    auto sb = scrollback.read_last_lines(8192);
+                    if (queued && !sb.empty())
+                        queued = queue_to_client(wc, WMSG_SCROLLBACK, sb.data(), sb.size());
+                    if (queued && flush_client(wc)) clients.push_back(std::move(wc));
+                    else ::close(cfd);
                 }
             }
         }
 
-        // Read PTY output → forward to all clients
+        // Read PTY output → queue to all clients (flush happens below). A
+        // client whose backlog exceeds the cap is dropped, never silently
+        // under-fed.
         if (master_fd >= 0 && FD_ISSET(master_fd, &read_fds)) {
             char buf[65536];
             ssize_t n = ::read(master_fd, buf, sizeof(buf));
             if (n > 0) {
                 // Store in scrollback
                 scrollback.write(std::string_view(buf, static_cast<size_t>(n)));
-
-                // Forward to all connected clients
                 for (auto it = clients.begin(); it != clients.end(); ) {
-                    if (it->fd >= 0) {
-                        if (!worker_send(it->fd, WMSG_OUTPUT, buf, static_cast<size_t>(n))) {
-                            ::close(it->fd);
-                            it = clients.erase(it);
-                            continue;
-                        }
+                    if (!queue_to_client(*it, WMSG_OUTPUT, buf, static_cast<size_t>(n))) {
+                        ::close(it->fd);
+                        it = clients.erase(it);
+                        continue;
                     }
                     ++it;
                 }
@@ -526,75 +578,102 @@ inline WorkerResult run_session_worker_posix(const WorkerConfig& cfg) {
             // n == 0 would mean EOF on PTY master, handled by child death check below
         }
 
-        // Read from controller clients → write to PTY
+        // Read from controller clients → write to PTY (incremental, non-blocking)
         for (auto it = clients.begin(); it != clients.end(); ) {
-            if (it->fd < 0 || !FD_ISSET(it->fd, &read_fds)) {
-                ++it;
-                continue;
-            }
+            WorkerClient& c = *it;
+            if (c.fd < 0) { ++it; continue; }
+            bool drop = false;
 
-            WorkerMessage wmsg;
-            if (!worker_recv(it->fd, wmsg, 0)) {
-                ::close(it->fd);
+            if (FD_ISSET(c.fd, &write_fds)) drop = !flush_client(c);
+
+            if (!drop && FD_ISSET(c.fd, &read_fds)) {
+                // Drain whatever is available; never block on a partial frame.
+                for (;;) {
+                    char rbuf[65536];
+                    const ssize_t n = ::read(c.fd, rbuf, sizeof(rbuf));
+                    if (n > 0) { c.rx.append(rbuf, static_cast<size_t>(n)); continue; }
+                    if (n < 0 && errno == EINTR) continue;
+                    if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) break;
+                    drop = true;   // EOF (daemon died) or hard error
+                    break;
+                }
+                if (c.rx.size() > kClientRxCap) drop = true;
+
+                // Process complete frames even when the peer already closed:
+                // a daemon that sends SHUTDOWN and closes immediately has
+                // already delivered the bytes — dropping them would orphan
+                // the worker (and its shell) forever.
+                size_t off = 0;
+                while (c.rx.size() - off >= 5) {
+                    const auto* p = reinterpret_cast<const uint8_t*>(c.rx.data() + off);
+                    const uint8_t type = p[0];
+                    const uint32_t len = read_u32be(p + 1);
+                    if (len > 16u * 1024u * 1024u) { drop = true; break; }  // desync
+                    if (c.rx.size() - off < 5u + len) break;                // partial
+                    const uint8_t* payload = p + 5;
+                    switch (static_cast<WorkerMsgType>(type)) {
+                        case WMSG_INPUT: {
+                            if (len > 0) {
+                                const size_t pending_bytes =
+                                    pending_pty_input.size() - pending_pty_offset;
+                                if (len > kPendingPtyInputCap -
+                                              std::min(pending_bytes,
+                                                       kPendingPtyInputCap)) {
+                                    // Backpressure contract: disconnect a client
+                                    // that exceeds the bounded input queue.
+                                    drop = true;
+                                    break;
+                                }
+                                if (pending_pty_offset > 0) {
+                                    pending_pty_input.erase(
+                                        pending_pty_input.begin(),
+                                        pending_pty_input.begin() +
+                                            static_cast<std::ptrdiff_t>(pending_pty_offset));
+                                    pending_pty_offset = 0;
+                                }
+                                pending_pty_input.insert(pending_pty_input.end(),
+                                                         payload, payload + len);
+                                drain_pending_pty_input();
+                            }
+                            break;
+                        }
+                        case WMSG_RESIZE: {
+                            if (len >= 4) {
+                                uint16_t cols = read_u16be(payload);
+                                uint16_t rows = read_u16be(payload + 2);
+                                struct winsize ws{};
+                                ws.ws_col = cols;
+                                ws.ws_row = rows;
+                                (void)::ioctl(master_fd, TIOCSWINSZ, &ws);
+                            }
+                            break;
+                        }
+                        case WMSG_DETACH: {
+                            drop = true;   // close just this client
+                            break;
+                        }
+                        case WMSG_PING: {
+                            if (!queue_to_client(c, WMSG_PONG, nullptr, 0)) {
+                                drop = true;
+                                break;
+                            }
+                            (void)flush_client(c);
+                            break;
+                        }
+                        case WMSG_SHUTDOWN: {
+                            goto worker_shutdown;
+                        }
+                        default:
+                            break;
+                    }
+                    off += 5u + len;
+                }
+                if (off > 0) c.rx.erase(0, off);
+            }
+            if (drop) {
+                ::close(c.fd);
                 it = clients.erase(it);
                 continue;
-            }
-
-            switch (wmsg.type) {
-                case WMSG_INPUT: {
-                    if (!wmsg.data.empty()) {
-                        const size_t pending_bytes =
-                            pending_pty_input.size() - pending_pty_offset;
-                        if (wmsg.data.size() > kPendingPtyInputCap -
-                                                  std::min(pending_bytes,
-                                                           kPendingPtyInputCap)) {
-                            // Backpressure contract: disconnect a client that
-                            // exceeds the bounded input queue.
-                            ::close(it->fd);
-                            it = clients.erase(it);
-                            continue;
-                        }
-                        if (pending_pty_offset > 0) {
-                            pending_pty_input.erase(
-                                pending_pty_input.begin(),
-                                pending_pty_input.begin() +
-                                    static_cast<std::ptrdiff_t>(pending_pty_offset));
-                            pending_pty_offset = 0;
-                        }
-                        pending_pty_input.insert(pending_pty_input.end(),
-                                                 wmsg.data.begin(), wmsg.data.end());
-                        drain_pending_pty_input();
-                    }
-                    break;
-                }
-                case WMSG_RESIZE: {
-                    if (wmsg.data.size() >= 4) {
-                        uint16_t cols = read_u16be(wmsg.data.data());
-                        uint16_t rows = read_u16be(wmsg.data.data() + 2);
-                        // Resize PTY
-                        struct winsize ws{};
-                        ws.ws_col = cols;
-                        ws.ws_row = rows;
-                        (void)::ioctl(master_fd, TIOCSWINSZ, &ws);
-                    }
-                    break;
-                }
-                case WMSG_DETACH: {
-                    // Client wants to detach — close just this client
-                    ::close(it->fd);
-                    it = clients.erase(it);
-                    continue;  // skip ++it
-                }
-                case WMSG_PING: {
-                    worker_send(it->fd, WMSG_PONG);
-                    break;
-                }
-                case WMSG_SHUTDOWN: {
-                    // Graceful shutdown requested
-                    goto worker_shutdown;
-                }
-                default:
-                    break;
             }
             ++it;
         }
@@ -619,19 +698,27 @@ inline WorkerResult run_session_worker_posix(const WorkerConfig& cfg) {
                     ssize_t n = ::read(master_fd, buf, sizeof(buf));
                     if (n <= 0) break;
                     scrollback.write(std::string_view(buf, static_cast<size_t>(n)));
-                    for (auto& c : clients) {
-                        if (c.fd >= 0)
-                            worker_send(c.fd, WMSG_OUTPUT, buf, static_cast<size_t>(n));
-                    }
+                    for (auto& c : clients)
+                        queue_to_client(c, WMSG_OUTPUT, buf, static_cast<size_t>(n));
                 }
 
                 // Send DIED to all clients
                 uint8_t died_payload[8];
                 write_u32be(died_payload, static_cast<uint32_t>(result.exit_code));
                 write_u32be(died_payload + 4, static_cast<uint32_t>(result.signal_num));
-                for (auto& c : clients) {
-                    if (c.fd >= 0)
-                        worker_send(c.fd, WMSG_DIED, died_payload, 8);
+                for (auto& c : clients)
+                    queue_to_client(c, WMSG_DIED, died_payload, 8);
+                // Bounded best-effort flush so a live daemon sees the death
+                // notice before we close; EOF on the socket is the fallback.
+                for (int pass = 0; pass < 20; ++pass) {
+                    bool all_empty = true;
+                    for (auto& c : clients) {
+                        if (c.fd < 0) continue;
+                        if (!flush_client(c)) { ::close(c.fd); c.fd = -1; continue; }
+                        if (c.tx_off < c.tx.size()) all_empty = false;
+                    }
+                    if (all_empty) break;
+                    ::usleep(10000);
                 }
             }
         }
@@ -699,11 +786,72 @@ struct ManagedWorker {
     int32_t signal_num = 0;
 };
 
+// One-time probe: does `systemd-run --user --scope` work in this process
+// environment? Cached for the process lifetime. A daemon started via cron,
+// ssh non-login, or without a user bus gets a definitive no without paying a
+// per-spawn timeout.
+#ifndef _WIN32
+inline bool systemd_run_available() {
+    static std::atomic<int> cached{-1};
+    if (cached.load() >= 0) return cached.load() == 1;
+
+    std::string systemd_run = ::access("/usr/bin/systemd-run", X_OK) == 0
+        ? "/usr/bin/systemd-run"
+        : (::access("/bin/systemd-run", X_OK) == 0 ? "/bin/systemd-run" : "");
+    if (systemd_run.empty()) {
+        cached.store(0);
+        return false;
+    }
+    std::string unit = "bs-probe-" + std::to_string(::getpid());
+    pid_t pid = ::fork();
+    if (pid == 0) {
+#if defined(__linux__) && defined(SYS_close_range)
+        if (::syscall(SYS_close_range, 3u, ~0u, 0u) != 0)
+#endif
+        {
+            long max_fd = ::sysconf(_SC_OPEN_MAX);
+            if (max_fd < 0) max_fd = 1024;
+            for (int fd = 3; fd < max_fd; ++fd) ::close(fd);
+        }
+        int devnull = ::open("/dev/null", O_RDWR);
+        if (devnull >= 0) {
+            ::dup2(devnull, STDIN_FILENO);
+            ::dup2(devnull, STDOUT_FILENO);
+            ::dup2(devnull, STDERR_FILENO);
+            ::close(devnull);
+        }
+        std::vector<std::string> pargs = {systemd_run, "--user", "--scope",
+                                          "--quiet", "--unit=" + unit, "/bin/true"};
+        std::vector<char*> argv_arr;
+        for (auto& a : pargs) argv_arr.push_back(const_cast<char*>(a.c_str()));
+        argv_arr.push_back(nullptr);
+        ::execv(systemd_run.c_str(), argv_arr.data());
+        ::_exit(127);
+    }
+    if (pid < 0) { cached.store(0); return false; }
+    int status = 0;
+    bool ok = false;
+    for (int i = 0; i < 300; ++i) {   // up to ~3s; normally <50ms
+        const pid_t r = ::waitpid(pid, &status, WNOHANG);
+        if (r == pid) { ok = WIFEXITED(status) && WEXITSTATUS(status) == 0; break; }
+        if (r < 0 && errno != EINTR) break;
+        ::usleep(10000);
+    }
+    if (!ok) { ::kill(pid, SIGKILL); ::waitpid(pid, &status, 0); }
+    cached.store(ok ? 1 : 0);
+    return ok;
+}
+#endif  // !_WIN32
+
 // Spawn a worker process for a new session.
-// Returns the worker PID (>0) on success, -1 on failure.
+// Returns the direct-fork worker PID (>0), 0 when spawned via systemd-run
+// (real worker pid is in cfg.socket_path + ".pid"), or -1 on failure.
 //
 // Strategy for cgroup escape (so workers survive daemon service stop):
-// 1. Try `systemd-run --user --scope` — creates worker in its own scope
+// 1. `systemd-run --user --scope` via a DOUBLE-fork — systemd-run stays alive
+//    as the scope supervisor for the worker's whole lifetime, so it must not
+//    be our direct child (it would zombie on exit). The grandchild is
+//    reparented to PID 1 and reaped there.
 // 2. Fall back to plain fork+exec+setsid (may die with daemon on systemd stop)
 inline pid_t spawn_session_worker(const WorkerConfig& cfg, const std::string& exe_path) {
 #ifndef _WIN32
@@ -719,35 +867,29 @@ inline pid_t spawn_session_worker(const WorkerConfig& cfg, const std::string& ex
         "--app-home", cfg.app_home
     };
 
-    // Strategy 1: Try systemd-run --user --scope to escape the daemon's cgroup.
-    // This is the only reliable way to survive KillMode=control-group.
-    // Check if systemd-run exists and we're running under systemd.
-    if (::access("/usr/bin/systemd-run", X_OK) == 0 ||
-        ::access("/bin/systemd-run", X_OK) == 0) {
-        // Find systemd-run path
-        std::string systemd_run;
-        if (::access("/usr/bin/systemd-run", X_OK) == 0)
-            systemd_run = "/usr/bin/systemd-run";
-        else
-            systemd_run = "/bin/systemd-run";
+    if (systemd_run_available()) {
+        std::string systemd_run = ::access("/usr/bin/systemd-run", X_OK) == 0
+            ? "/usr/bin/systemd-run" : "/bin/systemd-run";
 
-        // Build the full command: systemd-run --user --scope --quiet
-        //   <exe> session-worker --socket ... --name ...
+        static std::atomic<uint64_t> scope_seq{0};
+        std::string unit = "bs-worker-" + cfg.session_name + "-" +
+                           std::to_string(::getpid()) + "-" +
+                           std::to_string(scope_seq.fetch_add(1));
+
         std::vector<std::string> full_args;
         full_args.push_back(systemd_run);
         full_args.push_back("--user");
         full_args.push_back("--scope");
         full_args.push_back("--quiet");
-        full_args.push_back("--unit=bs-worker-" + cfg.session_name);
+        full_args.push_back("--unit=" + unit);
         for (const auto& a : args) full_args.push_back(a);
 
-        // Fork and exec systemd-run
-        pid_t pid = ::fork();
+        const pid_t pid = ::fork();
         if (pid == 0) {
-            // Child
-            // Close ALL inherited fds from the daemon using close_range
-            // (Linux 5.9+) or fallback loop. This prevents the worker from
-            // holding the daemon's listening ports open.
+            // Child: fork the systemd-run grandchild and exit immediately so
+            // the grandchild (and its scope) is owned by PID 1, never by us.
+            const pid_t g = ::fork();
+            if (g != 0) ::_exit(g < 0 ? 1 : 0);
 #if defined(__linux__) && defined(SYS_close_range)
             if (::syscall(SYS_close_range, 3u, ~0u, 0u) != 0)
 #endif
@@ -759,12 +901,13 @@ inline pid_t spawn_session_worker(const WorkerConfig& cfg, const std::string& ex
             int devnull = ::open("/dev/null", O_RDWR);
             if (devnull >= 0) {
                 ::dup2(devnull, STDIN_FILENO);
+                ::dup2(devnull, STDOUT_FILENO);
+                ::dup2(devnull, STDERR_FILENO);
                 ::close(devnull);
             }
             ::signal(SIGHUP, SIG_IGN);
             ::setsid();
 
-            // Build argv array
             std::vector<char*> argv_arr;
             for (auto& a : full_args) argv_arr.push_back(const_cast<char*>(a.c_str()));
             argv_arr.push_back(nullptr);
@@ -772,8 +915,14 @@ inline pid_t spawn_session_worker(const WorkerConfig& cfg, const std::string& ex
             ::execv(systemd_run.c_str(), argv_arr.data());
             ::_exit(127);
         }
-        if (pid > 0) return pid;  // Parent — systemd-run forks the worker
-        // If fork failed, fall through to plain fork+exec
+        if (pid > 0) {
+            // Reap the short-lived middle child (it exits as soon as the
+            // grandchild is forked).
+            int status = 0;
+            while (::waitpid(pid, &status, 0) < 0 && errno == EINTR) {}
+            return 0;   // scope worker's real pid lands in the pid file
+        }
+        // fork failed → plain fork fallback
     }
 
     // Strategy 2: Plain fork+exec+setsid (fallback)
@@ -905,10 +1054,20 @@ inline bool ping_worker(const std::string& socket_path) {
         ::close(fd);
         return false;
     }
-    WorkerMessage msg;
-    bool got = worker_recv(fd, msg, 2000);
+    // The worker announces READY (+ optional SCROLLBACK) on connect before it
+    // answers anything — skip those frames and wait for the PONG. Reading only
+    // one frame would misread READY as a dead worker, and the caller would
+    // unlink a LIVE worker's socket.
+    for (int i = 0; i < 32; ++i) {
+        WorkerMessage msg;
+        if (!worker_recv(fd, msg, 2000)) break;
+        if (msg.type == WMSG_PONG) { ::close(fd); return true; }
+        if (msg.type == WMSG_READY || msg.type == WMSG_SCROLLBACK ||
+            msg.type == WMSG_OUTPUT) continue;
+        break;
+    }
     ::close(fd);
-    return got && msg.type == WMSG_PONG;
+    return false;
 }
 
 // Discover existing worker sockets on controller startup.

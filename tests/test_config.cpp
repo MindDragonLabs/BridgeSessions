@@ -1020,6 +1020,19 @@ TEST_CASE("SSH alias imports as a transient BridgeSessions peer",
     REQUIRE_FALSE(import_ssh_alias_peer(cfg, "missing", "user agent\n"));
 }
 
+TEST_CASE("is_self_target matches node name and OS hostname", "[config][self]") {
+    MeshConfig cfg;
+    cfg.node_name = "mynode";
+    REQUIRE(is_self_target(cfg, "mynode"));
+    REQUIRE(is_self_target(cfg, "MYNODE"));          // case-insensitive
+    REQUIRE(is_self_target(cfg, local_hostname()));  // OS hostname fallback
+    REQUIRE_FALSE(is_self_target(cfg, "other-host"));
+    REQUIRE_FALSE(is_self_target(cfg, ""));
+    REQUIRE(self_display_name(cfg) == "mynode");
+    cfg.node_name = "unnamed";
+    REQUIRE(self_display_name(cfg) == local_hostname());
+}
+
 int main(int argc, char* argv[]) {
     return Catch::Session().run(argc, argv);
 }

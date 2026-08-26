@@ -33,6 +33,8 @@
 #include <util.h>
 #include <mach/mach.h>
 #include <mach/mach_host.h>
+#include <mach-o/dyld.h>  // global scope: worker header is included inside
+                          // namespace bs::mesh and would otherwise pull this in there
 #include <sys/sysctl.h>
 #else
 #ifndef _WIN32
@@ -3574,6 +3576,218 @@ inline void close_nonstdio_fds_before_exec() {
 
 #endif // _WIN32
 
+// ── Session-worker architecture (PTY hosting outside the daemon) ──────
+// Included here — after create_session/resize_pty, before SessionRegistry —
+// so the registry and MeshController can spawn/adopt/talk to workers.
+#include "bs-session-worker.h"
+
+// Path of the running executable (POSIX) — workers are this same binary
+// re-exec'd with the hidden `session-worker` subcommand.
+#ifndef _WIN32
+#if defined(__APPLE__)
+#include <mach-o/dyld.h>
+#endif
+[[nodiscard]] inline std::string current_exe_path() {
+#if defined(__APPLE__)
+    uint32_t size = 0;
+    _NSGetExecutablePath(nullptr, &size);
+    if (size == 0) return {};
+    std::string buf(size, '\0');
+    if (_NSGetExecutablePath(buf.data(), &size) != 0) return {};
+    std::error_code ec;
+    auto canon = std::filesystem::weakly_canonical(buf, ec);
+    return ec ? buf : canon.string();
+#else
+    std::error_code ec;
+    auto p = std::filesystem::read_symlink("/proc/self/exe", ec);
+    return ec ? std::string{} : p.string();
+#endif
+}
+
+// ── Hosted-session spawn + pump helpers ────────────────────────────────
+
+// Create a session hosted in a detached worker process. The daemon talks to
+// the worker over a Unix socket; the PTY/shell survive daemon restarts and
+// upgrades. Caller falls back to create_session on failure.
+[[nodiscard]] inline std::expected<Session, PtyError> create_session_hosted(
+    const std::string& name, const std::string& command,
+    uint16_t cols, uint16_t rows, const std::string& term,
+    const std::string& app_home, const std::string& exe_path)
+{
+    if (app_home.empty() || exe_path.empty())
+        return std::unexpected(PtyError{"hosted session needs app_home + exe_path"});
+
+    worker::WorkerConfig wc;
+    wc.session_name = name;
+    wc.command = command;
+    wc.cols = cols; wc.rows = rows; wc.term = term;
+    wc.app_home = app_home;
+    wc.socket_path = worker::worker_socket_path(app_home, name);
+    // sun_path is 108 bytes (Linux) / 104 (macOS) — refuse early.
+    if (wc.socket_path.size() >= 100)
+        return std::unexpected(PtyError{"worker socket path too long"});
+
+    // A live worker already serving this name (orphaned by a previous daemon
+    // crash, never re-adopted) is reattached rather than replaced — the shell
+    // inside it is the session the user expects.
+    int fd = -1;
+    pid_t wpid = -1;
+    if (worker::ping_worker(wc.socket_path)) {
+        fd = worker::connect_to_worker(wc.socket_path, 2000);
+        log_event("session_worker_reattach_orphan", name);
+    } else {
+        wpid = worker::spawn_session_worker(wc, exe_path);
+        // 0 = spawned via systemd-run (worker pid arrives via the pid file);
+        // >0 = direct-fork worker pid; -1 = failure.
+        log_event("session_worker_spawn", name +
+                  " via=" + std::string(wpid == 0 ? "systemd-run" :
+                                        (wpid > 0 ? "fork" : "FAILED")));
+        if (wpid < 0) return std::unexpected(PtyError{"worker spawn failed"});
+        // Wait for the socket to come up (worker binds before the PTY child).
+        for (int i = 0; i < 60 && fd < 0; ++i) {   // up to ~3s
+            fd = worker::connect_to_worker(wc.socket_path, 250);
+            if (fd < 0) ::usleep(50 * 1000);
+        }
+    }
+    if (fd < 0) {
+        if (wpid > 0) ::kill(wpid, SIGTERM);
+        return std::unexpected(PtyError{"worker socket never appeared"});
+    }
+
+    // READY carries name + child pid (last 4 bytes, u32be).
+    worker::WorkerMessage ready;
+    if (!worker::worker_recv(fd, ready, 3000) || ready.type != worker::WMSG_READY) {
+        ::close(fd);
+        if (wpid > 0) ::kill(wpid, SIGTERM);
+        return std::unexpected(PtyError{"worker READY handshake failed"});
+    }
+    pid_t child = -1;
+    if (ready.data.size() >= 4)
+        child = static_cast<pid_t>(
+            worker::read_u32be(ready.data.data() + ready.data.size() - 4));
+    if (child <= 0) {
+        ::close(fd);
+        if (wpid > 0) ::kill(wpid, SIGTERM);
+        return std::unexpected(PtyError{"worker reported no child pid"});
+    }
+
+    // Worker pid file (written by the worker itself; may lag the socket by a
+    // beat). Authoritative when spawned via systemd-run (wpid==0), best-effort
+    // otherwise.
+    for (int i = 0; i < 20; ++i) {   // up to ~1s
+        std::ifstream pf(wc.socket_path + ".pid");
+        long v = -1;
+        if (pf >> v && v > 0) { wpid = static_cast<pid_t>(v); break; }
+        if (wpid > 0) break;   // direct-fork pid known; file is best-effort
+        ::usleep(50 * 1000);
+    }
+
+    // Switch the socket non-blocking for the daemon event loop.
+    const int fl = ::fcntl(fd, F_GETFL, 0);
+    if (fl < 0 || ::fcntl(fd, F_SETFL, fl | O_NONBLOCK) < 0) {
+        ::close(fd);
+        if (wpid > 0) ::kill(wpid, SIGTERM);
+        return std::unexpected(PtyError{"worker socket nonblock failed"});
+    }
+
+    Session s;
+    s.name = name; s.command = command;
+    s.parent_id = parent_session_id_from_environment();
+    s.hosted = true;
+    s.worker_pid = wpid;
+    s.master_fd = fd;
+    s.child_pid = child;   // informational only — NOT our child
+    s.generation = ++g_session_generation;
+    s.state = SessionState::Running;
+    return s;
+}
+
+// Queue one framed worker message (partial-write safe) and best-effort flush.
+inline void worker_queue_frame(Session& s, worker::WorkerMsgType t,
+                               const void* data, size_t len) {
+    if (len > 16u * 1024u * 1024u || s.master_fd < 0) return;
+    uint8_t hdr[5];
+    hdr[0] = static_cast<uint8_t>(t);
+    worker::write_u32be(hdr + 1, static_cast<uint32_t>(len));
+    s.worker_tx.append(reinterpret_cast<const char*>(hdr), 5);
+    if (len > 0 && data)
+        s.worker_tx.append(static_cast<const char*>(data), len);
+    // Best-effort immediate flush; remainder stays queued for POLLOUT drain.
+    while (!s.worker_tx.empty()) {
+        const ssize_t n = ::write(s.master_fd, s.worker_tx.data(), s.worker_tx.size());
+        if (n > 0) { s.worker_tx.erase(0, static_cast<size_t>(n)); continue; }
+        if (n < 0 && errno == EINTR) continue;
+        if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) return;
+        s.worker_died = true;
+        return;
+    }
+}
+
+// Result of draining a hosted session's worker socket.
+struct HostedPump {
+    std::string output;      // WMSG_OUTPUT payloads → normal fanout path
+    std::string scrollback;  // WMSG_SCROLLBACK payloads → scrollback only
+};
+
+// Drain available worker frames; reassembles partial frames across calls.
+// Sets s.worker_died on WMSG_DIED, EOF, or stream desync. Never blocks
+// (socket is O_NONBLOCK).
+inline HostedPump pump_hosted_session(Session& s) {
+    HostedPump out;
+    if (!s.hosted || s.master_fd < 0 || s.worker_died) return out;
+
+    std::array<char, 16384> buf{};
+    for (;;) {
+        const ssize_t n = ::read(s.master_fd, buf.data(), buf.size());
+        if (n > 0) { s.worker_rx.append(buf.data(), static_cast<size_t>(n)); continue; }
+        if (n < 0 && errno == EINTR) continue;
+        if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) break;
+        s.worker_died = true;   // EOF (n==0) or hard error
+        break;
+    }
+
+    // Reassemble frames: [type:1][len:4be][payload]
+    size_t off = 0;
+    while (s.worker_rx.size() - off >= 5) {
+        const auto* p = reinterpret_cast<const uint8_t*>(s.worker_rx.data() + off);
+        const uint8_t type = p[0];
+        const uint32_t len = worker::read_u32be(p + 1);
+        if (len > 16u * 1024u * 1024u) {      // desync guard — drop the worker
+            s.worker_died = true;
+            break;
+        }
+        if (s.worker_rx.size() - off < 5u + len) break;   // partial frame
+        const char* payload = s.worker_rx.data() + off + 5;
+        switch (static_cast<worker::WorkerMsgType>(type)) {
+            case worker::WMSG_OUTPUT:
+                out.output.append(payload, len);
+                break;
+            case worker::WMSG_SCROLLBACK:
+                out.scrollback.append(payload, len);
+                break;
+            case worker::WMSG_DIED:
+                if (len >= 8) {
+                    s.worker_exit_code = static_cast<int32_t>(worker::read_u32be(
+                        reinterpret_cast<const uint8_t*>(payload)));
+                    s.worker_signal_num = static_cast<int32_t>(worker::read_u32be(
+                        reinterpret_cast<const uint8_t*>(payload) + 4));
+                }
+                s.worker_died = true;
+                break;
+            default:
+                break;   // READY/PONG/ERROR — nothing to do in the pump
+        }
+        off += 5u + len;
+    }
+    if (off > 0) s.worker_rx.erase(0, off);
+    if (s.worker_rx.size() > 32u * 1024u * 1024u) {  // runaway guard
+        s.worker_rx.clear();
+        s.worker_died = true;
+    }
+    return out;
+}
+#endif // !_WIN32
+
 // ── 2.0.8 P5: Cross-platform Computer Use dispatch ─────────────────────
 // Dispatches CuaRequestMsg to the appropriate OS backend.
 
@@ -4865,12 +5079,41 @@ void write_peer_line(std::ostream& os, const std::string& prefix, const PeerEntr
 // Live attach policy: Ctrl-C is always a remote keystroke. Never disconnect.
 [[nodiscard]] inline bool session_ctrl_c_disconnects() { return false; }
 
+// Detach policy (docs/usage.md): Ctrl-D (0x04) is the LOCAL detach key. It is
+// intercepted client-side and must never reach the remote PTY — there it
+// would read as EOF and exit the shell the user meant to keep.
+[[nodiscard]] inline bool local_input_requests_detach(std::string_view input) {
+    return input.find('\x04') != std::string_view::npos;
+}
+
 #ifndef _WIN32
 // Hermes TUI / process-group SIGINT never appears as 0x03 on stdin.
 // Convert it to one forwarded Ctrl-C keystroke instead of dying.
 inline volatile sig_atomic_t g_shell_sigint_forward = 0;
 inline void shell_sigint_forward_handler(int) noexcept {
     g_shell_sigint_forward = 1;
+}
+
+// Best-effort terminal restore for SIGHUP/SIGTERM while the interactive
+// client holds raw mode (e.g. terminal closed, kill(1), systemd stop).
+// Without this the local terminal is left in raw+mouse-tracking mode: every
+// mouse move prints escape garbage and BELs. tcsetattr/write are not formally
+// async-signal-safe; this is the same trade every full-screen program makes.
+inline struct termios g_sig_saved_termios{};
+inline volatile sig_atomic_t g_sig_have_termios = 0;
+inline void shell_signal_cleanup_handler(int sig) noexcept {
+    if (g_sig_have_termios) {
+        ::tcsetattr(STDIN_FILENO, TCSAFLUSH, &g_sig_saved_termios);
+        static const char seq[] =
+            "\x1b[?9l\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1004l"
+            "\x1b[?1005l\x1b[?1006l\x1b[?1015l\x1b[?1016l"
+            "\x1b[?2004l\x1b[0m\x1b[?25h\x1b[?1049l";
+        const ssize_t ignored =
+            ::write(STDOUT_FILENO, seq, sizeof(seq) - 1);
+        (void)ignored;
+    }
+    ::signal(sig, SIG_DFL);
+    ::raise(sig);   // die by the real signal so waiters see the true status
 }
 #endif
 
@@ -4907,6 +5150,40 @@ inline void shell_sigint_forward_handler(int) noexcept {
 [[nodiscard]] inline bool is_local_node_name(const std::string& query,
                                              const std::string& node_name) {
     return !query.empty() && config_peer_name_eq(query, node_name);
+}
+
+// OS hostname of this machine ("" on failure). gethostname exists in both
+// POSIX unistd.h and winsock2.h, so this is cross-platform.
+[[nodiscard]] inline std::string local_hostname() {
+    char buf[256];
+    if (::gethostname(buf, sizeof(buf) - 1) != 0) return {};
+    buf[sizeof(buf) - 1] = '\0';
+    return std::string(buf);
+}
+
+// True when `name` refers to this node — by mesh node name or by OS hostname
+// (users type either; `bs <self>` must be caught before trust/import logic).
+[[nodiscard]] inline bool is_self_target(const MeshConfig& cfg,
+                                         const std::string& name) {
+    if (is_local_node_name(name, cfg.node_name)) return true;
+    const std::string h = local_hostname();
+    if (is_local_node_name(name, h)) return true;
+    // Bonjour/FQDN drift: macOS reports "Jeffersons-Mini.local" while
+    // `hostname -s` gives "Jeffersons-Mini". Compare first DNS labels so
+    // short ↔ FQDN mismatches still catch self. A false-positive refusal is
+    // the safe direction (a real peer connect falls under the trust check).
+    auto first_label = [](const std::string& s) {
+        auto dot = s.find('.');
+        return dot == std::string::npos ? s : s.substr(0, dot);
+    };
+    return is_local_node_name(first_label(name), first_label(h));
+}
+
+// Human-facing name for this node in self-connect messages.
+[[nodiscard]] inline std::string self_display_name(const MeshConfig& cfg) {
+    if (!cfg.node_name.empty() && cfg.node_name != "unnamed") return cfg.node_name;
+    std::string h = local_hostname();
+    return h.empty() ? std::string{"this node"} : h;
 }
 
 [[nodiscard]] bool import_ssh_alias_peer(
@@ -6243,6 +6520,10 @@ class SessionRegistry {
     std::atomic<uint32_t> next_attach_id_{1};
     std::vector<SessionHistoryEntry> recent_;
     std::string persistence_path_;
+#ifndef _WIN32
+    std::string app_home_;      // set by daemon → enables worker hosting
+    std::string worker_exe_;    // binary re-exec'd as `session-worker`
+#endif
     static constexpr size_t kMaxRecentSessions = 50;
 
     // P0 UAF fix: fires before a session is erased from the map so callers
@@ -6342,6 +6623,40 @@ public:
         persistence_path_ = path;
     }
 
+#ifndef _WIN32
+    // Enable session-worker hosting: sessions are spawned into detached
+    // worker processes (socket dir under app_home) so shells survive daemon
+    // restarts and upgrades. worker_exe defaults to the running binary;
+    // tests point it at the just-built target. BS_SESSION_WORKER=0 disables
+    // hosting at runtime (forkpty fallback, pre-r2 behavior).
+    void set_app_home(const std::string& app_home) {
+        app_home_ = app_home;
+        const char* override_exe = std::getenv("BS_WORKER_EXE");
+        worker_exe_ = (override_exe && *override_exe) ? override_exe
+                                                      : current_exe_path();
+    }
+    void set_worker_exe(const std::string& exe) { worker_exe_ = exe; }
+    const std::string& app_home() const { return app_home_; }
+#endif
+
+    // Route session creation through the worker when hosting is enabled;
+    // any worker failure falls back to the direct forkpty spawn.
+    std::expected<Session, PtyError> spawn_session_runtime(
+        const std::string& name, const std::string& command,
+        uint16_t cols, uint16_t rows, const std::string& term) {
+#ifndef _WIN32
+        const char* dis = std::getenv("BS_SESSION_WORKER");
+        const bool worker_enabled = !(dis && std::string(dis) == "0");
+        if (worker_enabled && !app_home_.empty() && !worker_exe_.empty()) {
+            auto hosted = create_session_hosted(name, command, cols, rows, term,
+                                                app_home_, worker_exe_);
+            if (hosted) return hosted;
+            log_event("session_worker_spawn_fallback", name);
+        }
+#endif
+        return create_session(name, command, cols, rows, term);
+    }
+
     // ── Attach / Create ─────────────────────────────────────────
     // Connection-path attach (2.0.8): registers a per-connection Attachment,
     // returns the server-assigned attach_id, and reports the effective
@@ -6392,7 +6707,7 @@ public:
                 // Drop stale attachments: their PTYs are being replaced.
                 s->attachments.clear();
                 const std::string spawn_command = prepare_session_command(resolved);
-                auto session_result = create_session(name, spawn_command, cols, rows, term);
+                auto session_result = spawn_session_runtime(name, spawn_command, cols, rows, term);
                 if (!session_result) return 0;
                 session_result->kind = classify_session_kind(name, resolved.source);
                 install_spawned_runtime(*s, std::move(*session_result), SessionState::Attached);
@@ -6404,7 +6719,7 @@ public:
         } else {
             // Create new session
             const std::string spawn_command = prepare_session_command(resolved);
-            auto session_result = create_session(name, spawn_command, cols, rows, term);
+            auto session_result = spawn_session_runtime(name, spawn_command, cols, rows, term);
             if (!session_result) return 0;
             auto news = std::make_unique<Session>(std::move(*session_result));
             news->state = SessionState::Attached;
@@ -6473,7 +6788,16 @@ public:
             min_r = std::min(min_r, kv.second.rows);
         }
 #ifndef _WIN32
-        if (s.master_fd >= 0) (void)resize_pty(static_cast<intptr_t>(s.master_fd), min_c, min_r);
+        if (s.master_fd >= 0) {
+            if (s.hosted) {
+                uint8_t p[4];
+                worker::write_u16be(p, min_c);
+                worker::write_u16be(p + 2, min_r);
+                worker_queue_frame(s, worker::WMSG_RESIZE, p, 4);
+            } else {
+                (void)resize_pty(static_cast<intptr_t>(s.master_fd), min_c, min_r);
+            }
+        }
 #else
         if (s.hpcon) (void)resize_pty(reinterpret_cast<intptr_t>(s.hpcon), min_c, min_r);
 #endif
@@ -6800,6 +7124,20 @@ public:
             std::string killed_name = it->second->name;
             it->second->state = SessionState::Killed;
             record_history_locked(*it->second, -1, "killed");
+#ifndef _WIN32
+            // Hosted session: tell the worker to kill the shell and exit
+            // (its shutdown path group-kills the child), THEN signal the
+            // worker process too — if the daemon closes the socket before the
+            // worker reads the frame, the SHUTDOWN could ride an EOF and never
+            // be processed. SIGTERM lands the same graceful shutdown.
+            if (it->second->hosted) {
+                if (it->second->master_fd >= 0)
+                    (void)worker::worker_send(it->second->master_fd,
+                                              worker::WMSG_SHUTDOWN);
+                if (it->second->worker_pid > 0)
+                    ::kill(it->second->worker_pid, SIGTERM);
+            }
+#endif
             // P0 UAF fix: fire callback before erasing so Conn::attached_session can be nulled
             if (on_session_erased_) on_session_erased_(killed_name);
             sessions_.erase(it);
@@ -6840,7 +7178,10 @@ public:
             }
 #else
             int32_t exit_code = 0;
-            if (s->child_pid > 0) {
+            // Hosted sessions: the child belongs to the worker — waitpid here
+            // would hit ECHILD and false-positive as dead. Death arrives via
+            // the worker protocol in pty_output_poller().
+            if (s->child_pid > 0 && !s->hosted) {
                 int status = 0;
                 pid_t result = waitpid(s->child_pid, &status, WNOHANG);
                 if (result == s->child_pid) {
@@ -6866,7 +7207,7 @@ public:
                         ++s->restart_failures;
                         std::string restart_name = s->name;
                         int restart_failures = s->restart_failures;
-                        auto new_session = create_session(
+                        auto new_session = spawn_session_runtime(
                             restart_name, s->command, 80, 24, "xterm-256color");
                         if (new_session) {
                             const SessionState resumed_state = s->peer_ids.empty()
@@ -6898,6 +7239,18 @@ public:
                 if (idle > max_idle) {
                     log_event("session_prune_idle", s->name);
                     record_history_locked(*s, -1, "pruned");
+#ifndef _WIN32
+                    // Hosted: kill the worker+shell too — erasing the registry
+                    // entry alone would leave a live but unreachable worker.
+                    // Frame + SIGTERM both (close-after-send can ride EOF).
+                    if (s->hosted) {
+                        if (s->master_fd >= 0)
+                            (void)worker::worker_send(s->master_fd,
+                                                      worker::WMSG_SHUTDOWN);
+                        if (s->worker_pid > 0)
+                            ::kill(s->worker_pid, SIGTERM);
+                    }
+#endif
                     if (on_session_erased_) on_session_erased_(s->name);
                     it = sessions_.erase(it);
                     continue;
@@ -6945,7 +7298,12 @@ public:
                 }
             }
 #else
-            if (s->child_pid <= 0) {
+            if (s->hosted) {
+                // Hosted: the shell lives in a worker process; waitpid would
+                // false-positive on ECHILD. Death is signaled by the worker.
+                child_dead = s->worker_died || s->state == SessionState::Died ||
+                             s->state == SessionState::Exited;
+            } else if (s->child_pid <= 0) {
                 child_dead = true;
             } else {
                 int status = 0;
@@ -7033,6 +7391,64 @@ public:
         }
     }
 
+#ifndef _WIN32
+    // ── Worker adoption ─────────────────────────────────────────
+    // Re-adopt live session workers that survived a daemon restart/upgrade.
+    // Matched by session name: a persisted Recoverable session regains its
+    // live shell; an unknown worker becomes a Detached session. Persisted
+    // sessions with no live worker stay Recoverable (pre-worker resurrect
+    // semantics: reattach spawns a fresh shell).
+    void adopt_workers() {
+        if (app_home_.empty()) return;
+        auto found = worker::discover_workers(app_home_);
+        if (found.empty()) return;
+
+        std::unique_lock lock(mutex_);
+        for (auto& dw : found) {
+            if (dw.fd < 0 || dw.child_pid <= 0) {
+                if (dw.fd >= 0) ::close(dw.fd);
+                continue;   // half-dead worker — leave socket GC to discovery
+            }
+            // Worker pid file (best-effort).
+            pid_t wpid = -1;
+            {
+                std::ifstream pf(dw.socket_path + ".pid");
+                long v = -1;
+                if (pf >> v && v > 0) wpid = static_cast<pid_t>(v);
+            }
+            // Non-blocking for the event loop.
+            const int fl = ::fcntl(dw.fd, F_GETFL, 0);
+            if (fl < 0 || ::fcntl(dw.fd, F_SETFL, fl | O_NONBLOCK) < 0) {
+                ::close(dw.fd);
+                continue;
+            }
+
+            Session* s = nullptr;
+            auto it = sessions_.find(dw.session_name);
+            if (it != sessions_.end()) {
+                s = it->second.get();
+            } else {
+                auto fresh = std::make_unique<Session>();
+                fresh->name = dw.session_name;
+                fresh->command.clear();   // unknown — worker owns it
+                fresh->created_at_sys = std::chrono::system_clock::now();
+                s = fresh.get();
+                sessions_[dw.session_name] = std::move(fresh);
+            }
+            s->hosted = true;
+            s->worker_pid = wpid;
+            s->master_fd = dw.fd;
+            s->child_pid = dw.child_pid;
+            s->worker_died = false;
+            s->state = SessionState::Detached;   // no peers attached yet
+            s->generation = ++g_session_generation;
+            s->touch_output();
+            log_event("session_adopted", dw.session_name +
+                      " shell_pid=" + std::to_string(dw.child_pid));
+        }
+    }
+#endif
+
     bool save_persisted_sessions() const {
         if (persistence_path_.empty()) return true;
         std::vector<SessionMeta> metas;
@@ -7066,7 +7482,7 @@ public:
 
         const std::string spawn_command = prepare_session_command(
             {s->command, SessionCommandSource::NamedProfile});
-        auto session_result = create_session(name, spawn_command, cols, rows, term);
+        auto session_result = spawn_session_runtime(name, spawn_command, cols, rows, term);
         if (!session_result) return nullptr;
 
         install_spawned_runtime(*s, std::move(*session_result),
@@ -7466,6 +7882,7 @@ inline bool local_input_requests_disconnect(std::string_view input) {
 
 inline bool queue_disconnected_input(std::string& pending, std::string_view input) {
     if (local_input_requests_disconnect(input)) return true;
+    if (local_input_requests_detach(input)) return true;  // Ctrl-D quits reconnect-wait
     constexpr size_t kMaxPendingInput = 64 * 1024;
     if (pending.size() < kMaxPendingInput) {
         const size_t room = kMaxPendingInput - pending.size();
@@ -7572,6 +7989,8 @@ public:
     InteractiveTerminalGuard(const InteractiveTerminalGuard&) = delete;
     InteractiveTerminalGuard& operator=(const InteractiveTerminalGuard&) = delete;
     ~InteractiveTerminalGuard() { restore(); }
+
+    const SavedConsole& saved() const noexcept { return saved_; }
 
     void restore() noexcept {
         if (!active_) return;
@@ -11589,6 +12008,20 @@ public:
 #else
         if (session.master_fd < 0) return false;
 
+        // Hosted: frame bytes as WMSG_INPUT on the worker socket. The framed
+        // queue (worker_tx) is partial-write safe; the same water marks apply.
+        if (session.hosted) {
+            if (session.worker_died) { session.state = SessionState::Died; return false; }
+            if (session.worker_tx.size() + len + 5 > Session::kPtyInputMax) {
+                log_event("pty_input_overflow", session.name);
+                return false;
+            }
+            worker_queue_frame(session, worker::WMSG_INPUT, data, len);
+            session.input_backpressured =
+                session.worker_tx.size() >= Session::kPtyInputHighWater;
+            return !session.worker_died;
+        }
+
         // If the child is already backlogged above the high-water mark, do not
         // accept more input now. The event-loop backpressure path will resume
         // reading from the peer once the queue drains below low water.
@@ -11660,6 +12093,21 @@ public:
     // is writable. Writes queued input and returns true if the queue dropped
     // below the low-water mark (peer reads may resume).
     bool drain_pending_pty_input(Session& session) {
+        if (session.hosted) {
+            while (!session.worker_tx.empty()) {
+                const ssize_t n = ::write(session.master_fd, session.worker_tx.data(),
+                                          session.worker_tx.size());
+                if (n > 0) { session.worker_tx.erase(0, static_cast<size_t>(n)); continue; }
+                if (n < 0 && errno == EINTR) continue;
+                if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) break;
+                log_event("pty_input_drain_failed", session.name);
+                session.worker_died = true;
+                return false;
+            }
+            if (session.worker_tx.size() <= Session::kPtyInputLowWater)
+                session.input_backpressured = false;
+            return !session.input_backpressured;
+        }
         if (session.master_fd < 0 || session.pending_input.empty()) return true;
         while (!session.pending_input.empty()) {
             const ssize_t n = ::write(session.master_fd,
@@ -12139,8 +12587,17 @@ public:
                 else {
                     // Legacy fallback: resize PTY directly (old test path without attach_id).
 #ifndef _WIN32
-                    if (conn.attached_session->master_fd >= 0)
-                        (void)resize_pty(static_cast<intptr_t>(conn.attached_session->master_fd), r.cols, r.rows);
+                    if (conn.attached_session->master_fd >= 0) {
+                        if (conn.attached_session->hosted) {
+                            uint8_t p[4];
+                            worker::write_u16be(p, r.cols);
+                            worker::write_u16be(p + 2, r.rows);
+                            worker_queue_frame(*conn.attached_session,
+                                               worker::WMSG_RESIZE, p, 4);
+                        } else {
+                            (void)resize_pty(static_cast<intptr_t>(conn.attached_session->master_fd), r.cols, r.rows);
+                        }
+                    }
 #else
                     if (conn.attached_session->hpcon)
                         (void)resize_pty(reinterpret_cast<intptr_t>(conn.attached_session->hpcon), r.cols, r.rows);
@@ -12251,7 +12708,22 @@ public:
                         sess->hpcon = nullptr;
                     }
 #else
-                    if (sess->child_pid > 0) {
+                    if (sess->hosted) {
+                        // Hosted: the shell is the worker's child — ask the
+                        // worker to shut down (it group-kills the shell), then
+                        // drop the socket. waitpid would ECHILD here.
+                        if (sess->master_fd >= 0)
+                            (void)worker::worker_send(sess->master_fd,
+                                                      worker::WMSG_SHUTDOWN);
+                        if (sess->worker_pid > 0)
+                            ::kill(sess->worker_pid, SIGTERM);
+                        sess->child_pid = -1;
+                        sess->worker_pid = -1;
+                        sess->hosted = false;
+                        sess->worker_died = false;
+                        sess->worker_rx.clear();
+                        sess->worker_tx.clear();
+                    } else if (sess->child_pid > 0) {
                         kill(sess->child_pid, SIGTERM);
                         int status = 0;
                         for (int i = 0; i < 30; ++i) {
@@ -12273,7 +12745,7 @@ public:
 #endif
                     // Spawn the replacement. Session storage remains in place so
                     // attached transports retain a stable pointer.
-                    auto new_sess = create_session(sess->name, cmd, 80, 24,
+                    auto new_sess = sessions_.spawn_session_runtime(sess->name, cmd, 80, 24,
                                                    "xterm-256color");
                     if (new_sess) {
                         sess->master_fd = new_sess->master_fd;
@@ -12286,8 +12758,13 @@ public:
                         new_sess->write_handle = nullptr;
                         new_sess->hpcon = nullptr;
 #else
+                        sess->hosted = new_sess->hosted;
+                        sess->worker_pid = new_sess->worker_pid;
+                        sess->worker_died = false;
                         new_sess->master_fd = -1;
                         new_sess->child_pid = -1;
+                        new_sess->hosted = false;      // prevent worker kill on dtor
+                        new_sess->worker_pid = -1;
 #endif
                         sess->command = new_sess->command;
                         sess->generation = new_sess->generation;
@@ -12518,7 +12995,23 @@ public:
             // Drain and coalesce the PTY burst in one pass. Full-screen TUIs
             // emit many small cursor-addressing writes; forwarding only 4 KiB
             // per event-loop tick visibly tears the screen apart.
-            std::string buf = read_available_pty_output(*s);
+            std::string buf;
+#ifndef _WIN32
+            if (s->hosted) {
+                // Worker-hosted: the socket carries framed protocol messages.
+                // SCROLLBACK frames are historical (adoption replay) — they go
+                // to the ring only, never fan out as fresh output.
+                auto pump = pump_hosted_session(*s);
+                if (!pump.scrollback.empty()) {
+                    s->scrollback.write(std::string_view(pump.scrollback));
+                    s->touch_output();
+                }
+                buf = std::move(pump.output);
+            } else
+#endif
+            {
+                buf = read_available_pty_output(*s);
+            }
 
             if (buf.empty()) goto check_child_exit;
 
@@ -12671,7 +13164,31 @@ public:
                 log_event("session_died", s->name + " exit_code=" + std::to_string(exit_code));
             }
 #else
-            if (s->child_pid > 0) {
+            if (s->hosted) {
+                // Hosted death comes from the worker protocol (WMSG_DIED) or
+                // socket EOF — never waitpid (the shell is the worker's child).
+                if (s->worker_died) {
+                    SessionDiedMsg sdm;
+                    sdm.exit_code = s->worker_exit_code >= 0 ? s->worker_exit_code : -1;
+                    sdm.signal_num = s->worker_signal_num;
+                    sessions_.record_finished(*s, sdm.exit_code, "died");
+                    {
+                        double dur_s = std::chrono::duration<double>(
+                            std::chrono::steady_clock::now() - s->created_at).count();
+                        log_event("command_complete",
+                                  "session=" + s->name +
+                                  (s->parent_id.empty() ? "" : " parent=" + s->parent_id) +
+                                  " exit=" + std::to_string(sdm.exit_code) +
+                                  (sdm.signal_num ? " signal=" + std::to_string(sdm.signal_num) : "") +
+                                  " dur_s=" + std::to_string(static_cast<int>(dur_s * 10) / 10.0) +
+                                  " kind=" + session_kind_str(s->kind));
+                    }
+                    s->child_pid = -1;
+                    s->release_exited_runtime();
+                    s->state = SessionState::Died;
+                    fanout(sdm);
+                }
+            } else if (s->child_pid > 0) {
                 int status = 0;
                 pid_t result = waitpid(s->child_pid, &status, WNOHANG);
                 if (result == s->child_pid) {
@@ -13349,7 +13866,12 @@ private:
                             WaitForSingleObject(session->child_pid, 0) == WAIT_TIMEOUT;
                     }
 #else
-                    if (session->child_pid > 0) {
+                    if (session->hosted) {
+                        // Hosted: the shell is the worker's child — waitpid
+                        // would ECHILD here. Liveness = live worker socket.
+                        child_alive =
+                            !session->worker_died && session->master_fd >= 0;
+                    } else if (session->child_pid > 0) {
                         int status = 0;
                         const pid_t result = waitpid(session->child_pid, &status, WNOHANG);
                         if (result == 0) {
@@ -14833,6 +15355,14 @@ public:
         last_gossip_time_ = std::chrono::steady_clock::now();
         last_mdns_time_ = std::chrono::steady_clock::now();
 
+        // Restore persisted session metadata, then re-adopt live session
+        // workers whose shells survived our restart/upgrade. Sessions with no
+        // live worker stay Recoverable (reattach = fresh shell, as before).
+        try { sessions_.load_persisted_sessions(); } catch (...) {}
+#ifndef _WIN32
+        try { sessions_.adopt_workers(); } catch (...) {}
+#endif
+
         // Boot-time network readiness gate: wait for at least one seed before
         // entering the event loop (config: mesh.startup_wait_secs, default 30).
         startup_wait_for_network(config_.startup_wait_secs);
@@ -14882,7 +15412,8 @@ public:
                 if (!session || !session->is_pollable() || session->master_fd < 0)
                     continue;
                 short ev = POLLIN;
-                if (!session->pending_input.empty())
+                if (!session->pending_input.empty() ||
+                    (session->hosted && !session->worker_tx.empty()))
                     ev = static_cast<short>(ev | POLLOUT);
                 add_poll(session->master_fd, ev);
             }
@@ -15033,7 +15564,10 @@ public:
 #ifndef _WIN32
             for (const auto& info : sessions_.list()) {
                 Session* session = sessions_.get(info.name);
-                if (!session || session->pending_input.empty() || session->master_fd < 0)
+                if (!session || session->master_fd < 0)
+                    continue;
+                if (session->pending_input.empty() &&
+                    !(session->hosted && !session->worker_tx.empty()))
                     continue;
                 if (poll_fd_writable(ready, session->master_fd))
                     (void)drain_pending_pty_input(*session);
@@ -15577,10 +16111,11 @@ public:
     //          255 on connection/peer failure.
     int shell_peer(const std::string& peer_name, const std::string& session_name,
                    const std::string& cmd, uint16_t cols, uint16_t rows, const std::string& term,
-                   bool signal_forward = true, const std::string& signal_on_detach = "") {
-        if (is_local_node_name(peer_name, config_.node_name)) {
-            std::cerr << "Cannot shell to this node (\"" << config_.node_name
-                      << "\"). You are already here.\n";
+                   bool signal_forward = true, const std::string& signal_on_detach = "",
+                   bool force_interactive = false) {
+        if (is_self_target(config_, peer_name)) {
+            std::cerr << "Cannot connect to yourself. This is "
+                      << self_display_name(config_) << ".\n";
             return 255;
         }
         // 4-tier peer name resolution (exact → suffix → levenshtein)
@@ -15597,7 +16132,11 @@ public:
         std::string addr = resolved.addr;  // non-const: interactive loop re-resolves on reconnect
         std::string expected_pubkey = resolved.pubkey_hex.empty()
             ? trusted_peer_pubkey(config_, resolved.name) : resolved.pubkey_hex;
-        const bool non_interactive = !shell_command_uses_interactive_mode(cmd, stdin_is_terminal());
+        // force_interactive (bs connect selector, `bs shell -i`): run the
+        // command on the peer's PTY with the full raw-terminal passthrough —
+        // the plain `-x` path strips ANSI and would scramble TUIs.
+        const bool non_interactive = !force_interactive &&
+            !shell_command_uses_interactive_mode(cmd, stdin_is_terminal());
 
         // Ephemeral session name for one-shots on the CLI default "default" so
         // concurrent agents do not fight one shared PTY.
@@ -15729,10 +16268,34 @@ public:
             if (sigaction(SIGINT, &shell_sa, &shell_old_sa) == 0)
                 sigint_installed = true;
         }
+        // SIGHUP/SIGTERM while raw mode is held must not leave the local
+        // terminal jammed (raw + mouse tracking → escape garbage on mouse
+        // movement, BEL noise). Best-effort restore, then die by the signal.
+        struct sigaction cleanup_sa{};
+        struct sigaction sighup_old_sa{};
+        struct sigaction sigterm_old_sa{};
+        bool cleanup_signals_installed = false;
+        {
+            g_sig_saved_termios = terminal_guard->saved().saved_termios;
+            cleanup_sa.sa_handler = shell_signal_cleanup_handler;
+            sigemptyset(&cleanup_sa.sa_mask);
+            cleanup_sa.sa_flags = 0;
+            if (sigaction(SIGHUP, &cleanup_sa, &sighup_old_sa) == 0 &&
+                sigaction(SIGTERM, &cleanup_sa, &sigterm_old_sa) == 0) {
+                g_sig_have_termios = 1;
+                cleanup_signals_installed = true;
+            }
+        }
 #endif
         auto restore_local_terminal = [&]() {
             terminal_guard->restore();
 #ifndef _WIN32
+            g_sig_have_termios = 0;
+            if (cleanup_signals_installed) {
+                sigaction(SIGHUP, &sighup_old_sa, nullptr);
+                sigaction(SIGTERM, &sigterm_old_sa, nullptr);
+                cleanup_signals_installed = false;
+            }
             if (sigint_installed) {
                 sigaction(SIGINT, &shell_old_sa, nullptr);
                 sigint_installed = false;
@@ -15768,6 +16331,7 @@ public:
         };
 
         bool local_stop = false;
+        bool announced_reconnect = false;
         int reconnect_delay_ms = 100;
         try {
         while (!local_stop) {
@@ -15809,6 +16373,10 @@ public:
                 am.command = cmd;
                 am.signal_on_detach = signal_on_detach;
                 write_frame(sc.ssl.get(), am, CONTROL_STREAM_ID);
+                if (announced_reconnect) {
+                    std::cerr << "[reconnected]\r\n" << std::flush;
+                    announced_reconnect = false;
+                }
                 if (!pending_input.empty()) {
                     KeystrokeMsg queued;
                     queued.data = pending_input;
@@ -15817,6 +16385,20 @@ public:
                 }
 
                 auto forward_local_input = [&](std::string_view input) {
+                    // Ctrl-D (0x04) is the local detach key — forward the bytes
+                    // before it, then leave. The session stays alive; DetachMsg
+                    // is sent on the way out below.
+                    if (const size_t d = input.find('\x04');
+                        d != std::string_view::npos) {
+                        if (d > 0) {
+                            KeystrokeMsg pk;
+                            pk.data.assign(input.data(), d);
+                            try { write_frame(sc.ssl.get(), pk, CONTROL_STREAM_ID); }
+                            catch (...) {}
+                        }
+                        local_stop = true;
+                        return;
+                    }
                     // Every keystroke, including every Ctrl-C (0x03), goes to
                     // the remote PTY. Nested apps handle SIGINT themselves;
                     // the session stays up until the remote shell exits.
@@ -15919,6 +16501,16 @@ public:
             }
             sc.sfd = INVALID_SOCKET;
             if (!local_stop) {
+                // Unexpected transport loss (daemon died, network drop). The
+                // remote TUI may have left mouse/alt-screen/bracketed-paste
+                // modes active in OUR terminal — reset them now so the
+                // reconnect wait is not a jammed terminal, and say what is
+                // happening (silent retry reads as a hang; users force-kill
+                // the client and lose the terminal entirely).
+                try { cleanup_terminal_modes(); } catch (...) {}
+                std::cerr << "\r\n[transport lost — reconnecting to " << peer_name
+                          << "… Ctrl-D to quit]\r\n" << std::flush;
+                announced_reconnect = true;
                 local_stop = wait_for_local_stop(reconnect_delay_ms);
                 reconnect_delay_ms = std::min(reconnect_delay_ms * 2, 5000);
             }
@@ -16887,6 +17479,13 @@ public:
     // ── Accessors (for tests) ──────────────────────────────────
 
     SessionRegistry& sessions() { return sessions_; }
+
+#ifndef _WIN32
+    // Daemon-only opt-in: host sessions in detached worker processes so they
+    // survive daemon restart/upgrade. Tests and one-shot controllers keep the
+    // direct forkpty path. Call before run().
+    void enable_session_hosting() { sessions_.set_app_home(home_dir_); }
+#endif
     const std::vector<Conn>& conns() const { return conns_; }
     size_t conn_count() const { return conns_.size(); }
 
@@ -17322,7 +17921,8 @@ inline void render_image_to_terminal(const std::string& path_str) {
     }
     return std::nullopt;
 }
-#include "bs-session-worker.h"
+// (bs-session-worker.h is included earlier, right after create_session, so
+// SessionRegistry and MeshController can use it.)
 
 } // namespace bs::mesh
 // ────────────────────────────────────────────────────────────────────

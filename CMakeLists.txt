@@ -122,6 +122,11 @@ add_test(NAME cli_quick_connect_requires_trust
 set_tests_properties(cli_quick_connect_requires_trust PROPERTIES
     WILL_FAIL TRUE
     PASS_REGULAR_EXPRESSION "Refusing untrusted first contact")
+add_test(NAME cli_quick_connect_self_refused
+    COMMAND ${CMAKE_COMMAND}
+        -DBS_BINARY=$<TARGET_FILE:bridgesessions>
+        -DTEST_DIR=${CMAKE_CURRENT_BINARY_DIR}/self-connect-test
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_self_connect_refuse.cmake)
 add_test(NAME cli_keygen_refuses_identity_overwrite
     COMMAND ${CMAKE_COMMAND}
         -DBS_BINARY=$<TARGET_FILE:bridgesessions>
@@ -166,6 +171,10 @@ foreach(TEST_SRC ${TEST_SOURCES})
        TEST_NAME STREQUAL "test_mesh_responsiveness")
         catch_discover_tests(${TEST_NAME}
             PROPERTIES RESOURCE_LOCK bridgesessions_ipc)
+    elseif(TEST_NAME STREQUAL "test_session_worker")
+        catch_discover_tests(${TEST_NAME}
+            PROPERTIES ENVIRONMENT
+                "BS_TEST_BS_BINARY=$<TARGET_FILE:bridgesessions>")
     else()
         catch_discover_tests(${TEST_NAME})
     endif()

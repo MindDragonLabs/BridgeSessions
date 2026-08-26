@@ -2,6 +2,67 @@
 
 Notable user-visible changes. Git history contains implementation-level detail.
 
+## 26.08.26-r2
+
+Shell survival + selector fixes.
+
+### New: sessions survive daemon restart and upgrade (POSIX)
+
+- Hosted sessions now run in a detached per-session worker process
+  (`bridgesessions session-worker`) that owns the PTY and shell. The daemon
+  talks to workers over local sockets; killing, restarting, or upgrading the
+  daemon no longer kills your shells. On startup the daemon re-adopts live
+  workers with their full state and scrollback tail.
+- Previously, `bs upgrade` (or any daemon restart) SIGHUP-killed every hosted
+  shell: sessions "resumed" as fresh empty shells with all state lost.
+- Workers are launched outside the daemon's cgroup (systemd scope when
+  available, setsid otherwise), so `systemctl --user restart` also survives.
+- Kill semantics unchanged: `bs kill` / session kill asks the worker to shut
+  down, which takes its shell down with it.
+- Escape hatch: `BS_SESSION_WORKER=0` restores the pre-r2 direct-forkpty
+  spawn. Windows sessions are unchanged (worker hosting is POSIX-only).
+
+### Fixed: jammed local terminal after transport loss / force kill
+
+- Interactive attach now intercepts Ctrl-D as the detach key (as documented):
+  it detaches and leaves the session alive instead of forwarding 0x04 to the
+  remote PTY, where it read as EOF and killed the shell. Ctrl-C remains a
+  remote keystroke (never disconnects).
+- On unexpected transport loss the client resets leaked TUI modes (mouse
+  tracking, alt screen, bracketed paste) immediately and prints
+  `[transport lost — reconnecting … Ctrl-D to quit]` instead of silently
+  retrying in a terminal that looks hung. `[reconnected]` confirms recovery.
+- SIGHUP/SIGTERM while the client holds raw mode now restore the local
+  terminal before the process dies (best-effort signal handler). Previously a
+  force kill left the terminal in raw+mouse mode — escape garbage on mouse
+  movement and BEL noise until `reset`.
+
+### Fixed: `bs connect` selector
+
+- Arrow keys (↑/↓ or j/k) + Enter to select; q/Esc cancels. The numbered
+  prompt remains as a fallback on non-terminal stdin.
+- The local node no longer appears in its own server list.
+
+### Fixed: scrambled TUIs from the selector and `-x`
+
+- Harness commands launched from the selector (and the new `bs shell -i`)
+  now use the interactive raw-terminal path. Previously any non-empty `-x`
+  command took the output-capture path, which strips ANSI escape sequences —
+  full-screen apps (hermes --tui, claude, etc.) arrived scrambled.
+- Plain `bs shell <peer> -x <cmd>` keeps the capture behavior for automation.
+
+### Fixed: self-connect error message
+
+- `bs <self>` / `bs shell <self>` now print
+  `Cannot connect to yourself. This is <node>.` instead of the misleading
+  "Refusing untrusted first contact". Matches mesh node name and OS hostname
+  (including macOS `.local` Bonjour drift).
+
+### Misc
+
+- `scripts/build-local.sh` — one-call local dev build
+  (`--tests` / `--debug` / `--clean`).
+
 ## 26.08.26-r1
 
 Primary main-line release. Calendar version + `-r1` (release) stamp.
