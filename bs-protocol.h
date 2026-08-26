@@ -4923,7 +4923,17 @@ inline void shell_sigint_forward_handler(int) noexcept {
 [[nodiscard]] inline bool is_self_target(const MeshConfig& cfg,
                                          const std::string& name) {
     if (is_local_node_name(name, cfg.node_name)) return true;
-    return is_local_node_name(name, local_hostname());
+    const std::string h = local_hostname();
+    if (is_local_node_name(name, h)) return true;
+    // Bonjour/FQDN drift: macOS reports "Jeffersons-Mini.local" while
+    // `hostname -s` gives "Jeffersons-Mini". Compare first DNS labels so
+    // short ↔ FQDN mismatches still catch self. A false-positive refusal is
+    // the safe direction (a real peer connect falls under the trust check).
+    auto first_label = [](const std::string& s) {
+        auto dot = s.find('.');
+        return dot == std::string::npos ? s : s.substr(0, dot);
+    };
+    return is_local_node_name(first_label(name), first_label(h));
 }
 
 // Human-facing name for this node in self-connect messages.
