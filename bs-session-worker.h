@@ -790,6 +790,7 @@ struct ManagedWorker {
 // environment? Cached for the process lifetime. A daemon started via cron,
 // ssh non-login, or without a user bus gets a definitive no without paying a
 // per-spawn timeout.
+#ifndef _WIN32
 inline bool systemd_run_available() {
     static std::atomic<int> cached{-1};
     if (cached.load() >= 0) return cached.load() == 1;
@@ -840,6 +841,7 @@ inline bool systemd_run_available() {
     cached.store(ok ? 1 : 0);
     return ok;
 }
+#endif  // !_WIN32
 
 // Spawn a worker process for a new session.
 // Returns the direct-fork worker PID (>0), 0 when spawned via systemd-run

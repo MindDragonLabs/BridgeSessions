@@ -33,6 +33,8 @@
 #include <util.h>
 #include <mach/mach.h>
 #include <mach/mach_host.h>
+#include <mach-o/dyld.h>  // global scope: worker header is included inside
+                          // namespace bs::mesh and would otherwise pull this in there
 #include <sys/sysctl.h>
 #else
 #ifndef _WIN32
