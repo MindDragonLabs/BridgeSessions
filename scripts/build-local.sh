@@ -38,9 +38,10 @@ if command -v ninja >/dev/null 2>&1; then
 fi
 
 EXTRA=()
-# macOS: Homebrew OpenSSL is not on the default search path.
-if [[ "${OSTYPE:-}" == darwin* ]] && [[ -d /opt/homebrew/opt/openssl@3 ]]; then
-    EXTRA+=(-DOPENSSL_ROOT_DIR=/opt/homebrew/opt/openssl@3)
+# macOS: Homebrew tools/libs are not on the default (non-login ssh) PATH.
+if [[ "${OSTYPE:-}" == darwin* ]]; then
+    [[ -d /opt/homebrew/bin ]] && export PATH="/opt/homebrew/bin:$PATH"
+    [[ -d /opt/homebrew/opt/openssl@3 ]] && EXTRA+=(-DOPENSSL_ROOT_DIR=/opt/homebrew/opt/openssl@3)
 fi
 
 if [[ $CLEAN -eq 1 ]]; then
