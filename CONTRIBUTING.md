@@ -19,6 +19,13 @@ See [Building](docs/building.md) for dependencies and sanitizers.
 - Keep private hosts, addresses, credentials, machine paths, generated binaries, and local reports out of git.
 - Keep one logical concern per PR.
 
+## Autonomous builder
+
+- Issues labeled `builder:todo` are claimed by the autonomous builder on fleet hardware (`fecv3`).
+- Work happens in an isolated worktree, with builds and tests run locally before a pull request is opened.
+- Pull requests include build and test evidence; GitHub CI checks are the merge authority.
+- Issues that cannot be completed receive the `builder:failed` label and an explanatory comment.
+
 ## Systems rules
 
 - Never block the mesh event loop.
