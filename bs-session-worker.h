@@ -1094,9 +1094,27 @@ inline std::vector<DiscoveredWorker> discover_workers(const std::string& app_hom
             pf >> std::ws;
             if (!pf.eof()) return WorkerLiveness::Unknown;
             const pid_t pid = static_cast<pid_t>(raw_pid);
+#ifdef _WIN32
+            {
+                HANDLE h = ::OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, static_cast<DWORD>(pid));
+                if (!h) {
+                    DWORD err = ::GetLastError();
+                    // ERROR_INVALID_PARAMETER => PID not found (dead).
+                    return (err == ERROR_INVALID_PARAMETER) ? WorkerLiveness::Dead
+                                                            : WorkerLiveness::Unknown;
+                }
+                DWORD code = STILL_ACTIVE;
+                BOOL ok = ::GetExitCodeProcess(h, &code);
+                ::CloseHandle(h);
+                if (!ok) return WorkerLiveness::Unknown;
+                return (code == STILL_ACTIVE) ? WorkerLiveness::Alive
+                                              : WorkerLiveness::Dead;
+            }
+#else
             if (::kill(pid, 0) == 0 || errno == EPERM) return WorkerLiveness::Alive;
             if (errno == ESRCH) return WorkerLiveness::Dead;
             return WorkerLiveness::Unknown;
+#endif
         };
 
         int fd = connect_to_worker(full_path, 1000);
