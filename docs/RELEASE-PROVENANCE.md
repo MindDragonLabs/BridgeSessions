@@ -159,10 +159,11 @@ The release script refuses to publish when any of the checks above would fail. T
 
 ## Release record — v26.08.27-r1 (2026-08-27)
 
-- **Not yet tagged or published.** Working-tree changes on top of `main` tip
-  `134174d` (the `v26.08.26-r2` commit). `VERSION` = `26.08.27-r1`. This record
-  is written before tag/publish; update it with the final tag commit and GitHub
-  release times when the release ships.
+- Tag `v26.08.27-r1` → commit `68c20a8`. Published as a GitHub pre-release on
+  2026-08-27 16:01:46Z. 7 assets: `bridgesessions-linux-x86_64`,
+  `bridgesessions-macos-arm64`, `bridgesessions-windows-x86_64.exe`,
+  source tar.gz/zip, `SHA256SUMS`, `SBOM-binaries.json` — every remote digest
+  verified equal to the local `SHA256SUMS` (SHA256SUMS compared by direct hash).
 - Content: security, privacy, and reliability hardening (see `CHANGELOG.md`
   `## 26.08.27-r1`):
   - **Security:** TLS handshake enforces known peer pins; join-window cert
@@ -181,6 +182,14 @@ The release script refuses to publish when any of the checks above would fail. T
     replaced with `poll`/`WSAPoll`; frame read/write retries are
     cancellation-aware; stale-exec watchdog always timestamped; silent catch
     blocks around persistence/adoption now log/report.
-- Verification: full build passes; full test suite **490/490 (100%)** on the
-  macOS arm64 signing host (Codex sandbox reported 34 loopback-socket tests as
-  blocked — those pass outside the sandbox).
+- Verification: full build passes; full test suite **492/492 (100%)** on the
+  macOS arm64 signing host. Fleet e2e (`scripts/e2e-fleet-test.sh`) against
+  fecv3, fecv4, btcr, cpanel, mysqlknights, macbook: 52 pass / 0 real fail
+  (two load-window flakes re-verified passing on direct run); 4 CUA skips on
+  headless Linux. Deployed live on macmini + 5 Linux peers (all healthy on
+  `26.08.27-r1`) before publish.
+- v26.08.26-r2 retirement: tag protected by a repo rule (undeletable); release
+  page replaced with a tombstone pointing here. The broken r2 packaging
+  (missing macos-arm64 asset) is corrected in this release — macos-arm64 is
+  included, Developer ID signed (Team QL5MD8FKPL) and notarized (submission
+  `06940c32…`, Accepted 2026-08-27).
