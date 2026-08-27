@@ -184,10 +184,10 @@ The release script refuses to publish when any of the checks above would fail. T
     blocks around persistence/adoption now log/report.
 - Verification: full build passes; full test suite **492/492 (100%)** on the
   macOS arm64 signing host. Fleet e2e (`scripts/e2e-fleet-test.sh`) against
-  fecv3, fecv4, btcr, cpanel, mysqlknights, macbook: 52 pass / 0 real fail
+  Linux mesh peers 1–5 and a macOS mesh peer: 52 pass / 0 real fail
   (two load-window flakes re-verified passing on direct run); 4 CUA skips on
-  headless Linux. Deployed live on macmini + 5 Linux peers (all healthy on
-  `26.08.27-r1`) before publish.
+  headless Linux. Deployed live on the primary macOS build host + 5 Linux peers
+  (all healthy on `26.08.27-r1`) before publish.
 - v26.08.26-r2 retirement: tag protected by a repo rule (undeletable); release
   page replaced with a tombstone pointing here. The broken r2 packaging
   (missing macos-arm64 asset) is corrected in this release — macos-arm64 is
