@@ -268,7 +268,6 @@ class BridgePanelHandler(BaseHTTPRequestHandler):
 
     def authorized_path(self, *, require_token: bool = False) -> tuple[str, str] | None:
         parsed = urlparse(self.path)
-        parts = parsed.path.split("/")
         trusted_ips = getattr(self.server, "trusted_ips", set())
         auth_header = self.headers.get("Authorization", "")
         scheme, _, bearer = auth_header.partition(" ")
@@ -277,20 +276,11 @@ class BridgePanelHandler(BaseHTTPRequestHandler):
             and bool(bearer)
             and __import__("secrets").compare_digest(bearer, self.token)
         )
-        has_path_token = (
-            len(parts) >= 2
-            and __import__("secrets").compare_digest(parts[1], self.token)
-        )
-        has_token = has_bearer or has_path_token
         if self.client_address[0] in trusted_ips and not require_token:
-            if has_path_token:
-                parts = [""] + parts[2:]
-            return "/" + "/".join(parts[1:]), parsed.query
-        if not has_token:
+            return parsed.path, parsed.query
+        if not has_bearer:
             return None
-        if has_path_token:
-            parts = [""] + parts[2:]
-        return "/" + "/".join(parts[1:]), parsed.query
+        return parsed.path, parsed.query
 
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
@@ -314,12 +304,10 @@ class BridgePanelHandler(BaseHTTPRequestHandler):
         if path in ("/", ""):
             from .consts import BUILDTAG
             from .lang import js_table
-            orig = parsed.path
-            asset_base = f"/{self.token}/" if orig.startswith(f"/{self.token}") else "/"
             html = (
                 INDEX_HTML
                 .replace("__BUILD_TAG__", f"{BUILDTAG}")
-                .replace("__ASSET_BASE__", asset_base)
+                .replace("__ASSET_BASE__", "/")
                 .replace("__LANG_TABLE__", js_table())
             )
             self.send_bytes(html.encode("utf-8"), "text/html; charset=utf-8")

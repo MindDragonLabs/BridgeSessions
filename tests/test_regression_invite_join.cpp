@@ -235,16 +235,17 @@ TEST_CASE("GitHub raw URL format for install.sh", "[regression][invite][urls]") 
     REQUIRE(url.find(ver) != std::string::npos);
 }
 
-TEST_CASE("Invite one-liner contains token and address", "[regression][invite][format]") {
+TEST_CASE("Invite one-liner keeps token out of argv", "[regression][invite][format]") {
     std::string token = "f5009f005f9dd82acd822c965b4e1e24";
     std::string addr = "10.0.0.50:19949";
 
-    std::string oneliner = "bridgesessions join " + addr + " " + token + " --start";
+    std::string oneliner = "bridgesessions join " + addr + " --token-file <path> --start";
 
     // Must contain the address
     REQUIRE(oneliner.find(addr) != std::string::npos);
-    // Must contain the token
-    REQUIRE(oneliner.find(token) != std::string::npos);
+    // Must not contain the token
+    REQUIRE(oneliner.find(token) == std::string::npos);
+    REQUIRE(oneliner.find("--token-file") != std::string::npos);
     // Must contain --start exactly once (not duplicated)
     auto pos = oneliner.find("--start");
     REQUIRE(pos != std::string::npos);

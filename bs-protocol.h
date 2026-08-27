@@ -5731,9 +5731,8 @@ struct HostStats {
     bool ok = false;
     if (rc == 0) ok = true;
     else if (WSAGetLastError() == WSAEWOULDBLOCK || WSAGetLastError() == WSAEINPROGRESS) {
-        fd_set wfds; FD_ZERO(&wfds); FD_SET(s, &wfds);
-        timeval tv{0, 200000};
-        ok = select(0, nullptr, &wfds, nullptr, &tv) > 0;
+        WSAPOLLFD pfd{s, POLLWRNORM, 0};
+        ok = WSAPoll(&pfd, 1, 200) > 0;
     }
     closesocket(s);
     return ok;
@@ -5746,16 +5745,15 @@ struct HostStats {
     sa.sun_family = AF_UNIX;
     if (sock.size() >= sizeof(sa.sun_path)) { close(fd); return false; }
     std::strncpy(sa.sun_path, sock.c_str(), sizeof(sa.sun_path) - 1);
-    // Short connect timeout via nonblock + select
+    // Short connect timeout via nonblock + poll
     int flags = fcntl(fd, F_GETFL, 0);
     fcntl(fd, F_SETFL, flags | O_NONBLOCK);
     int rc = connect(fd, reinterpret_cast<sockaddr*>(&sa), sizeof(sa));
     bool ok = false;
     if (rc == 0) ok = true;
     else if (errno == EINPROGRESS) {
-        fd_set wfds; FD_ZERO(&wfds); FD_SET(fd, &wfds);
-        timeval tv{0, 200000};
-        ok = select(fd + 1, nullptr, &wfds, nullptr, &tv) > 0;
+        pollfd pfd{fd, POLLOUT, 0};
+        ok = poll(&pfd, 1, 200) > 0;
     }
     close(fd);
     return ok;
@@ -7353,33 +7351,70 @@ public:
 
     // ── Idle timeout cleanup ────────────────────────────────────
     void prune_idle(std::chrono::seconds max_idle) {
-        std::unique_lock lock(mutex_);
-        auto now = std::chrono::steady_clock::now();
-        for (auto it = sessions_.begin(); it != sessions_.end(); ) {
-            auto* s = it->second.get();
-            if (s->state == SessionState::Detached) {
-                auto idle = now - s->last_output_at;
-                if (idle > max_idle) {
-                    log_event("session_prune_idle", s->name);
-                    record_history_locked(*s, -1, "pruned");
+        struct IdleCandidate {
+            std::string name;
 #ifndef _WIN32
-                    // Hosted: kill the worker+shell too — erasing the registry
-                    // entry alone would leave a live but unreachable worker.
-                    // Frame + SIGTERM both (close-after-send can ride EOF).
-                    if (s->hosted) {
-                        if (s->master_fd >= 0)
-                            (void)worker::worker_send(s->master_fd,
-                                                      worker::WMSG_SHUTDOWN);
-                        if (s->worker_pid > 0)
-                            ::kill(s->worker_pid, SIGTERM);
-                    }
+            bool hosted = false;
+            pid_t worker_pid = -1;
 #endif
-                    if (on_session_erased_) on_session_erased_(s->name);
-                    it = sessions_.erase(it);
-                    continue;
+        };
+        std::vector<IdleCandidate> candidates;
+        {
+            std::unique_lock lock(mutex_);
+            const auto now = std::chrono::steady_clock::now();
+            for (const auto& [name, session] : sessions_) {
+                if (session->state == SessionState::Detached &&
+                    now - session->last_output_at > max_idle) {
+                    IdleCandidate candidate{name};
+#ifndef _WIN32
+                    candidate.hosted = session->hosted;
+                    candidate.worker_pid = session->worker_pid;
+#endif
+                    candidates.push_back(std::move(candidate));
                 }
             }
-            ++it;
+        }
+
+        for (const auto& candidate : candidates) {
+            bool confirmed_dead = true;
+#ifndef _WIN32
+            if (candidate.hosted) {
+                {
+                    std::unique_lock lock(mutex_);
+                    auto it = sessions_.find(candidate.name);
+                    if (it == sessions_.end() || it->second->worker_pid != candidate.worker_pid)
+                        continue;
+                    auto* s = it->second.get();
+                    if (s->master_fd >= 0)
+                        (void)worker::worker_send(s->master_fd, worker::WMSG_SHUTDOWN);
+                    if (s->worker_pid > 0) (void)::kill(s->worker_pid, SIGTERM);
+                }
+                confirmed_dead = false;
+                for (int attempt = 0; !confirmed_dead && attempt < 20; ++attempt) {
+                    if (::kill(candidate.worker_pid, 0) != 0 && errno == ESRCH) {
+                        confirmed_dead = true;
+                        break;
+                    }
+                    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+                }
+            }
+#endif
+            if (!confirmed_dead) continue;
+
+            std::unique_lock lock(mutex_);
+            auto it = sessions_.find(candidate.name);
+            if (it == sessions_.end()) continue;
+            auto* s = it->second.get();
+#ifndef _WIN32
+            if (candidate.hosted && s->worker_pid != candidate.worker_pid) continue;
+#endif
+            if (s->state != SessionState::Detached ||
+                std::chrono::steady_clock::now() - s->last_output_at <= max_idle)
+                continue;
+            log_event("session_prune_idle", s->name);
+            record_history_locked(*s, -1, "pruned");
+            if (on_session_erased_) on_session_erased_(s->name);
+            sessions_.erase(it);
         }
     }
 
@@ -7706,6 +7741,9 @@ using bs_pollfd = pollfd;
 [[nodiscard]] inline bool pollfd_writable(const bs_pollfd& p) {
     return (p.revents & POLLOUT) != 0;
 }
+[[nodiscard]] inline bool socket_pollable(SOCKET fd) {
+    return fd != INVALID_SOCKET;
+}
 // Lookup helper: find poll result for an fd (linear scan; N is small).
 [[nodiscard]] inline const bs_pollfd* find_pollfd(const std::vector<bs_pollfd>& pfds, SOCKET fd) {
     for (const auto& p : pfds) {
@@ -7731,7 +7769,7 @@ struct TimedConnectResult {
 [[nodiscard]] inline TimedConnectResult connect_socket_with_timeout(
     SOCKET fd, const sockaddr* address, socklen_t address_len, int timeout_ms) {
     TimedConnectResult result;
-    if (!socket_selectable(fd) || !address || timeout_ms < 0) {
+    if (!socket_pollable(fd) || !address || timeout_ms < 0) {
         result.error = EINVAL;
         return result;
     }
@@ -7780,14 +7818,8 @@ struct TimedConnectResult {
     }
 #endif
 
-    fd_set write_fds;
-    FD_ZERO(&write_fds);
-    FD_SET(fd, &write_fds);
-    timeval timeout{};
-    timeout.tv_sec = timeout_ms / 1000;
-    timeout.tv_usec = (timeout_ms % 1000) * 1000;
-    const int selected =
-        select(static_cast<int>(fd) + 1, nullptr, &write_fds, nullptr, &timeout);
+    bs_pollfd write_fd{fd, POLLOUT, 0};
+    const int selected = bs_poll(&write_fd, 1, timeout_ms);
     if (selected == 0) {
         result.timed_out = true;
         result.error = ETIMEDOUT;
@@ -7931,17 +7963,9 @@ inline ConnectFailReason classify_ssl_connect_fail(int ssl_err) {
 }
 
 inline bool wait_socket_ready(SOCKET fd, bool want_read, int timeout_ms) {
-    if (!socket_selectable(fd)) return false;
-    fd_set rfds;
-    fd_set wfds;
-    FD_ZERO(&rfds);
-    FD_ZERO(&wfds);
-    if (want_read) FD_SET(fd, &rfds); else FD_SET(fd, &wfds);
-    timeval tv;
-    tv.tv_sec = timeout_ms / 1000;
-    tv.tv_usec = (timeout_ms % 1000) * 1000;
-    int rc = select(static_cast<int>(fd) + 1, want_read ? &rfds : nullptr,
-                    want_read ? nullptr : &wfds, nullptr, &tv);
+    if (!socket_pollable(fd)) return false;
+    bs_pollfd pfd{fd, static_cast<short>(want_read ? POLLIN : POLLOUT), 0};
+    int rc = bs_poll(&pfd, 1, timeout_ms);
     return rc > 0;
 }
 
@@ -8196,16 +8220,11 @@ inline bool stdin_is_terminal() {
 
 // ── TLS close_notify helper — clean TLS shutdown before closing socket ──
 inline void ssl_close(SSL* ssl, SOCKET sfd) {
-    if (ssl && socket_selectable(sfd)) {
+    if (ssl && socket_pollable(sfd)) {
         SSL_shutdown(ssl);
         // drain pending data for 1s
-        fd_set fds; FD_ZERO(&fds); FD_SET(sfd, &fds);
-        timeval tv{1, 0};
-#ifdef _WIN32
-        select(0, &fds, nullptr, nullptr, &tv);  // Winsock ignores nfds
-#else
-        select((int)sfd + 1, &fds, nullptr, nullptr, &tv);  // R8.2: POSIX needs maxfd+1
-#endif
+        bs_pollfd pfd{sfd, POLLIN, 0};
+        (void)bs_poll(&pfd, 1, 1000);
     }
     if (sfd != INVALID_SOCKET) CLOSESOCK(sfd);
 }
@@ -9781,21 +9800,18 @@ private:
                 to_erase.push_back(i);
                 continue;
             }
-            if (!socket_selectable(ph.sock_fd)) {
+            if (!socket_pollable(ph.sock_fd)) {
                 log_event("handshake_fd_not_selectable", std::to_string(ph.sock_fd));
                 ph.state = PendingHandshake::State::Failed;
                 to_erase.push_back(i);
                 continue;
             }
 
-            fd_set ready_read, ready_write;
-            FD_ZERO(&ready_read);
-            FD_ZERO(&ready_write);
-            if (ph.want_read) FD_SET(ph.sock_fd, &ready_read);
-            if (ph.want_write) FD_SET(ph.sock_fd, &ready_write);
-            timeval poll_tv{0, 0};
-            const int ready = select(static_cast<int>(ph.sock_fd) + 1,
-                                     &ready_read, &ready_write, nullptr, &poll_tv);
+            short events = 0;
+            if (ph.want_read) events |= POLLIN;
+            if (ph.want_write) events |= POLLOUT;
+            bs_pollfd handshake_fd{ph.sock_fd, events, 0};
+            const int ready = bs_poll(&handshake_fd, 1, 0);
             if (ready <= 0 && SSL_pending(ph.ssl.get()) <= 0) continue;
 
             try {
@@ -10890,9 +10906,8 @@ private:
                    std::chrono::steady_clock::now() < idle_deadline) {
                 if (is_cancelled && is_cancelled()) return "ERROR cancelled";
                 if (SSL_pending(ssl) <= 0) {
-                    fd_set rfds; FD_ZERO(&rfds); FD_SET(sock_fd, &rfds);
-                    timeval tv{2, 0};
-                    if (select(static_cast<int>(sock_fd) + 1, &rfds, nullptr, nullptr, &tv) <= 0)
+                    bs_pollfd pfd{sock_fd, POLLIN, 0};
+                    if (bs_poll(&pfd, 1, 2000) <= 0)
                         continue;
                 }
                 try {
@@ -11193,10 +11208,8 @@ private:
 
                 // Brief write+readiness check every 4 chunks (was every chunk)
                 if ((ci % 4) == 0) {
-                    fd_set wfds; FD_ZERO(&wfds); FD_SET(sock_fd, &wfds);
-                    fd_set rfds; FD_ZERO(&rfds); FD_SET(sock_fd, &rfds);
-                    timeval tv{2, 0};
-                    int sel = select(static_cast<int>(sock_fd) + 1, &rfds, &wfds, nullptr, &tv);
+                    bs_pollfd pfd{sock_fd, static_cast<short>(POLLIN | POLLOUT), 0};
+                    int sel = bs_poll(&pfd, 1, 2000);
                     if (sel == 0) return "ERROR transfer idle timeout at chunk " + std::to_string(ci);
                 }
 
@@ -11232,9 +11245,8 @@ private:
                 }
                 // Also check socket-level readability for frames not yet in SSL buffer.
                 {
-                    fd_set rfds2; FD_ZERO(&rfds2); FD_SET(sock_fd, &rfds2);
-                    timeval tv2{0, 0};
-                    if (select(static_cast<int>(sock_fd) + 1, &rfds2, nullptr, nullptr, &tv2) > 0) {
+                    bs_pollfd pfd{sock_fd, POLLIN, 0};
+                    if (bs_poll(&pfd, 1, 0) > 0) {
                         try {
                             Message resp = read_frame(ssl);
                             if (std::holds_alternative<PingMsg>(resp)) {
@@ -11486,9 +11498,8 @@ private:
                std::chrono::steady_clock::now() < idle_deadline) {
             if (is_cancelled && is_cancelled()) return "ERROR cancelled";
             if (SSL_pending(ssl) <= 0) {
-                fd_set rfds; FD_ZERO(&rfds); FD_SET(sock_fd, &rfds);
-                timeval tv{2, 0};
-                if (select(static_cast<int>(sock_fd) + 1, &rfds, nullptr, nullptr, &tv) <= 0)
+                bs_pollfd pfd{sock_fd, POLLIN, 0};
+                if (bs_poll(&pfd, 1, 2000) <= 0)
                     continue;
             }
             try {
@@ -11555,9 +11566,8 @@ private:
                std::chrono::steady_clock::now() < idle_deadline) {
             if (is_cancelled && is_cancelled()) return "ERROR cancelled";
             if (SSL_pending(ssl) <= 0) {
-                fd_set rfds; FD_ZERO(&rfds); FD_SET(sock_fd, &rfds);
-                timeval tv{2, 0};
-                if (select(static_cast<int>(sock_fd) + 1, &rfds, nullptr, nullptr, &tv) <= 0)
+                bs_pollfd pfd{sock_fd, POLLIN, 0};
+                if (bs_poll(&pfd, 1, 2000) <= 0)
                     continue;
             }
             try {
@@ -13944,15 +13954,9 @@ private:
                         if (ret == 0) continue;
                         int err = SSL_get_error(c.ssl.get(), ret);
                         if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
-                            fd_set fds; FD_ZERO(&fds);
-                            timeval tv{0, 100'000};
-                            if (err == SSL_ERROR_WANT_READ) {
-                                FD_SET(c.sock_fd, &fds);
-                                select(static_cast<int>(c.sock_fd) + 1, &fds, nullptr, nullptr, &tv);
-                            } else {
-                                FD_SET(c.sock_fd, &fds);
-                                select(static_cast<int>(c.sock_fd) + 1, nullptr, &fds, nullptr, &tv);
-                            }
+                            bs_pollfd pfd{c.sock_fd, static_cast<short>(
+                                err == SSL_ERROR_WANT_READ ? POLLIN : POLLOUT), 0};
+                            (void)bs_poll(&pfd, 1, 100);
                             continue;
                         }
                         break; // unrecoverable

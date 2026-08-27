@@ -106,7 +106,7 @@ class TestHttpMutate(unittest.TestCase):
 
     def _req(self, method, path, body=None):
         conn = self._HTTPConnection("127.0.0.1", self.port, timeout=5)
-        headers = {}
+        headers = {"Authorization": f"Bearer {self.token}"}
         data = None
         if body is not None:
             data = json.dumps(body).encode()
@@ -120,18 +120,18 @@ class TestHttpMutate(unittest.TestCase):
             conn.close()
 
     def test_mkdir_rename_trash_roundtrip(self):
-        status, raw = self._req("POST", f"/{self.token}/api/mkdir",
+        status, raw = self._req("POST", "/api/mkdir",
                                 {"machine": "(local)", "root": "inbox", "path": "notes"})
         self.assertEqual(status, 200)
         self.assertTrue(json.loads(raw).get("ok"), raw)
         self.assertTrue((self.inbox / "notes").is_dir())
         (self.inbox / "notes" / "a.md").write_text("x", encoding="utf-8")
-        status, raw = self._req("POST", f"/{self.token}/api/rename",
+        status, raw = self._req("POST", "/api/rename",
                                 {"machine": "(local)", "root": "inbox", "path": "notes/a.md", "name": "b.md"})
         self.assertEqual(status, 200, raw)
         self.assertTrue(json.loads(raw).get("ok"), raw)
         self.assertTrue((self.inbox / "notes" / "b.md").is_file())
-        status, raw = self._req("POST", f"/{self.token}/api/trash",
+        status, raw = self._req("POST", "/api/trash",
                                 {"machine": "(local)", "root": "inbox", "path": "notes/b.md"})
         self.assertEqual(status, 200)
         self.assertTrue(json.loads(raw).get("ok"), raw)
@@ -139,7 +139,7 @@ class TestHttpMutate(unittest.TestCase):
         self.assertTrue(any(self.trash.rglob("b.md")))
 
     def test_readonly_root_rejected(self):
-        status, raw = self._req("POST", f"/{self.token}/api/mkdir",
+        status, raw = self._req("POST", "/api/mkdir",
                                 {"machine": "(local)", "root": "C", "path": "nope"})
         self.assertEqual(status, 200)
         self.assertEqual(json.loads(raw).get("error"), "write_not_allowed")

@@ -331,9 +331,9 @@ class TestHttpSurface(unittest.TestCase):
         cls.server.server_close()
         cls.tmp.cleanup()
 
-    def _req(self, method, path, body=None):
+    def _req(self, method, path, body=None, *, auth=True):
         conn = HTTPConnection("127.0.0.1", self.port, timeout=5)
-        headers = {}
+        headers = {"Authorization": f"Bearer {self.token}"} if auth else {}
         data = None
         if body is not None:
             data = json.dumps(body).encode()
@@ -351,11 +351,15 @@ class TestHttpSurface(unittest.TestCase):
         self.assertEqual(status, 200)
 
     def test_auth_required(self):
-        status, _ = self._req("GET", "/api/tree")
+        status, _ = self._req("GET", "/api/tree", auth=False)
+        self.assertEqual(status, 404)
+
+    def test_path_token_is_not_authentication(self):
+        status, _ = self._req("GET", f"/api/tree", auth=False)
         self.assertEqual(status, 404)
 
     def test_index_tools_bar_structure(self):
-        status, raw = self._req("GET", f"/{self.token}/")
+        status, raw = self._req("GET", f"/")
         self.assertEqual(status, 200)
         raw = raw.decode("utf-8") if isinstance(raw, bytes) else raw
         self.assertIn('class="col-head">Hosts', raw)
@@ -389,7 +393,7 @@ class TestHttpSurface(unittest.TestCase):
         self.assertIn("id=\"fileInput\"", raw)
 
     def test_tree_ok(self):
-        status, raw = self._req("GET", f"/{self.token}/api/tree")
+        status, raw = self._req("GET", f"/api/tree")
         self.assertEqual(status, 200)
         payload = json.loads(raw)
         self.assertIn("sessions", payload)
@@ -437,7 +441,7 @@ class TestHttpSurface(unittest.TestCase):
         target = bp.publish(__import__("pathlib").Path(src), "audit", "documents", None)
         status, raw = self._req(
             "GET",
-            f"/{self.token}/api/content?session=audit&type=documents&name={target.name}",
+            f"/api/content?session=audit&type=documents&name={target.name}",
         )
         self.assertEqual(status, 200)
         payload = json.loads(raw)
@@ -451,7 +455,7 @@ class TestHttpSurface(unittest.TestCase):
             "name": "note.md",
             "content": "# Saved\n\nEdited inline.\n",
         }
-        status, raw = self._req("POST", f"/{self.token}/api/save", body)
+        status, raw = self._req("POST", f"/api/save", body)
         self.assertEqual(status, 200)
         payload = json.loads(raw)
         self.assertIn("<h1>Saved</h1>", payload["html"])
@@ -468,7 +472,7 @@ class TestHttpSurface(unittest.TestCase):
             "name": "../../escape.md",
             "content": "x",
         }
-        status, _ = self._req("POST", f"/{self.token}/api/save", body)
+        status, _ = self._req("POST", f"/api/save", body)
         self.assertEqual(status, 200)
         escaped = bp.sessions_dir() / "audit" / "documents" / "escape.md"
         self.assertTrue(escaped.is_file())
@@ -485,7 +489,7 @@ class TestHttpSurface(unittest.TestCase):
             "cols": 80,
             "rows": 24,
         }
-        status, raw = self._req("POST", f"/{self.token}/api/session/create", body)
+        status, raw = self._req("POST", f"/api/session/create", body)
         self.assertEqual(status, 200)
         payload = json.loads(raw)
         # In test env with no daemon, "ok" is False with an error message.
@@ -499,7 +503,7 @@ class TestHttpSurface(unittest.TestCase):
     def test_session_connect(self):
         status, raw = self._req(
             "GET",
-            f"/{self.token}/api/session/connect?session=my-session&machine=test-pc2",
+            f"/api/session/connect?session=my-session&machine=test-pc2",
         )
         self.assertEqual(status, 200)
         payload = json.loads(raw)
@@ -508,19 +512,19 @@ class TestHttpSurface(unittest.TestCase):
         # Without machine, uses (peer) placeholder
         status2, raw2 = self._req(
             "GET",
-            f"/{self.token}/api/session/connect?session=test",
+            f"/api/session/connect?session=test",
         )
         self.assertEqual(status2, 200)
         self.assertIn("(peer)", json.loads(raw2)["cmd"])
 
     def test_session_connect_requires_session(self):
-        status, _ = self._req("GET", f"/{self.token}/api/session/connect?machine=test-pc2")
+        status, _ = self._req("GET", f"/api/session/connect?machine=test-pc2")
         self.assertEqual(status, 400)
 
     def test_session_input_not_wired(self):
         status, raw = self._req(
             "POST",
-            f"/{self.token}/api/session/input",
+            f"/api/session/input",
             {"session": "hermes", "data": "ls\n"},
         )
         self.assertEqual(status, 200)
@@ -531,12 +535,12 @@ class TestHttpSurface(unittest.TestCase):
 
     def test_session_input_requires_session(self):
         status, _ = self._req(
-            "POST", f"/{self.token}/api/session/input", {"data": "x"}
+            "POST", f"/api/session/input", {"data": "x"}
         )
         self.assertEqual(status, 400)
 
     def test_stream_requires_session(self):
-        status, _ = self._req("GET", f"/{self.token}/api/stream")
+        status, _ = self._req("GET", f"/api/stream")
         self.assertEqual(status, 400)
 
     def test_stream_sse_once(self):
@@ -554,7 +558,7 @@ class TestHttpSurface(unittest.TestCase):
             conn = HTTPConnection("127.0.0.1", self.port, timeout=5)
             conn.request(
                 "GET",
-                f"/{self.token}/api/stream?session=hermes&since=0&once=1",
+                f"/api/stream?session=hermes&since=0&once=1",
             )
             r = conn.getresponse()
             self.assertEqual(r.status, 200)
@@ -573,7 +577,7 @@ class TestHttpSurface(unittest.TestCase):
                 conn.close()
 
     def test_index_is_file_manager(self):
-        status, raw = self._req("GET", f"/{self.token}/")
+        status, raw = self._req("GET", f"/")
         self.assertEqual(status, 200)
         html = raw.decode("utf-8") if isinstance(raw, bytes) else raw
         self.assertIn("/api/files", html)
@@ -597,7 +601,7 @@ class TestHttpSurface(unittest.TestCase):
         self.assertNotIn("__ASSET_BASE__", html)
         self.assertNotIn("__LANG_TABLE__", html)
         self.assertIn('"python"', html)
-        self.assertIn(f"/{self.token}/static/", html)
+        self.assertIn(f"/static/", html)
 
     def test_static_vendors_served(self):
         for name, needle in (
@@ -608,22 +612,22 @@ class TestHttpSurface(unittest.TestCase):
             ("filepond-plugin-file-validate-size.min.js", b"FilePond"),
             ("codemirror-bundle.min.js", b"BridgeCM"),
         ):
-            status, raw = self._req("GET", f"/{self.token}/static/{name}")
+            status, raw = self._req("GET", f"/static/{name}")
             self.assertEqual(status, 200, name)
             self.assertIn(needle, raw)
 
     def test_static_unknown_and_traversal(self):
-        status, _ = self._req("GET", f"/{self.token}/static/nope.js")
+        status, _ = self._req("GET", f"/static/nope.js")
         self.assertEqual(status, 404)
-        status, _ = self._req("GET", f"/{self.token}/static/../server.py")
+        status, _ = self._req("GET", f"/static/../server.py")
         self.assertEqual(status, 404)
-        status, _ = self._req("GET", f"/{self.token}/static/%2e%2e/server.py")
+        status, _ = self._req("GET", f"/static/%2e%2e/server.py")
         self.assertEqual(status, 404)
 
     def test_csp_allows_same_origin_assets(self):
         conn = HTTPConnection("127.0.0.1", self.port, timeout=5)
         try:
-            conn.request("GET", f"/{self.token}/")
+            conn.request("GET", f"/")
             r = conn.getresponse()
             r.read()
             csp = r.getheader("Content-Security-Policy") or ""
@@ -650,7 +654,7 @@ class TestHttpSurface(unittest.TestCase):
             conn = HTTPConnection("127.0.0.1", self.port, timeout=5)
             conn.request(
                 "GET",
-                f"/{self.token}/api/remote-file?machine=peer&path=shot.png",
+                f"/api/remote-file?machine=peer&path=shot.png",
             )
             r = conn.getresponse()
             self.assertEqual(r.status, 200)
@@ -681,7 +685,7 @@ class TestHttpSurface(unittest.TestCase):
         try:
             status, raw = self._req(
                 "GET",
-                f"/{self.token}/api/remote-file?machine=peer&path=note.md",
+                f"/api/remote-file?machine=peer&path=note.md",
             )
             self.assertEqual(status, 200)
             payload = json.loads(raw)
@@ -711,7 +715,7 @@ class TestHttpSurface(unittest.TestCase):
             conn = HTTPConnection("127.0.0.1", self.port, timeout=5)
             conn.request(
                 "GET",
-                f"/{self.token}/api/remote-file?machine=peer&path=note.md&download=1",
+                f"/api/remote-file?machine=peer&path=note.md&download=1",
             )
             r = conn.getresponse()
             self.assertEqual(r.status, 200)
@@ -727,7 +731,7 @@ class TestHttpSurface(unittest.TestCase):
         os.environ["BRIDGEPANEL_MAX_FILE_UPLOAD"] = "32"
         try:
             body = {"machine": "peer", "path": "x.bin", "content": "n" * 200}
-            status, _ = self._req("POST", f"/{self.token}/api/upload", body)
+            status, _ = self._req("POST", f"/api/upload", body)
             self.assertEqual(status, 413)
         finally:
             if old is None:
@@ -750,7 +754,7 @@ class TestHttpSurface(unittest.TestCase):
         try:
             status, raw = self._req(
                 "POST",
-                f"/{self.token}/api/upload",
+                f"/api/upload",
                 {"machine": "peer", "path": "out.txt", "content": "hello"},
             )
             self.assertEqual(status, 200)
@@ -762,7 +766,7 @@ class TestHttpSurface(unittest.TestCase):
 
     def test_9warp_routes_removed(self):
         for path in ("/api/providers", "/api/fleet", "/api/registry", "/api/events"):
-            status, _ = self._req("GET", f"/{self.token}{path}")
+            status, _ = self._req("GET", f"{path}")
             self.assertEqual(status, 404, path)
 
     def test_9warp_helpers_removed(self):
@@ -826,7 +830,7 @@ class TestHttpSurface(unittest.TestCase):
         old = os.environ.get("BRIDGEPANEL_RECEIVE_DIR")
         os.environ["BRIDGEPANEL_RECEIVE_DIR"] = inbox
         try:
-            status, raw = self._req("GET", f"/{self.token}/api/files?machine=(local)")
+            status, raw = self._req("GET", f"/api/files?machine=(local)")
             self.assertEqual(status, 200)
             payload = json.loads(raw)
             self.assertTrue(payload["ok"])
@@ -840,7 +844,7 @@ class TestHttpSurface(unittest.TestCase):
                 os.environ["BRIDGEPANEL_RECEIVE_DIR"] = old
 
     def test_volumes_api_inbox_first(self):
-        status, raw = self._req("GET", f"/{self.token}/api/volumes?machine=(local)")
+        status, raw = self._req("GET", f"/api/volumes?machine=(local)")
         self.assertEqual(status, 200)
         payload = json.loads(raw)
         vols = payload.get("volumes") or []
@@ -855,7 +859,7 @@ class TestHttpSurface(unittest.TestCase):
     def test_files_rejects_bad_volume_path(self):
         status, raw = self._req(
             "GET",
-            f"/{self.token}/api/files?machine=(local)&root=/&path=../etc",
+            f"/api/files?machine=(local)&root=/&path=../etc",
         )
         self.assertEqual(status, 200)
         payload = json.loads(raw)
@@ -864,7 +868,7 @@ class TestHttpSurface(unittest.TestCase):
 
     def test_upload_rejects_non_inbox_root(self):
         body = {"machine": "(local)", "root": "C", "path": "x.md", "content": "nope"}
-        status, raw = self._req("POST", f"/{self.token}/api/upload", body)
+        status, raw = self._req("POST", f"/api/upload", body)
         self.assertEqual(status, 200)
         payload = json.loads(raw)
         self.assertFalse(payload.get("ok", True))
@@ -881,7 +885,7 @@ class TestHttpSurface(unittest.TestCase):
         with open(os.path.join(cfg, "browse_roots.json"), "w", encoding="utf-8") as fh:
             json.dump(acl, fh)
         body = {"machine": "(local)", "root": "outbox", "path": "acl.md", "content": "from-acl"}
-        status, raw = self._req("POST", f"/{self.token}/api/upload", body)
+        status, raw = self._req("POST", f"/api/upload", body)
         self.assertEqual(status, 200)
         payload = json.loads(raw)
         self.assertTrue(payload.get("ok"), payload)
@@ -891,7 +895,7 @@ class TestHttpSurface(unittest.TestCase):
             self.assertEqual(fh.read(), "from-acl")
 
     def test_files_api_requires_machine(self):
-        status, _ = self._req("GET", f"/{self.token}/api/files")
+        status, _ = self._req("GET", f"/api/files")
         self.assertEqual(status, 400)
 
     def test_open_path_relative_file(self):
@@ -904,7 +908,7 @@ class TestHttpSurface(unittest.TestCase):
         try:
             status, raw = self._req(
                 "GET",
-                f"/{self.token}/api/open-path?machine=(local)&path=sub/note.md",
+                f"/api/open-path?machine=(local)&path=sub/note.md",
             )
             self.assertEqual(status, 200)
             payload = json.loads(raw)
@@ -930,7 +934,7 @@ class TestHttpSurface(unittest.TestCase):
             target = os.path.join(inbox, "docs", "r.txt")
             status, raw = self._req(
                 "GET",
-                f"/{self.token}/api/open-path?machine=(local)&path="
+                f"/api/open-path?machine=(local)&path="
                 + __import__("urllib.parse", fromlist=["quote"]).quote(target),
             )
             self.assertEqual(status, 200)
@@ -954,7 +958,7 @@ class TestHttpSurface(unittest.TestCase):
         try:
             status, raw = self._req(
                 "GET",
-                f"/{self.token}/api/open-path?machine=(local)&path=folder",
+                f"/api/open-path?machine=(local)&path=folder",
             )
             self.assertEqual(status, 200)
             payload = json.loads(raw)
@@ -971,7 +975,7 @@ class TestHttpSurface(unittest.TestCase):
     def test_open_path_rejects_escape(self):
         status, raw = self._req(
             "GET",
-            f"/{self.token}/api/open-path?machine=(local)&path=../../etc/passwd",
+            f"/api/open-path?machine=(local)&path=../../etc/passwd",
         )
         self.assertEqual(status, 200)
         payload = json.loads(raw)
@@ -979,13 +983,13 @@ class TestHttpSurface(unittest.TestCase):
         self.assertEqual(payload.get("error"), "path_rejected")
 
     def test_open_path_requires_machine(self):
-        status, _ = self._req("GET", f"/{self.token}/api/open-path?path=x.md")
+        status, _ = self._req("GET", f"/api/open-path?path=x.md")
         self.assertEqual(status, 400)
 
     def test_open_path_not_found(self):
         status, raw = self._req(
             "GET",
-            f"/{self.token}/api/open-path?machine=(local)&path=does-not-exist.md",
+            f"/api/open-path?machine=(local)&path=does-not-exist.md",
         )
         self.assertEqual(status, 200)
         payload = json.loads(raw)
@@ -994,7 +998,7 @@ class TestHttpSurface(unittest.TestCase):
     def test_remote_file_rejects_absolute_path(self):
         status, _ = self._req(
             "GET",
-            f"/{self.token}/api/remote-file?machine=peer&path=/etc/passwd",
+            f"/api/remote-file?machine=peer&path=/etc/passwd",
         )
         self.assertEqual(status, 400)
 
@@ -1006,7 +1010,7 @@ class TestHttpSurface(unittest.TestCase):
         try:
             status, raw = self._req(
                 "POST",
-                f"/{self.token}/api/upload",
+                f"/api/upload",
                 {"machine": "(local)", "path": "saved.md", "content": "# Saved\n"},
             )
             self.assertEqual(status, 200)
@@ -1015,7 +1019,7 @@ class TestHttpSurface(unittest.TestCase):
             self.assertTrue(os.path.isfile(path))
             status2, raw2 = self._req(
                 "GET",
-                f"/{self.token}/api/remote-file?machine=(local)&path=saved.md",
+                f"/api/remote-file?machine=(local)&path=saved.md",
             )
             self.assertEqual(status2, 200)
             payload = json.loads(raw2)
@@ -1035,18 +1039,18 @@ class TestHttpSurface(unittest.TestCase):
         old = os.environ.get("BRIDGEPANEL_RECEIVE_DIR")
         os.environ["BRIDGEPANEL_RECEIVE_DIR"] = inbox
         try:
-            status1, raw1 = self._req("GET", f"/{self.token}/api/files?machine=(local)")
+            status1, raw1 = self._req("GET", f"/api/files?machine=(local)")
             self.assertEqual(status1, 200)
             first = json.loads(raw1)
             self.assertTrue(first["ok"])
             self.assertFalse(first.get("cached"))
-            status2, raw2 = self._req("GET", f"/{self.token}/api/files?machine=(local)")
+            status2, raw2 = self._req("GET", f"/api/files?machine=(local)")
             self.assertEqual(status2, 200)
             second = json.loads(raw2)
             self.assertTrue(second.get("cached"))
             self.assertFalse(second.get("stale"))
             status3, raw3 = self._req(
-                "GET", f"/{self.token}/api/files?machine=(local)&refresh=1"
+                "GET", f"/api/files?machine=(local)&refresh=1"
             )
             self.assertEqual(status3, 200)
             third = json.loads(raw3)
@@ -1077,7 +1081,7 @@ class TestHttpSurface(unittest.TestCase):
             conn = HTTPConnection("127.0.0.1", self.port, timeout=5)
             conn.request(
                 "GET",
-                f"/{self.token}/api/remote-file?machine=peer&path=shot.png&inline=1",
+                f"/api/remote-file?machine=peer&path=shot.png&inline=1",
             )
             r = conn.getresponse()
             body = r.read()
@@ -1089,7 +1093,7 @@ class TestHttpSurface(unittest.TestCase):
             conn = HTTPConnection("127.0.0.1", self.port, timeout=5)
             conn.request(
                 "GET",
-                f"/{self.token}/api/remote-file?machine=peer&path=shot.png&inline=1",
+                f"/api/remote-file?machine=peer&path=shot.png&inline=1",
                 headers={"If-None-Match": etag},
             )
             r = conn.getresponse()
@@ -1103,7 +1107,7 @@ class TestHttpSurface(unittest.TestCase):
     def test_static_is_cacheable(self):
         conn = HTTPConnection("127.0.0.1", self.port, timeout=5)
         try:
-            conn.request("GET", f"/{self.token}/static/filepond.min.js")
+            conn.request("GET", f"/static/filepond.min.js")
             r = conn.getresponse()
             r.read()
             self.assertEqual(r.status, 200)

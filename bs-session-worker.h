@@ -1084,19 +1084,26 @@ inline std::vector<DiscoveredWorker> discover_workers(const std::string& app_hom
         std::string full_path = entry.path().string();
         std::string session_name = name.substr(0, name.size() - 5);
 
-        auto worker_pid_alive = [&]() {
+        enum class WorkerLiveness { Alive, Dead, Unknown };
+        auto worker_liveness = [&]() {
             std::ifstream pf(full_path + ".pid");
             long raw_pid = -1;
-            if (!(pf >> raw_pid) || raw_pid <= 0) return false;
+            if (!(pf >> raw_pid) || raw_pid <= 0 ||
+                raw_pid > static_cast<long>(std::numeric_limits<pid_t>::max()))
+                return WorkerLiveness::Unknown;
+            pf >> std::ws;
+            if (!pf.eof()) return WorkerLiveness::Unknown;
             const pid_t pid = static_cast<pid_t>(raw_pid);
-            return ::kill(pid, 0) == 0 || errno == EPERM;
+            if (::kill(pid, 0) == 0 || errno == EPERM) return WorkerLiveness::Alive;
+            if (errno == ESRCH) return WorkerLiveness::Dead;
+            return WorkerLiveness::Unknown;
         };
 
         int fd = connect_to_worker(full_path, 1000);
         if (fd < 0) {
             // Only unlink when the worker PID is confirmed dead. A live worker
             // may still be starting and will become discoverable next sweep.
-            if (!worker_pid_alive()) {
+            if (worker_liveness() == WorkerLiveness::Dead) {
                 std::error_code rm_ec;
                 fs::remove(entry.path(), rm_ec);
                 fs::remove(entry.path().string() + ".pid", rm_ec);
@@ -1126,7 +1133,7 @@ inline std::vector<DiscoveredWorker> discover_workers(const std::string& app_hom
             result.push_back(std::move(dw));
         } else {
             ::close(fd);
-            if (!worker_pid_alive()) {
+            if (worker_liveness() == WorkerLiveness::Dead) {
                 std::error_code rm_ec;
                 fs::remove(entry.path(), rm_ec);
                 fs::remove(entry.path().string() + ".pid", rm_ec);

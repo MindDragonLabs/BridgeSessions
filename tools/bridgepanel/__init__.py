@@ -227,9 +227,9 @@ def main() -> int:
     elif args.command == "tree":
         print(json.dumps(build_tree(), indent=2))
     elif args.command == "url":
-        token = ensure_dirs()
+        ensure_dirs()
         bind = args.bind
-        print(f"http://{bind}:{DEFAULT_PORT}/{token}/")
+        print(f"http://{bind}:{DEFAULT_PORT}/ (authenticate with the BridgePanel token)")
     return 0
 
 

@@ -1294,14 +1294,25 @@ int main(int argc, char** argv) {
         int port = cfg.listen_port > 0 ? cfg.listen_port : 19949;
         std::cout << "Invite (valid 2h):  " << token << "\n";
         std::cout << "One-liner:\n";
-        std::cout << "  bridgesessions join " << addr << ":" << port << " " << token << " --start\n";
+        std::cout << "  bridgesessions join " << addr << ":" << port << " --token-file <path> --start\n";
+        std::cout << "  # Or pipe the token on stdin: printf '%s\\n' '<invite-token>' | bridgesessions join "
+                  << addr << ":" << port << " - --start\n";
         std::cout << "Or with curl install:\n";
-        std::cout << "  curl -fsSL https://raw.githubusercontent.com/MindDragonLabs/BridgeSessions/v" << bs::mesh::kBridgeSessionsVersion << "/scripts/install.sh | bash -s -- join " << addr << ":" << port << " " << token << " --start\n";
+        std::cout << "  curl -fsSL https://raw.githubusercontent.com/MindDragonLabs/BridgeSessions/v" << bs::mesh::kBridgeSessionsVersion << "/scripts/install.sh | bash\n"
+                  << "  bridgesessions join " << addr << ":" << port << " --token-file <path> --start\n";
         std::cout << "Windows PowerShell:\n";
-        std::cout << "  irm https://raw.githubusercontent.com/MindDragonLabs/BridgeSessions/v" << bs::mesh::kBridgeSessionsVersion << "/scripts/install.ps1 | iex\n  bridgesessions join " << addr << ":" << port << " " << token << " --start\n";
+        std::cout << "  irm https://raw.githubusercontent.com/MindDragonLabs/BridgeSessions/v" << bs::mesh::kBridgeSessionsVersion << "/scripts/install.ps1 | iex\n  bridgesessions join " << addr << ":" << port << " --token-file <path> --start\n";
         return 0;
     }
     if (join_cmd_app->parsed()) {
+        if (!join_token.empty() && join_token != "-") {
+            static bool warned_positional_token = false;
+            if (!warned_positional_token) {
+                std::cerr << "join: warning: positional invite tokens are deprecated; "
+                             "use --token-file or '-' (stdin) instead\n";
+                warned_positional_token = true;
+            }
+        }
         if (!join_token_file.empty()) {
             if (!join_token.empty()) {
                 std::cerr << "join: specify either token or --token-file, not both\n";

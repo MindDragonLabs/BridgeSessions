@@ -30,39 +30,111 @@
 namespace bs::log {
 
 inline std::string redact(std::string text) {
-    auto redact_value = [&](std::string_view marker) {
-        std::string lower = text;
-        std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) {
-            return static_cast<char>(std::tolower(c));
-        });
-        std::string needle(marker);
-        std::transform(needle.begin(), needle.end(), needle.begin(), [](unsigned char c) {
-            return static_cast<char>(std::tolower(c));
-        });
-        size_t pos = 0;
-        while ((pos = lower.find(needle, pos)) != std::string::npos) {
-            const size_t begin = pos + marker.size();
-            size_t end = begin;
-            while (end < text.size() && !std::isspace(static_cast<unsigned char>(text[end])) &&
-                   text[end] != '&' && text[end] != ';' && text[end] != ',' &&
-                   text[end] != '"' && text[end] != '\'') ++end;
-            text.replace(begin, end - begin, "[REDACTED]");
-            lower.replace(begin, end - begin, "[redacted]");
-            pos = begin + 10;
-        }
+    std::string lower = text;
+    std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) {
+        return static_cast<char>(std::tolower(c));
+    });
+    const auto boundary = [&](size_t pos) {
+        return pos == 0 || (!std::isalnum(static_cast<unsigned char>(lower[pos - 1])) &&
+                            lower[pos - 1] != '_');
     };
-    for (std::string_view marker : {"token=", "password=", "passwd=", "api_key=", "secret=",
-                                    "authorization: bearer "}) redact_value(marker);
-    const std::string begin_marker = "-----BEGIN PRIVATE KEY-----";
-    const std::string end_marker = "-----END PRIVATE KEY-----";
-    size_t pos = 0;
-    while ((pos = text.find(begin_marker, pos)) != std::string::npos) {
-        size_t end = text.find(end_marker, pos + begin_marker.size());
-        end = end == std::string::npos ? text.size() : end + end_marker.size();
-        text.replace(pos, end - pos, "[REDACTED PRIVATE KEY]");
-        pos += 22;
+    const auto value_end = [&](size_t begin) {
+        if (begin < text.size() && (text[begin] == '"' || text[begin] == '\'')) {
+            const char quote = text[begin++];
+            size_t end = begin;
+            while (end < text.size() && text[end] != quote) ++end;
+            return std::pair{begin, end < text.size() ? end + 1 : end};
+        }
+        size_t end = begin;
+        while (end < text.size() && !std::isspace(static_cast<unsigned char>(text[end])) &&
+               text[end] != '&' && text[end] != ';' && text[end] != ',') ++end;
+        return std::pair{begin, end};
+    };
+
+    std::string out;
+    out.reserve(text.size());
+    for (size_t i = 0; i < text.size();) {
+        if (lower.compare(i, 11, "-----begin ") == 0) {
+            const size_t header_end = lower.find("-----", i + 11);
+            if (header_end != std::string::npos &&
+                lower.substr(i, header_end + 5 - i).find("private key-----") != std::string::npos) {
+                const size_t end_marker = lower.find("-----end ", header_end + 5);
+                const size_t end_dashes = end_marker == std::string::npos
+                    ? std::string::npos : lower.find("-----", end_marker + 9);
+                const size_t end = end_dashes == std::string::npos
+                    ? text.size() : end_dashes + 5;
+                out += "[REDACTED PRIVATE KEY]";
+                i = end;
+                continue;
+            }
+        }
+
+        size_t prefix_end = std::string::npos;
+        if (boundary(i) && lower.compare(i, 7, "bearer ") == 0) {
+            prefix_end = i + 7;
+        } else {
+            size_t key_begin = i;
+            bool quoted_key = false;
+            if (text[key_begin] == '"' || text[key_begin] == '\'') {
+                quoted_key = true;
+                ++key_begin;
+            }
+            std::string_view key;
+            for (std::string_view candidate : {"authorization", "password", "passwd",
+                                               "api_key", "secret", "token",
+                                               "proc-type", "dek-info"}) {
+                if (lower.compare(key_begin, candidate.size(), candidate) == 0) {
+                    key = candidate;
+                    break;
+                }
+            }
+            if (!key.empty() && boundary(i)) {
+                size_t p = key_begin + key.size();
+                if (quoted_key && p < text.size() && text[p] == text[i]) ++p;
+                while (p < text.size() && std::isspace(static_cast<unsigned char>(text[p]))) ++p;
+                if (p < text.size() && (text[p] == '=' || text[p] == ':')) {
+                    ++p;
+                    while (p < text.size() && std::isspace(static_cast<unsigned char>(text[p]))) ++p;
+                    if (key == "authorization" && lower.compare(p, 7, "bearer ") == 0)
+                        p += 7;
+                    prefix_end = p;
+                }
+            } else if (text[i] == '-' && i + 1 < text.size()) {
+                size_t p = i + (text[i + 1] == '-' ? 2 : 1);
+                const bool short_key = p < text.size() && lower[p] == 'k' &&
+                    (p + 1 == text.size() || std::isspace(static_cast<unsigned char>(text[p + 1])));
+                bool long_key = false;
+                for (std::string_view candidate : {"authorization", "password", "passwd",
+                                                   "api_key", "secret", "token"}) {
+                    if (lower.compare(p, candidate.size(), candidate) == 0 &&
+                        p + candidate.size() < text.size() &&
+                        std::isspace(static_cast<unsigned char>(text[p + candidate.size()]))) {
+                        p += candidate.size();
+                        long_key = true;
+                        break;
+                    }
+                }
+                if (short_key) ++p;
+                if (short_key || long_key) {
+                    while (p < text.size() && std::isspace(static_cast<unsigned char>(text[p]))) ++p;
+                    prefix_end = p;
+                }
+            }
+        }
+
+        if (prefix_end != std::string::npos && prefix_end < text.size()) {
+            out.append(text, i, prefix_end - i);
+            const auto [value_begin, end] = value_end(prefix_end);
+            if (value_begin > prefix_end) out.push_back(text[prefix_end]);
+            out += "[REDACTED]";
+            if (value_begin > prefix_end && end <= text.size() && end > value_begin &&
+                text[end - 1] == text[prefix_end]) out.push_back(text[prefix_end]);
+            i = end;
+            continue;
+        }
+        out.push_back(text[i++]);
     }
-    return text;
+    return out;
 }
 
 // ── Constants ────────────────────────────────────────────────────
@@ -287,7 +359,10 @@ inline std::shared_ptr<spdlog::logger> get(const std::string& name) {
     }
 
     // Not initialized — return a stderr-only default so calls don't crash
-    auto fallback = spdlog::stderr_color_mt(name);
+    auto stderr_sink = std::make_shared<spdlog::sinks::stderr_color_sink_mt>();
+    auto fallback = std::make_shared<spdlog::logger>(
+        name, std::make_shared<detail::RedactingSink>(stderr_sink));
+    spdlog::register_logger(fallback);
     fallback->set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%^%l%$] [%n] %v");
     fallback->set_level(detail::configured_level());
     return fallback;
