@@ -42,7 +42,6 @@ TEST_CASE("join window hard cap defaults parses and serializes", "[a1][config]")
 }
 
 TEST_CASE("join window hard cap closes with an unclaimed invite", "[a1][join-window]") {
-    g_allow_join_connections.store(false, std::memory_order_relaxed);
     const auto home = unique_temp_dir("cap");
     MeshConfig cfg;
     cfg.join_window_max_secs = 1;
@@ -50,19 +49,18 @@ TEST_CASE("join window hard cap closes with an unclaimed invite", "[a1][join-win
         MeshController controller(cfg, home.string());
         controller.test_add_invite("still-unclaimed");
         REQUIRE(controller.test_pending_invite_count() == 1);
-        REQUIRE(g_allow_join_connections.load(std::memory_order_relaxed));
+        REQUIRE(controller.test_join_window_open());
 
         controller.test_age_join_window(std::chrono::seconds(2));
         controller.test_close_join_window();
 
-        REQUIRE_FALSE(g_allow_join_connections.load(std::memory_order_relaxed));
+        REQUIRE_FALSE(controller.test_join_window_open());
         REQUIRE(controller.test_pending_invite_count() == 1);
     }
     fs::remove_all(home);
 }
 
 TEST_CASE("expired invite is dropped and emits exactly one event", "[a1][invite]") {
-    g_allow_join_connections.store(false, std::memory_order_relaxed);
     const auto home = unique_temp_dir("expiry");
     MeshConfig cfg;
     {
@@ -73,7 +71,7 @@ TEST_CASE("expired invite is dropped and emits exactly one event", "[a1][invite]
         controller.test_close_join_window();
         REQUIRE(controller.test_pending_invite_count() == 0);
         REQUIRE(controller.test_invite_expired_event_count() == before + 1);
-        REQUIRE_FALSE(g_allow_join_connections.load(std::memory_order_relaxed));
+        REQUIRE_FALSE(controller.test_join_window_open());
 
         controller.test_close_join_window();
         REQUIRE(controller.test_invite_expired_event_count() == before + 1);

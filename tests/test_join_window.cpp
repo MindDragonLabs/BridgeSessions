@@ -1,37 +1,27 @@
-// test_join_window.cpp — verify g_allow_join_connections lifecycle
+// test_join_window.cpp — verify per-controller join-window lifecycle
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/catch_session.hpp>
 #include "../bs-protocol.h"
-#include <thread>
+#include <filesystem>
 
 using namespace bs::mesh;
 
-TEST_CASE("g_allow_join_connections starts false", "[join-window]") {
-    g_allow_join_connections.store(false, std::memory_order_relaxed); // reset
-    REQUIRE(g_allow_join_connections.load(std::memory_order_relaxed) == false);
-}
-
-TEST_CASE("g_allow_join_connections can be set and cleared", "[join-window]") {
-    g_allow_join_connections.store(true, std::memory_order_relaxed);
-    REQUIRE(g_allow_join_connections.load(std::memory_order_relaxed) == true);
-    g_allow_join_connections.store(false, std::memory_order_relaxed);
-    REQUIRE(g_allow_join_connections.load(std::memory_order_relaxed) == false);
-}
-
-TEST_CASE("g_allow_join_connections is safe for concurrent access", "[join-window]") {
-    std::atomic<bool> observed{false};
-    std::thread writer([&]() {
-        for (int i = 0; i < 1000; i++)
-            g_allow_join_connections.store(i % 2 == 0, std::memory_order_relaxed);
-    });
-    std::thread reader([&]() {
-        for (int i = 0; i < 1000; i++)
-            observed.store(g_allow_join_connections.load(std::memory_order_relaxed));
-    });
-    writer.join();
-    reader.join();
-    REQUIRE(true); // no deadlock or crash
-    g_allow_join_connections.store(false, std::memory_order_relaxed); // cleanup
+TEST_CASE("join windows are scoped to one controller listener", "[join-window]") {
+    const auto base = std::filesystem::temp_directory_path() /
+        ("bs_join_scope_" + std::to_string(
+            std::chrono::steady_clock::now().time_since_epoch().count()));
+    const auto home_a = base / "a";
+    const auto home_b = base / "b";
+    std::filesystem::create_directories(home_a);
+    std::filesystem::create_directories(home_b);
+    MeshController controller_a(MeshConfig{}, home_a.string());
+    MeshController controller_b(MeshConfig{}, home_b.string());
+    REQUIRE_FALSE(controller_a.test_join_window_open());
+    REQUIRE_FALSE(controller_b.test_join_window_open());
+    controller_a.test_add_invite("invite-a");
+    REQUIRE(controller_a.test_join_window_open());
+    REQUIRE_FALSE(controller_b.test_join_window_open());
+    std::filesystem::remove_all(base);
 }
 
 

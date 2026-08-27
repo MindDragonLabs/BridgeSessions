@@ -1580,8 +1580,13 @@ def _open_abs_self(machine: str, root: str, rel: str) -> str | None:
     from .volumes import resolve_os_path
 
     if root in ("", "inbox"):
-        base = str(_receive_dir())
-        return os.path.normpath(os.path.join(base, rel)) if rel else base
+        base = _receive_dir().resolve()
+        candidate = (base / rel).resolve()
+        try:
+            candidate.relative_to(base)
+        except ValueError:
+            return None
+        return str(candidate)
     vols = list_host_volumes(machine).get("volumes") or []
     match = next((v for v in vols if v.get("token") == root), None)
     if match is None or not match.get("os_path"):

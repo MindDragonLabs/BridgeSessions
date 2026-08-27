@@ -156,7 +156,10 @@ def serve(bind: str, port: int) -> None:
         if v.strip()
     }
     setattr(server, "trusted_ips", trusted_ips)
-    print(f"{APP} {VERSION} listening on http://{bind}:{port}/{token}/", flush=True)
+    print(
+        f"{APP} {VERSION} listening on http://{bind}:{port}/ (token required)",
+        flush=True,
+    )
     server.serve_forever()
 
 

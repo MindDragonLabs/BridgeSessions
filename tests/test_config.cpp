@@ -572,7 +572,10 @@ TEST_CASE("resolve_file_send_dest supports scp-style paths", "[config][file][sec
     // Default dest is receive_dir only — home/tmp require dest_allow_home
     REQUIRE_FALSE(resolve_file_send_dest("~/.local/bin/bridgesessions", recv).has_value());
     auto home = resolve_file_send_dest("~/.local/bin/bridgesessions", recv, true);
-    REQUIRE(home.has_value());
+    REQUIRE_FALSE(home.has_value());
+    REQUIRE_FALSE(resolve_file_send_dest("~/.ssh/environment", recv, true).has_value());
+    REQUIRE_FALSE(resolve_file_send_dest("~/.config/systemd/user/x.service", recv, true).has_value());
+    REQUIRE(resolve_file_send_dest("~/BridgeSessions/files/output.txt", recv, true).has_value());
     // Absolute outside allowed roots is rejected
     REQUIRE_FALSE(resolve_file_send_dest("/etc/passwd", recv).has_value());
     REQUIRE_FALSE(resolve_file_send_dest("/etc/passwd", recv, true).has_value());

@@ -30,7 +30,7 @@ typedef int pid_t;
 #else
 #include <sys/socket.h>
 #include <sys/un.h>
-#include <sys/select.h>
+#include <poll.h>
 #include <unistd.h>
 #include <signal.h>
 #include <sys/wait.h>
@@ -171,27 +171,21 @@ struct WorkerMessage {
     std::vector<uint8_t> data;
 };
 
-// Read one worker message from a socket (blocking, with timeout via select).
+// Read one worker message from a socket (blocking, with timeout via poll).
 // timeout_ms = -1 for blocking, >=0 for timed wait.
 // Returns true on success, false on EOF/error/timeout.
 inline bool worker_recv(int fd, WorkerMessage& msg, int timeout_ms = -1) {
     // Wait for readability if timeout specified
     if (timeout_ms >= 0) {
 #ifndef _WIN32
-        fd_set rfds;
-        FD_ZERO(&rfds);
-        FD_SET(fd, &rfds);
-        timeval tv{timeout_ms / 1000, (timeout_ms % 1000) * 1000};
-        int ready = ::select(fd + 1, &rfds, nullptr, nullptr, &tv);
-        if (ready <= 0) return false;
+        pollfd pfd{fd, POLLIN, 0};
+        int ready;
+        do { ready = poll(&pfd, 1, timeout_ms); } while (ready < 0 && errno == EINTR);
+        if (ready <= 0 || !(pfd.revents & (POLLIN | POLLHUP))) return false;
 #else
-        // Windows: use select on the socket
-        fd_set rfds;
-        FD_ZERO(&rfds);
-        FD_SET(fd, &rfds);
-        timeval tv{timeout_ms / 1000, (timeout_ms % 1000) * 1000};
-        int ready = ::select(0, &rfds, nullptr, nullptr, &tv);
-        if (ready <= 0) return false;
+        WSAPOLLFD pfd{static_cast<SOCKET>(fd), POLLRDNORM, 0};
+        int ready = ::WSAPoll(&pfd, 1, timeout_ms);
+        if (ready <= 0 || !(pfd.revents & (POLLRDNORM | POLLHUP))) return false;
 #endif
     }
 
@@ -359,7 +353,7 @@ inline WorkerResult run_session_worker_posix(const WorkerConfig& cfg) {
         return {-1, 0};
     }
 
-    // Set listen socket non-blocking for select()
+    // Set listen socket non-blocking for poll()
     {
         int fl = ::fcntl(listen_fd, F_GETFL, 0);
         if (fl >= 0) ::fcntl(listen_fd, F_SETFL, fl | O_NONBLOCK);
@@ -499,37 +493,32 @@ inline WorkerResult run_session_worker_posix(const WorkerConfig& cfg) {
     // 4. Event loop
     while (!child_died) {
         if (stop_requested) goto worker_shutdown;
-        fd_set read_fds;
-        fd_set write_fds;
-        FD_ZERO(&read_fds);
-        FD_ZERO(&write_fds);
-        FD_SET(listen_fd, &read_fds);
-        FD_SET(master_fd, &read_fds);
-        if (pending_pty_offset < pending_pty_input.size())
-            FD_SET(master_fd, &write_fds);
-        int max_fd = std::max(listen_fd, master_fd);
-
+        std::vector<pollfd> poll_fds;
+        poll_fds.push_back({listen_fd, POLLIN, 0});
+        poll_fds.push_back({master_fd, static_cast<short>(
+            POLLIN | (pending_pty_offset < pending_pty_input.size() ? POLLOUT : 0)), 0});
         for (const auto& c : clients) {
             if (c.fd >= 0) {
-                FD_SET(c.fd, &read_fds);
-                if (c.tx_off < c.tx.size()) FD_SET(c.fd, &write_fds);
-                if (c.fd > max_fd) max_fd = c.fd;
+                poll_fds.push_back({c.fd, static_cast<short>(
+                    POLLIN | (c.tx_off < c.tx.size() ? POLLOUT : 0)), 0});
             }
         }
-
-        timeval tv{0, 100000};  // 100 ms child-death/input-latency bound
-        int ready = ::select(max_fd + 1, &read_fds, &write_fds, nullptr, &tv);
+        int ready = poll(poll_fds.data(), poll_fds.size(), 100);
         if (ready < 0) {
             if (errno == EINTR) continue;
             break;
         }
+        auto poll_events = [&](int fd) -> short {
+            for (const auto& pfd : poll_fds) if (pfd.fd == fd) return pfd.revents;
+            return 0;
+        };
 
-        if (FD_ISSET(master_fd, &write_fds)) {
+        if (poll_events(master_fd) & POLLOUT) {
             drain_pending_pty_input();
         }
 
         // Accept new controller connections
-        if (FD_ISSET(listen_fd, &read_fds)) {
+        if (poll_events(listen_fd) & POLLIN) {
             int cfd = ::accept(listen_fd, nullptr, nullptr);
             if (cfd >= 0) {
                 const int cfl = ::fcntl(cfd, F_GETFL, 0);
@@ -560,7 +549,7 @@ inline WorkerResult run_session_worker_posix(const WorkerConfig& cfg) {
         // Read PTY output → queue to all clients (flush happens below). A
         // client whose backlog exceeds the cap is dropped, never silently
         // under-fed.
-        if (master_fd >= 0 && FD_ISSET(master_fd, &read_fds)) {
+        if (master_fd >= 0 && (poll_events(master_fd) & POLLIN)) {
             char buf[65536];
             ssize_t n = ::read(master_fd, buf, sizeof(buf));
             if (n > 0) {
@@ -584,9 +573,10 @@ inline WorkerResult run_session_worker_posix(const WorkerConfig& cfg) {
             if (c.fd < 0) { ++it; continue; }
             bool drop = false;
 
-            if (FD_ISSET(c.fd, &write_fds)) drop = !flush_client(c);
+            const short events = poll_events(c.fd);
+            if (events & POLLOUT) drop = !flush_client(c);
 
-            if (!drop && FD_ISSET(c.fd, &read_fds)) {
+            if (!drop && (events & (POLLIN | POLLHUP | POLLERR))) {
                 // Drain whatever is available; never block on a partial frame.
                 for (;;) {
                     char rbuf[65536];
@@ -1013,12 +1003,10 @@ inline int connect_to_worker(const std::string& socket_path, int timeout_ms = 30
     }
 
     if (rc != 0) {
-        // Wait for connect with timeout
-        fd_set wfds;
-        FD_ZERO(&wfds);
-        FD_SET(fd, &wfds);
-        timeval tv{timeout_ms / 1000, (timeout_ms % 1000) * 1000};
-        int ready = ::select(fd + 1, nullptr, &wfds, nullptr, &tv);
+        // Wait for connect with timeout without FD_SETSIZE limits.
+        pollfd pfd{fd, POLLOUT, 0};
+        int ready;
+        do { ready = poll(&pfd, 1, timeout_ms); } while (ready < 0 && errno == EINTR);
         if (ready <= 0) {
             ::close(fd);
             return -1;
@@ -1096,12 +1084,23 @@ inline std::vector<DiscoveredWorker> discover_workers(const std::string& app_hom
         std::string full_path = entry.path().string();
         std::string session_name = name.substr(0, name.size() - 5);
 
+        auto worker_pid_alive = [&]() {
+            std::ifstream pf(full_path + ".pid");
+            long raw_pid = -1;
+            if (!(pf >> raw_pid) || raw_pid <= 0) return false;
+            const pid_t pid = static_cast<pid_t>(raw_pid);
+            return ::kill(pid, 0) == 0 || errno == EPERM;
+        };
+
         int fd = connect_to_worker(full_path, 1000);
         if (fd < 0) {
-            // Stale socket — clean up
-            std::error_code rm_ec;
-            fs::remove(entry.path(), rm_ec);
-            fs::remove(entry.path().string() + ".pid", rm_ec);
+            // Only unlink when the worker PID is confirmed dead. A live worker
+            // may still be starting and will become discoverable next sweep.
+            if (!worker_pid_alive()) {
+                std::error_code rm_ec;
+                fs::remove(entry.path(), rm_ec);
+                fs::remove(entry.path().string() + ".pid", rm_ec);
+            }
             continue;
         }
 
@@ -1109,7 +1108,10 @@ inline std::vector<DiscoveredWorker> discover_workers(const std::string& app_hom
         // (u32be); older workers omit them and remain compatible.
         WorkerMessage msg;
         pid_t child_pid = -1;
-        if (worker_recv(fd, msg, 2000) && msg.type == WMSG_READY) {
+        bool ready = false;
+        for (int attempt = 0; attempt < 3 && !ready; ++attempt)
+            ready = worker_recv(fd, msg, 2000) && msg.type == WMSG_READY;
+        if (ready) {
             if (msg.data.size() == session_name.size() + 4 &&
                 std::equal(session_name.begin(), session_name.end(),
                            msg.data.begin())) {
@@ -1124,8 +1126,11 @@ inline std::vector<DiscoveredWorker> discover_workers(const std::string& app_hom
             result.push_back(std::move(dw));
         } else {
             ::close(fd);
-            std::error_code rm_ec;
-            fs::remove(entry.path(), rm_ec);
+            if (!worker_pid_alive()) {
+                std::error_code rm_ec;
+                fs::remove(entry.path(), rm_ec);
+                fs::remove(entry.path().string() + ".pid", rm_ec);
+            }
         }
     }
 

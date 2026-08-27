@@ -122,6 +122,7 @@ bridgesessions.exe
 _archive/
 screenshots/
 /docs/remediation-*/
+/.audits/
 *.ps1
 !scripts/bs_tray.ps1
 !scripts/install.ps1

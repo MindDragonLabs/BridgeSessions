@@ -2,7 +2,7 @@
 
 ## Supported version
 
-`26.08.26-r1` is the current beta line. The repository stamps the same version in `VERSION`, in the installer, and in the binary itself. Upgrade older builds before reporting unless you are reproducing a regression that requires the older code.
+`26.08.27-r1` is the current beta line. The repository stamps the same version in `VERSION`, in the installer, and in the binary itself. Upgrade older builds before reporting unless you are reproducing a regression that requires the older code.
 
 The previous beta line is `2026.08.24-beta7`. Mixed beta lines on the same mesh still talk to each other through the protocol compatibility profile; mixed major protocol lines may not. The release pipeline enforces version negotiation at handshake time.
 
@@ -44,7 +44,7 @@ Mesh traffic uses mutual TLS over TCP `19949`. The current compatibility profile
 
 ## CUA and Bridge Panel
 
-Spectators cannot send CUA input or trigger desktop capture. Windows and macOS CUA helpers are loopback-only and token-authenticated; the helper is one process per interactive user session. Bridge Panel binds loopback by default. Writes need a bearer token unless the client IP is in the panel's trust list. Do not expose the panel directly to the internet. Do not run it as a more privileged user than you need.
+Spectators cannot send CUA input or trigger desktop capture. Windows and macOS CUA helpers are loopback-only and token-authenticated; the helper is one process per interactive user session. CUA keystroke/capture payloads are not content-redacted, and Windows helper authentication still uses a loopback token rather than a named pipe; treat both as known beta limitations. Bridge Panel binds loopback by default. All writes require a bearer or legacy URL token; trusted IPs may bypass authentication only for reads. Do not expose the panel directly to the internet. Do not run it as a more privileged user than you need.
 
 ## Release integrity
 

@@ -2,6 +2,30 @@
 
 Notable user-visible changes. Git history contains implementation-level detail.
 
+## 26.08.27-r1
+
+Security, privacy, and reliability hardening.
+
+### Security
+
+- Enforce known peer pins during the TLS handshake, scope join acceptance to
+  the mesh listener, restrict home/temp transfer destinations, and require
+  authentication for every BridgePanel write.
+- BridgePanel accepts bearer tokens, no longer prints tokenized startup URLs,
+  and resolves local inbox paths with symlink-aware containment.
+
+### Privacy
+
+- Support private join-token input, redact common command secrets from session
+  persistence and logs, restrict persisted-session permissions, truncate TLS
+  identity logging, and default operational logs to `info`.
+
+### Reliability
+
+- Preserve sockets for live but slow session workers, replace worker `select`
+  calls with `poll`, make frame retries cancellation-aware, and ensure the
+  busy-operation watchdog is always timestamped.
+
 ## 26.08.26-r2
 
 Shell survival + selector fixes.

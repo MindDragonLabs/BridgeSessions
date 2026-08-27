@@ -231,6 +231,47 @@ inline bool is_sensitive_mesh_path(std::string_view path) {
     return false;
 }
 
+inline std::string redact_secrets(std::string text) {
+    auto redact_value = [&](std::string_view marker) {
+        std::string lower = text;
+        std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) {
+            return static_cast<char>(std::tolower(c));
+        });
+        std::string needle(marker);
+        std::transform(needle.begin(), needle.end(), needle.begin(), [](unsigned char c) {
+            return static_cast<char>(std::tolower(c));
+        });
+        size_t pos = 0;
+        while ((pos = lower.find(needle, pos)) != std::string::npos) {
+            const size_t value_begin = pos + marker.size();
+            size_t value_end = value_begin;
+            while (value_end < text.size() && !std::isspace(
+                       static_cast<unsigned char>(text[value_end])) &&
+                   text[value_end] != '&' && text[value_end] != ';' &&
+                   text[value_end] != ',' && text[value_end] != '"' &&
+                   text[value_end] != '\'') {
+                ++value_end;
+            }
+            text.replace(value_begin, value_end - value_begin, "[REDACTED]");
+            lower.replace(value_begin, value_end - value_begin, "[redacted]");
+            pos = value_begin + 10;
+        }
+    };
+    for (std::string_view marker : {"token=", "password=", "passwd=", "api_key=", "secret=",
+                                    "authorization: bearer "})
+        redact_value(marker);
+    const std::string begin = "-----BEGIN PRIVATE KEY-----";
+    const std::string end = "-----END PRIVATE KEY-----";
+    size_t pos = 0;
+    while ((pos = text.find(begin, pos)) != std::string::npos) {
+        size_t finish = text.find(end, pos + begin.size());
+        finish = finish == std::string::npos ? text.size() : finish + end.size();
+        text.replace(pos, finish - pos, "[REDACTED PRIVATE KEY]");
+        pos += 22;
+    }
+    return text;
+}
+
 [[nodiscard]] inline std::string private_tmp_dir(const std::string& app_home = {});
 [[nodiscard]] inline std::string create_private_temp_file(
     const std::string& prefix,
@@ -2437,15 +2478,18 @@ inline std::string verify_bytes_hex(const std::vector<uint8_t>& b) {
     return s;
 }
 
-// When true (set by `bs invite`), the server accepts TLS from unknown peers
-// so they can send a JoinRequest. The JoinRequest handler validates the invite
-// token and adds the peer to authorized_keys. Without this, the TLS handshake
-// blocks unknown peers before they can present their invite token.
-inline std::atomic<bool> g_allow_join_connections{false};
+struct ServerVerifyContext {
+    AuthorizedKeys* auth = nullptr;
+    std::atomic<bool>* allow_join_connections = nullptr;
+};
+
+int expected_peer_pubkey_index();
 
 // Server: verifies client's ed25519 raw public key against authorized_keys (R4.1: reloads per-accept)
 int server_cert_verify_cb(X509_STORE_CTX* ctx, void* arg) {
-    auto* auth = static_cast<AuthorizedKeys*>(arg);
+    auto* verify = static_cast<ServerVerifyContext*>(arg);
+    if (!verify || !verify->auth) return 0;
+    auto* auth = verify->auth;
     auth->reload();  // R4.1: pick up key additions/revocations without restart
     X509* cert = X509_STORE_CTX_get0_cert(ctx);
     if (!cert) return 0;
@@ -2455,19 +2499,20 @@ int server_cert_verify_cb(X509_STORE_CTX* ctx, void* arg) {
     if (raw.empty()) return 0;
     std::string pk_hex = verify_bytes_hex(raw);
     if (auth->contains(raw)) {
-        log_event("tls_verify_server", pk_hex + " result=accept");  // R1.1
+        log_event("tls_verify_server", pk_hex.substr(0, 12) + " result=accept");  // R1.1
         X509_STORE_CTX_set_error(ctx, X509_V_OK);
         return 1;
     }
     // Join window open: accept unknown peers so they can present an invite token.
     // The JoinRequest handler validates the token; without a valid token the
     // connection is dropped after the join exchange (no session is created).
-    if (g_allow_join_connections.load(std::memory_order_relaxed)) {
-        log_event("tls_verify_server", pk_hex + " result=accept (join window)");
+    if (verify->allow_join_connections &&
+        verify->allow_join_connections->load(std::memory_order_relaxed)) {
+        log_event("tls_verify_server", pk_hex.substr(0, 12) + " result=accept (join window)");
         X509_STORE_CTX_set_error(ctx, X509_V_OK);
         return 1;
     }
-    log_event("tls_verify_server", pk_hex + " result=reject");  // R1.1
+    log_event("tls_verify_server", pk_hex.substr(0, 12) + " result=reject");  // R1.1
     return 0;
 }
 
@@ -2485,17 +2530,48 @@ int client_cert_verify_cb(X509_STORE_CTX* ctx, void* arg) {
         snprintf(h, sizeof(h), "%02x", md[i]);
         fp += h;
     }
-    if ((*cb)(fp)) {
-        log_event("tls_verify_client", fp + " result=accept");  // R1.2
+    SSL* ssl = static_cast<SSL*>(X509_STORE_CTX_get_ex_data(
+        ctx, SSL_get_ex_data_X509_STORE_CTX_idx()));
+    auto* expected = ssl ? static_cast<std::string*>(
+        SSL_get_ex_data(ssl, expected_peer_pubkey_index())) : nullptr;
+    EVP_PKEY* cert_key = X509_get0_pubkey(cert);
+    const std::string actual_pubkey = cert_key ? verify_bytes_hex(extract_raw_pubkey(cert_key)) : "";
+    const bool accepted = expected && !expected->empty()
+        ? actual_pubkey == *expected
+        : (*cb)(fp);
+    if (accepted) {
+        log_event("tls_verify_client", fp.substr(0, 12) + " result=accept");  // R1.2
         X509_STORE_CTX_set_error(ctx, X509_V_OK);
         return 1;
     }
-    log_event("tls_verify_client", fp + " result=reject");  // R1.2
+    log_event("tls_verify_client", fp.substr(0, 12) + " result=reject");  // R1.2
     return 0;
 }
 
 void free_owned_authorized_keys(void*, void* ptr, CRYPTO_EX_DATA*, int, long, void*) {
     delete static_cast<AuthorizedKeys*>(ptr);
+}
+
+void free_server_verify_context(void*, void* ptr, CRYPTO_EX_DATA*, int, long, void*) {
+    delete static_cast<ServerVerifyContext*>(ptr);
+}
+
+void free_expected_peer_pubkey(void*, void* ptr, CRYPTO_EX_DATA*, int, long, void*) {
+    delete static_cast<std::string*>(ptr);
+}
+
+int expected_peer_pubkey_index() {
+    static const int index = SSL_get_ex_new_index(
+        0, nullptr, nullptr, nullptr, free_expected_peer_pubkey);
+    return index;
+}
+
+inline bool set_expected_peer_pubkey(SSL* ssl, const std::string& expected) {
+    if (!ssl) return false;
+    auto value = std::make_unique<std::string>(expected);
+    if (SSL_set_ex_data(ssl, expected_peer_pubkey_index(), value.get()) != 1) return false;
+    (void)value.release();
+    return true;
 }
 
 void free_owned_tofu_callback(void*, void* ptr, CRYPTO_EX_DATA*, int, long, void*) {
@@ -2505,6 +2581,12 @@ void free_owned_tofu_callback(void*, void* ptr, CRYPTO_EX_DATA*, int, long, void
 int owned_authorized_keys_index() {
     static const int index = SSL_CTX_get_ex_new_index(
         0, nullptr, nullptr, nullptr, free_owned_authorized_keys);
+    return index;
+}
+
+int server_verify_context_index() {
+    static const int index = SSL_CTX_get_ex_new_index(
+        0, nullptr, nullptr, nullptr, free_server_verify_context);
     return index;
 }
 
@@ -2626,7 +2708,8 @@ void bootstrap_identity(const std::string& home_dir) {
 
 SslCtxPtr create_node_tls(const NodeTlsConfig& cfg, TlsMode mode,
                           AuthorizedKeys* auth_storage = nullptr,
-                          std::function<bool(const std::string&)>* tofu_storage = nullptr) {
+                          std::function<bool(const std::string&)>* tofu_storage = nullptr,
+                          std::atomic<bool>* allow_join_connections = nullptr) {
     SslCtxPtr ctx;
 
     if (mode == TlsMode::Listen) {
@@ -2678,7 +2761,14 @@ SslCtxPtr create_node_tls(const NodeTlsConfig& cfg, TlsMode mode,
         }
         if (!cfg.authorized_keys_file.empty())
             auth->load_from_file(cfg.authorized_keys_file);
-        SSL_CTX_set_cert_verify_callback(ctx.get(), server_cert_verify_cb, auth);
+        auto verify = std::make_unique<ServerVerifyContext>();
+        verify->auth = auth;
+        verify->allow_join_connections = allow_join_connections;
+        const int verify_index = server_verify_context_index();
+        if (verify_index < 0 || SSL_CTX_set_ex_data(ctx.get(), verify_index, verify.get()) != 1)
+            throw std::runtime_error("attach server verify callback storage failed");
+        SSL_CTX_set_cert_verify_callback(ctx.get(), server_cert_verify_cb, verify.get());
+        (void)verify.release();
 
         // TLS session cache — reuse sessions across reconnects
         SSL_CTX_set_session_cache_mode(ctx.get(), SSL_SESS_CACHE_SERVER);
@@ -2735,9 +2825,14 @@ void ssl_check(int ret, SSL* ssl, const char* op) {
 // split across records can surface WANT_READ mid-frame (observed pulling 1 MiB
 // from a Windows peer: transfer died on the first record boundary). Retry
 // briefly instead of tearing the connection down; the budget caps the stall.
-inline bool ssl_want_retry(SSL* ssl, int ret, int& budget) {
+inline thread_local const std::atomic<bool>* g_frame_io_cancelled = nullptr;
+
+inline bool ssl_want_retry(SSL* ssl, int ret, int& budget,
+                           const std::atomic<bool>* cancelled = nullptr) {
+    if (!cancelled) cancelled = g_frame_io_cancelled;
     int err = SSL_get_error(ssl, ret);
     if (err != SSL_ERROR_WANT_READ && err != SSL_ERROR_WANT_WRITE) return false;
+    if (cancelled && cancelled->load(std::memory_order_relaxed)) return false;
     if (--budget <= 0) return false;
     // Plain sleep (no select): this header's SOCKET/select compat layer is
     // defined further down, and 25 ms granularity is plenty for frame I/O.
@@ -2745,7 +2840,8 @@ inline bool ssl_want_retry(SSL* ssl, int ret, int& budget) {
     return true;
 }
 
-Message read_frame(SSL* ssl) {
+Message read_frame(SSL* ssl, const std::atomic<bool>* cancelled = nullptr) {
+    if (!cancelled) cancelled = g_frame_io_cancelled;
     int want_budget = 400;  // 400 x 25 ms = 10 s worst-case mid-frame stall
     // Read minimum header (6 bytes); extend to 8 if FLAG_LENGTH_U32.
     uint8_t header[FRAME_HEADER_SIZE_U32];
@@ -2754,7 +2850,7 @@ Message read_frame(SSL* ssl) {
         size_t n = 0;
         clear_stale_ssl_errors_before_io();
         int ret = SSL_read_ex(ssl, header + total, FRAME_HEADER_SIZE_U16 - total, &n);
-        if (ret <= 0 && ssl_want_retry(ssl, ret, want_budget)) continue;
+        if (ret <= 0 && ssl_want_retry(ssl, ret, want_budget, cancelled)) continue;
         ssl_check(ret, ssl, "SSL_read header");
         total += n;
     }
@@ -2765,7 +2861,7 @@ Message read_frame(SSL* ssl) {
             size_t n = 0;
             clear_stale_ssl_errors_before_io();
             int ret = SSL_read_ex(ssl, header + total, FRAME_HEADER_SIZE_U32 - total, &n);
-            if (ret <= 0 && ssl_want_retry(ssl, ret, want_budget)) continue;
+            if (ret <= 0 && ssl_want_retry(ssl, ret, want_budget, cancelled)) continue;
             ssl_check(ret, ssl, "SSL_read u32 header");
             total += n;
         }
@@ -2786,7 +2882,7 @@ Message read_frame(SSL* ssl) {
             size_t n = 0;
             clear_stale_ssl_errors_before_io();
             int ret = SSL_read_ex(ssl, raw.data() + hdr_size + total, length - total, &n);
-            if (ret <= 0 && ssl_want_retry(ssl, ret, want_budget)) continue;
+            if (ret <= 0 && ssl_want_retry(ssl, ret, want_budget, cancelled)) continue;
             ssl_check(ret, ssl, "SSL_read payload");
             total += n;
         }
@@ -2864,7 +2960,9 @@ inline uint32_t detect_frame_length(const uint8_t* data, size_t available) {
 }
 
 void write_frame(SSL* ssl, const Message& msg, uint16_t stream_id,
-                 bool allow_large = false) {
+                 bool allow_large = false,
+                 const std::atomic<bool>* cancelled = nullptr) {
+    if (!cancelled) cancelled = g_frame_io_cancelled;
     auto frame = encode(msg, stream_id, allow_large);
 
     size_t total = 0;
@@ -2876,6 +2974,8 @@ void write_frame(SSL* ssl, const Message& msg, uint16_t stream_id,
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
 
     while (total < frame.size() && retries < max_retries) {
+        if (cancelled && cancelled->load(std::memory_order_relaxed))
+            throw std::runtime_error("SSL_write cancelled");
         size_t n = 0;
         clear_stale_ssl_errors_before_io();
         int ret = SSL_write_ex(ssl, frame.data() + total, frame.size() - total, &n);
@@ -2890,6 +2990,7 @@ void write_frame(SSL* ssl, const Message& msg, uint16_t stream_id,
         if (err == SSL_ERROR_WANT_WRITE || err == SSL_ERROR_WANT_READ) {
             // P2: bounded by 30s deadline — fail instead of looping forever.
             if (std::chrono::steady_clock::now() >= deadline) break;
+            if (cancelled && cancelled->load(std::memory_order_relaxed)) break;
             ++retries;
             std::this_thread::sleep_for(backoff);
             backoff = std::min(backoff * 2, max_backoff);
@@ -5546,9 +5647,26 @@ struct OutboundPeerVerifyResult {
         roots.emplace_back("/tmp");
 #endif
     }
-    for (const auto& root : roots) {
+    const std::string receive_root = expand_home(receive_dir);
+    if (!receive_root.empty() && path_is_inside_directory(candidate, receive_root))
+        return candidate;
+    for (size_t root_index = 1; root_index < roots.size(); ++root_index) {
+        const auto& root = roots[root_index];
         if (root.empty()) continue;
-        if (path_is_inside_directory(candidate, root)) return candidate;
+        if (!path_is_inside_directory(candidate, root)) continue;
+        std::error_code ec;
+        auto rel = std::filesystem::weakly_canonical(candidate, ec).lexically_relative(
+            std::filesystem::weakly_canonical(root, ec));
+        if (ec || rel.empty()) return std::nullopt;
+        bool hidden_component = false;
+        for (const auto& component : rel) {
+            const std::string part = component.string();
+            if (part.size() > 1 && part[0] == '.') {
+                hidden_component = true;
+                break;
+            }
+        }
+        if (!hidden_component) return candidate;
     }
     return std::nullopt;
 }
@@ -6312,7 +6430,7 @@ inline bool save_sessions(const std::string& path,
         nlohmann::json entry;
         entry["name"] = s.name;
         entry["owner_id"] = s.owner_id;
-        entry["command"] = s.command;
+        entry["command"] = redact_secrets(s.command);
         entry["state"] = s.state;
         entry["created_at"] = s.created_at;
         j.push_back(entry);
@@ -6325,6 +6443,10 @@ inline bool save_sessions(const std::string& path,
         f << "v1:plain\n" << plain << '\n';
         f.flush();
         if (!f) { std::filesystem::remove(tmp); return false; }
+    }
+    if (!restrict_private_file_permissions(tmp)) {
+        std::filesystem::remove(tmp);
+        return false;
     }
     std::error_code ec;
     std::filesystem::rename(tmp, path, ec);
@@ -8659,6 +8781,9 @@ public:
         return process_join_request(jr, peer_pk);
     }
     void test_close_join_window() { maybe_close_join_window(); }
+    bool test_join_window_open() const {
+        return allow_join_connections_.load(std::memory_order_relaxed);
+    }
     void test_age_join_window(std::chrono::seconds age) {
         std::lock_guard lock(invite_mutex_);
         join_window_opened_at_ = std::chrono::steady_clock::now() - age;
@@ -8703,6 +8828,7 @@ private:
     std::vector<PendingInvite> pending_invites_;
     mutable std::mutex invite_mutex_;
     std::chrono::steady_clock::time_point join_window_opened_at_{};
+    std::atomic<bool> allow_join_connections_{false};
     uint64_t invite_expired_event_count_ = 0;
     // ── Bootstrap enrollment dedupe (flood bound) ─────────────────
     std::unordered_set<std::string> enroll_seen_;
@@ -9290,7 +9416,7 @@ private:
         // in authorized_keys. The JoinRequest handler adds them on success.
         // Window transitions are logged by open/close_join_window_locked(), so
         // this once-per-second path remains silent while onboarding is active.
-        if (g_allow_join_connections.load(std::memory_order_relaxed)) {
+        if (allow_join_connections_.load(std::memory_order_relaxed)) {
             return;
         }
         authorized_keys_.reload();
@@ -9773,11 +9899,11 @@ private:
                             // Join window: allow unknown peers through Hello
                             // verification so they can send a JoinRequest with
                             // a valid invite token. The TLS cert verify
-                            // callback already accepted them (g_allow_join_connections).
+                            // listener callback already accepted them for this join window.
                             // The JoinRequest handler validates the token and
                             // adds them to authorized_keys; without a valid
                             // token the connection is dropped after join.
-                            if (!g_allow_join_connections.load(std::memory_order_relaxed)) {
+                            if (!allow_join_connections_.load(std::memory_order_relaxed)) {
                                 log_event("hello_identity_rejected",
                                           hello.node_name + " reason=" + identity.reason);
                                 ph.state = PendingHandshake::State::Failed;
@@ -9792,7 +9918,7 @@ private:
                         // transition to ReadJoinRequest (not promote) so the
                         // connection stays in pending_handshakes_ (immune to prune).
                         ph.outbound_hello = build_hello();
-                        bool join_window = g_allow_join_connections.load(std::memory_order_relaxed) &&
+                        bool join_window = allow_join_connections_.load(std::memory_order_relaxed) &&
                             !is_trusted_pubkey(ph.peer_pk);
                         int write_want = SSL_ERROR_WANT_WRITE;
                         bool hello_written = write_frame_nonblocking(ph.ssl.get(), ph.outbound_hello,
@@ -9968,6 +10094,9 @@ private:
 
             auto ssl = SslPtr(SSL_new(tls_connect_.get()));
             if (!ssl) { CLOSESOCK(sfd); return false; }
+            if (!set_expected_peer_pubkey(ssl.get(), peer.pubkey_hex)) {
+                CLOSESOCK(sfd); return false;
+            }
             SSL_set_fd(ssl.get(), static_cast<int>(sfd));
             SSL_set_connect_state(ssl.get());
 
@@ -10024,9 +10153,16 @@ private:
                 return false;
             }
 
+            const PeerEntry* pe = find_peer_entry_by_addr(config_, addr);
+            const std::string expected_pk = pe ? pe->pubkey_hex : std::string{};
+            const std::string expected_name = pe ? pe->name : std::string{};
+
             // TLS handshake (client side)
             auto ssl = SslPtr(SSL_new(tls_connect_.get()));
             if (!ssl) { ssl_close(nullptr, sfd); return false; }
+            if (!set_expected_peer_pubkey(ssl.get(), expected_pk)) {
+                ssl_close(nullptr, sfd); return false;
+            }
             SSL_set_fd(ssl.get(), static_cast<int>(sfd));
 
             int ret = ssl_connect_blocking(ssl.get(), sfd, outbound_connect_timeout_ms_);
@@ -10048,10 +10184,6 @@ private:
             std::string peer_pk = peer_public_key_hex(ssl.get());
             if (peer_pk.empty()) { ssl_close(ssl.get(), sfd); return false; }
 
-            // Look up configured pin for this dial target (seed/discovered).
-            const PeerEntry* pe = find_peer_entry_by_addr(config_, addr);
-            const std::string expected_pk = pe ? pe->pubkey_hex : std::string{};
-            const std::string expected_name = pe ? pe->name : std::string{};
             // Seeds always require pins when require_seed_pins; discovered same.
             const bool require_pin = config_.require_seed_pins;
 
@@ -11152,6 +11284,7 @@ private:
         }
         if (!target) return "ERROR no conn to " + peer_name;
         if (target->exec_busy->exchange(true)) return "ERROR peer busy with another transfer, retry";
+        target->exec_started_at = std::chrono::steady_clock::now();
         target->exec_completed->store(false);
         struct BusyGuard {
             std::shared_ptr<std::atomic<bool>> busy;
@@ -11161,7 +11294,6 @@ private:
                 if (busy) busy->store(false);
             }
         } guard{target->exec_busy, target->exec_completed};
-        target->exec_started_at = std::chrono::steady_clock::now();
         target->exec_last_progress_at->store(
             std::chrono::steady_clock::now().time_since_epoch().count());
         return file_send_wait_on_transport(target->ssl.get(), target->sock_fd, local_path, {}, on_progress,
@@ -11170,6 +11302,13 @@ private:
 
     // v2.0.6: dispatch entry point for long-operation worker pool.
     void execute_long_operation_task(const LongOperationTask& task) {
+        struct FrameCancellationGuard {
+            const std::atomic<bool>* previous = g_frame_io_cancelled;
+            explicit FrameCancellationGuard(const std::atomic<bool>* current) {
+                g_frame_io_cancelled = current;
+            }
+            ~FrameCancellationGuard() { g_frame_io_cancelled = previous; }
+        } frame_cancel_guard{task.cancelled.get()};
         auto progress_to_ipc = [&](const std::string& line) {
             // Refresh the shared "last progress" timestamp on every transfer
             // progress tick. The exec watchdog (check_stale_exec) measures the
@@ -11506,6 +11645,7 @@ private:
         }
         if (!target) return "ERROR no conn to " + peer_name;
         if (target->exec_busy->exchange(true)) return "ERROR peer busy with another transfer, retry";
+        target->exec_started_at = std::chrono::steady_clock::now();
         target->exec_completed->store(false);
         struct BusyGuard {
             std::shared_ptr<std::atomic<bool>> busy;
@@ -11515,7 +11655,6 @@ private:
                 if (busy) busy->store(false);
             }
         } guard{target->exec_busy, target->exec_completed};
-        target->exec_started_at = std::chrono::steady_clock::now();
         target->exec_last_progress_at->store(
             std::chrono::steady_clock::now().time_since_epoch().count());
         return file_recv_wait_on_transport(target->ssl.get(), target->sock_fd, remote_path, local_dest, receive_dir_, {}, on_progress);
@@ -12353,14 +12492,14 @@ public:
     static constexpr auto kInviteTtl = std::chrono::hours(2);
 
     void open_join_window_locked(std::chrono::steady_clock::time_point now) {
-        if (!g_allow_join_connections.exchange(true, std::memory_order_relaxed)) {
+        if (!allow_join_connections_.exchange(true, std::memory_order_relaxed)) {
             join_window_opened_at_ = now;
             log_debug_event("prune_skip_join_window", "state=open");
         }
     }
 
     void close_join_window_locked(const char* reason) {
-        if (g_allow_join_connections.exchange(false, std::memory_order_relaxed)) {
+        if (allow_join_connections_.exchange(false, std::memory_order_relaxed)) {
             join_window_opened_at_ = {};
             log_debug_event("prune_skip_join_window",
                             std::string("state=closed reason=") + reason);
@@ -12388,7 +12527,7 @@ public:
         std::lock_guard lock(invite_mutex_);
         auto now = std::chrono::steady_clock::now();
         expire_pending_invites_locked(now);
-        if (!g_allow_join_connections.load(std::memory_order_relaxed)) return;
+        if (!allow_join_connections_.load(std::memory_order_relaxed)) return;
         const auto max_window = std::chrono::seconds(config_.join_window_max_secs);
         if (join_window_opened_at_ != std::chrono::steady_clock::time_point{} &&
             now - join_window_opened_at_ >= max_window) {
@@ -12685,7 +12824,7 @@ public:
                         cmd = prepare_session_command(
                             {sig.process, SessionCommandSource::ClientOverride});
                     }
-                    log_event("session_restart", cmd + " on " + sess->name);
+                    log_event("session_restart", redact_secrets(cmd) + " on " + sess->name);
                     // Kill the old child and release every PTY resource before
                     // installing the replacement handles.
 #ifdef _WIN32
@@ -12771,9 +12910,9 @@ public:
                         sess->generation = new_sess->generation;
                         sess->last_output_at = new_sess->last_output_at;
                         sess->state = SessionState::Attached;
-                        log_event("session_restart_ok", cmd + " respawned ok");
+                        log_event("session_restart_ok", redact_secrets(cmd) + " respawned ok");
                     } else {
-                        log_event("session_restart_failed", "cannot spawn: " + cmd);
+                        log_event("session_restart_failed", "cannot spawn: " + redact_secrets(cmd));
                         sess->state = SessionState::Died;
                     }
                 }
@@ -13972,7 +14111,8 @@ public:
         listen_cfg.cert_file = cert_path;
         listen_cfg.key_file = key_path;
         listen_cfg.authorized_keys_file = resolve_under_app_home(config_.authorized_keys_path, app_home);
-        tls_listen_ = create_node_tls(listen_cfg, TlsMode::Listen, &authorized_keys_);
+        tls_listen_ = create_node_tls(listen_cfg, TlsMode::Listen, &authorized_keys_, nullptr,
+                                      &allow_join_connections_);
 
         NodeTlsConfig connect_cfg;
         connect_cfg.cert_file = cert_path;
@@ -15359,9 +15499,13 @@ public:
         // Restore persisted session metadata, then re-adopt live session
         // workers whose shells survived our restart/upgrade. Sessions with no
         // live worker stay Recoverable (reattach = fresh shell, as before).
-        try { sessions_.load_persisted_sessions(); } catch (...) {}
+        try { sessions_.load_persisted_sessions(); }
+        catch (const std::exception& e) { log_event("session_load_failed", e.what()); }
+        catch (...) { log_event("session_load_failed", "unknown error"); }
 #ifndef _WIN32
-        try { sessions_.adopt_workers(); } catch (...) {}
+        try { sessions_.adopt_workers(); }
+        catch (const std::exception& e) { log_event("session_adopt_failed", e.what()); }
+        catch (...) { log_event("session_adopt_failed", "unknown error"); }
 #endif
 
         // Boot-time network readiness gate: wait for at least one seed before
@@ -15584,7 +15728,9 @@ public:
         }
 
         // P1 fix: persist sessions on graceful shutdown
-        try { sessions_.save_persisted_sessions(); } catch (...) {}
+        try { sessions_.save_persisted_sessions(); }
+        catch (const std::exception& e) { log_event("session_save_failed", e.what()); }
+        catch (...) { log_event("session_save_failed", "unknown error"); }
     }
 
     // ── mDNS LAN discovery ─────────────────────────────────────
@@ -15928,6 +16074,9 @@ public:
         }
         auto ssl = SslPtr(SSL_new(tls_connect_.get()));
         if (!ssl) { ssl_close(nullptr, sfd); out.fail = ConnectFailReason::TlsRejected; return out; }
+        if (!set_expected_peer_pubkey(ssl.get(), expected_pubkey)) {
+            ssl_close(nullptr, sfd); out.fail = ConnectFailReason::TlsRejected; return out;
+        }
         SSL_set_fd(ssl.get(), (int)sfd);
         {
             int rc = ssl_connect_blocking(ssl.get(), sfd, outbound_connect_timeout_ms_);

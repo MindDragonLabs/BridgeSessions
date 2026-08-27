@@ -139,3 +139,48 @@ The release script refuses to publish when any of the checks above would fail. T
 - `release-checksums.sh` validated 5 artifacts; `prepublish-scan.sh` clean
   (WARN-only, same shape as beta7). `github-release.sh` published and remote
   digests verified equal to local SHA256SUMS.
+
+## Release record — v26.08.26-r2 (2026-08-26)
+
+- Tag `v26.08.26-r2` → commit `134174d` (same commit as `main` tip; the tag is
+  the current shipping release).
+- Published as a GitHub **pre-release** on 2026-08-26 23:00:09Z (created
+  22:08:46Z). Full changelog: `v26.08.26-r1...v26.08.26-r2`.
+- 6 assets: `bridgesessions-26.08.26-r2-source.tar.gz`,
+  `bridgesessions-26.08.26-r2-source.zip`, `bridgesessions-linux-x86_64`,
+  `bridgesessions-windows-x86_64.exe`, `SBOM-binaries.json`, `SHA256SUMS`.
+- Content: session-worker hosting (shells survive daemon restart/upgrade),
+  Ctrl-D detach + TUI-mode reset on transport loss, `bs connect` selector fixes,
+  self-connect guard, `bs shell -i` interactive path, `scripts/build-local.sh`.
+- Build/provenance: same build hosts and toolchain as r1 (Linux x86_64 +
+  Windows x86_64 on the `bs-static-builder` Docker + MinGW cross toolchain,
+  macOS arm64 on the signing host). `prepublish-scan.sh` clean; fleet hostnames
+  scrubbed from provenance/build-local before publish.
+
+## Release record — v26.08.27-r1 (2026-08-27)
+
+- **Not yet tagged or published.** Working-tree changes on top of `main` tip
+  `134174d` (the `v26.08.26-r2` commit). `VERSION` = `26.08.27-r1`. This record
+  is written before tag/publish; update it with the final tag commit and GitHub
+  release times when the release ships.
+- Content: security, privacy, and reliability hardening (see `CHANGELOG.md`
+  `## 26.08.27-r1`):
+  - **Security:** TLS handshake enforces known peer pins; join-window cert
+    acceptance scoped to the mesh listener (per-listener context, not a
+    process-global); home/temp transfer destinations moved to an allowlist
+    posture with hidden-path denial; BridgePanel requires auth on every write,
+    accepts bearer tokens, no longer prints tokenized startup URLs, and uses
+    symlink-aware path containment for local inbox resolution.
+  - **Privacy:** join token accepted via stdin/`--token-file` (argv form kept but
+    deprecated); command secrets redacted from session persistence and logs;
+    persisted-session store restricted to 0600; TLS identity logging truncated
+    to 12 hex chars; operational logs default to `info` with a sink-level
+    redaction hook (`BRIDGESESSIONS_LOG_LEVEL`).
+  - **Reliability:** slow session-worker READY responses retried with liveness
+    probe before socket unlink (no orphan shells); worker `select`/`FD_SET`
+    replaced with `poll`/`WSAPoll`; frame read/write retries are
+    cancellation-aware; stale-exec watchdog always timestamped; silent catch
+    blocks around persistence/adoption now log/report.
+- Verification: full build passes; full test suite **490/490 (100%)** on the
+  macOS arm64 signing host (Codex sandbox reported 34 loopback-socket tests as
+  blocked — those pass outside the sandbox).

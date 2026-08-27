@@ -270,14 +270,27 @@ class BridgePanelHandler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         parts = parsed.path.split("/")
         trusted_ips = getattr(self.server, "trusted_ips", set())
-        has_token = len(parts) >= 2 and __import__("secrets").compare_digest(parts[1], self.token)
+        auth_header = self.headers.get("Authorization", "")
+        scheme, _, bearer = auth_header.partition(" ")
+        has_bearer = (
+            scheme.lower() == "bearer"
+            and bool(bearer)
+            and __import__("secrets").compare_digest(bearer, self.token)
+        )
+        has_path_token = (
+            len(parts) >= 2
+            and __import__("secrets").compare_digest(parts[1], self.token)
+        )
+        has_token = has_bearer or has_path_token
         if self.client_address[0] in trusted_ips and not require_token:
-            if has_token:
+            if has_path_token:
                 parts = [""] + parts[2:]
             return "/" + "/".join(parts[1:]), parsed.query
         if not has_token:
             return None
-        return "/" + "/".join(parts[2:]), parsed.query
+        if has_path_token:
+            parts = [""] + parts[2:]
+        return "/" + "/".join(parts[1:]), parsed.query
 
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
@@ -424,8 +437,7 @@ class BridgePanelHandler(BaseHTTPRequestHandler):
             self.reject(HTTPStatus.NOT_FOUND, "Not found")
 
     def do_POST(self) -> None:
-        # Trusted tailnet IPs may write without the URL token (same rule as GET).
-        auth = self.authorized_path(require_token=False)
+        auth = self.authorized_path(require_token=True)
         if not auth:
             self.reject(HTTPStatus.NOT_FOUND, "Not found")
             return

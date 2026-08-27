@@ -22,6 +22,14 @@
 
 using namespace bs::mesh;
 
+static std::filesystem::path make_temp_home() {
+    auto path = std::filesystem::temp_directory_path() /
+        ("bs_join_regression_" + std::to_string(
+            std::chrono::steady_clock::now().time_since_epoch().count()));
+    std::filesystem::create_directories(path);
+    return path;
+}
+
 int main(int argc, char* argv[]) {
     return Catch::Session().run(argc, argv);
 }
@@ -163,28 +171,26 @@ TEST_CASE("Invite token is 32-char hex", "[regression][invite][format]") {
 
 
 // ════════════════════════════════════════════════════════════════
-// Join window lifecycle (g_allow_join_connections)
+// Join window lifecycle (per listener/controller)
 // ════════════════════════════════════════════════════════════════
 
 TEST_CASE("Join window opens when invite is added", "[regression][join-window]") {
-    g_allow_join_connections.store(false, std::memory_order_relaxed);
-    REQUIRE(!g_allow_join_connections.load(std::memory_order_relaxed));
-
-    // Simulate invite generation
-    g_allow_join_connections.store(true, std::memory_order_relaxed);
-    REQUIRE(g_allow_join_connections.load(std::memory_order_relaxed));
-
-    // Cleanup
-    g_allow_join_connections.store(false, std::memory_order_relaxed);
+    const auto home = make_temp_home();
+    MeshController controller(MeshConfig{}, home.string());
+    REQUIRE_FALSE(controller.test_join_window_open());
+    controller.test_add_invite("invite");
+    REQUIRE(controller.test_join_window_open());
+    std::filesystem::remove_all(home);
 }
 
 TEST_CASE("Join window auto-closes when all invites claimed/expired", "[regression][join-window]") {
-    g_allow_join_connections.store(true, std::memory_order_relaxed);
-    REQUIRE(g_allow_join_connections.load(std::memory_order_relaxed));
-
-    // Close window (simulates maybe_close_join_window with no unclaimed invites)
-    g_allow_join_connections.store(false, std::memory_order_relaxed);
-    REQUIRE(!g_allow_join_connections.load(std::memory_order_relaxed));
+    const auto home = make_temp_home();
+    MeshController controller(MeshConfig{}, home.string());
+    controller.test_add_invite("expired", std::chrono::hours(3));
+    REQUIRE(controller.test_join_window_open());
+    controller.test_close_join_window();
+    REQUIRE_FALSE(controller.test_join_window_open());
+    std::filesystem::remove_all(home);
 }
 
 // ════════════════════════════════════════════════════════════════

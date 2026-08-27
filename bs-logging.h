@@ -16,14 +16,54 @@
 #include <spdlog/sinks/rotating_file_sink.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/async.h>
+#include <spdlog/sinks/sink.h>
 
 #include <filesystem>
 #include <memory>
 #include <mutex>
 #include <string>
 #include <vector>
+#include <algorithm>
+#include <cctype>
+#include <cstdlib>
 
 namespace bs::log {
+
+inline std::string redact(std::string text) {
+    auto redact_value = [&](std::string_view marker) {
+        std::string lower = text;
+        std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) {
+            return static_cast<char>(std::tolower(c));
+        });
+        std::string needle(marker);
+        std::transform(needle.begin(), needle.end(), needle.begin(), [](unsigned char c) {
+            return static_cast<char>(std::tolower(c));
+        });
+        size_t pos = 0;
+        while ((pos = lower.find(needle, pos)) != std::string::npos) {
+            const size_t begin = pos + marker.size();
+            size_t end = begin;
+            while (end < text.size() && !std::isspace(static_cast<unsigned char>(text[end])) &&
+                   text[end] != '&' && text[end] != ';' && text[end] != ',' &&
+                   text[end] != '"' && text[end] != '\'') ++end;
+            text.replace(begin, end - begin, "[REDACTED]");
+            lower.replace(begin, end - begin, "[redacted]");
+            pos = begin + 10;
+        }
+    };
+    for (std::string_view marker : {"token=", "password=", "passwd=", "api_key=", "secret=",
+                                    "authorization: bearer "}) redact_value(marker);
+    const std::string begin_marker = "-----BEGIN PRIVATE KEY-----";
+    const std::string end_marker = "-----END PRIVATE KEY-----";
+    size_t pos = 0;
+    while ((pos = text.find(begin_marker, pos)) != std::string::npos) {
+        size_t end = text.find(end_marker, pos + begin_marker.size());
+        end = end == std::string::npos ? text.size() : end + end_marker.size();
+        text.replace(pos, end - pos, "[REDACTED PRIVATE KEY]");
+        pos += 22;
+    }
+    return text;
+}
 
 // ── Constants ────────────────────────────────────────────────────
 inline constexpr size_t kMaxFileSize   = 5 * 1024 * 1024;  // 5 MB
@@ -32,6 +72,41 @@ inline constexpr size_t kQueueSize     = 8192;              // async queue items
 
 // ── Internal state ───────────────────────────────────────────────
 namespace detail {
+
+class RedactingSink final : public spdlog::sinks::sink {
+public:
+    explicit RedactingSink(spdlog::sink_ptr target) : target_(std::move(target)) {}
+    void log(const spdlog::details::log_msg& msg) override {
+        std::string clean = redact(std::string(msg.payload.data(), msg.payload.size()));
+        spdlog::details::log_msg safe(msg.logger_name, msg.level, clean);
+        safe.time = msg.time;
+        safe.thread_id = msg.thread_id;
+        target_->log(safe);
+    }
+    void flush() override { target_->flush(); }
+    void set_pattern(const std::string& pattern) override { target_->set_pattern(pattern); }
+    void set_formatter(std::unique_ptr<spdlog::formatter> sink_formatter) override {
+        target_->set_formatter(std::move(sink_formatter));
+    }
+private:
+    spdlog::sink_ptr target_;
+};
+
+inline spdlog::level::level_enum configured_level() {
+    const char* raw = std::getenv("BRIDGESESSIONS_LOG_LEVEL");
+    if (!raw || !*raw) return spdlog::level::info;
+    std::string level(raw);
+    std::transform(level.begin(), level.end(), level.begin(), [](unsigned char c) {
+        return static_cast<char>(std::tolower(c));
+    });
+    if (level == "trace") return spdlog::level::trace;
+    if (level == "debug") return spdlog::level::debug;
+    if (level == "warn" || level == "warning") return spdlog::level::warn;
+    if (level == "error") return spdlog::level::err;
+    if (level == "critical") return spdlog::level::critical;
+    if (level == "off") return spdlog::level::off;
+    return spdlog::level::info;
+}
 
 struct LogState {
     std::mutex mutex;
@@ -149,13 +224,13 @@ inline void init(const std::string& app_home = {}, bool foreground = false) {
     file_sink->set_pattern("{\"ts\":\"%Y-%m-%dT%H:%M:%S.%eZ\",\"level\":\"%l\","
                            "\"logger\":\"%n\",\"msg\":\"%v\"}");
 
-    s.sinks.push_back(file_sink);
+    s.sinks.push_back(std::make_shared<detail::RedactingSink>(file_sink));
 
     // Console sink: human-readable, only in foreground
     if (foreground) {
         auto console_sink = std::make_shared<spdlog::sinks::stderr_color_sink_mt>();
         console_sink->set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%^%l%$] [%n] %v");
-        s.sinks.push_back(console_sink);
+        s.sinks.push_back(std::make_shared<detail::RedactingSink>(console_sink));
     }
 
     // Create async thread pool for non-blocking file writes
@@ -168,7 +243,7 @@ inline void init(const std::string& app_home = {}, bool foreground = false) {
     s.logger = std::make_shared<spdlog::async_logger>(
         "bs", s.sinks.begin(), s.sinks.end(),
         spdlog::thread_pool(), spdlog::async_overflow_policy::block);
-    s.logger->set_level(spdlog::level::trace);  // capture all; file pattern includes level
+    s.logger->set_level(detail::configured_level());
     s.logger->flush_on(spdlog::level::warn);    // flush on WARN or higher
     spdlog::register_logger(s.logger);
     s.initialized = true;
@@ -206,7 +281,7 @@ inline std::shared_ptr<spdlog::logger> get(const std::string& name) {
         auto named = std::make_shared<spdlog::async_logger>(
             name, s.sinks.begin(), s.sinks.end(),
             spdlog::thread_pool(), spdlog::async_overflow_policy::block);
-        named->set_level(spdlog::level::trace);
+        named->set_level(detail::configured_level());
         spdlog::register_logger(named);
         return named;
     }
@@ -214,7 +289,7 @@ inline std::shared_ptr<spdlog::logger> get(const std::string& name) {
     // Not initialized — return a stderr-only default so calls don't crash
     auto fallback = spdlog::stderr_color_mt(name);
     fallback->set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%^%l%$] [%n] %v");
-    fallback->set_level(spdlog::level::debug);
+    fallback->set_level(detail::configured_level());
     return fallback;
 }
 

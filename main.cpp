@@ -776,11 +776,15 @@ int main(int argc, char** argv) {
     // join
     std::string join_addr;
     std::string join_token;
+    std::string join_token_file;
     bool join_start = false;
     std::string join_node_name;
     auto* join_cmd_app = app.add_subcommand("join", "Join a mesh via invite token");
     join_cmd_app->add_option("addr", join_addr, "Host:port")->required();
-    join_cmd_app->add_option("token", join_token, "Invite token")->required();
+    join_cmd_app->add_option("token", join_token,
+                             "Invite token ('-' reads stdin; argv form is less private)");
+    join_cmd_app->add_option("--token-file", join_token_file,
+                             "Read invite token from file (recommended)");
     join_cmd_app->add_flag("--start", join_start, "Start daemon after joining");
     join_cmd_app->add_option("--node-name", join_node_name, "Node name (default: assigned by host)");
     // image
@@ -1298,6 +1302,30 @@ int main(int argc, char** argv) {
         return 0;
     }
     if (join_cmd_app->parsed()) {
+        if (!join_token_file.empty()) {
+            if (!join_token.empty()) {
+                std::cerr << "join: specify either token or --token-file, not both\n";
+                return 1;
+            }
+            std::ifstream tf(join_token_file);
+            if (!tf || !std::getline(tf, join_token)) {
+                std::cerr << "join: could not read token file\n";
+                return 1;
+            }
+        } else if (join_token == "-") {
+            join_token.clear();
+            if (!std::getline(std::cin, join_token)) {
+                std::cerr << "join: could not read token from stdin\n";
+                return 1;
+            }
+        }
+        while (!join_token.empty() &&
+               (join_token.back() == '\n' || join_token.back() == '\r'))
+            join_token.pop_back();
+        if (join_token.empty()) {
+            std::cerr << "join: invite token required (use '-' or --token-file for private input)\n";
+            return 1;
+        }
         bs::mesh::MeshConfig cfg = bs::mesh::load_config(config_path);
         std::string pubkey_hex;
         {
@@ -1362,6 +1390,10 @@ int main(int argc, char** argv) {
             }
         }
         write_frame(conn.ssl.get(), jr, bs::mesh::CONTROL_STREAM_ID);
+        std::fill(join_token.begin(), join_token.end(), '\0');
+        join_token.clear();
+        std::fill(jr.token.begin(), jr.token.end(), '\0');
+        jr.token.clear();
 
         // Set a 10s receive timeout so we don't block forever if the
         // server's event loop is slow to process the JoinRequest.
@@ -1446,7 +1478,9 @@ int main(int argc, char** argv) {
                         cfg.seeds.push_back(std::move(pe));
                     }
                 }
-            } catch (...) {}
+            } catch (const std::exception& e) {
+                std::cerr << "join: malformed peer_pubkeys_json: " << e.what() << "\n";
+            }
         }
         if (!save_config(config_path, cfg)) {
             std::cerr << "join failed: could not save config to " << config_path << "\n";
@@ -1491,7 +1525,9 @@ int main(int argc, char** argv) {
                                 existing_pks.insert(pkh);
                             }
                         }
-                    } catch (...) {}
+                    } catch (const std::exception& e) {
+                        std::cerr << "join: malformed peer_pubkeys_json: " << e.what() << "\n";
+                    }
                 }
             }
         }
