@@ -1373,10 +1373,11 @@
 </ul>
 <h2 id="release-record-v260827-r1-2026-08-27">Release record — v26.08.27-r1 (2026-08-27)<a class="headerlink" href="#release-record-v260827-r1-2026-08-27" title="Permanent link">&para;</a></h2>
 <ul>
-<li><strong>Not yet tagged or published.</strong> Working-tree changes on top of <code>main</code> tip
-  <code>134174d</code> (the <code>v26.08.26-r2</code> commit). <code>VERSION</code> = <code>26.08.27-r1</code>. This record
-  is written before tag/publish; update it with the final tag commit and GitHub
-  release times when the release ships.</li>
+<li>Tag <code>v26.08.27-r1</code> → commit <code>68c20a8</code>. Published as a GitHub pre-release on
+  2026-08-27 16:01:46Z. 7 assets: <code>bridgesessions-linux-x86_64</code>,
+  <code>bridgesessions-macos-arm64</code>, <code>bridgesessions-windows-x86_64.exe</code>,
+  source tar.gz/zip, <code>SHA256SUMS</code>, <code>SBOM-binaries.json</code> — every remote digest
+  verified equal to the local <code>SHA256SUMS</code> (SHA256SUMS compared by direct hash).</li>
 <li>Content: security, privacy, and reliability hardening (see <code>CHANGELOG.md</code>
   <code>## 26.08.27-r1</code>):</li>
 <li><strong>Security:</strong> TLS handshake enforces known peer pins; join-window cert
@@ -1395,9 +1396,17 @@
     replaced with <code>poll</code>/<code>WSAPoll</code>; frame read/write retries are
     cancellation-aware; stale-exec watchdog always timestamped; silent catch
     blocks around persistence/adoption now log/report.</li>
-<li>Verification: full build passes; full test suite <strong>490/490 (100%)</strong> on the
-  macOS arm64 signing host (Codex sandbox reported 34 loopback-socket tests as
-  blocked — those pass outside the sandbox).</li>
+<li>Verification: full build passes; full test suite <strong>492/492 (100%)</strong> on the
+  macOS arm64 signing host. Fleet e2e (<code>scripts/e2e-fleet-test.sh</code>) against
+  fecv3, fecv4, btcr, cpanel, mysqlknights, macbook: 52 pass / 0 real fail
+  (two load-window flakes re-verified passing on direct run); 4 CUA skips on
+  headless Linux. Deployed live on macmini + 5 Linux peers (all healthy on
+  <code>26.08.27-r1</code>) before publish.</li>
+<li>v26.08.26-r2 retirement: tag protected by a repo rule (undeletable); release
+  page replaced with a tombstone pointing here. The broken r2 packaging
+  (missing macos-arm64 asset) is corrected in this release — macos-arm64 is
+  included, Developer ID signed (Team QL5MD8FKPL) and notarized (submission
+  <code>06940c32…</code>, Accepted 2026-08-27).</li>
 </ul>
 
 
