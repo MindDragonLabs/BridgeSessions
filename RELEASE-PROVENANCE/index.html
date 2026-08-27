@@ -1398,10 +1398,10 @@
     blocks around persistence/adoption now log/report.</li>
 <li>Verification: full build passes; full test suite <strong>492/492 (100%)</strong> on the
   macOS arm64 signing host. Fleet e2e (<code>scripts/e2e-fleet-test.sh</code>) against
-  fecv3, fecv4, btcr, cpanel, mysqlknights, macbook: 52 pass / 0 real fail
+  Linux mesh peers 1–5 and a macOS mesh peer: 52 pass / 0 real fail
   (two load-window flakes re-verified passing on direct run); 4 CUA skips on
-  headless Linux. Deployed live on macmini + 5 Linux peers (all healthy on
-  <code>26.08.27-r1</code>) before publish.</li>
+  headless Linux. Deployed live on the primary macOS build host + 5 Linux peers
+  (all healthy on <code>26.08.27-r1</code>) before publish.</li>
 <li>v26.08.26-r2 retirement: tag protected by a repo rule (undeletable); release
   page replaced with a tombstone pointing here. The broken r2 packaging
   (missing macos-arm64 asset) is corrected in this release — macos-arm64 is
