@@ -31,6 +31,14 @@ BS_E2E_PEERS="linux-peer,macos-peer,windows-peer" \
 
 Pass live peer names through arguments or environment variables. Never hardcode a private fleet in the repository. The peer list is sanitized at the script boundary; the runner redacts operator paths, addresses, and hostnames from the JSON summary.
 
+### `BS_E2E_PEERS`
+
+`BS_E2E_PEERS` selects the live mesh peers used by the E2E scripts and runner. Set it to a comma-separated list of configured peer names.
+
+```bash
+BS_E2E_PEERS="linux-peer,macos-peer" scripts/e2e-fleet-test.sh
+```
+
 ## Peer discovery
 
 `scripts/e2e-fleet-test.sh --discover` walks the configured mesh and lists every peer that responds to `bs health`. Use the output to compose a `BS_E2E_PEERS` list. Discovery never opens a write path; it is read-only.
