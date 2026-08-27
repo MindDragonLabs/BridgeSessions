@@ -962,6 +962,28 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#release-record-v260826-r2-2026-08-26" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Release record — v26.08.26-r2 (2026-08-26)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#release-record-v260827-r1-2026-08-27" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Release record — v26.08.27-r1 (2026-08-27)
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1155,6 +1177,28 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#release-record-v260826-r2-2026-08-26" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Release record — v26.08.26-r2 (2026-08-26)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#release-record-v260827-r1-2026-08-27" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Release record — v26.08.27-r1 (2026-08-27)
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1309,6 +1353,51 @@
 <li><code>release-checksums.sh</code> validated 5 artifacts; <code>prepublish-scan.sh</code> clean
   (WARN-only, same shape as beta7). <code>github-release.sh</code> published and remote
   digests verified equal to local SHA256SUMS.</li>
+</ul>
+<h2 id="release-record-v260826-r2-2026-08-26">Release record — v26.08.26-r2 (2026-08-26)<a class="headerlink" href="#release-record-v260826-r2-2026-08-26" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Tag <code>v26.08.26-r2</code> → commit <code>134174d</code> (same commit as <code>main</code> tip; the tag is
+  the current shipping release).</li>
+<li>Published as a GitHub <strong>pre-release</strong> on 2026-08-26 23:00:09Z (created
+  22:08:46Z). Full changelog: <code>v26.08.26-r1...v26.08.26-r2</code>.</li>
+<li>6 assets: <code>bridgesessions-26.08.26-r2-source.tar.gz</code>,
+  <code>bridgesessions-26.08.26-r2-source.zip</code>, <code>bridgesessions-linux-x86_64</code>,
+  <code>bridgesessions-windows-x86_64.exe</code>, <code>SBOM-binaries.json</code>, <code>SHA256SUMS</code>.</li>
+<li>Content: session-worker hosting (shells survive daemon restart/upgrade),
+  Ctrl-D detach + TUI-mode reset on transport loss, <code>bs connect</code> selector fixes,
+  self-connect guard, <code>bs shell -i</code> interactive path, <code>scripts/build-local.sh</code>.</li>
+<li>Build/provenance: same build hosts and toolchain as r1 (Linux x86_64 +
+  Windows x86_64 on the <code>bs-static-builder</code> Docker + MinGW cross toolchain,
+  macOS arm64 on the signing host). <code>prepublish-scan.sh</code> clean; fleet hostnames
+  scrubbed from provenance/build-local before publish.</li>
+</ul>
+<h2 id="release-record-v260827-r1-2026-08-27">Release record — v26.08.27-r1 (2026-08-27)<a class="headerlink" href="#release-record-v260827-r1-2026-08-27" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>Not yet tagged or published.</strong> Working-tree changes on top of <code>main</code> tip
+  <code>134174d</code> (the <code>v26.08.26-r2</code> commit). <code>VERSION</code> = <code>26.08.27-r1</code>. This record
+  is written before tag/publish; update it with the final tag commit and GitHub
+  release times when the release ships.</li>
+<li>Content: security, privacy, and reliability hardening (see <code>CHANGELOG.md</code>
+  <code>## 26.08.27-r1</code>):</li>
+<li><strong>Security:</strong> TLS handshake enforces known peer pins; join-window cert
+    acceptance scoped to the mesh listener (per-listener context, not a
+    process-global); home/temp transfer destinations moved to an allowlist
+    posture with hidden-path denial; BridgePanel requires auth on every write,
+    accepts bearer tokens, no longer prints tokenized startup URLs, and uses
+    symlink-aware path containment for local inbox resolution.</li>
+<li><strong>Privacy:</strong> join token accepted via stdin/<code>--token-file</code> (argv form kept but
+    deprecated); command secrets redacted from session persistence and logs;
+    persisted-session store restricted to 0600; TLS identity logging truncated
+    to 12 hex chars; operational logs default to <code>info</code> with a sink-level
+    redaction hook (<code>BRIDGESESSIONS_LOG_LEVEL</code>).</li>
+<li><strong>Reliability:</strong> slow session-worker READY responses retried with liveness
+    probe before socket unlink (no orphan shells); worker <code>select</code>/<code>FD_SET</code>
+    replaced with <code>poll</code>/<code>WSAPoll</code>; frame read/write retries are
+    cancellation-aware; stale-exec watchdog always timestamped; silent catch
+    blocks around persistence/adoption now log/report.</li>
+<li>Verification: full build passes; full test suite <strong>490/490 (100%)</strong> on the
+  macOS arm64 signing host (Codex sandbox reported 34 loopback-socket tests as
+  blocked — those pass outside the sandbox).</li>
 </ul>
 
 
