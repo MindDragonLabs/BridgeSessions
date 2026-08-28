@@ -686,8 +686,8 @@ int main(int argc, char** argv) {
     // Unknown peer names are resolved through `ssh -G` for address discovery only;
     // terminal data still travels exclusively over the BridgeSessions protocol.
     std::string quick_peer, quick_session;
-    app.add_option("peer", quick_peer, "Peer name or SSH Host alias");
-    app.add_option("session", quick_session,
+    app.add_option("PEER", quick_peer, "Peer name or SSH Host alias");
+    app.add_option("SESSION", quick_session,
                    "Session name (omit to start a new session; give a name to reattach)");
 
     // Subcommand: shell

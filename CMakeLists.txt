@@ -116,7 +116,7 @@ endif()
 
 add_test(NAME cli_quick_connect_help COMMAND bridgesessions --help)
 set_tests_properties(cli_quick_connect_help PROPERTIES
-    PASS_REGULAR_EXPRESSION "\\[peer\\] \\[session\\]")
+    PASS_REGULAR_EXPRESSION "\\[PEER\\] \\[SESSION\\]")
 add_test(NAME cli_quick_connect_requires_trust
     COMMAND bridgesessions bs-untrusted-test shell)
 set_tests_properties(cli_quick_connect_requires_trust PROPERTIES

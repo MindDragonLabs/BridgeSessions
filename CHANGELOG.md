@@ -1,3 +1,11 @@
+## 26.08.28-r2
+
+- fix(windows): CLI construction crash — root positionals renamed PEER/SESSION
+  CLI11 >= 2.x rejects a subcommand long-option (--peer/--session) whose name
+  collides with a root positional. Every Windows build since 26.08.26-r1
+  aborted at startup before parsing any argument (OptionAlreadyAdded: peer).
+  Linux/macOS were unaffected (CLI11 1.9 in the build container).
+- positional matching is case-insensitive: `bs <peer>` quick-connect unchanged.
 # Changelog
 
 Notable user-visible changes. Git history contains implementation-level detail.
