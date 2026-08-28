@@ -2,6 +2,24 @@
 
 Notable user-visible changes. Git history contains implementation-level detail.
 
+## 26.08.28-r1
+
+Reliability fix: session-worker zombies.
+
+### Fixed
+
+- macOS/Linux: a session worker that failed to come up (or was torn down)
+  is now reaped, not just signalled. Previously every failed worker spawn
+  leaked one zombie process; a version-skewed worker binary combined with
+  frequent incoming session probes could exhaust the per-user process
+  table within hours (fork() failing system-wide).
+- Worker spawn failures now log the worker binary's reported version and
+  exit status, so a daemon/worker version mismatch is immediately visible
+  in the log instead of a generic "socket never appeared".
+- Session kill, idle prune, and connection-drop teardown paths reap the
+  worker process as well, so liveness checks no longer see reaped
+  workers as alive.
+
 ## 26.08.27-r1
 
 Security, privacy, and reliability hardening.

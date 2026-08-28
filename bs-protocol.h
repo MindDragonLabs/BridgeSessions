@@ -3710,6 +3710,41 @@ inline void close_nonstdio_fds_before_exec() {
 // Create a session hosted in a detached worker process. The daemon talks to
 // the worker over a Unix socket; the PTY/shell survive daemon restarts and
 // upgrades. Caller falls back to create_session on failure.
+#ifndef _WIN32
+// Terminate an unregistered session worker and reap it. Failure-path and
+// teardown only: a worker that never registered in the session table is
+// invisible to reap_dead(), so a plain SIGTERM here leaked one zombie per
+// failed spawn. A version-skewed worker binary that dies pre-bind on every
+// incoming probe can then exhaust the process table within hours (fork()
+// starts failing EAGAIN system-wide). Returns true when the worker is
+// confirmed dead; exit_info (when non-null) receives the exit code, or
+// 128+signal for signal death, or -1 when unknown (already reaped elsewhere).
+inline bool terminate_worker_and_reap(pid_t wpid, int* exit_info = nullptr) {
+    if (wpid <= 0) return true;
+    if (exit_info) *exit_info = -1;
+    if (::kill(wpid, SIGTERM) == 0 || errno != ESRCH) {
+        int st = 0;
+        for (int i = 0; i < 20; ++i) {            // ~1s graceful window
+            if (::waitpid(wpid, &st, WNOHANG) == wpid) {
+                if (exit_info)
+                    *exit_info = WIFEXITED(st) ? WEXITSTATUS(st)
+                                : (WIFSIGNALED(st) ? 128 + WTERMSIG(st) : -1);
+                return true;
+            }
+            ::usleep(50 * 1000);
+        }
+        ::kill(wpid, SIGKILL);
+    }
+    int st = 0;
+    while (::waitpid(wpid, &st, 0) < 0 && errno == EINTR) {}
+    if (exit_info && WIFEXITED(st))
+        *exit_info = WEXITSTATUS(st);
+    else if (exit_info && WIFSIGNALED(st))
+        *exit_info = 128 + WTERMSIG(st);
+    return true;   // ECHILD (reaped elsewhere) also counts as dead
+}
+#endif
+
 [[nodiscard]] inline std::expected<Session, PtyError> create_session_hosted(
     const std::string& name, const std::string& command,
     uint16_t cols, uint16_t rows, const std::string& term,
@@ -3750,17 +3785,43 @@ inline void close_nonstdio_fds_before_exec() {
             if (fd < 0) ::usleep(50 * 1000);
         }
     }
+    // Failure-path diagnostics: identify a version-skewed worker binary.
+    // A daemon upgraded past its on-disk worker exe (or vice versa) fails
+    // every spawn with the same generic error; surface what the worker
+    // binary actually is so the skew is loud instead of a silent leak.
+    auto worker_version_probe = [](const std::string& exe) {
+        std::string probe = exe + " --version 2>/dev/null";
+        FILE* pp = ::popen(probe.c_str(), "r");
+        if (!pp) return std::string("unknown");
+        char buf[96] = {};
+        size_t n = ::fread(buf, 1, sizeof(buf) - 1, pp);
+        int rc = ::pclose(pp);
+        while (n && (buf[n - 1] == '\n' || buf[n - 1] == '\r')) --n;
+        buf[n] = '\0';
+        std::string v(buf);
+        if (v.empty()) v = "no output";
+        return v + " (probe exit=" + std::to_string(rc) + ")";
+    };
     if (fd < 0) {
-        if (wpid > 0) ::kill(wpid, SIGTERM);
-        return std::unexpected(PtyError{"worker socket never appeared"});
+        int wexit = -1;
+        terminate_worker_and_reap(wpid, &wexit);
+        std::string msg = "worker socket never appeared";
+        if (wpid > 0) {
+            msg += " [worker exit=" + std::to_string(wexit) +
+                   "; worker --version: " + worker_version_probe(exe_path) + "]";
+            log_event("session_worker_spawn_failed", name + " " + msg);
+        }
+        return std::unexpected(PtyError{msg});
     }
 
     // READY carries name + child pid (last 4 bytes, u32be).
     worker::WorkerMessage ready;
     if (!worker::worker_recv(fd, ready, 3000) || ready.type != worker::WMSG_READY) {
         ::close(fd);
-        if (wpid > 0) ::kill(wpid, SIGTERM);
-        return std::unexpected(PtyError{"worker READY handshake failed"});
+        int wexit = -1;
+        terminate_worker_and_reap(wpid, &wexit);
+        return std::unexpected(PtyError{"worker READY handshake failed (worker exit=" +
+                                        std::to_string(wexit) + ")"});
     }
     pid_t child = -1;
     if (ready.data.size() >= 4)
@@ -3768,7 +3829,8 @@ inline void close_nonstdio_fds_before_exec() {
             worker::read_u32be(ready.data.data() + ready.data.size() - 4));
     if (child <= 0) {
         ::close(fd);
-        if (wpid > 0) ::kill(wpid, SIGTERM);
+        int wexit = -1;
+        terminate_worker_and_reap(wpid, &wexit);
         return std::unexpected(PtyError{"worker reported no child pid"});
     }
 
@@ -7255,8 +7317,7 @@ public:
                 if (it->second->master_fd >= 0)
                     (void)worker::worker_send(it->second->master_fd,
                                               worker::WMSG_SHUTDOWN);
-                if (it->second->worker_pid > 0)
-                    ::kill(it->second->worker_pid, SIGTERM);
+                terminate_worker_and_reap(it->second->worker_pid);
             }
 #endif
             // P0 UAF fix: fire callback before erasing so Conn::attached_session can be nulled
@@ -7387,7 +7448,7 @@ public:
                     auto* s = it->second.get();
                     if (s->master_fd >= 0)
                         (void)worker::worker_send(s->master_fd, worker::WMSG_SHUTDOWN);
-                    if (s->worker_pid > 0) (void)::kill(s->worker_pid, SIGTERM);
+                    terminate_worker_and_reap(s->worker_pid);
                 }
                 confirmed_dead = false;
                 for (int attempt = 0; !confirmed_dead && attempt < 20; ++attempt) {
@@ -12865,8 +12926,7 @@ public:
                         if (sess->master_fd >= 0)
                             (void)worker::worker_send(sess->master_fd,
                                                       worker::WMSG_SHUTDOWN);
-                        if (sess->worker_pid > 0)
-                            ::kill(sess->worker_pid, SIGTERM);
+                        terminate_worker_and_reap(sess->worker_pid);
                         sess->child_pid = -1;
                         sess->worker_pid = -1;
                         sess->hosted = false;
