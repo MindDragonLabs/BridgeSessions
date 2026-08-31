@@ -33,12 +33,10 @@ jobs:
   probe:
     runs-on: macos-14
     steps:
-      - name: Import Developer ID identity into job keychain
+      - name: secrets only
         env:
           MACOS_SIGNING_P12_B64: ${{ secrets.MACOS_SIGNING_P12_B64 }}
           MACOS_SIGNING_P12_PASSWORD: ${{ secrets.MACOS_SIGNING_P12_PASSWORD }}
         run: |
           set -euo pipefail
-          KC="$RUNNER_TEMP/bs-sign.keychain"
-          KC_PW="kc-${{ github.run_id }}"
-          echo "expr-check: keychain ${KC} pw=${KC_PW} p12len=${#MACOS_SIGNING_P12_B64}"
+          echo "p12len=${#MACOS_SIGNING_P12_B64} passlen=${#MACOS_SIGNING_P12_PASSWORD}"
