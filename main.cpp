@@ -808,6 +808,8 @@ int main(int argc, char** argv) {
     bool upgrade_all = false;
     std::string upgrade_tag;
     auto* upgrade_cmd_app = app.add_subcommand("upgrade", "Self-update to latest (or specified) release from GitHub");
+    bool allow_downgrade = false;
+    upgrade_cmd_app->add_flag("--allow-downgrade", allow_downgrade, "Permit moving to an OLDER version than the running one");
     upgrade_cmd_app->add_flag("--all", upgrade_all, "Upgrade all healthy peers via mesh shell");
     upgrade_cmd_app->add_option("--tag", upgrade_tag, "Specific version tag (default: latest)");
 
@@ -1813,6 +1815,22 @@ int main(int argc, char** argv) {
             if (tag.empty() || !bs::mesh::bs_upgrade_tag_valid(tag)) {
                 std::cerr << "upgrade: no valid published release\n";
                 return 1;
+            }
+        }
+
+        // r3 fix (P2): never let a resolved release move us BACKWARD. The 2026-08-31
+        // D-002 incident: GitHub "latest" was 26.08.27-r1 while peers ran 26.08.28-r2,
+        // so every auto-upgrade pull DOWNGRADED r2 peers and re-broke them. A pin
+        // must be monotonic; explicit --allow-downgrade is the only bypass.
+        if (bs::mesh::version_is_older(tag, bs::mesh::kBridgeSessionsVersion)) {
+            if (allow_downgrade) {
+                std::cout << "⚠ downgrade to " << tag << " requested explicitly\n";
+            } else {
+                std::cout << "keeping current version: " << tag
+                          << " is older than running "
+                          << bs::mesh::kBridgeSessionsVersion
+                          << " (use --allow-downgrade to override)\n";
+                return 0;
             }
         }
 

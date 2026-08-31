@@ -1,3 +1,29 @@
+# Changelog
+
+Notable user-visible changes. Git history contains implementation-level detail.
+
+## 26.08.31-r3
+
+Upgrade-safety release. Fixes three independent fleet-upgrade failure modes
+found during the 26.08.28-r2 rollout RCA.
+
+### Fixed
+
+- fix(upgrade): config hot-reload now carries `mesh.auto_upgrade` — previously
+  seeds-only, so a peer with `mesh.auto_upgrade false` on disk but seeded
+  before the pin existed ran upgrades anyway (cpanel 2026-08-27 incident).
+- fix(upgrade): dispatch re-checks the auto_upgrade pin at execution time,
+  closing the race between policy load and dispatch fire.
+- fix(upgrade): never downgrade below the running version — upgrades from a
+  newer local build to an older GitHub release are refused with exit 0 and a
+  clear message unless `--allow-downgrade` is passed (fleet-wide downgrade
+  wave 2026-08-27).
+- fix(spawn): worker-spawn latency race — the fixed 3s/60-iteration readiness
+  poll is replaced with a 12s adaptive budget (exponential backoff +
+  early-death detection via waitpid/pid-file) plus a daemon-start AMFI warm-up
+  on macOS. fecv3 lost ~1/6 spawns, btcr/macbook lost most during load.
+
+
 ## 26.08.28-r2
 
 - fix(windows): CLI construction crash — root positionals renamed PEER/SESSION
@@ -6,9 +32,6 @@
   aborted at startup before parsing any argument (OptionAlreadyAdded: peer).
   Linux/macOS were unaffected (CLI11 1.9 in the build container).
 - positional matching is case-insensitive: `bs <peer>` quick-connect unchanged.
-# Changelog
-
-Notable user-visible changes. Git history contains implementation-level detail.
 
 ## 26.08.28-r1
 
