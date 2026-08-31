@@ -108,7 +108,7 @@ jobs:
         run: |
           set -euxo pipefail
           codesign --verify --strict --verbose=2 build/bridgesessions-signed
-          codesign -dvv build/bridgesessions-signed | tee "$RUNNER_TEMP/sig.txt"
+          codesign -dvv build/bridgesessions-signed 2>&1 | tee "$RUNNER_TEMP/sig.txt"
           grep -F 'TeamIdentifier=QL5MD8FKPL' "$RUNNER_TEMP/sig.txt"
           grep -F 'Authority=Developer ID Application' "$RUNNER_TEMP/sig.txt"
           grep -qF 'Signature=adhoc' "$RUNNER_TEMP/sig.txt" && {
