@@ -25,7 +25,7 @@ rm -rf build-win
 mkdir -p build-win
 "$TRIPLE" -static -std=c++23 -O3 -DNDEBUG \
   -fstack-protector-strong -D_FORTIFY_SOURCE=3 \
-  -Wl,--dynamicbase,--nxcompat,--high-entropy-va \
+  -Wl,--dynamicbase,--nxcompat,--high-entropy-va,--no-insert-timestamp \
   -DSPDLOG_FMT_EXTERNAL=1 \
   -DBS_VERSION="\"$VERSION\"" -DBS_NO_NAT -DBS_NO_WEBRTC -DBS_NO_DHT \
   -isystem "$PREFIX/include" -isystem /tmp/bs-win-shim \
