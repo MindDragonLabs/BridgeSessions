@@ -90,7 +90,7 @@ jobs:
           KC_PW="kc-${{ github.run_id }}"
           echo "${MACOS_SIGNING_P12_B64}" | base64 --decode > "$RUNNER_TEMP/cert.p12"
           security create-keychain -p "${KC_PW}" "$KC"
-          security default-keychain -s "$KC"
+          security list-keychain -d user -s "$KC" login.keychain-db
           security unlock-keychain -p "${KC_PW}" "$KC"
           security import "$RUNNER_TEMP/cert.p12" -k "$KC" \
             -P "${MACOS_SIGNING_P12_PASSWORD}" -T /usr/bin/codesign
