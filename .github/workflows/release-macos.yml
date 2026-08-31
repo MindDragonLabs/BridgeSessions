@@ -42,7 +42,24 @@ jobs:
           HOMEBREW_NO_INSTALL_CLEANUP: '1'
         run: |
           brew untap aws/tap 2>/dev/null || true
-          brew install cmake ninja fmt spdlog zstd openssl@3 catch2 nlohmann-json cli11
+          brew install cmake ninja zstd openssl@3 catch2 nlohmann-json cli11
+
+      - name: Build static spdlog (bundled fmt) for linking
+        run: |
+          set -euo pipefail
+          SPDLOG_VER="v1.17.0"
+          git clone --depth 1 --branch "${SPDLOG_VER}" https://github.com/gabime/spdlog.git "$RUNNER_TEMP/spdlog-src"
+          cmake -S "$RUNNER_TEMP/spdlog-src" -B "$RUNNER_TEMP/spdlog-build" -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DSPDLOG_BUILD_SHARED=OFF \
+            -DSPDLOG_BUILD_EXAMPLE=OFF \
+            -DSPDLOG_BUILD_TESTS=OFF \
+            -DSPDLOG_BUILD_BENCH=OFF \
+            -DSPDLOG_FMT_EXTERNAL=OFF
+          cmake --build "$RUNNER_TEMP/spdlog-build" --parallel
+          cmake --install "$RUNNER_TEMP/spdlog-build" --prefix "$RUNNER_TEMP/deps"
+          ls "$RUNNER_TEMP/deps/lib"
 
       - name: Static arm64 build (zero Homebrew dylibs)
         run: |
@@ -53,8 +70,7 @@ jobs:
             -DCMAKE_FIND_LIBRARY_SUFFIXES=.a \
             -DOPENSSL_USE_STATIC_LIBS=ON \
             -DOPENSSL_ROOT_DIR="$(brew --prefix openssl@3)" \
-            -Dfmt_DIR="$(brew --prefix fmt)/lib/cmake/fmt" \
-            -Dspdlog_DIR="$(brew --prefix spdlog)/lib/cmake/spdlog"
+            -Dspdlog_DIR="$RUNNER_TEMP/deps/lib/cmake/spdlog"
           cmake --build build --parallel
           echo "=== final binary dylibs ==="
           otool -L build/bridgesessions | tee "$RUNNER_TEMP/otool.txt"
