@@ -98,14 +98,13 @@ jobs:
           chmod +x "${NAME}"
           SHA=$(shasum -a 256 "${NAME}" | awk '{print $1}')
           printf '%s  %s\n' "${SHA}" "${NAME}" > SHA256SUMS-macos.txt
-          echo "artifact=${NAME}" >> "$GITHUB_ENV"
           echo "sha256: ${SHA}"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.artifact }}
+          name: release-macos
           path: |
-            ${{ env.artifact }}
+            bridgesessions-*-macos-arm64
             SHA256SUMS-macos.txt
           if-no-files-found: error
