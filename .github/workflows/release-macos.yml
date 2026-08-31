@@ -1,103 +1,21 @@
-# release-macos.yml — signed macOS arm64 release builds on GitHub-hosted runners.
-#
-# Replaces the macmini signing host (currently offline) per the 2026-08-31
-# decision: "use github ci runners until we can get something else running."
-#
-# Pipeline: static arm64 build -> Developer ID sign (no ad-hoc fallback) ->
-# verify TeamIdentifier -> sha256 -> workflow artifact.
-# NOT attached to GitHub Releases by this workflow; release attachment stays
-# with scripts/github-release.sh until this pipeline has a green track record.
-#
-# Triggers are restricted to manual dispatch and v* tag pushes: fork PRs can
-# never run this workflow, and secrets are only ever exposed to this job.
-#
-# Required repo secrets:
-#   MACOS_SIGNING_P12_B64      — base64 of the Developer ID Application .p12
-#   MACOS_SIGNING_P12_PASSWORD — the p12 export password
-
 name: release-macos
+
 
 on:
   workflow_dispatch:
   push:
     tags: ['v*']
 
+concurrency:
+  group: release-macos
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
 jobs:
-  sign-macos:
+  probe:
     runs-on: macos-14
     steps:
-      - uses: actions/checkout@v7
-
-      - name: Install dependencies
-        env:
-          HOMEBREW_NO_REQUIRE_TAP_TRUST: '1'
-          HOMEBREW_NO_AUTO_UPDATE: '1'
-          HOMEBREW_NO_INSTALL_CLEANUP: '1'
-        run: |
-          brew untap aws/tap 2>/dev/null || true
-          brew install cmake ninja fmt spdlog zstd openssl@3 catch2 nlohmann-json cli11
-
-      - name: Static arm64 build (zero Homebrew dylibs)
-        run: |
-          set -euo pipefail
-          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
-            -DBRIDGESESSIONS_PYTHON=OFF \
-            -DCMAKE_FIND_LIBRARY_SUFFIXES=.a \
-            -DOPENSSL_USE_STATIC_LIBS=ON \
-            -DOPENSSL_ROOT_DIR="$(brew --prefix openssl@3)" \
-            -Dfmt_DIR="$(brew --prefix fmt)/lib/cmake/fmt" \
-            -Dspdlog_DIR="$(brew --prefix spdlog)/lib/cmake/spdlog"
-          cmake --build build --parallel
-          DYLIBS=$(otool -L build/bridgesessions | grep -c '/opt/homebrew' || true)
-          echo "homebrew dylib references: ${DYLIBS}"
-          [ "${DYLIBS}" -eq 0 ]
-
-      - name: Import Developer ID identity into job keychain
-        env:
-          MACOS_SIGNING_P12_B64: ${{ secrets.MACOS_SIGNING_P12_B64 }}
-          MACOS_SIGNING_P12_PASSWORD: ${{ secrets.MACOS_SIGNING_P12_PASSWORD }}
-        run: |
-          set -euo pipefail
-          KC="$RUNNER_TEMP/bs-sign.keychain"
-          KC_PW="kc-${{ github.run_id }}"
-          echo "${MACOS_SIGNING_P12_B64}" | base64 --decode > "$RUNNER_TEMP/cert.p12"
-          security create-keychain -p "${KC_PW}" "$KC"
-          security default-keychain -s "$KC"
-          security unlock-keychain -p "${KC_PW}" "$KC"
-          security import "$RUNNER_TEMP/cert.p12" -k "$KC" \
-            -P "${MACOS_SIGNING_P12_PASSWORD}" -T /usr/bin/codesign
-          security set-key-partition-list -S apple-tool:,apple: -s -k "${KC_PW}" "$KC"
-          security find-identity -v -p codesigning | tee "$RUNNER_TEMP/identities.txt"
-          grep -F 'Developer ID Application' "$RUNNER_TEMP/identities.txt"
-          rm -f "$RUNNER_TEMP/cert.p12"
-
-      - name: Sign (repo script — refuses ad-hoc)
-        run: |
-          set -euo pipefail
-          scripts/sign-macos.sh build/bridgesessions build/bridgesessions-signed
-
-      - name: Verify signature and package
-        run: |
-          set -euo pipefail
-          codesign --verify --strict --verbose=2 build/bridgesessions-signed
-          codesign -dvv build/bridgesessions-signed | tee "$RUNNER_TEMP/sig.txt"
-          grep -F 'TeamIdentifier=QL5MD8FKPL' "$RUNNER_TEMP/sig.txt"
-          grep -F 'Authority=Developer ID Application' "$RUNNER_TEMP/sig.txt"
-          grep -qF 'Signature=adhoc' "$RUNNER_TEMP/sig.txt" && {
-            echo "REFUSED: ad-hoc signature" >&2; exit 1; } || true
-          VERSION="$(tr -d '[:space:]' < VERSION)"
-          NAME="bridgesessions-${VERSION}-macos-arm64"
-          cp build/bridgesessions-signed "${NAME}"
-          chmod +x "${NAME}"
-          SHA=$(shasum -a 256 "${NAME}" | awk '{print $1}')
-          printf '%s  %s\n' "${SHA}" "${NAME}" > SHA256SUMS-macos.txt
-          echo "sha256: ${SHA}"
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: release-macos
-          path: |
-            bridgesessions-*-macos-arm64
-            SHA256SUMS-macos.txt
-          if-no-files-found: error
+      - name: minimal echo
+        run: echo ok
