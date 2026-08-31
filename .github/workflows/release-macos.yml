@@ -49,15 +49,20 @@ jobs:
           set -euo pipefail
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
             -DBRIDGESESSIONS_PYTHON=OFF \
+            -DBUILD_SHARED_LIBS=OFF \
             -DCMAKE_FIND_LIBRARY_SUFFIXES=.a \
             -DOPENSSL_USE_STATIC_LIBS=ON \
             -DOPENSSL_ROOT_DIR="$(brew --prefix openssl@3)" \
             -Dfmt_DIR="$(brew --prefix fmt)/lib/cmake/fmt" \
             -Dspdlog_DIR="$(brew --prefix spdlog)/lib/cmake/spdlog"
           cmake --build build --parallel
-          DYLIBS=$(otool -L build/bridgesessions | grep -c '/opt/homebrew' || true)
-          echo "homebrew dylib references: ${DYLIBS}"
-          [ "${DYLIBS}" -eq 0 ]
+          echo "=== final binary dylibs ==="
+          otool -L build/bridgesessions | tee "$RUNNER_TEMP/otool.txt"
+          if grep -q '/opt/homebrew' "$RUNNER_TEMP/otool.txt"; then
+            echo "REFUSED: homebrew dylibs referenced:" >&2
+            grep '/opt/homebrew' "$RUNNER_TEMP/otool.txt" >&2
+            exit 1
+          fi
 
       - name: Import Developer ID identity into job keychain
         env:
