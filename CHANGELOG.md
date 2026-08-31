@@ -22,6 +22,11 @@ found during the 26.08.28-r2 rollout RCA.
   poll is replaced with a 12s adaptive budget (exponential backoff +
   early-death detection via waitpid/pid-file) plus a daemon-start AMFI warm-up
   on macOS. fecv3 lost ~1/6 spawns, btcr/macbook lost most during load.
+- fix(build): deterministic Windows PE link — MinGW ld embedded the link
+  timestamp in the COFF header, so identical source produced a different
+  binary on every build (release-convergence runs run1/run2 differed).
+  `--no-insert-timestamp` pins it; Windows artifacts are now byte-reproducible
+  like linux/macOS.
 
 
 ## 26.08.28-r2
