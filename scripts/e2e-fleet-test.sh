@@ -280,26 +280,23 @@ test_peer() {
   marker="e2e-${peer}-$(date +%s)-$$"
   tmp_send="$WORKDIR/send-${peer}.txt"
   printf '%s\n' "$marker" > "$tmp_send"
-  out="$(run_to "$BS_BIN" file send "$peer" "$tmp_send" --wait 2>&1 || true)"
+  out="$(run_to "$BS_BIN" file send "$peer" "$tmp_send" --dest "${marker}.txt" --wait 2>&1 || true)"
   if assert_contains "$out" "OK sent" || assert_contains "$out" "PROGRESS"; then
     record PASS "$peer" file_send "ok"
   else
     record FAIL "$peer" file_send "${out//$'\n'/ }"
   fi
 
-  # verify content landed (platform path for received/)
-  case "$os" in
-    windows)
-      out="$(run_to "$BS_BIN" shell "$peer" --cmd "type %USERPROFILE%\\.bridgesessions\\received\\send-${peer}.txt 2>nul & type %USERPROFILE%\\.bridgesessions\\received\\send-${peer}.txt.* 2>nul & for %F in (%USERPROFILE%\\.bridgesessions\\received\\send-${peer}*) do @type \"%F\"" 2>&1 || true)"
-      # PowerShell-friendly fallback
-      if ! assert_contains "$out" "$marker"; then
-        out="$(run_to "$BS_BIN" shell "$peer" --cmd "powershell -NoProfile -Command \"Get-ChildItem \\\$env:USERPROFILE\\.bridgesessions\\received -Filter 'send-${peer}*' | Sort-Object LastWriteTime -Descending | Select-Object -First 1 | Get-Content\"" 2>&1 || true)"
-      fi
-      ;;
-    *)
-      out="$(run_to "$BS_BIN" shell "$peer" --cmd "ls -t \"\$HOME/.bridgesessions/received/send-${peer}.txt\"* 2>/dev/null | head -1 | xargs cat 2>/dev/null" 2>&1 || true)"
-      ;;
-  esac
+  # verify content landed: recv-roundtrip (pull back by basename).
+  # Shell-based verify is unreliable on windows peers (daemon user vs shell
+  # user differ; nested PS quoting mangles $env:USERPROFILE), so verify via
+  # the mesh itself: received/ is served, recv must return the exact bytes.
+  out="$(run_to "$BS_BIN" file recv "$peer" "${marker}.txt" --to "$WORKDIR/verify-${peer}.txt" --wait 2>&1 || true)"
+  if [[ -f "$WORKDIR/verify-${peer}.txt" ]] && grep -q "$marker" "$WORKDIR/verify-${peer}.txt" 2>/dev/null; then
+    out="$marker"
+  else
+    out="recv-roundtrip-miss: ${out//$'\n'/ }"
+  fi
   if assert_contains "$out" "$marker"; then
     record PASS "$peer" file_send_verify "marker found"
   else
@@ -309,16 +306,11 @@ test_peer() {
   # file recv: create a remote file inside receive_dir (M4: peers may only
   # serve files under receive_dir, never arbitrary absolute paths), then pull
   # it by basename (resolve_file_request_path resolves basenames under receive_dir).
-  case "$os" in
-    windows)
-      run_to "$BS_BIN" shell "$peer" --cmd "powershell -NoProfile -Command \"New-Item -ItemType Directory -Force -Path (Join-Path \$env:USERPROFILE '.bridgesessions\received') | Out-Null; Set-Content -Path (Join-Path \$env:USERPROFILE '.bridgesessions\received\bs-e2e-recv.txt') -Value '$marker' -NoNewline\"" >/dev/null 2>&1 || true
-      remote_path="bs-e2e-recv.txt"
-      ;;
-    *)
-      run_to "$BS_BIN" shell "$peer" --cmd "mkdir -p \"\$HOME/.bridgesessions/received\" && printf '%s\n' '$marker' > \"\$HOME/.bridgesessions/received/bs-e2e-recv.txt\"" >/dev/null 2>&1 || true
-      remote_path="bs-e2e-recv.txt"
-      ;;
-  esac
+  # Create the recv target by SENDING it (daemon-side received/, user-context-free:
+  # windows peers may run daemon as a different user than the shell, so shell-based
+  # staging is unreliable). Then pull it back by basename.
+  run_to "$BS_BIN" file send "$peer" "$tmp_send" --dest "${marker}.txt" --wait >/dev/null 2>&1 || true
+  remote_path="${marker}.txt"
   tmp_recv="$WORKDIR/recv-${peer}.txt"
   rm -f "$tmp_recv"
   out="$(run_to "$BS_BIN" file recv "$peer" "$remote_path" --to "$tmp_recv" --wait 2>&1 || true)"
