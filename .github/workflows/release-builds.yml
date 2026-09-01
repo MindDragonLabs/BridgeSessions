@@ -82,8 +82,8 @@ jobs:
           sudo apt-get install -y -qq --no-install-recommends \
             g++-mingw-w64-x86-64-posix gcc-mingw-w64-x86-64-posix \
             binutils-mingw-w64-x86-64 wine64
-          update-alternatives --set x86_64-w64-mingw32-gcc /usr/bin/x86_64-w64-mingw32-gcc-posix
-          update-alternatives --set x86_64-w64-mingw32-g++ /usr/bin/x86_64-w64-mingw32-g++-posix
+          sudo update-alternatives --set x86_64-w64-mingw32-gcc /usr/bin/x86_64-w64-mingw32-gcc-posix
+          sudo update-alternatives --set x86_64-w64-mingw32-g++ /usr/bin/x86_64-w64-mingw32-g++-posix
 
       - name: Build static deps prefix (scripts/ci-win-deps.sh)
         run: |
