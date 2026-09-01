@@ -3844,8 +3844,9 @@ inline bool stop_session_worker_unit(const std::string& unit) {
         // gave up while slow-but-healthy starts were still pending: systemd-run
         // scope cold-start (dbus + unit creation) and macOS per-exec binary
         // verification (AMFI page-in of an ad-hoc-signed binary) both exceed 3s
-        // under load (2026-08-31 fleet logs: fecv3 1/6 spawns lost, btcr during
-        // the upgrade wave lost every spawn, macbook lost all). New policy:
+        // under load (2026-08-31 fleet logs: one linux node lost 1/6 spawns,
+        // another peer lost every spawn during the upgrade wave, a mac peer
+        // lost all). New policy:
         //   * 12s adaptive budget, 25ms->500ms exponential backoff;
         //   * early-death detection — if the worker pid is gone (fork path:
         //     waitpid WNOHANG; systemd-run path: pid file removed / pid reused as
@@ -11570,7 +11571,7 @@ private:
             // r3 fix (P1b): re-check the pin at EXECUTION time. The task may sit
             // in the pool queue long enough for an operator to pin=false on disk;
             // honoring the newest intent prevents the 2026-08-31 mid-wave
-            // downgrade shot (D-002 incident, cpanel bs-mesh.log 19:39:34Z).
+            // downgrade shot (D-002 incident, bs-mesh.log 19:39:34Z).
             // Greptile P1 (26.08.31-release): the worker thread must NOT touch
             // shared config state — neither maybe_reload_config_seeds() (mutates
             // config_mtime_ / seeds vector) nor even reading config_.auto_upgrade
@@ -17853,9 +17854,10 @@ public:
 #ifndef _WIN32
         // r3 fix (P3b): warm the worker exe once at daemon start. On macOS every
         // exec of an ad-hoc-signed binary pays an AMFI/page-in cost that can exceed
-        // the old 3s worker-socket wait (all macbook spawns failed on 2026-08-31
-        // right after the r2 swap — a cold binary). Paying it once here makes the
-        // first real spawn fast; on Linux this is a cheap no-op --version run.
+        // the old 3s worker-socket wait (all mac-peer spawns failed on
+        // 2026-08-31 right after the r2 swap — a cold binary). Paying it once
+        // here makes the first real spawn fast; on Linux this is a cheap
+        // no-op --version run.
         const std::string& wexe = sessions_.worker_exe_for_warm();
         if (!wexe.empty()) {
             std::string warm = posix_shell_quote(wexe) + " --version >/dev/null 2>&1";

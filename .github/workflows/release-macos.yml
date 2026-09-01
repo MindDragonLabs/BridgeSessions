@@ -1,6 +1,7 @@
 # release-macos.yml — signed macOS arm64 release builds on GitHub-hosted runners.
 #
-# Replaces the macmini signing host (currently offline) per the 2026-08-31
+# Replaces the fleet's dedicated signing host (currently offline) per the
+# 2026-08-31
 # decision: "use github ci runners until we can get something else running."
 #
 # Pipeline: static arm64 build -> Developer ID sign (no ad-hoc fallback) ->

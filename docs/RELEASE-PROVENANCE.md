@@ -206,7 +206,8 @@ The release script refuses to publish when any of the checks above would fail. T
   `## 26.09.01-release`). Covered by `tests/test_unit_name_sanitization.cpp`.
 - First release produced end-to-end by the gated one-command pipeline
   (`builder/release.sh`, run `rel-20260901-172418`): parity gate → build
-  dispatch (linux/windows local docker+mingw, macOS on macbook) → assemble →
+  dispatch (linux/windows local docker+mingw, macOS on a fleet build host) →
+  assemble →
   PR → blocking CI + Greptile → squash merge → tag → publish → re-download
   e2e. Builder gate fix landed mid-run: Greptile clean verdicts are check-runs,
   not review objects (builder `3e62170`).
