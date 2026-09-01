@@ -1,0 +1,217 @@
+# release-builds.yml — release artifacts on GitHub-hosted runners (win/mac/linux).
+#
+# Policy (operator decision 2026-09-01): local builds stay the TESTING lane;
+# RELEASE builds come from GitHub CI. Fork PRs never run this workflow and
+# never touch signing secrets (triggers: workflow_dispatch + v* tags only).
+#
+# Artifact names (downloaders normalize to the bare names release.sh expects):
+#   release-linux:   bridgesessions-linux-x86_64
+#   release-windows: bridgesessions-windows-x86_64.exe
+#   release-macos:   bridgesessions-<VERSION>-macos-arm64 (+ SHA256SUMS-macos.txt)
+#
+# Note on the v* tag trigger: the tag push in release.sh stage 8 re-runs this
+# workflow for the same sha. That is deliberate — tag-triggered runs are the
+# public provenance record attached to the tag.
+#
+# Repo secrets (already set): MACOS_SIGNING_P12_B64, MACOS_SIGNING_P12_PASSWORD
+name: release-builds
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Ref to build (empty = dispatch ref)'
+        required: false
+        default: ''
+  push:
+    tags: ['v*']
+
+concurrency:
+  group: release-builds
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    name: linux-x86_64 static (glibc 2.35 floor)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0
+
+      - name: Build via the proven static image (scripts/Dockerfile.static-linux)
+        run: |
+          set -euo pipefail
+          docker build -f scripts/Dockerfile.static-linux -t bs-static-builder:ci .
+          mkdir -p dist
+          docker run --rm bs-static-builder:ci cat /src/build/bridgesessions \
+            > dist/bridgesessions-linux-x86_64
+          chmod +x dist/bridgesessions-linux-x86_64
+
+      - name: Verify
+        run: |
+          set -euo pipefail
+          file dist/bridgesessions-linux-x86_64
+          ldd dist/bridgesessions-linux-x86_64 || true
+          V="$(./dist/bridgesessions-linux-x86_64 --version)"
+          echo "version: $V"
+          grep -qF "$(cat VERSION)" <<<"$V"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-linux
+          path: dist/bridgesessions-linux-x86_64
+          if-no-files-found: error
+
+  windows:
+    name: windows-x86_64 (mingw-w64 cross, ubuntu runner)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Install mingw-w64 (posix threads)
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends \
+            g++-mingw-w64-x86-64-posix gcc-mingw-w64-x86-64-posix \
+            binutils-mingw-w64-x86-64 wine64
+          update-alternatives --set x86_64-w64-mingw32-gcc /usr/bin/x86_64-w64-mingw32-gcc-posix
+          update-alternatives --set x86_64-w64-mingw32-g++ /usr/bin/x86_64-w64-mingw32-g++-posix
+
+      - name: Build static deps prefix (scripts/ci-win-deps.sh)
+        run: |
+          set -euo pipefail
+          chmod +x scripts/ci-win-deps.sh
+          JOBS=4 bash scripts/ci-win-deps.sh "$RUNNER_TEMP/bs-win"
+
+      - name: Cross-compile (scripts/build-windows-mingw.sh)
+        env:
+          BS_WIN_PREFIX: ${{ runner.temp }}/bs-win
+        run: |
+          set -euo pipefail
+          bash scripts/build-windows-mingw.sh
+
+      - name: Wine smoke (--version must report VERSION)
+        env:
+          WINEDEBUG: -all
+        run: |
+          set -euo pipefail
+          export WINEPREFIX="$RUNNER_TEMP/wineprefix"
+          timeout 120 wine64 dist/bridgesessions-windows-x86_64.exe --version | tee /tmp/winever.txt
+          grep -qF "$(cat VERSION)" /tmp/winever.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-windows
+          path: dist/bridgesessions-windows-x86_64.exe
+          if-no-files-found: error
+
+  macos:
+    name: macos-arm64 (static, Developer ID signed)
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0
+
+      - name: Install dependencies
+        env:
+          HOMEBREW_NO_REQUIRE_TAP_TRUST: '1'
+          HOMEBREW_NO_AUTO_UPDATE: '1'
+          HOMEBREW_NO_INSTALL_CLEANUP: '1'
+        run: |
+          brew untap aws/tap 2>/dev/null || true
+          brew install cmake ninja zstd openssl@3 catch2 nlohmann-json cli11
+
+      - name: Build static spdlog (bundled fmt) for linking
+        run: |
+          set -euo pipefail
+          SPDLOG_VER="v1.17.0"
+          git clone --depth 1 --branch "${SPDLOG_VER}" https://github.com/gabime/spdlog.git "$RUNNER_TEMP/spdlog-src"
+          cmake -S "$RUNNER_TEMP/spdlog-src" -B "$RUNNER_TEMP/spdlog-build" -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DSPDLOG_BUILD_SHARED=OFF \
+            -DSPDLOG_BUILD_EXAMPLE=OFF \
+            -DSPDLOG_BUILD_TESTS=OFF \
+            -DSPDLOG_BUILD_BENCH=OFF \
+            -DSPDLOG_FMT_EXTERNAL=OFF
+          cmake --build "$RUNNER_TEMP/spdlog-build" --parallel
+          cmake --install "$RUNNER_TEMP/spdlog-build" --prefix "$RUNNER_TEMP/deps"
+          ls "$RUNNER_TEMP/deps/lib"
+
+      - name: Static arm64 build (zero Homebrew dylibs)
+        run: |
+          set -euo pipefail
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DBRIDGESESSIONS_PYTHON=OFF \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DCMAKE_FIND_LIBRARY_SUFFIXES=.a \
+            -DOPENSSL_USE_STATIC_LIBS=ON \
+            -DOPENSSL_ROOT_DIR="$(brew --prefix openssl@3)" \
+            -Dspdlog_DIR="$RUNNER_TEMP/deps/lib/cmake/spdlog"
+          cmake --build build --parallel
+          echo "=== final binary dylibs ==="
+          otool -L build/bridgesessions | tee "$RUNNER_TEMP/otool.txt"
+          if grep -q '/opt/homebrew' "$RUNNER_TEMP/otool.txt"; then
+            echo "REFUSED: homebrew dylibs referenced:" >&2
+            grep '/opt/homebrew' "$RUNNER_TEMP/otool.txt" >&2
+            exit 1
+          fi
+
+      - name: Import Developer ID identity into job keychain
+        env:
+          MACOS_SIGNING_P12_B64: ${{ secrets.MACOS_SIGNING_P12_B64 }}
+          MACOS_SIGNING_P12_PASSWORD: ${{ secrets.MACOS_SIGNING_P12_PASSWORD }}
+        run: |
+          set -euo pipefail
+          KC="$RUNNER_TEMP/bs-sign.keychain"
+          KC_PW="kc-${{ github.run_id }}"
+          echo "${MACOS_SIGNING_P12_B64}" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security create-keychain -p "${KC_PW}" "$KC"
+          security list-keychain -d user -s "$KC" login.keychain-db
+          security unlock-keychain -p "${KC_PW}" "$KC"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KC" \
+            -P "${MACOS_SIGNING_P12_PASSWORD}" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "${KC_PW}" "$KC"
+          security find-identity -v -p codesigning | tee "$RUNNER_TEMP/identities.txt"
+          grep -F 'Developer ID Application' "$RUNNER_TEMP/identities.txt"
+          rm -f "$RUNNER_TEMP/cert.p12"
+
+      - name: Sign (repo script — refuses ad-hoc)
+        run: |
+          set -euo pipefail
+          scripts/sign-macos.sh build/bridgesessions build/bridgesessions-signed
+
+      - name: Verify signature and package
+        run: |
+          set -euxo pipefail
+          codesign --verify --strict --verbose=2 build/bridgesessions-signed
+          codesign -dvv build/bridgesessions-signed 2>&1 | tee "$RUNNER_TEMP/sig.txt"
+          grep -F 'TeamIdentifier=QL5MD8FKPL' "$RUNNER_TEMP/sig.txt"
+          grep -F 'Authority=Developer ID Application' "$RUNNER_TEMP/sig.txt"
+          grep -qF 'Signature=adhoc' "$RUNNER_TEMP/sig.txt" && {
+            echo "REFUSED: ad-hoc signature" >&2; exit 1; } || true
+          VERSION="$(tr -d '[:space:]' < VERSION)"
+          NAME="bridgesessions-${VERSION}-macos-arm64"
+          cp build/bridgesessions-signed "${NAME}"
+          chmod +x "${NAME}"
+          SHA=$(shasum -a 256 "${NAME}" | awk '{print $1}')
+          printf '%s  %s\n' "${SHA}" "${NAME}" > SHA256SUMS-macos.txt
+          echo "sha256: ${SHA}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-macos
+          path: |
+            bridgesessions-*-macos-arm64
+            SHA256SUMS-macos.txt
+          if-no-files-found: error
