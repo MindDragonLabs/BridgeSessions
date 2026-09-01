@@ -11504,8 +11504,19 @@ private:
             // in the pool queue long enough for an operator to pin=false on disk;
             // honoring the newest intent prevents the 2026-08-31 mid-wave
             // downgrade shot (D-002 incident, cpanel bs-mesh.log 19:39:34Z).
-            maybe_reload_config_seeds();
-            if (!config_.auto_upgrade) {
+            // Greptile P1 (26.08.31-release): the worker thread must NOT call
+            // maybe_reload_config_seeds() — it would mutate config_mtime_ and
+            // config_ (seeds vector) unsynchronized against the event loop.
+            // This is a stateless snapshot read instead: parse the file into a
+            // local and touch nothing shared.
+            bool pin_live = config_.auto_upgrade;
+            if (!config_file_path_.empty()) {
+                std::error_code pin_ec;
+                if (std::filesystem::exists(config_file_path_, pin_ec) && !pin_ec) {
+                    pin_live = load_config(config_file_path_).auto_upgrade;
+                }
+            }
+            if (!pin_live) {
                 log_event("auto_upgrade_rejected",
                           task.peer_name + " pin=false at execution time");
                 break;
@@ -17777,7 +17788,7 @@ public:
         // first real spawn fast; on Linux this is a cheap no-op --version run.
         const std::string& wexe = sessions_.worker_exe_for_warm();
         if (!wexe.empty()) {
-            std::string warm = wexe + " --version >/dev/null 2>&1";
+            std::string warm = posix_shell_quote(wexe) + " --version >/dev/null 2>&1";
             std::system(warm.c_str());
         }
 #endif

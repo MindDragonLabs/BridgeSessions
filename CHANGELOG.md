@@ -27,6 +27,14 @@ found during the 26.08.28-r2 rollout RCA.
   binary on every build (release-convergence runs run1/run2 differed).
   `--no-insert-timestamp` pins it; Windows artifacts are now byte-reproducible
   like linux/macOS.
+- fix(review): Greptile pre-release findings on the release PR (#13) —
+  (1) the auto-upgrade execution-time pin re-check ran on a worker thread and
+  mutated shared reload state (`config_mtime_`, seeds vector) against the
+  event loop; replaced with a stateless snapshot read of the pin from disk;
+  (2) a stale session-worker pid file (dead predecessor) could condemn a
+  healthy systemd-run replacement still cold-starting; the stale file is now
+  cleared before spawn; (3) the macOS worker warm-up shell command quoted the
+  exe path, so paths with spaces or metacharacters no longer break it.
 
 
 ## 26.08.28-r2
