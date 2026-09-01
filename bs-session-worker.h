@@ -843,7 +843,15 @@ inline bool systemd_run_available() {
 //    be our direct child (it would zombie on exit). The grandchild is
 //    reparented to PID 1 and reaped there.
 // 2. Fall back to plain fork+exec+setsid (may die with daemon on systemd stop)
-inline pid_t spawn_session_worker(const WorkerConfig& cfg, const std::string& exe_path) {
+// Spawn a detached session worker.
+// Returns: >0 = direct-fork worker pid; 0 = spawned via systemd-run scope
+// (real worker pid arrives later via <socket>.pid; `unit_out`, when non-null,
+// receives the deterministic scope unit name so failure paths can stop it —
+// Greptile P1 tail, see stop_session_worker_unit); -1 = failure.
+inline pid_t spawn_session_worker(const WorkerConfig& cfg,
+                                  const std::string& exe_path,
+                                  std::string* unit_out = nullptr) {
+    if (unit_out) unit_out->clear();
 #ifndef _WIN32
     // Build the worker command line
     std::vector<std::string> args = {
@@ -870,9 +878,11 @@ inline pid_t spawn_session_worker(const WorkerConfig& cfg, const std::string& ex
             ? "/usr/bin/systemd-run" : "/bin/systemd-run";
 
         static std::atomic<uint64_t> scope_seq{0};
-        std::string unit = "bs-worker-" + cfg.session_name + "-" +
+        std::string unit = "bs-worker-" +
+                           sanitize_systemd_unit_name(cfg.session_name) + "-" +
                            std::to_string(::getpid()) + "-" +
                            std::to_string(scope_seq.fetch_add(1));
+        if (unit_out) *unit_out = unit;
 
         std::vector<std::string> full_args;
         full_args.push_back(systemd_run);

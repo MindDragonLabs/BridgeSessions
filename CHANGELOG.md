@@ -2,6 +2,20 @@
 
 Notable user-visible changes. Git history contains implementation-level detail.
 
+## Unreleased
+
+### Fixed
+
+- fix(spawn): fully-timed-out systemd-run worker spawns no longer orphan the
+  scope. The daemon now records the deterministic worker unit name at spawn
+  time and stops it on every failure path where the worker was never adopted
+  (socket never appeared / READY handshake failed / no child pid / PTY
+  nonblock setup failed); adopted workers remain owned by the normal reaper.
+  Unit names are sanitized to systemd's `[A-Za-z0-9:._-]` charset — session
+  names previously flowed into `--unit=` verbatim. Covered by
+  `tests/test_unit_name_sanitization.cpp`. (Greptile P1 tail, 26.08.31-release
+  review.)
+
 ## 26.08.31-release
 
 Upgrade-safety release. Fixes three independent fleet-upgrade failure modes

@@ -2117,6 +2117,24 @@ struct NodeTlsConfig {
 // namespace below) can emit R1.1/R1.2 accept/reject logs. Defined ~line 2350.
 inline void log_event(const std::string& event, const std::string& detail);
 
+// systemd unit names allow only [A-Za-z0-9:._-]. Session names are
+// operator-controlled but flow into systemd-run --unit= verbatim, so map
+// everything else to '_'. Lives ABOVE the #include of bs-session-worker.h so
+// spawn_session_worker() can keep unit names deterministic + inject-safe.
+inline std::string sanitize_systemd_unit_name(const std::string& raw) {
+    std::string out;
+    out.reserve(raw.size());
+    for (char c : raw) {
+        unsigned char u = static_cast<unsigned char>(c);
+        // keep [A-Za-z0-9:._-] verbatim; map everything else to '_'
+        if (std::isalnum(u) || c == ':' || c == '.' || c == '_' || c == '-')
+            out.push_back(c);
+        else
+            out.push_back('_');
+    }
+    return out;
+}
+
 namespace {
 
 // ── BIO helpers ──────────────────────────────────────────────
@@ -3743,6 +3761,46 @@ inline bool terminate_worker_and_reap(pid_t wpid, int* exit_info = nullptr) {
         *exit_info = 128 + WTERMSIG(st);
     return true;   // ECHILD (reaped elsewhere) also counts as dead
 }
+
+// Greptile P1 tail (26.08.31-release review): on the systemd-run spawn path
+// spawn_session_worker() returns wpid==0 (the scope is owned by PID 1), so
+// terminate_worker_and_reap(0) is a no-op. A fully-timed-out spawn — scope
+// created but socket/READY never observed — then leaves a cold-starting
+// systemd worker that nothing tracks or reaps. stop_session_worker_unit()
+// closes that orphan tail: the caller records the deterministic unit name at
+// spawn time (sanitize_systemd_unit_name lives above the worker-header
+// include) and stops the scope on every failure path where the worker was
+// never adopted into the session table (an adopted worker is owned by
+// reap_dead()).
+// Best-effort stop of a systemd-run --user --scope worker unit. Returns true
+// when the unit is confirmed stopped (or was never running). The unit name is
+// strictly validated before it ever reaches a shell: this helper must stay
+// safe even if a future caller skips sanitize_systemd_unit_name(). Failure is
+// deliberately non-fatal: worst case is the pre-existing orphan, never damage
+// to a live session.
+inline bool stop_session_worker_unit(const std::string& unit) {
+    if (unit.empty()) return false;
+    for (char c : unit) {
+        unsigned char u = static_cast<unsigned char>(c);
+        if (!(std::isalnum(u) || c == ':' || c == '.' || c == '_' || c == '-'))
+            return false;   // refuse anything that could alter the command line
+    }
+    if (::system(("systemctl --user stop " + unit + " 2>/dev/null").c_str()) != 0)
+        return false;   // no systemd user session (macOS/CI) or unit gone
+    // "stop" on a scope returns once the stop job is queued; poll briefly so
+    // callers that immediately re-spawn the same session name do not race the
+    // dying worker for the socket path.
+    for (int i = 0; i < 20; ++i) {                       // ~1s
+        std::string probe =
+            "systemctl --user is-active " + unit + " >/dev/null 2>&1";
+        if (::system(probe.c_str()) != 0) return true;   // inactive/failed/gone
+        ::usleep(50 * 1000);
+    }
+    int krc = ::system(("systemctl --user kill --signal=SIGKILL " + unit +
+                        " 2>/dev/null").c_str());
+    (void)krc;   // last-resort kill; best-effort by design
+    return true;
+}
 #endif
 
 [[nodiscard]] inline std::expected<Session, PtyError> create_session_hosted(
@@ -3767,12 +3825,13 @@ inline bool terminate_worker_and_reap(pid_t wpid, int* exit_info = nullptr) {
     // crash, never re-adopted) is reattached rather than replaced — the shell
     // inside it is the session the user expects.
     int fd = -1;
+    std::string spawn_unit;   // systemd-run scope unit (empty on fork path)
     pid_t wpid = -1;
     if (worker::ping_worker(wc.socket_path)) {
         fd = worker::connect_to_worker(wc.socket_path, 2000);
         log_event("session_worker_reattach_orphan", name);
     } else {
-        wpid = worker::spawn_session_worker(wc, exe_path);
+        wpid = worker::spawn_session_worker(wc, exe_path, &spawn_unit);
         // 0 = spawned via systemd-run (worker pid arrives via the pid file);
         // >0 = direct-fork worker pid; -1 = failure.
         log_event("session_worker_spawn", name +
@@ -3856,6 +3915,8 @@ inline bool terminate_worker_and_reap(pid_t wpid, int* exit_info = nullptr) {
     if (fd < 0) {
         int wexit = -1;
         terminate_worker_and_reap(wpid, &wexit);
+        if (wpid == 0 && !spawn_unit.empty())
+            stop_session_worker_unit(spawn_unit);   // r4: systemd worker nobody tracks
         std::string msg = "worker socket never appeared";
         if (wpid > 0) {
             msg += " [worker exit=" + std::to_string(wexit) +
@@ -3871,6 +3932,8 @@ inline bool terminate_worker_and_reap(pid_t wpid, int* exit_info = nullptr) {
         ::close(fd);
         int wexit = -1;
         terminate_worker_and_reap(wpid, &wexit);
+        if (wpid == 0 && !spawn_unit.empty())
+            stop_session_worker_unit(spawn_unit);   // r4: systemd worker nobody tracks
         return std::unexpected(PtyError{"worker READY handshake failed (worker exit=" +
                                         std::to_string(wexit) + ")"});
     }
@@ -3882,6 +3945,8 @@ inline bool terminate_worker_and_reap(pid_t wpid, int* exit_info = nullptr) {
         ::close(fd);
         int wexit = -1;
         terminate_worker_and_reap(wpid, &wexit);
+        if (wpid == 0 && !spawn_unit.empty())
+            stop_session_worker_unit(spawn_unit);   // r4: systemd worker nobody tracks
         return std::unexpected(PtyError{"worker reported no child pid"});
     }
 
@@ -3901,6 +3966,8 @@ inline bool terminate_worker_and_reap(pid_t wpid, int* exit_info = nullptr) {
     if (fl < 0 || ::fcntl(fd, F_SETFL, fl | O_NONBLOCK) < 0) {
         ::close(fd);
         if (wpid > 0) ::kill(wpid, SIGTERM);
+        if (wpid == 0 && !spawn_unit.empty())
+            stop_session_worker_unit(spawn_unit);   // r4: pid file never landed
         return std::unexpected(PtyError{"worker socket nonblock failed"});
     }
 
