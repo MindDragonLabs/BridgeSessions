@@ -2,7 +2,7 @@
 
 Notable user-visible changes. Git history contains implementation-level detail.
 
-## 26.08.31-r3
+## 26.08.31-release
 
 Upgrade-safety release. Fixes three independent fleet-upgrade failure modes
 found during the 26.08.28-r2 rollout RCA.
