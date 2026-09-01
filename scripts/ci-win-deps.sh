@@ -21,6 +21,8 @@ set -euo pipefail
 PREFIX="${1:?usage: ci-win-deps.sh <prefix-dir>}"
 DEPS_DL="${TMPDIR:-/tmp}/bs-win-deps-dl"
 JOBS="${JOBS:-4}"
+# Virgin-prefix safe: wget -O / cmake -S do not create parent dirs.
+mkdir -p "$PREFIX/include" "$PREFIX/lib"
 mkdir -p "$PREFIX" "$DEPS_DL"
 cd "$DEPS_DL"
 
