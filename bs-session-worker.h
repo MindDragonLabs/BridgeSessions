@@ -858,6 +858,14 @@ inline pid_t spawn_session_worker(const WorkerConfig& cfg, const std::string& ex
     };
 
     if (systemd_run_available()) {
+        // Greptile P1 (26.08.31-release): a crashed predecessor can leave a
+        // STALE <socket>.pid behind. The spawn wait loop treats a dead pid in
+        // that file as "worker died during startup" and condemns a healthy
+        // replacement still inside systemd-run scope cold-start. The worker
+        // rewrites this file when the scope comes up — clearing our own stale
+        // file here is safe (adoption only consumes LIVE workers via socket
+        // discovery) and removes the false signal.
+        ::unlink((cfg.socket_path + ".pid").c_str());
         std::string systemd_run = ::access("/usr/bin/systemd-run", X_OK) == 0
             ? "/usr/bin/systemd-run" : "/bin/systemd-run";
 

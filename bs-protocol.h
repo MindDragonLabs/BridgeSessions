@@ -3780,9 +3780,60 @@ inline bool terminate_worker_and_reap(pid_t wpid, int* exit_info = nullptr) {
                                         (wpid > 0 ? "fork" : "FAILED")));
         if (wpid < 0) return std::unexpected(PtyError{"worker spawn failed"});
         // Wait for the socket to come up (worker binds before the PTY child).
-        for (int i = 0; i < 60 && fd < 0; ++i) {   // up to ~3s
-            fd = worker::connect_to_worker(wc.socket_path, 250);
-            if (fd < 0) ::usleep(50 * 1000);
+        // r3 fix (P3): the old fixed 60-iteration loop burned its whole budget in
+        // ~3s on the ENOENT path (connect to a missing socket fails instantly) and
+        // gave up while slow-but-healthy starts were still pending: systemd-run
+        // scope cold-start (dbus + unit creation) and macOS per-exec binary
+        // verification (AMFI page-in of an ad-hoc-signed binary) both exceed 3s
+        // under load (2026-08-31 fleet logs: fecv3 1/6 spawns lost, btcr during
+        // the upgrade wave lost every spawn, macbook lost all). New policy:
+        //   * 12s adaptive budget, 25ms->500ms exponential backoff;
+        //   * early-death detection — if the worker pid is gone (fork path:
+        //     waitpid WNOHANG; systemd-run path: pid file removed / pid reused as
+        //     non-worker), stop waiting and fail fast with the real exit status.
+        {
+            long waited_us = 0;
+            long backoff_us = 25 * 1000;
+            constexpr long kBudgetUs = 12 * 1000 * 1000;
+            bool worker_dead = false;
+            int worker_exit_status = -1;
+            while (fd < 0 && waited_us < kBudgetUs && !worker_dead) {
+                fd = worker::connect_to_worker(wc.socket_path, 120);
+                if (fd >= 0) break;
+                ::usleep(backoff_us);
+                waited_us += backoff_us;
+                backoff_us = std::min(backoff_us * 2, 500L * 1000);
+                if (wpid > 0) {
+                    // Direct-fork path: reap without blocking.
+                    int wstat = 0;
+                    const pid_t r = ::waitpid(wpid, &wstat, WNOHANG);
+                    if (r == wpid) {
+                        worker_dead = true;
+                        worker_exit_status = WIFEXITED(wstat)
+                            ? WEXITSTATUS(wstat) : -1;
+                    }
+                } else if (wpid == 0) {
+                    // systemd-run path: real pid lands in <socket>.pid once the
+                    // scope is up. Scope creation itself can take seconds; only
+                    // treat a STALE pid file as death (pid no longer alive).
+                    std::ifstream pf(wc.socket_path + ".pid");
+                    int wp = 0;
+                    if (pf >> wp) {
+                        if (::kill(static_cast<pid_t>(wp), 0) != 0 &&
+                            errno == ESRCH) {
+                            worker_dead = true;
+                        }
+                    }
+                }
+            }
+            if (fd < 0 && worker_dead && worker_exit_status >= 0) {
+                // Distinguish fast worker exits (bad args, exec failure) from
+                // slow starts — the 2026-08-31 class of failures was latency,
+                // not death; surfacing the exit code keeps both loud.
+                return std::unexpected(PtyError{
+                    "worker exited during startup (exit=" +
+                    std::to_string(worker_exit_status) + ")"});
+            }
         }
     }
     // Failure-path diagnostics: identify a version-skewed worker binary.
@@ -6818,6 +6869,7 @@ public:
                                                       : current_exe_path();
     }
     void set_worker_exe(const std::string& exe) { worker_exe_ = exe; }
+    [[nodiscard]] const std::string& worker_exe_for_warm() const { return worker_exe_; }
     const std::string& app_home() const { return app_home_; }
 #endif
 
@@ -9621,6 +9673,13 @@ private:
         if (config_file_path_.empty()) return;
         MeshConfig fresh = load_config(config_file_path_);
         config_.seeds = std::move(fresh.seeds);
+        // r3 fix (P1): the 2026-08-31 D-002 incident proved mesh.auto_upgrade was
+        // frozen at daemon start — edits on disk (pin=false) were ignored by the
+        // running daemon because hot-reload carried only seeds. The dispatch path
+        // then shot at peers mid-upgrade and DOWNGRADED them (GitHub latest=r1).
+        // Reload the policy flags alongside the seeds so the pin is live.
+        config_.auto_upgrade = fresh.auto_upgrade;
+        config_.auto_upgrade_cooldown_secs = fresh.auto_upgrade_cooldown_secs;
         log_event("config_reload", config_file_path_);
     }
 
@@ -11439,6 +11498,30 @@ private:
             // future caller queues this task without the front-end check.
             if (!bs_peer_name_shell_safe(task.peer_name)) {
                 log_event("auto_upgrade_rejected", "unsafe queued peer name");
+                break;
+            }
+            // r3 fix (P1b): re-check the pin at EXECUTION time. The task may sit
+            // in the pool queue long enough for an operator to pin=false on disk;
+            // honoring the newest intent prevents the 2026-08-31 mid-wave
+            // downgrade shot (D-002 incident, cpanel bs-mesh.log 19:39:34Z).
+            // Greptile P1 (26.08.31-release): the worker thread must NOT touch
+            // shared config state — neither maybe_reload_config_seeds() (mutates
+            // config_mtime_ / seeds vector) nor even reading config_.auto_upgrade
+            // (the event loop writes that field during hot-reload — data race).
+            // Pure stateless snapshot read: parse the file into a local and
+            // touch nothing shared. config_file_path_ is written only during
+            // daemon construction, so reading it here is race-free. Absent
+            // file → loader default (auto_upgrade = true), mirroring load_config.
+            bool pin_live = true;
+            if (!config_file_path_.empty()) {
+                std::error_code pin_ec;
+                if (std::filesystem::exists(config_file_path_, pin_ec) && !pin_ec) {
+                    pin_live = load_config(config_file_path_).auto_upgrade;
+                }
+            }
+            if (!pin_live) {
+                log_event("auto_upgrade_rejected",
+                          task.peer_name + " pin=false at execution time");
                 break;
             }
             const std::string cmd =
@@ -17698,7 +17781,21 @@ public:
     // Daemon-only opt-in: host sessions in detached worker processes so they
     // survive daemon restart/upgrade. Tests and one-shot controllers keep the
     // direct forkpty path. Call before run().
-    void enable_session_hosting() { sessions_.set_app_home(home_dir_); }
+    void enable_session_hosting() {
+        sessions_.set_app_home(home_dir_);
+#ifndef _WIN32
+        // r3 fix (P3b): warm the worker exe once at daemon start. On macOS every
+        // exec of an ad-hoc-signed binary pays an AMFI/page-in cost that can exceed
+        // the old 3s worker-socket wait (all macbook spawns failed on 2026-08-31
+        // right after the r2 swap — a cold binary). Paying it once here makes the
+        // first real spawn fast; on Linux this is a cheap no-op --version run.
+        const std::string& wexe = sessions_.worker_exe_for_warm();
+        if (!wexe.empty()) {
+            std::string warm = posix_shell_quote(wexe) + " --version >/dev/null 2>&1";
+            std::system(warm.c_str());
+        }
+#endif
+    }
 #endif
     const std::vector<Conn>& conns() const { return conns_; }
     size_t conn_count() const { return conns_.size(); }

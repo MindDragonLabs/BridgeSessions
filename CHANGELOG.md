@@ -1,3 +1,42 @@
+# Changelog
+
+Notable user-visible changes. Git history contains implementation-level detail.
+
+## 26.08.31-release
+
+Upgrade-safety release. Fixes three independent fleet-upgrade failure modes
+found during the 26.08.28-r2 rollout RCA.
+
+### Fixed
+
+- fix(upgrade): config hot-reload now carries `mesh.auto_upgrade` — previously
+  seeds-only, so a peer with `mesh.auto_upgrade false` on disk but seeded
+  before the pin existed ran upgrades anyway (cpanel 2026-08-27 incident).
+- fix(upgrade): dispatch re-checks the auto_upgrade pin at execution time,
+  closing the race between policy load and dispatch fire.
+- fix(upgrade): never downgrade below the running version — upgrades from a
+  newer local build to an older GitHub release are refused with exit 0 and a
+  clear message unless `--allow-downgrade` is passed (fleet-wide downgrade
+  wave 2026-08-27).
+- fix(spawn): worker-spawn latency race — the fixed 3s/60-iteration readiness
+  poll is replaced with a 12s adaptive budget (exponential backoff +
+  early-death detection via waitpid/pid-file) plus a daemon-start AMFI warm-up
+  on macOS. fecv3 lost ~1/6 spawns, btcr/macbook lost most during load.
+- fix(build): deterministic Windows PE link — MinGW ld embedded the link
+  timestamp in the COFF header, so identical source produced a different
+  binary on every build (release-convergence runs run1/run2 differed).
+  `--no-insert-timestamp` pins it; Windows artifacts are now byte-reproducible
+  like linux/macOS.
+- fix(review): Greptile pre-release findings on the release PR (#13) —
+  (1) the auto-upgrade execution-time pin re-check ran on a worker thread and
+  mutated shared reload state (`config_mtime_`, seeds vector) against the
+  event loop; replaced with a stateless snapshot read of the pin from disk;
+  (2) a stale session-worker pid file (dead predecessor) could condemn a
+  healthy systemd-run replacement still cold-starting; the stale file is now
+  cleared before spawn; (3) the macOS worker warm-up shell command quoted the
+  exe path, so paths with spaces or metacharacters no longer break it.
+
+
 ## 26.08.28-r2
 
 - fix(windows): CLI construction crash — root positionals renamed PEER/SESSION
@@ -6,9 +45,6 @@
   aborted at startup before parsing any argument (OptionAlreadyAdded: peer).
   Linux/macOS were unaffected (CLI11 1.9 in the build container).
 - positional matching is case-insensitive: `bs <peer>` quick-connect unchanged.
-# Changelog
-
-Notable user-visible changes. Git history contains implementation-level detail.
 
 ## 26.08.28-r1
 
