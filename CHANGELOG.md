@@ -2,6 +2,16 @@
 
 Notable user-visible changes. Git history contains implementation-level detail.
 
+## Unreleased
+
+### Changed
+
+- Release binaries for all three platforms are now built by GitHub-hosted
+  runners (`release-builds.yml`; `workflow_dispatch` + `v*` tags only). The
+  Windows release build bootstraps a pinned hermetic MinGW dependency prefix
+  via `scripts/ci-win-deps.sh` and pins `NTDDI_VERSION` so `HPCON` compiles on
+  older mingw header sets. Local builds stay supported as the testing lane.
+
 ## 26.09.01-release
 
 ### Fixed

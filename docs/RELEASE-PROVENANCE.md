@@ -193,3 +193,42 @@ The release script refuses to publish when any of the checks above would fail. T
   (missing macos-arm64 asset) is corrected in this release — macos-arm64 is
   included, Developer ID signed (Team QL5MD8FKPL) and notarized (submission
   `06940c32…`, Accepted 2026-08-27).
+
+## Release record — v26.09.01-release (2026-09-01)
+
+- Tag `v26.09.01-release` → commit `3ebe252` (PR #16). Published on 2026-09-01
+  as a GitHub **pre-release**. 7 assets: the three platform binaries, source
+  tar.gz/zip, `SHA256SUMS`, `SBOM-binaries.json` — every digest verified
+  against the local `SHA256SUMS` after upload.
+- Content: spawn reliability — fully-timed-out systemd-run worker spawns no
+  longer orphan the scope; deterministic unit names, sanitized to systemd's
+  charset, stopped on every never-adopted failure path (see `CHANGELOG.md`
+  `## 26.09.01-release`). Covered by `tests/test_unit_name_sanitization.cpp`.
+- First release produced end-to-end by the gated one-command pipeline
+  (`builder/release.sh`, run `rel-20260901-172418`): parity gate → build
+  dispatch (linux/windows local docker+mingw, macOS on macbook) → assemble →
+  PR → blocking CI + Greptile → squash merge → tag → publish → re-download
+  e2e. Builder gate fix landed mid-run: Greptile clean verdicts are check-runs,
+  not review objects (builder `3e62170`).
+- Verification: Linux rebuild is deterministic — a second full build produced
+  the identical `bridgesessions-linux-x86_64` sha256. The Windows cross-build
+  was reproduced hermetically in an ubuntu:24.04 container with a pinned dep
+  prefix (OpenSSL 3.5.7, zstd 1.5.7, fmt 12.2.0, spdlog 1.17.0, CLI11 2.7.2,
+  nlohmann-json 3.12.0): PE build succeeds, import table is OS DLLs only. PR
+  #16 checks all green, including a clean Greptile pass (0 annotations). Full
+  test suite 489/492 in the Linux build container; the 3 failures are known
+  container-environment flakes, identical on pristine main.
+- Fleet e2e: 87 pass / 7 fail / 8 skip of 102. All 7 failures were probed
+  individually and classified environmental or harness-quoting issues (transient
+  peer health, a PATH quirk, a harness PowerShell `\$`-escape bug, one
+  progress-line truncation); manual re-tests pass. No fleet rollout occurred —
+  peers remain on prior versions pending a separate rollout decision.
+
+## Release record — v26.09.01-release CI runners (2026-09-01)
+
+Starting with the next release, the three platform release binaries are built
+by GitHub-hosted runners (`.github/workflows/release-builds.yml`,
+`workflow_dispatch` + `v*` tags only; fork PRs never run it). The Windows job
+bootstraps its MinGW static dep prefix with `scripts/ci-win-deps.sh`.
+`build_dispatch.py` / `builder/release.sh BS_BUILD_BACKEND=local` remain the
+local testing lane.

@@ -4,7 +4,7 @@ BridgeSessions needs C++23 and CMake 3.25 or newer.
 
 Dependencies: OpenSSL 3, zstd, spdlog/fmt, CLI11, nlohmann-json, and Catch2 3 for tests.
 
-Current release stamp: **`26.08.27-r1`**. The version string lives in the `VERSION` file at the repo root. CMake reads that file. Bump `VERSION` before you rebuild a release.
+Current release stamp: **`26.09.01-release`**. The version string lives in the `VERSION` file at the repo root. CMake reads that file. Bump `VERSION` before you rebuild a release.
 
 ## Developer build
 
@@ -65,12 +65,32 @@ You also need the Apple WWDR intermediate. The private key never belongs in git.
 
 ## Windows cross-compile
 
+One command bootstraps everything (hermetic, no host packages touched):
+
 ```bash
+bash scripts/ci-win-deps.sh    # builds the static MinGW prefix once
 ./scripts/build-windows-mingw.sh
 file dist/bridgesessions-windows-x86_64.exe
 ```
 
-The script looks for MinGW static libs in `BS_WIN_PREFIX`, then `/opt/bs-win`, then `~/bs-win`.
+`ci-win-deps.sh` compiles OpenSSL 3.5.7, zstd 1.5.7, fmt 12.2.0, spdlog 1.17.0,
+CLI11 2.7.2, and nlohmann-json 3.12.0 as static libraries into a prefix, then
+checks completeness. The prefix is toolchain-pinned: rebuild deps and link the
+exe with the same MinGW (mixing distributions' mingw builds fails on
+`__imp__` crt symbols).
+
+The build script looks for the prefix in `BS_WIN_PREFIX`, then `/opt/bs-win`,
+then `~/bs-win`. It pins `WINVER`/`_WIN32_WINNT`/`NTDDI_VERSION` to
+`0x0A000006` (older mingw 11 header sets gate `HPCON` behind that NTDDI level).
+
+## Release builds on CI
+
+Release binaries for all three platforms are built by GitHub-hosted runners:
+`.github/workflows/release-builds.yml`. It runs on `workflow_dispatch` and
+`v*` tags only — fork PRs never execute it and never see signing secrets.
+Artifacts carry the exact names the release pipeline stages. Local
+`scripts/Dockerfile.static-linux`, `scripts/build-windows-mingw.sh`, and
+native macOS builds remain the developer/testing lane.
 
 ## Sanitizers
 
