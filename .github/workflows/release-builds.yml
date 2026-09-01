@@ -1,40 +1,126 @@
-# release-macos.yml — signed macOS arm64 release builds on GitHub-hosted runners.
+# release-builds.yml — release artifacts on GitHub-hosted runners (win/mac/linux).
 #
-# Replaces the fleet's dedicated signing host (currently offline) per the
-# 2026-08-31
-# decision: "use github ci runners until we can get something else running."
+# Policy (operator decision 2026-09-01): local builds stay the TESTING lane;
+# RELEASE builds come from GitHub CI. Fork PRs never run this workflow and
+# never touch signing secrets (triggers: workflow_dispatch + v* tags only).
 #
-# Pipeline: static arm64 build -> Developer ID sign (no ad-hoc fallback) ->
-# verify TeamIdentifier -> sha256 -> workflow artifact.
-# NOT attached to GitHub Releases by this workflow; release attachment stays
-# with scripts/github-release.sh until this pipeline has a green track record.
+# Artifact names (downloaders normalize to the bare names release.sh expects):
+#   release-linux:   bridgesessions-linux-x86_64
+#   release-windows: bridgesessions-windows-x86_64.exe
+#   release-macos:   bridgesessions-<VERSION>-macos-arm64 (+ SHA256SUMS-macos.txt)
 #
-# Triggers are restricted to manual dispatch and v* tag pushes: fork PRs can
-# never run this workflow, and secrets are only ever exposed to this job.
+# Note on the v* tag trigger: the tag push in release.sh stage 8 re-runs this
+# workflow for the same sha. That is deliberate — tag-triggered runs are the
+# public provenance record attached to the tag.
 #
-# Required repo secrets:
-#   MACOS_SIGNING_P12_B64      — base64 of the Developer ID Application .p12
-#   MACOS_SIGNING_P12_PASSWORD — the p12 export password
-
-name: release-macos
+# Repo secrets (already set): MACOS_SIGNING_P12_B64, MACOS_SIGNING_P12_PASSWORD
+name: release-builds
 
 on:
   workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Ref to build (empty = dispatch ref)'
+        required: false
+        default: ''
   push:
     tags: ['v*']
 
 concurrency:
-  group: release-macos
+  group: release-builds
   cancel-in-progress: false
 
 permissions:
   contents: read
 
 jobs:
-  sign-macos:
+  linux:
+    name: linux-x86_64 static (glibc 2.35 floor)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0
+
+      - name: Build via the proven static image (scripts/Dockerfile.static-linux)
+        run: |
+          set -euo pipefail
+          docker build -f scripts/Dockerfile.static-linux -t bs-static-builder:ci .
+          mkdir -p dist
+          docker run --rm bs-static-builder:ci cat /src/build/bridgesessions \
+            > dist/bridgesessions-linux-x86_64
+          chmod +x dist/bridgesessions-linux-x86_64
+
+      - name: Verify
+        run: |
+          set -euo pipefail
+          file dist/bridgesessions-linux-x86_64
+          ldd dist/bridgesessions-linux-x86_64 || true
+          V="$(./dist/bridgesessions-linux-x86_64 --version)"
+          echo "version: $V"
+          grep -qF "$(cat VERSION)" <<<"$V"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-linux
+          path: dist/bridgesessions-linux-x86_64
+          if-no-files-found: error
+
+  windows:
+    name: windows-x86_64 (mingw-w64 cross, ubuntu runner)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Install mingw-w64 (posix threads)
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends \
+            g++-mingw-w64-x86-64-posix gcc-mingw-w64-x86-64-posix \
+            binutils-mingw-w64-x86-64 wine64
+          update-alternatives --set x86_64-w64-mingw32-gcc /usr/bin/x86_64-w64-mingw32-gcc-posix
+          update-alternatives --set x86_64-w64-mingw32-g++ /usr/bin/x86_64-w64-mingw32-g++-posix
+
+      - name: Build static deps prefix (scripts/ci-win-deps.sh)
+        run: |
+          set -euo pipefail
+          chmod +x scripts/ci-win-deps.sh
+          JOBS=4 bash scripts/ci-win-deps.sh "$RUNNER_TEMP/bs-win"
+
+      - name: Cross-compile (scripts/build-windows-mingw.sh)
+        env:
+          BS_WIN_PREFIX: ${{ runner.temp }}/bs-win
+        run: |
+          set -euo pipefail
+          bash scripts/build-windows-mingw.sh
+
+      - name: Wine smoke (--version must report VERSION)
+        env:
+          WINEDEBUG: -all
+        run: |
+          set -euo pipefail
+          export WINEPREFIX="$RUNNER_TEMP/wineprefix"
+          timeout 120 wine64 dist/bridgesessions-windows-x86_64.exe --version | tee /tmp/winever.txt
+          grep -qF "$(cat VERSION)" /tmp/winever.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-windows
+          path: dist/bridgesessions-windows-x86_64.exe
+          if-no-files-found: error
+
+  macos:
+    name: macos-arm64 (static, Developer ID signed)
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0
 
       - name: Install dependencies
         env:
@@ -122,8 +208,7 @@ jobs:
           printf '%s  %s\n' "${SHA}" "${NAME}" > SHA256SUMS-macos.txt
           echo "sha256: ${SHA}"
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: release-macos
           path: |

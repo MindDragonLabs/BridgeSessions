@@ -24,6 +24,7 @@ ln -sf "$PREFIX/include/CLI11.hpp" /tmp/bs-win-shim/CLI/CLI.hpp
 rm -rf build-win
 mkdir -p build-win
 "$TRIPLE" -static -std=c++23 -O3 -DNDEBUG \
+  -DWINVER=0x0A00 -D_WIN32_WINNT=0x0A00 -DNTDDI_VERSION=0x0A000006 \
   -fstack-protector-strong -D_FORTIFY_SOURCE=3 \
   -Wl,--dynamicbase,--nxcompat,--high-entropy-va,--no-insert-timestamp \
   -DSPDLOG_FMT_EXTERNAL=1 \

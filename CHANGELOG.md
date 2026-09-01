@@ -2,6 +2,16 @@
 
 Notable user-visible changes. Git history contains implementation-level detail.
 
+## Unreleased
+
+### Changed
+
+- Release binaries for all three platforms are now built by GitHub-hosted
+  runners (`release-builds.yml`; `workflow_dispatch` + `v*` tags only). The
+  Windows release build bootstraps a pinned hermetic MinGW dependency prefix
+  via `scripts/ci-win-deps.sh` and pins `NTDDI_VERSION` so `HPCON` compiles on
+  older mingw header sets. Local builds stay supported as the testing lane.
+
 ## 26.09.01-release
 
 ### Fixed
@@ -25,7 +35,7 @@ found during the 26.08.28-r2 rollout RCA.
 
 - fix(upgrade): config hot-reload now carries `mesh.auto_upgrade` — previously
   seeds-only, so a peer with `mesh.auto_upgrade false` on disk but seeded
-  before the pin existed ran upgrades anyway (cpanel 2026-08-27 incident).
+  before the pin existed ran upgrades anyway (fleet incident, 2026-08-27).
 - fix(upgrade): dispatch re-checks the auto_upgrade pin at execution time,
   closing the race between policy load and dispatch fire.
 - fix(upgrade): never downgrade below the running version — upgrades from a
@@ -35,7 +45,8 @@ found during the 26.08.28-r2 rollout RCA.
 - fix(spawn): worker-spawn latency race — the fixed 3s/60-iteration readiness
   poll is replaced with a 12s adaptive budget (exponential backoff +
   early-death detection via waitpid/pid-file) plus a daemon-start AMFI warm-up
-  on macOS. fecv3 lost ~1/6 spawns, btcr/macbook lost most during load.
+  on macOS. One linux node lost ~1/6 spawns, two other peers lost most/all
+  during load.
 - fix(build): deterministic Windows PE link — MinGW ld embedded the link
   timestamp in the COFF header, so identical source produced a different
   binary on every build (release-convergence runs run1/run2 differed).
