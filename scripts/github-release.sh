@@ -26,5 +26,5 @@ assets=(
 )
 for asset in "${assets[@]}"; do [[ -f "$asset" ]] || { echo "error: missing $asset" >&2; exit 1; }; done
 if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then echo "error: release exists" >&2; exit 1; fi
-gh release create "$TAG" "${assets[@]}" --repo "$REPO" --verify-tag --prerelease --title "BridgeSessions $VERSION" --generate-notes
+gh release create "$TAG" "${assets[@]}" --repo "$REPO" --verify-tag --latest --title "BridgeSessions $VERSION" --generate-notes
 gh release view "$TAG" --repo "$REPO" --json url,tagName,assets
