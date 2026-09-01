@@ -11504,12 +11504,15 @@ private:
             // in the pool queue long enough for an operator to pin=false on disk;
             // honoring the newest intent prevents the 2026-08-31 mid-wave
             // downgrade shot (D-002 incident, cpanel bs-mesh.log 19:39:34Z).
-            // Greptile P1 (26.08.31-release): the worker thread must NOT call
-            // maybe_reload_config_seeds() — it would mutate config_mtime_ and
-            // config_ (seeds vector) unsynchronized against the event loop.
-            // This is a stateless snapshot read instead: parse the file into a
-            // local and touch nothing shared.
-            bool pin_live = config_.auto_upgrade;
+            // Greptile P1 (26.08.31-release): the worker thread must NOT touch
+            // shared config state — neither maybe_reload_config_seeds() (mutates
+            // config_mtime_ / seeds vector) nor even reading config_.auto_upgrade
+            // (the event loop writes that field during hot-reload — data race).
+            // Pure stateless snapshot read: parse the file into a local and
+            // touch nothing shared. config_file_path_ is written only during
+            // daemon construction, so reading it here is race-free. Absent
+            // file → loader default (auto_upgrade = true), mirroring load_config.
+            bool pin_live = true;
             if (!config_file_path_.empty()) {
                 std::error_code pin_ec;
                 if (std::filesystem::exists(config_file_path_, pin_ec) && !pin_ec) {
