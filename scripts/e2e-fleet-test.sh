@@ -452,6 +452,9 @@ write_json() {
       IFS='|' read -r status peer feature detail <<< "$r"
       detail="${detail//\\/\\\\}"
       detail="${detail//\"/\\\"}"
+      # control chars (peer stdout can carry \r\n, e.g. Windows hostnames)
+      # must be scrubbed: raw control bytes make the JSON unparseable
+      detail="$(printf '%s' "$detail" | tr -d '\000-\010\013\014\016-\037' | tr '\r\n' '  ')"
       [[ $i -gt 0 ]] && echo ','
       printf '    {"status":"%s","peer":"%s","feature":"%s","detail":"%s"}' \
         "$status" "$peer" "$feature" "$detail"
