@@ -4,6 +4,19 @@ Notable user-visible changes. Git history contains implementation-level detail.
 
 ## Unreleased
 
+### Security
+
+- audit(2026-09-02): re-verified pin binding, receive_dir confinement, spectator
+  CUA denial, and seed-only enrollment. Documented residuals in `AUDIT.md`.
+
+### Fixed
+
+- fix(install): default `BRIDGESESSIONS_TAG` is `26.09.01-release`, not the
+  GitHub-labeled broken `26.08.26-r2`. macOS `CFBundleVersion` follows `${TAG}`.
+- fix(join): `bs invite` fails closed if `RAND_bytes` cannot mint a token.
+- docs: `AGENTS.md` / skill / `SECURITY.md` stamps match `VERSION`. Bridge Panel
+  trusted-IP bypass is reads-only, matching `require_token=True` on POST.
+
 ### Changed
 
 - Release binaries for all three platforms are now built by GitHub-hosted
