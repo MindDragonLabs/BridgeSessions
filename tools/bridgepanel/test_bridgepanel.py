@@ -497,7 +497,7 @@ class TestHttpSurface(unittest.TestCase):
         self.assertIn("error", payload)
 
     def test_session_create_requires_token(self):
-        status, _ = self._req("POST", "/api/session/create", {"name": "x"})
+        status, _ = self._req("POST", "/api/session/create", {"name": "x"}, auth=False)
         self.assertEqual(status, 404)
 
     def test_session_connect(self):

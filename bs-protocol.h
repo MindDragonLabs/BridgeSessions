@@ -2421,7 +2421,6 @@ bool write_private_text_file_impl(const std::string& path,
 struct AuthorizedKeys {
     std::vector<std::vector<uint8_t>> keys;
     std::string file_path;  // stored for R4.1 hot-reload
-    std::filesystem::file_time_type last_mtime_{};  // P2 audit fix: reload cache
 
     void load_from_file(const std::string& path) {
         file_path = path;
@@ -2449,16 +2448,11 @@ struct AuthorizedKeys {
         }
     }
 
-    // R4.1: reload from disk — called per-accept so revocations take effect
-    // immediately. P2 audit fix: only re-read when the file mtime changed
-    // (avoids disk I/O + TOCTOU on every accept under connection storms).
+    // R4.1: reload from disk on every call so revocations take effect
+    // immediately. The file is a handful of 64-hex lines; a mtime/size cache
+    // missed same-tick equal-length key replacements (coarse-mtime FS).
     void reload() {
         if (file_path.empty()) return;
-        std::error_code ec;
-        auto mtime = std::filesystem::last_write_time(file_path, ec);
-        if (ec) return;
-        if (mtime == last_mtime_) return;
-        last_mtime_ = mtime;
         load_from_file(file_path);
     }
 
@@ -4313,6 +4307,11 @@ extern "C" int bs_macos_capture_png(const char*, unsigned, char*, size_t);
 [[nodiscard]] CuaResponseMsg cua_execute(const CuaRequestMsg& req, const std::string& app_home = "") {
     CuaResponseMsg resp;
     resp.status = 0;
+    if (req.action == 1 && req.hid_key > 0xFFu) {
+        resp.status = 1;
+        resp.error = "hid key out of range";
+        return resp;
+    }
 
 #ifdef _WIN32
     // Prefer cua-helper for ALL actions (including capture). Session 0 daemons
@@ -4513,7 +4512,7 @@ extern "C" int bs_macos_capture_png(const char*, unsigned, char*, size_t);
             resp.status = 1; resp.error = "cannot determine screen size";
             return resp;
         }
-        case 1: // key press
+        case 1: // key press — hid_key range is enforced in cua_execute
             cmd = "xdotool key --delay 0 " + std::to_string(req.hid_key) + " 2>/dev/null";
             break;
         case 2: { // text entry
@@ -12753,6 +12752,17 @@ public:
         const auto max_window = std::chrono::seconds(config_.join_window_max_secs);
         if (join_window_opened_at_ != std::chrono::steady_clock::time_point{} &&
             now - join_window_opened_at_ >= max_window) {
+            // Unknown certs cannot redeem a token after the TLS window closes.
+            // Drop unclaimed invites so IPC state matches that fact.
+            for (auto it = pending_invites_.begin(); it != pending_invites_.end();) {
+                if (it->claimed_by.empty()) {
+                    log_event("invite_expired", "reason=join_window_hard_cap");
+                    ++invite_expired_event_count_;
+                    it = pending_invites_.erase(it);
+                } else {
+                    ++it;
+                }
+            }
             close_join_window_locked("hard_cap");
             return;
         }
@@ -14755,24 +14765,30 @@ public:
                 response = daemon_stats_summary() + "\n";
             }
             else if (line == "INVITE") {
-                // Generate a 2-hour invite token
+                // Generate an invite token. Redeemable only while the TLS join
+                // window is open (mesh.join_window_max_secs, default 300s).
+                // A 2-hour record TTL is the backstop if the event loop never
+                // ticks the hard cap.
                 std::lock_guard lock(invite_mutex_);
                 unsigned char raw_bytes[16];
-                RAND_bytes(raw_bytes, sizeof(raw_bytes));
-                std::ostringstream tok;
-                for (size_t i = 0; i < sizeof(raw_bytes); ++i)
-                    tok << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(raw_bytes[i]);
-                auto now = std::chrono::steady_clock::now();
-                expire_pending_invites_locked(now);
-                PendingInvite pi;
-                pi.token = tok.str();
-                pi.created_at = now;
-                response = pi.token + "\n";
-                pending_invites_.push_back(std::move(pi));
-                // Open the join window so unknown peers can TLS-connect to
-                // present their invite token. Closed after successful join
-                // or naturally expires when invites time out.
-                open_join_window_locked(now);
+                if (RAND_bytes(raw_bytes, sizeof(raw_bytes)) != 1) {
+                    response = "ERROR could not generate invite token\n";
+                } else {
+                    std::ostringstream tok;
+                    for (size_t i = 0; i < sizeof(raw_bytes); ++i)
+                        tok << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(raw_bytes[i]);
+                    auto now = std::chrono::steady_clock::now();
+                    expire_pending_invites_locked(now);
+                    PendingInvite pi;
+                    pi.token = tok.str();
+                    pi.created_at = now;
+                    response = pi.token + "\n";
+                    pending_invites_.push_back(std::move(pi));
+                    // Open the join window so unknown peers can TLS-connect to
+                    // present their invite token. Closed after successful join
+                    // or naturally expires when invites time out.
+                    open_join_window_locked(now);
+                }
             }
             else if (line.rfind("ENROLL ", 0) == 0) {
                 // "ENROLL <name> <pubkey_hex> <addr>" — issue a signed directory

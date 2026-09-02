@@ -22,7 +22,9 @@ jobs:
       - name: Build
         run: cmake --build build --parallel
       - name: Test
-        run: ctest --test-dir build --output-on-failure --exclude-regex "test_tls$"
+        run: ctest --test-dir build --output-on-failure
+      - name: Installer regressions
+        run: python3 -m pytest tests/test_regression_install.py tests/test_install_script.py -v
 
   build-macos:
     runs-on: macos-14
@@ -42,4 +44,4 @@ jobs:
       - name: Build
         run: cmake --build build --parallel
       - name: Test
-        run: ctest --test-dir build --output-on-failure --exclude-regex "test_tls$"
+        run: ctest --test-dir build --output-on-failure

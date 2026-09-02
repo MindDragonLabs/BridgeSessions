@@ -6,7 +6,7 @@ Task-specific procedures: **`skills/bridgesessions/SKILL.md`** (Agent Skills ope
 ## Product
 
 Mesh terminal + file relay. One C++23 binary (`bridgesessions` / `bs`). Shipping source: `main.cpp` + `bs-protocol.h` + `bs-session.h`; macOS capture backend: `macos-capture.mm`; Windows/macOS CUA helper: `bs-cua-helper.h`.
-Shipping release: **v26.08.27-r1**. Probe live `--version`.
+Shipping release: **v26.09.01-release**. Probe live `--version`.
 
 ## Agent rules
 

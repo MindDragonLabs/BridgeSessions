@@ -34,9 +34,9 @@ Rules:
 
 ### Token and trusted addresses
 
-Writes need the bearer token unless the client IP is in `BRIDGEPANEL_TRUSTED_IPS`.
+GET requests from an address in `BRIDGEPANEL_TRUSTED_IPS` may skip the bearer token. POST (create, edit, upload, rename, delete) always requires the bearer token.
 
-Put only addresses that you control on that list. A trusted address can change files in writable roots.
+Put only addresses that you control on that list. A trusted address can list and preview files without the token; it cannot change them.
 
 ### Keep it running
 

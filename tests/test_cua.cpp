@@ -108,6 +108,15 @@ TEST_CASE("P5 CUA: cua_execute unknown action returns error", "[p5][cua][dispatc
     REQUIRE(!resp.error.empty());
 }
 
+TEST_CASE("P5 CUA: cua_execute rejects hid_key above 0xFF", "[p5][cua][dispatch][security]") {
+    CuaRequestMsg req;
+    req.action = 1;
+    req.hid_key = 0x100;
+    auto resp = cua_execute(req);
+    REQUIRE(resp.status == 1);
+    REQUIRE(resp.error.find("out of range") != std::string::npos);
+}
+
 TEST_CASE("P5 CUA: cua_execute key action does not crash", "[p5][cua][dispatch]") {
     CuaRequestMsg req;
     req.action = 1; // key
