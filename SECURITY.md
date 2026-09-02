@@ -28,7 +28,7 @@ BridgeSessions is for operator-controlled peer meshes. It is not a hostile multi
 
 ## Join and transport
 
-Mesh traffic uses mutual TLS over TCP `19949`. The current compatibility profile negotiates TLS 1.2. A bounded invite window temporarily accepts an unknown certificate only to submit a single-use random token. The TLS window defaults to `mesh.join_window_max_secs` (300 seconds). Invite records themselves expire after two hours, but an unknown certificate cannot complete join after the TLS window closes. Only pinned seeds may issue accepted mesh-wide enrollments. After the join, the new node's key is gossiped to every peer; every peer auto-trusts the new node without a roster edit.
+Mesh traffic uses mutual TLS over TCP `19949`. The current compatibility profile negotiates TLS 1.2. A bounded invite window temporarily accepts an unknown certificate only to submit a single-use random token. The TLS window defaults to `mesh.join_window_max_secs` (300 seconds). Unclaimed invite tokens are dropped when that window closes. A 2-hour record TTL is only a backstop if the event loop never ticks the cap. Unknown certificates cannot complete join after the TLS window closes. Only pinned seeds may issue accepted mesh-wide enrollments. After the join, the new node's key is gossiped to every peer; every peer auto-trusts the new node without a roster edit.
 
 `mesh.require_seed_pins true` is the safe default. An unpinned seed is a path to silent re-keying and silent denial of service; do not disable it on an untrusted network.
 

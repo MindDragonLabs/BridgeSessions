@@ -25,16 +25,17 @@ Threat model used: operator-controlled mesh (matches `SECURITY.md`). Hostile mul
 | P2 | A2 | Invite token generation called `RAND_bytes` without checking the return. IPC token generation already failed closed. A CSPRNG failure could mint a weak join token. | **fixed in this tree** |
 | P2 | A3 | Version stamps drifted: `AGENTS.md` / skill metadata / `SECURITY.md` still said `26.08.27-r1` while `VERSION` and README said `26.09.01-release`. | **fixed in this tree** |
 | P2 | A4 | README and `docs/bridge-panel.md` claimed trusted IPs may skip the token on **writes**. `server.py` sets `require_token=True` on POST; only GET can bypass. | **docs fixed in this tree** |
-| P2 | A5 | Join invite TTL is 2 hours (`kInviteTtl`), but the TLS join window that accepts unknown certs is `mesh.join_window_max_secs` (default 300s). After the window closes, a still-unexpired token cannot be redeemed by an unknown cert. Operators who treat the token as a 2-hour capability will fail closed. | open (behavior is conservative; docs should say 300s) |
+| P2 | A5 | Join invite TTL is 2 hours (`kInviteTtl`), but the TLS join window that accepts unknown certs is `mesh.join_window_max_secs` (default 300s). After the window closes, a still-unexpired token cannot be redeemed by an unknown cert. Operators who treat the token as a 2-hour capability will fail closed. | **fixed**: hard-cap close now drops unclaimed invites; 2h TTL remains a backstop |
 | P2 | A6 | During an open join window, inbound TLS verify accepts **any** unknown cert so the peer can present a token. A network attacker who **answers** the joiner's TCP session obtains the single-use token and can redeem it at the real seed. Joiner does bind `JoinReply.host_pubkey` to the TLS cert (blocks pin injection). Token is not bound to the intended seed pubkey. | open (design residual; bind token to seed pin) |
 | P2 | A7 | Outbound TLS verify callback is accept-all; pin checks run in `connect_and_hello()` / `verify_outbound_peer_identity()`. Empty pin without TOFU is refused. Future connect paths that skip the app-layer check inherit TOFU. | open (defense in depth) |
 | P2 | A8 | `mesh.auto_upgrade` defaults **true**. A reachable newer node can dispatch `bridgesessions upgrade` on older peers (shell-safe name + execution-time pin re-check). Integrity is GitHub HTTPS + `SHA256SUMS`, not a detached signature. | documented beta; keep default visible in config.example |
 | P3 | A9 | `read_frame` accepts `FLAG_LENGTH_U32` without requiring Hello `+frm2`. Encode path gates large frames. Payload still capped at 4 MiB. | open (DoS/compat footgun, not unbounded alloc) |
-| P3 | A10 | Linux in-process CUA (`xdotool`) does not reject `hid_key > 0xFF`; Windows/macOS helpers do. Interpolation is numeric-only (not shell injection). | open |
+| P3 | A10 | Linux in-process CUA (`xdotool`) does not reject `hid_key > 0xFF`; Windows/macOS helpers do. Interpolation is numeric-only (not shell injection). | **fixed**: `cua_execute` rejects `hid_key > 0xFF` on every platform before dispatch |
 | P3 | A11 | Session-worker Unix socket is `0600` only; no IPC token / `SO_PEERCRED`. Same-UID local processes can drive the PTY. Matches "trust the host account". | accepted |
 | P3 | A12 | Default mesh listen is `0.0.0.0`. Firewall/VPN is operator-owned (`SECURITY.md`). | accepted |
 | P3 | A13 | Signed directory enrollments are fresh for 24h wall-clock. Seed-key compromise remains mesh-wide enrollment authority. | documented |
 | P3 | A14 | `bs join` may set `listen_addr` from `tailscale ip -4` when present. Wrong interface advertisement skips or mis-gossips auto-enroll. | open |
+| I | A15 | Linux CI did not run installer pytest; `--exclude-regex "test_tls$"` did not match Catch2 discovered case names. | **partial**: installer pytest is a Linux CI step; dead exclude removed. Panel/daemon Python tests and Windows Catch2 still out of CI |
 | P2 | A19 | `AuthorizedKeys::reload()` skipped the file when mtime (and later size) was unchanged. Same-tick equal-length key replacement left a live mesh conn authorized. | **fixed**: always re-read; file is a handful of hex lines |
 | P3 | A20 | `test_session_create_requires_token` posted **with** the bearer, so POST returned 400 (bad body) instead of 404 (unauthenticated). | **fixed** (`auth=False`) |
 | I | A16 | `bs-protocol.h` is ~834 KB / ~18k LOC. Auth, path confinement, PTY, CUA, and upgrade share one translation unit. Review and blast radius stay high. | structural |
@@ -59,10 +60,10 @@ Threat model used: operator-controlled mesh (matches `SECURITY.md`). Hostile mul
 
 ## CI and test posture (this tree)
 
-Catch2 coverage for pins, path containment, enrollment issuer, spectator denial, upgrade tag charset, and systemd unit names is strong. Gaps that matter:
+Catch2 coverage for pins, path containment, enrollment issuer, spectator denial, upgrade tag charset, and systemd unit names is strong. Gaps that remain:
 
-1. `.github/workflows/ci.yml` runs `--exclude-regex "test_tls$"` on Linux and macOS.
-2. Same workflow sets `-DBRIDGESESSIONS_PYTHON=OFF`, so `tests/test_regression_install.py` would not have caught A1 in CI.
+1. Linux CI now runs installer pytest. Catch2 TLS cases were already discovered by name; the old `--exclude-regex "test_tls$"` was a no-op and is gone.
+2. `-DBRIDGESESSIONS_PYTHON=OFF` still skips daemon-spinning panel/latency tests in CMake (those start live processes).
 3. Windows is a MinGW cross-build + Wine `--version` smoke, not Catch2.
 4. Release SBOM (`scripts/release-checksums.sh`) is artifact hashes, not a dependency CVE graph.
 5. macOS Developer ID signing is in `release-builds.yml`; notarization remains an operator step.
@@ -70,21 +71,19 @@ Catch2 coverage for pins, path containment, enrollment issuer, spectator denial,
 
 ## Recommended follow-ups (not done here)
 
-1. Put `test_tls` and Python installer/panel tests back in CI, or document a concrete flake reason next to the exclude.
-2. Bind invite tokens to the seed pubkey (or print the pin in `bs invite` output and require the joiner to pass it).
-3. Align invite TTL with `join_window_max_secs` in both code and operator docs.
-4. Default `mesh.auto_upgrade` to false in `config.example`, or require an explicit pin in the example file.
-5. Reject `FLAG_LENGTH_U32` unless the peer advertised `+frm2`.
-6. HID range-check on the Linux CUA path.
-7. Dependency SBOM + OSV/Grype in the release workflow.
-8. Split `bs-protocol.h` along TLS / transfer / session / CUA boundaries.
+1. Bind invite tokens to the seed pubkey (or print the pin in `bs invite` output and require the joiner to pass it).
+2. Default `mesh.auto_upgrade` to false, or require an explicit pin in the example file.
+3. Reject `FLAG_LENGTH_U32` unless the peer advertised `+frm2` (needs capability on the decode path).
+4. Dependency SBOM + OSV/Grype in the release workflow.
+5. Split `bs-protocol.h` along TLS / transfer / session / CUA boundaries.
+6. Windows Catch2 job; CMake Python panel/daemon tests in CI if they can be made non-flaky.
 
 ## Verification for this pass
 
 Local gates on this branch (Linux cloud agent):
 
 - `tests/test_regression_install.py` + `test_install_script.py`: 36 passed, 2 skipped
-- Catch2: `[security]` on `test_config` (26 cases), path sanitization, enroll, join-window, upgrade-validation, unit-name sanitization, authorized_keys, handshake bounds, bootstrap enroll, invite/join regression, `test_tls` (9 cases / 148 assertions — **passes locally**; still excluded from GitHub CI)
+- Catch2: `[security]` on `test_config` (26 cases), path sanitization, enroll, join-window, upgrade-validation, unit-name sanitization, authorized_keys, handshake bounds, bootstrap enroll, invite/join regression, `test_tls` (9 cases / 148 assertions)
 - `scripts/prepublish-scan.sh`: clean (WARN-only keyword hits, same shape as prior releases)
 
 ---
