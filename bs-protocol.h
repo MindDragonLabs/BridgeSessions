@@ -4307,6 +4307,11 @@ extern "C" int bs_macos_capture_png(const char*, unsigned, char*, size_t);
 [[nodiscard]] CuaResponseMsg cua_execute(const CuaRequestMsg& req, const std::string& app_home = "") {
     CuaResponseMsg resp;
     resp.status = 0;
+    if (req.action == 1 && req.hid_key > 0xFFu) {
+        resp.status = 1;
+        resp.error = "hid key out of range";
+        return resp;
+    }
 
 #ifdef _WIN32
     // Prefer cua-helper for ALL actions (including capture). Session 0 daemons
@@ -4507,7 +4512,7 @@ extern "C" int bs_macos_capture_png(const char*, unsigned, char*, size_t);
             resp.status = 1; resp.error = "cannot determine screen size";
             return resp;
         }
-        case 1: // key press
+        case 1: // key press — hid_key range is enforced in cua_execute
             cmd = "xdotool key --delay 0 " + std::to_string(req.hid_key) + " 2>/dev/null";
             break;
         case 2: { // text entry
@@ -12747,6 +12752,17 @@ public:
         const auto max_window = std::chrono::seconds(config_.join_window_max_secs);
         if (join_window_opened_at_ != std::chrono::steady_clock::time_point{} &&
             now - join_window_opened_at_ >= max_window) {
+            // Unknown certs cannot redeem a token after the TLS window closes.
+            // Drop unclaimed invites so IPC state matches that fact.
+            for (auto it = pending_invites_.begin(); it != pending_invites_.end();) {
+                if (it->claimed_by.empty()) {
+                    log_event("invite_expired", "reason=join_window_hard_cap");
+                    ++invite_expired_event_count_;
+                    it = pending_invites_.erase(it);
+                } else {
+                    ++it;
+                }
+            }
             close_join_window_locked("hard_cap");
             return;
         }
@@ -14749,7 +14765,10 @@ public:
                 response = daemon_stats_summary() + "\n";
             }
             else if (line == "INVITE") {
-                // Generate a 2-hour invite token
+                // Generate an invite token. Redeemable only while the TLS join
+                // window is open (mesh.join_window_max_secs, default 300s).
+                // A 2-hour record TTL is the backstop if the event loop never
+                // ticks the hard cap.
                 std::lock_guard lock(invite_mutex_);
                 unsigned char raw_bytes[16];
                 if (RAND_bytes(raw_bytes, sizeof(raw_bytes)) != 1) {
