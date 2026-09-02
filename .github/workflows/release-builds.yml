@@ -61,7 +61,7 @@ jobs:
           echo "version: $V"
           grep -qF "$(cat VERSION)" <<<"$V"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: release-linux
           path: dist/bridgesessions-linux-x86_64
@@ -113,7 +113,7 @@ jobs:
           timeout 180 "$WINE" dist/bridgesessions-windows-x86_64.exe --version | tee /tmp/winever.txt
           grep -qF "$(cat VERSION)" /tmp/winever.txt
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: release-windows
           path: dist/bridgesessions-windows-x86_64.exe
@@ -214,7 +214,7 @@ jobs:
           printf '%s  %s\n' "${SHA}" "${NAME}" > SHA256SUMS-macos.txt
           echo "sha256: ${SHA}"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: release-macos
           path: |
