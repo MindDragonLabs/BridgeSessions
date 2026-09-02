@@ -54,7 +54,18 @@ else()
 endif()
 
 # ── Core library (header-only) + binary ──────────────────────────
-add_executable(bridgesessions main.cpp bs-protocol.h)
+add_executable(bridgesessions main.cpp
+    bs-protocol.h
+    bs-codec.h
+    bs-tls.h
+    bs-osc52.h
+    bs-pty.h
+    bs-cua-dispatch.h
+    bs-config.h
+    bs-session-registry.h
+    bs-mesh-controller.h
+    bs-session.h
+    bs-session-worker.h)
 # Console subsystem on Windows: this is a CLI/daemon (int main), not WinMain GUI.
 # WIN32_EXECUTABLE TRUE would require WinMain and hides stdout from shells.
 if(APPLE)

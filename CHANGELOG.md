@@ -6,6 +6,10 @@ Notable user-visible changes. Git history contains implementation-level detail.
 
 ### Changed
 
+- refactor: split `bs-protocol.h` (~18k LOC) into sibling headers along
+  codec/transfer, TLS, session/PTY, CUA, and mesh boundaries.
+  `bs-protocol.h` remains the public include facade; wire format and
+  behavior are unchanged (R6 structural refactor).
 - Release binaries for all three platforms are now built by GitHub-hosted
   runners (`release-builds.yml`; `workflow_dispatch` + `v*` tags only). The
   Windows release build bootstraps a pinned hermetic MinGW dependency prefix
