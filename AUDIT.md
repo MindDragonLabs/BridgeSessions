@@ -35,7 +35,8 @@ Threat model used: operator-controlled mesh (matches `SECURITY.md`). Hostile mul
 | P3 | A12 | Default mesh listen is `0.0.0.0`. Firewall/VPN is operator-owned (`SECURITY.md`). | accepted |
 | P3 | A13 | Signed directory enrollments are fresh for 24h wall-clock. Seed-key compromise remains mesh-wide enrollment authority. | documented |
 | P3 | A14 | `bs join` may set `listen_addr` from `tailscale ip -4` when present. Wrong interface advertisement skips or mis-gossips auto-enroll. | open |
-| I | A15 | CI excludes `test_tls` and builds with `-DBRIDGESESSIONS_PYTHON=OFF`, so installer regressions and TLS tests are not merge gates. No Windows Catch2 job. No ASan/UBSan in GitHub Actions. E2E L2–L4 remain operator-run. | open |
+| P2 | A19 | `AuthorizedKeys::reload()` skipped the file when mtime was unchanged. Same-tick rewrites (truncate to revoke, coarse-mtime FS) could leave a live mesh conn authorized. The audit P2 test was flaky for the same reason. | **fixed**: cache key is mtime **and** size; test bumps mtime |
+| P3 | A20 | `test_session_create_requires_token` posted **with** the bearer, so POST returned 400 (bad body) instead of 404 (unauthenticated). | **fixed** (`auth=False`) |
 | I | A16 | `bs-protocol.h` is ~834 KB / ~18k LOC. Auth, path confinement, PTY, CUA, and upgrade share one translation unit. Review and blast radius stay high. | structural |
 | I | A17 | Panel CSP allows `script-src 'unsafe-inline'`. Markdown renderer HTML-escapes raw markup (tests assert `<script>` stripped). Still a browser XSS budget if preview HTML is ever concatenated unsafely. | accepted with tests |
 | I | A18 | 2026-08-20 audit listed `select()` FD ceiling as a product limit. Main mesh loop now uses `poll()` / `WSAPoll`; helper paths still `select()` and reject `fd >= FD_SETSIZE`. | docs updated |
@@ -80,11 +81,11 @@ Catch2 coverage for pins, path containment, enrollment issuer, spectator denial,
 
 ## Verification for this pass
 
-See the walkthrough artifacts attached to the PR for command transcripts. Local gates run on this branch:
+Local gates on this branch (Linux cloud agent):
 
-- security-tagged Catch2 tests
-- path / enroll / join-window / upgrade-validation tests
-- Python installer regression including default-tag == `VERSION`
+- `tests/test_regression_install.py` + `test_install_script.py`: 36 passed, 2 skipped
+- Catch2: `[security]` on `test_config` (26 cases), path sanitization, enroll, join-window, upgrade-validation, unit-name sanitization, authorized_keys, handshake bounds, bootstrap enroll, invite/join regression, `test_tls` (9 cases / 148 assertions — **passes locally**; still excluded from GitHub CI)
+- `scripts/prepublish-scan.sh`: clean (WARN-only keyword hits, same shape as prior releases)
 
 ---
 

@@ -2422,6 +2422,7 @@ struct AuthorizedKeys {
     std::vector<std::vector<uint8_t>> keys;
     std::string file_path;  // stored for R4.1 hot-reload
     std::filesystem::file_time_type last_mtime_{};  // P2 audit fix: reload cache
+    uintmax_t last_size_ = static_cast<uintmax_t>(-1);
 
     void load_from_file(const std::string& path) {
         file_path = path;
@@ -2447,18 +2448,26 @@ struct AuthorizedKeys {
                 if (raw.size() == 32) keys.push_back(std::move(raw));
             }
         }
+        std::error_code id_ec;
+        last_mtime_ = std::filesystem::last_write_time(file_path, id_ec);
+        if (id_ec) last_mtime_ = {};
+        last_size_ = std::filesystem::file_size(file_path, id_ec);
+        if (id_ec) last_size_ = static_cast<uintmax_t>(-1);
     }
 
     // R4.1: reload from disk — called per-accept so revocations take effect
-    // immediately. P2 audit fix: only re-read when the file mtime changed
-    // (avoids disk I/O + TOCTOU on every accept under connection storms).
+    // immediately. Cache key is mtime + size so a same-tick truncate or rewrite
+    // that changes length is not skipped (coarse-mtime filesystems).
     void reload() {
         if (file_path.empty()) return;
         std::error_code ec;
         auto mtime = std::filesystem::last_write_time(file_path, ec);
         if (ec) return;
-        if (mtime == last_mtime_) return;
+        auto sz = std::filesystem::file_size(file_path, ec);
+        if (ec) return;
+        if (mtime == last_mtime_ && sz == last_size_) return;
         last_mtime_ = mtime;
+        last_size_ = sz;
         load_from_file(file_path);
     }
 

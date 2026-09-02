@@ -4,6 +4,8 @@
 #include "../bs-protocol.h"
 #include <fstream>
 #include <cstdio>
+#include <chrono>
+#include <filesystem>
 
 using namespace bs::mesh;
 
@@ -50,11 +52,16 @@ TEST_CASE("AuthorizedKeys reload is mtime-cached", "[audit][p2][auth]") {
     ak.reload();
     REQUIRE(ak.keys.empty());
 
-    // Change the file: next reload must pick it up
+    // Change the file: next reload must pick it up. Filesystems with coarse
+    // mtime (same-tick overwrite) would otherwise skip the re-read — bump the
+    // recorded write time so this test asserts the cache invalidation path.
     {
         std::ofstream f(path);
         f << "pubkey " << std::string(64, 'a') << "\n";
     }
+    std::error_code tec;
+    auto stamped = std::filesystem::last_write_time(path, tec) + std::chrono::seconds(1);
+    if (!tec) std::filesystem::last_write_time(path, stamped);
     ak.reload();
     REQUIRE(ak.keys.size() == 1);
 
