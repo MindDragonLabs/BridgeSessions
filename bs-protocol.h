@@ -14758,21 +14758,24 @@ public:
                 // Generate a 2-hour invite token
                 std::lock_guard lock(invite_mutex_);
                 unsigned char raw_bytes[16];
-                RAND_bytes(raw_bytes, sizeof(raw_bytes));
-                std::ostringstream tok;
-                for (size_t i = 0; i < sizeof(raw_bytes); ++i)
-                    tok << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(raw_bytes[i]);
-                auto now = std::chrono::steady_clock::now();
-                expire_pending_invites_locked(now);
-                PendingInvite pi;
-                pi.token = tok.str();
-                pi.created_at = now;
-                response = pi.token + "\n";
-                pending_invites_.push_back(std::move(pi));
-                // Open the join window so unknown peers can TLS-connect to
-                // present their invite token. Closed after successful join
-                // or naturally expires when invites time out.
-                open_join_window_locked(now);
+                if (RAND_bytes(raw_bytes, sizeof(raw_bytes)) != 1) {
+                    response = "ERROR could not generate invite token\n";
+                } else {
+                    std::ostringstream tok;
+                    for (size_t i = 0; i < sizeof(raw_bytes); ++i)
+                        tok << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(raw_bytes[i]);
+                    auto now = std::chrono::steady_clock::now();
+                    expire_pending_invites_locked(now);
+                    PendingInvite pi;
+                    pi.token = tok.str();
+                    pi.created_at = now;
+                    response = pi.token + "\n";
+                    pending_invites_.push_back(std::move(pi));
+                    // Open the join window so unknown peers can TLS-connect to
+                    // present their invite token. Closed after successful join
+                    // or naturally expires when invites time out.
+                    open_join_window_locked(now);
+                }
             }
             else if (line.rfind("ENROLL ", 0) == 0) {
                 // "ENROLL <name> <pubkey_hex> <addr>" — issue a signed directory

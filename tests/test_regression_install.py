@@ -215,6 +215,24 @@ class TestVersionNotHardcoded:
             hardcoded = re.findall(r'26\.\d{2}\.\d{2}', line)
             assert len(hardcoded) == 0, f"Hardcoded version in BASE: {hardcoded}"
 
+    def test_default_tag_matches_version_file(self):
+        version = (REPO_ROOT / "VERSION").read_text().strip()
+        text = read_script()
+        assert f'TAG="${{BRIDGESESSIONS_TAG:-{version}}}"' in text, \
+            f"install.sh default tag must match VERSION ({version})"
+
+    def test_install_ps1_default_tag_matches_version_file(self):
+        version = (REPO_ROOT / "VERSION").read_text().strip()
+        text = (REPO_ROOT / "scripts" / "install.ps1").read_text()
+        assert f'else {{ "{version}" }}' in text, \
+            f"install.ps1 default tag must match VERSION ({version})"
+
+    def test_cfbundle_version_uses_tag_variable(self):
+        text = read_script()
+        assert "CFBundleVersion</key><string>${TAG}</string>" in text
+        assert "CFBundleShortVersionString</key><string>${TAG}</string>" in text
+        assert not re.search(r"CFBundleVersion</key><string>26\.\d{2}\.\d{2}", text)
+
 
 # ════════════════════════════════════════════════════════════════
 # Bug 3: dist binary must be statically linked (no Homebrew dylibs)
