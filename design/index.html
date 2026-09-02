@@ -1436,7 +1436,7 @@
 <p>A peer key in <code>authorized_keys</code> is near-interactive host access. The mesh refuses unpinned seeds when <code>mesh.require_seed_pins</code> is enabled. Local IPC is loopback-only and token-authenticated. File serving is confined to <code>receive_dir</code> unless the operator weakens that on purpose. CUA is rejected for spectator attachments. Release artifacts are Developer ID signed on macOS and SHA-verified on every install path.</p>
 <h2 id="current-limits">Current limits<a class="headerlink" href="#current-limits" title="Permanent link">&para;</a></h2>
 <ul>
-<li><code>select()</code> inherits the platform FD ceiling. The target is small trusted fleets, not thousands of peers on a single daemon.</li>
+<li>The main mesh loop uses <code>poll()</code> / <code>WSAPoll</code>. Helper paths still call <code>select()</code> and refuse file descriptors at or above <code>FD_SETSIZE</code>. The target is small trusted fleets, not thousands of peers on a single daemon.</li>
 <li>Authorization is host-level, not capability-scoped. The mesh does not implement fine-grained per-command policy.</li>
 <li>Cross-platform compatibility currently caps TLS at 1.2. TLS 1.3 is not yet negotiated.</li>
 <li>Windows ConPTY and macOS permissions require platform E2E testing. The unit suite covers contracts; the E2E suite covers reality.</li>

@@ -1265,8 +1265,8 @@
 <li>Do not run the panel as a more privileged user than you need.</li>
 </ul>
 <h3 id="token-and-trusted-addresses">Token and trusted addresses<a class="headerlink" href="#token-and-trusted-addresses" title="Permanent link">&para;</a></h3>
-<p>Writes need the bearer token unless the client IP is in <code>BRIDGEPANEL_TRUSTED_IPS</code>.</p>
-<p>Put only addresses that you control on that list. A trusted address can change files in writable roots.</p>
+<p>GET requests from an address in <code>BRIDGEPANEL_TRUSTED_IPS</code> may skip the bearer token. POST (create, edit, upload, rename, delete) always requires the bearer token.</p>
+<p>Put only addresses that you control on that list. A trusted address can list and preview files without the token; it cannot change them.</p>
 <h3 id="keep-it-running">Keep it running<a class="headerlink" href="#keep-it-running" title="Permanent link">&para;</a></h3>
 <p>Use a systemd user unit, launchd, or an equivalent supervisor. The panel and the mesh daemon are separate. Restart only the panel after a UI change. Restart the daemon only when you replace <code>bridgesessions</code>.</p>
 <h2 id="use-the-panel">Use the panel<a class="headerlink" href="#use-the-panel" title="Permanent link">&para;</a></h2>
