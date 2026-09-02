@@ -4,7 +4,6 @@
 #include "../bs-protocol.h"
 #include <fstream>
 #include <cstdio>
-#include <chrono>
 #include <filesystem>
 
 using namespace bs::mesh;
@@ -35,7 +34,7 @@ TEST_CASE("CuaResponse decode rejects oversized data_size", "[audit][p2][codec]"
     REQUIRE_THROWS(decode(payload));
 }
 
-TEST_CASE("AuthorizedKeys reload is mtime-cached", "[audit][p2][auth]") {
+TEST_CASE("AuthorizedKeys reload picks up disk changes", "[audit][p2][auth]") {
     char path[] = "/tmp/bs-ak-mtime-XXXXXX";
     int fd = mkstemp(path);
     REQUIRE(fd >= 0);
@@ -48,26 +47,51 @@ TEST_CASE("AuthorizedKeys reload is mtime-cached", "[audit][p2][auth]") {
     ak.load_from_file(path);
     REQUIRE(ak.keys.empty());
 
-    // First reload on unchanged file: no re-read needed, still empty
     ak.reload();
     REQUIRE(ak.keys.empty());
 
-    // Change the file: next reload must pick it up. Filesystems with coarse
-    // mtime (same-tick overwrite) would otherwise skip the re-read — bump the
-    // recorded write time so this test asserts the cache invalidation path.
     {
         std::ofstream f(path);
         f << "pubkey " << std::string(64, 'a') << "\n";
     }
-    std::error_code tec;
-    auto stamped = std::filesystem::last_write_time(path, tec) + std::chrono::seconds(1);
-    if (!tec) std::filesystem::last_write_time(path, stamped);
     ak.reload();
     REQUIRE(ak.keys.size() == 1);
 
-    // Unchanged file: cache hit, size stays 1
     ak.reload();
     REQUIRE(ak.keys.size() == 1);
+
+    ::unlink(path);
+}
+
+TEST_CASE("AuthorizedKeys reload sees equal-length same-mtime key replacement",
+          "[audit][p2][auth][revocation]") {
+    char path[] = "/tmp/bs-ak-same-XXXXXX";
+    int fd = mkstemp(path);
+    REQUIRE(fd >= 0);
+    close(fd);
+    const std::string key_a(64, 'a');
+    const std::string key_b(64, 'b');
+    {
+        std::ofstream f(path);
+        f << "pubkey " << key_a << "\n";
+    }
+    AuthorizedKeys ak;
+    ak.load_from_file(path);
+    REQUIRE(ak.keys.size() == 1);
+
+    std::error_code tec;
+    const auto frozen = std::filesystem::last_write_time(path, tec);
+    REQUIRE_FALSE(tec);
+    {
+        std::ofstream f(path, std::ios::trunc);
+        f << "pubkey " << key_b << "\n";
+    }
+    // Same length, restored mtime: a mtime+size cache would skip this rewrite.
+    std::filesystem::last_write_time(path, frozen);
+    ak.reload();
+    REQUIRE(ak.keys.size() == 1);
+    REQUIRE(ak.is_authorized(key_b));
+    REQUIRE_FALSE(ak.is_authorized(key_a));
 
     ::unlink(path);
 }

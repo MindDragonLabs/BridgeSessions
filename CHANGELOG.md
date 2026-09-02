@@ -14,10 +14,8 @@ Notable user-visible changes. Git history contains implementation-level detail.
 - fix(install): default `BRIDGESESSIONS_TAG` is `26.09.01-release`, not the
   GitHub-labeled broken `26.08.26-r2`. macOS `CFBundleVersion` follows `${TAG}`.
 - fix(join): `bs invite` fails closed if `RAND_bytes` cannot mint a token.
-- fix(auth): `authorized_keys` hot-reload now invalidates on size as well as
-  mtime, so a same-tick truncate actually revokes live connections.
-- test: `AuthorizedKeys` mtime-cache regression no longer depends on
-  same-tick filesystem timestamps; panel POST auth test sends no bearer.
+- fix(auth): `authorized_keys` hot-reload always re-reads the file. A
+  mtime/size cache missed same-tick equal-length key replacements.
 - docs: `AGENTS.md` / skill / `SECURITY.md` stamps match `VERSION`. Bridge Panel
   trusted-IP bypass is reads-only, matching `require_token=True` on POST.
 

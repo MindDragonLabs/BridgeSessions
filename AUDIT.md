@@ -35,7 +35,7 @@ Threat model used: operator-controlled mesh (matches `SECURITY.md`). Hostile mul
 | P3 | A12 | Default mesh listen is `0.0.0.0`. Firewall/VPN is operator-owned (`SECURITY.md`). | accepted |
 | P3 | A13 | Signed directory enrollments are fresh for 24h wall-clock. Seed-key compromise remains mesh-wide enrollment authority. | documented |
 | P3 | A14 | `bs join` may set `listen_addr` from `tailscale ip -4` when present. Wrong interface advertisement skips or mis-gossips auto-enroll. | open |
-| P2 | A19 | `AuthorizedKeys::reload()` skipped the file when mtime was unchanged. Same-tick rewrites (truncate to revoke, coarse-mtime FS) could leave a live mesh conn authorized. The audit P2 test was flaky for the same reason. | **fixed**: cache key is mtime **and** size; test bumps mtime |
+| P2 | A19 | `AuthorizedKeys::reload()` skipped the file when mtime (and later size) was unchanged. Same-tick equal-length key replacement left a live mesh conn authorized. | **fixed**: always re-read; file is a handful of hex lines |
 | P3 | A20 | `test_session_create_requires_token` posted **with** the bearer, so POST returned 400 (bad body) instead of 404 (unauthenticated). | **fixed** (`auth=False`) |
 | I | A16 | `bs-protocol.h` is ~834 KB / ~18k LOC. Auth, path confinement, PTY, CUA, and upgrade share one translation unit. Review and blast radius stay high. | structural |
 | I | A17 | Panel CSP allows `script-src 'unsafe-inline'`. Markdown renderer HTML-escapes raw markup (tests assert `<script>` stripped). Still a browser XSS budget if preview HTML is ever concatenated unsafely. | accepted with tests |
