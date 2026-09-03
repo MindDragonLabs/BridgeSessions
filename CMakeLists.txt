@@ -219,19 +219,19 @@ if(BRIDGESESSIONS_PYTHON)
                 "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_typing_latency.py" -v
                 --timeout=60)
         set_tests_properties(panel_typing_latency PROPERTIES
-            ENVIRONMENT "PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}")
+            ENVIRONMENT "PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR};BRIDGESESSIONS_BINARY=$<TARGET_FILE:bridgesessions>")
         add_test(NAME panel_chained_relay
             COMMAND ${BRIDGESESSIONS_PYTHON} -m pytest
                 "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_chained_relay.py" -v
                 --timeout=120)
         set_tests_properties(panel_chained_relay PROPERTIES
-            ENVIRONMENT "PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}")
+            ENVIRONMENT "PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR};BRIDGESESSIONS_BINARY=$<TARGET_FILE:bridgesessions>")
         add_test(NAME panel_daemon_restart_disconnect
             COMMAND ${BRIDGESESSIONS_PYTHON} -m pytest
                 "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_daemon_restart_disconnect.py" -v
                 --timeout=60)
         set_tests_properties(panel_daemon_restart_disconnect PROPERTIES
-            ENVIRONMENT "PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}")
+            ENVIRONMENT "PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR};BRIDGESESSIONS_BINARY=$<TARGET_FILE:bridgesessions>")
     endif()
 endif()
 endif()

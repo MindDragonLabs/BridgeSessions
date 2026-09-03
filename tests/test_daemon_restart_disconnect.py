@@ -52,7 +52,7 @@ class DaemonHelper:
             [BINARY, "--config-dir", str(self.config_dir), "keygen"],
             env=self._env(), capture_output=True, timeout=10,
         )
-        return (self.config_dir / "identity.pub").read_text().strip()
+        return (self.config_dir / "id_ed25519.pub").read_text().strip()
 
     def authorize(self, pubkey: str) -> None:
         ak = self.config_dir / "authorized_keys"

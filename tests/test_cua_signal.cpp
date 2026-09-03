@@ -104,17 +104,12 @@ TEST_CASE("Detach signal is delivered to child on last-peer detach",
     auto cfg = make_test_config("test-node-detach-sig");
     MeshController mc(cfg);
 
-    // A plain long-running child that terminates on the requested signal.
-    // (Non-interactive bash ignores SIGHUP by default, so we assert with TERM,
-    // which reliably terminates `sleep`. The delivery path is signal-agnostic.)
-    // create_session spawns `/bin/sh -c <cmd>` and the direct child is `sh`.
-    // To deterministically prove the detach signal reaches `sh` and is handled,
-    // use a command that blocks in a builtin (`read`, no foreground subprocess)
-    // with a TERM trap that writes a sentinel. A TERM trap fires reliably here
-    // (unlike when `sh` is waiting on a foreground child, which it defers).
+    // create_session spawns `/bin/sh -c <cmd>`; child_pid is that shell.
+    // `read` can return immediately if the PTY already has EOF. Background
+    // sleep + wait keeps the shell in a builtin so a TERM trap runs.
     std::string sentinel = "/tmp/bs_cua_term_" + std::to_string(getpid()) + ".sent";
     std::remove(sentinel.c_str());
-    std::string cmd = "trap 'touch " + sentinel + "' TERM; read";
+    std::string cmd = "trap 'touch " + sentinel + "' TERM; sleep 300 & wait";
 
     auto* s = mc.sessions().attach("cua-detach", cmd, 80, 24, "xterm-256color");
     REQUIRE(s != nullptr);

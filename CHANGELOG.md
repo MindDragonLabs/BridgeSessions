@@ -25,6 +25,12 @@ Notable user-visible changes. Git history contains implementation-level detail.
 - docs: `AGENTS.md` / skill / `SECURITY.md` stamps match `VERSION`. Bridge Panel
   trusted-IP bypass is reads-only, matching `require_token=True` on POST.
 
+### Fixed
+
+- test: panel fixtures read `id_ed25519.pub` (keygen's real filename, not
+  `identity.pub`). Detach-signal and ephemeral-prune cases no longer race
+  on `read`/`echo hi` exiting before the assertion.
+
 ### Changed
 
 - refactor: split `bs-protocol.h` (~18k LOC) into sibling headers along

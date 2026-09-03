@@ -154,8 +154,8 @@ def two_daemons(tmp_path):
     )
 
     # Read pubkeys
-    pk_a = (dir_a / "identity.pub").read_text().strip()
-    pk_b = (dir_b / "identity.pub").read_text().strip()
+    pk_a = (dir_a / "id_ed25519.pub").read_text().strip()
+    pk_b = (dir_b / "id_ed25519.pub").read_text().strip()
 
     # Cross-authorize
     (dir_a / "authorized_keys").write_text(pk_b + "\n")
