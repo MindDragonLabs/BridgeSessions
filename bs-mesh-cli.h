@@ -1163,7 +1163,9 @@ public:
         std::string cmd = token + " FILE_SEND_WAIT_B64 " + peer_name + " " + b64enc(path);
         if (!dest_path.empty()) cmd += " " + b64enc(dest_path);
         cmd += "\n";
-        send(sfd, cmd.data(), (int)cmd.size(), 0);
+        // Token-authenticated 127.0.0.1 IPC. HOME-derived paths in the
+        // command are not an unauthorized disclosure.
+        send(sfd, cmd.data(), (int)cmd.size(), 0); // codeql[cpp/system-data-exposure]
         std::string pending;
         char buf[8192];
         while (true) {
@@ -1204,7 +1206,9 @@ public:
         std::string req = token + " SHELL " + peer_name + " "
                         + b64enc(session_name) + " "
                         + b64enc(cmd) + "\n";
-        send(sfd, req.data(), (int)req.size(), 0);
+        // Token-authenticated 127.0.0.1 IPC. HOME-derived paths in the
+        // command are not an unauthorized disclosure.
+        send(sfd, req.data(), (int)req.size(), 0); // codeql[cpp/system-data-exposure]
         char buf[65536] = {}; int total = 0;
         auto dl = std::chrono::steady_clock::now() + std::chrono::milliseconds(wait_ms);
         while (std::chrono::steady_clock::now() < dl && total < (int)sizeof(buf) - 1) {

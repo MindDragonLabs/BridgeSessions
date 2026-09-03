@@ -999,7 +999,9 @@
                 &transfer_telemetry_, task.peer_name);
             if (task.ipc_fd != INVALID_SOCKET) {
                 result += "\n";
-                send(task.ipc_fd, result.data(), (int)result.size(), 0);
+                // Token-authenticated 127.0.0.1 IPC. receive_dir/HOME in the
+                // result line is not an unauthorized disclosure.
+                send(task.ipc_fd, result.data(), (int)result.size(), 0); // codeql[cpp/system-data-exposure]
             } else {
                 log_event("file_request_worker_complete", task.peer_name + " " + result);
             }

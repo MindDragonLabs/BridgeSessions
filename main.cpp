@@ -11,8 +11,14 @@
 #ifdef __APPLE__
 #include <mach-o/dyld.h>
 #endif
-#ifdef __linux__
+#ifndef _WIN32
 #include <unistd.h>
+#include <fcntl.h>
+#else
+#include <process.h>
+#ifndef _P_DETACH
+#define _P_DETACH _P_NOWAIT
+#endif
 #endif
 
 // Tag validation is defined in bs-protocol.h (shared with tests).
@@ -150,12 +156,31 @@ void pause_mesh_daemon() {
 }
 
 bool start_detached_daemon(const std::string& exe, const std::string& cfg_path) {
+    if (exe.empty() || cfg_path.empty()) return false;
 #ifdef _WIN32
-    std::string cmd = "start /B \"\" \"" + exe + "\" --daemon --config \"" + cfg_path + "\"";
+    // argv spawn — do not interpolate paths into cmd.exe / std::system.
+    const intptr_t rc = _spawnl(_P_DETACH, exe.c_str(), exe.c_str(),
+                                "--daemon", "--config", cfg_path.c_str(),
+                                nullptr);
+    return rc >= 0;
 #else
-    std::string cmd = "nohup '" + exe + "' --daemon --config '" + cfg_path + "' > /dev/null 2>&1 &";
+    const pid_t pid = ::fork();
+    if (pid < 0) return false;
+    if (pid == 0) {
+        int devnull = ::open("/dev/null", O_RDWR);
+        if (devnull >= 0) {
+            ::dup2(devnull, STDIN_FILENO);
+            ::dup2(devnull, STDOUT_FILENO);
+            ::dup2(devnull, STDERR_FILENO);
+            if (devnull > 2) ::close(devnull);
+        }
+        ::setsid();
+        ::execl(exe.c_str(), exe.c_str(), "--daemon", "--config",
+                cfg_path.c_str(), static_cast<char*>(nullptr));
+        _exit(127);
+    }
+    return true;
 #endif
-    return std::system(cmd.c_str()) == 0;
 }
 
 bool resume_mesh_daemon(const std::string& exe, const std::string& cfg_path) {

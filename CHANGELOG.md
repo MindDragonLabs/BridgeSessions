@@ -8,6 +8,8 @@ Notable user-visible changes. Git history contains implementation-level detail.
 
 - audit(2026-09-02): re-verified pin binding, receive_dir confinement, spectator
   CUA denial, and seed-only enrollment. Documented residuals in `AUDIT.md`.
+- fix(upgrade): resume a detached daemon with argv spawn (`fork`/`execl`,
+  Windows `_spawnl`) instead of interpolating paths into `std::system`.
 
 ### Fixed
 
