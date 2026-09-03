@@ -2,7 +2,7 @@
 
 Notable user-visible changes. Git history contains implementation-level detail.
 
-## Unreleased
+## 26.09.03-release
 
 ### Security
 
@@ -15,6 +15,7 @@ Notable user-visible changes. Git history contains implementation-level detail.
 
 - fix(install): default `BRIDGESESSIONS_TAG` is `26.09.01-release`, not the
   GitHub-labeled broken `26.08.26-r2`. macOS `CFBundleVersion` follows `${TAG}`.
+  (Default bumped to `26.09.03-release` in this release.)
 - fix(join): `bs invite` fails closed if `RAND_bytes` cannot mint a token.
 - fix(auth): `authorized_keys` hot-reload always re-reads the file. A
   mtime/size cache missed same-tick equal-length key replacements.
