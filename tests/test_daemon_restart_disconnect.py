@@ -52,7 +52,7 @@ class DaemonHelper:
             [BINARY, "--config-dir", str(self.config_dir), "keygen"],
             env=self._env(), capture_output=True, timeout=10,
         )
-        return (self.config_dir / "identity.pub").read_text().strip()
+        return (self.config_dir / "id_ed25519.pub").read_text().strip()
 
     def authorize(self, pubkey: str) -> None:
         ak = self.config_dir / "authorized_keys"
@@ -90,14 +90,18 @@ class DaemonHelper:
             return False
 
     def start(self) -> None:
+        # Foreground (no --daemon): pytest stdin is not a TTY, so main()
+        # runs MeshController in this process. --daemon forks and the
+        # parent exits immediately, which this helper treats as a crash.
+        # pid() is then the live daemon, so remote kill -TERM hits it.
         self.process = subprocess.Popen(
-            [BINARY, "--config-dir", str(self.config_dir), "--daemon"],
+            [BINARY, "--config-dir", str(self.config_dir)],
             env=self._env(),
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             start_new_session=True,
         )
-        for _ in range(50):
+        for _ in range(80):
             if self._is_ready():
                 return
             time.sleep(0.1)

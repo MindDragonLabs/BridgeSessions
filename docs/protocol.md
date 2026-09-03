@@ -1,6 +1,6 @@
 # Protocol (`bs://`)
 
-BridgeSessions uses binary frames over mutually authenticated TLS on TCP. The wire is documented here at the level a new operator or a contributor needs. The authoritative enum, variant, serializer, and decoder live in `bs-protocol.h`. The on-the-wire shape and the source must agree; a new message is incomplete until round-trip tests cover it.
+BridgeSessions uses binary frames over mutually authenticated TLS on TCP. The wire is documented here at the level a new operator or a contributor needs. The authoritative enum, variant, serializer, and decoder live in `bs-codec.h` (included from `bs-protocol.h`). The on-the-wire shape and the source must agree; a new message is incomplete until round-trip tests cover it.
 
 ## Transport
 
@@ -74,7 +74,7 @@ A separate stream per attachment keeps unrelated output from interleaving and le
 | Desktop | `CuaRequest`, `CuaResponse`, `CuaVideoCapture`, `CuaVideoResult` | capture and input |
 | Optional transports | DHT and WebRTC negotiation | mDNS and optional relay setup |
 
-The authoritative enum lives in `bs-protocol.h`. Adding a message means updating the enum, the serializer, the decoder, the wire format sketch in this file, and the round-trip tests.
+The authoritative enum lives in `bs-codec.h`. Adding a message means updating the enum, the serializer, the decoder, the wire format sketch in this file, and the round-trip tests.
 
 ## Handshake
 

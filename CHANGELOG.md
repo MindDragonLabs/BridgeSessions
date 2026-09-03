@@ -8,6 +8,8 @@ Notable user-visible changes. Git history contains implementation-level detail.
 
 - audit(2026-09-02): re-verified pin binding, receive_dir confinement, spectator
   CUA denial, and seed-only enrollment. Documented residuals in `AUDIT.md`.
+- fix(upgrade): resume a detached daemon with argv spawn (`fork`/`execl`,
+  Windows `_spawnl`) instead of interpolating paths into `std::system`.
 
 ### Fixed
 
@@ -22,9 +24,20 @@ Notable user-visible changes. Git history contains implementation-level detail.
   invite tokens, matching the 300s redeem window.
 - docs: `AGENTS.md` / skill / `SECURITY.md` stamps match `VERSION`. Bridge Panel
   trusted-IP bypass is reads-only, matching `require_token=True` on POST.
+- test: panel fixtures read `id_ed25519.pub` (keygen's real filename, not
+  `identity.pub`) and start the binary in the foreground. `--daemon` forks
+  and exits the parent, which the helpers treated as a crash. Detach-signal
+  and ephemeral-prune cases no longer race on `read`/`echo hi` exiting
+  before the assertion.
 
 ### Changed
 
+- refactor: split `bs-protocol.h` (~18k LOC) into sibling headers along
+  codec/transfer, TLS, session/PTY, CUA, and mesh boundaries, then split
+  `MeshController` into support/conn/transfer/cli/ui headers (R6b).
+  `bs-protocol.h` remains the public include facade. Audit 2026-09-02
+  behavior (always-reread keys, HID range, invite CSPRNG, join-window
+  invite drop) is preserved in the sibling headers.
 - ci: Linux CI runs installer pytest. The Catch2 `--exclude-regex test_tls$`
   exclude was a no-op against discovered test-case names and is removed.
 - Release binaries for all three platforms are now built by GitHub-hosted

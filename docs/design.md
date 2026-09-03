@@ -48,7 +48,20 @@ Git contains source, tests, scripts, and docs. Binaries, app bundles, checksums,
 | File | Responsibility |
 |---|---|
 | `main.cpp` | CLI dispatch, self-upgrade, daemon mode |
-| `bs-protocol.h` | codec, TLS, mesh, transfers, IPC |
+| `bs-protocol.h` | include facade (platform headers + `bs::mesh` order) |
+| `bs-codec.h` | message enum/variant, serializer, decoder, transfer checks |
+| `bs-tls.h` | Ed25519 mTLS + framed read/write |
+| `bs-osc52.h` | OSC 52 clipboard scanner |
+| `bs-pty.h` | PTY / ConPTY and hosted session-worker |
+| `bs-cua-dispatch.h` | computer-use dispatch and video capture |
+| `bs-config.h` | config, paths, persistence, protocol logs |
+| `bs-session-registry.h` | session lifecycle |
+| `bs-mesh-controller.h` | mesh event-loop facade |
+| `bs-mesh-support.h` | poll, terminal, WebRTC/DHT/NAT, worker pool |
+| `bs-mesh-conn.h` | MeshController handshake and connection state |
+| `bs-mesh-transfer.h` | file transfer, dispatch, enroll, gossip |
+| `bs-mesh-cli.h` | ctor, `run()`, CLI entry points |
+| `bs-mesh-ui.h` | clipboard, image render, peer helpers |
 | `bs-session.h` | session lifetime and scrollback |
 | `bs-session-worker.h` | optional per-session child process |
 | `bs-cua-helper.h` | desktop helper |
@@ -56,7 +69,7 @@ Git contains source, tests, scripts, and docs. Binaries, app bundles, checksums,
 | `macos-capture.mm` | macOS ScreenCaptureKit capture |
 | `tools/bridgepanel/` | optional web UI for the inbox |
 
-`bs-protocol.h` is the authoritative enum, variant, serializer, and decoder source. Any new message is incomplete until the four agree and round-trip tests cover it. The wire format itself is summarized in [Protocol](protocol.md).
+`bs-codec.h` (included from `bs-protocol.h`) is the authoritative enum, variant, serializer, and decoder source. Any new message is incomplete until the four agree and round-trip tests cover it. The wire format itself is summarized in [Protocol](protocol.md).
 
 ## Operating model
 

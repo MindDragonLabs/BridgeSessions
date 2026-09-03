@@ -25,6 +25,7 @@ struct WsaInit { WsaInit() { WSADATA d; WSAStartup(MAKEWORD(2,2), &d); } ~WsaIni
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <unistd.h>
+#include <csignal>
 #define CLOSESOCK close
 #endif
 
@@ -228,26 +229,29 @@ TEST_CASE("prune_ephemeral_sessions removes finished health/cmd sessions",
     auto cfg = make_shell_test_config("reaper-node");
     MeshController mc(cfg);
 #ifdef _WIN32
-    const std::string cmd = "cmd.exe /c echo hi";
+    const std::string cmd = "cmd.exe /c ping -n 30 127.0.0.1 >nul";
 #else
-    const std::string cmd = "echo hi";
+    const std::string cmd = "sleep 30";
 #endif
     auto* s = mc.sessions().attach(
         "health-testnonce",
         ResolvedSessionCommand{cmd, SessionCommandSource::ClientOverride},
         80, 24, "xterm-256color");
     REQUIRE(s != nullptr);
-    // Mark as finished detached so the reaper is allowed to drop it.
+    REQUIRE(s->is_valid());
+    // Mark as aged detached so the reaper is allowed to consider it.
     s->state = SessionState::Detached;
     s->last_attach_at = std::chrono::steady_clock::now() - std::chrono::seconds(120);
     s->last_output_at = s->last_attach_at;
-    // A2 correctness: prune is now state-aware — a session whose child is
-    // still alive must NOT be pruned even when aged (output silence != death).
+    // A2 correctness: prune is state-aware — a live child must not be pruned
+    // even when aged (output silence != death).
     mc.sessions().prune_ephemeral_sessions(std::chrono::seconds(30));
-    REQUIRE(mc.sessions().get("health-testnonce") != nullptr);  // still alive
-    // Drain the PTY so the fast `echo` child's output is consumed and it can
-    // exit (the daemon's pty_output_poller does this continuously in prod).
-    // Then reap the dead child, then prune.
+    REQUIRE(mc.sessions().get("health-testnonce") != nullptr);
+#ifdef _WIN32
+    if (s->child_pid) TerminateProcess(s->child_pid, 1);
+#else
+    if (s->child_pid > 0) ::kill(s->child_pid, SIGKILL);
+#endif
     for (int i = 0; i < 100 && s->is_valid(); ++i) {
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
         (void)read_available_pty_output(*s);
