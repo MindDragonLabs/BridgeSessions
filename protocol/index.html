@@ -1232,7 +1232,7 @@
 
 
 <h1 id="protocol-bs">Protocol (<code>bs://</code>)<a class="headerlink" href="#protocol-bs" title="Permanent link">&para;</a></h1>
-<p>BridgeSessions uses binary frames over mutually authenticated TLS on TCP. The wire is documented here at the level a new operator or a contributor needs. The authoritative enum, variant, serializer, and decoder live in <code>bs-protocol.h</code>. The on-the-wire shape and the source must agree; a new message is incomplete until round-trip tests cover it.</p>
+<p>BridgeSessions uses binary frames over mutually authenticated TLS on TCP. The wire is documented here at the level a new operator or a contributor needs. The authoritative enum, variant, serializer, and decoder live in <code>bs-codec.h</code> (included from <code>bs-protocol.h</code>). The on-the-wire shape and the source must agree; a new message is incomplete until round-trip tests cover it.</p>
 <h2 id="transport">Transport<a class="headerlink" href="#transport" title="Permanent link">&para;</a></h2>
 <ul>
 <li>TCP port <code>19949</code> is the default mesh port.</li>
@@ -1351,7 +1351,7 @@
 </tr>
 </tbody>
 </table>
-<p>The authoritative enum lives in <code>bs-protocol.h</code>. Adding a message means updating the enum, the serializer, the decoder, the wire format sketch in this file, and the round-trip tests.</p>
+<p>The authoritative enum lives in <code>bs-codec.h</code>. Adding a message means updating the enum, the serializer, the decoder, the wire format sketch in this file, and the round-trip tests.</p>
 <h2 id="handshake">Handshake<a class="headerlink" href="#handshake" title="Permanent link">&para;</a></h2>
 <p>A new connection follows this order:</p>
 <ol>

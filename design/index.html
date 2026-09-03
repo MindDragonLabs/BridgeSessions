@@ -1392,7 +1392,59 @@
 </tr>
 <tr>
 <td><code>bs-protocol.h</code></td>
-<td>codec, TLS, mesh, transfers, IPC</td>
+<td>include facade (platform headers + <code>bs::mesh</code> order)</td>
+</tr>
+<tr>
+<td><code>bs-codec.h</code></td>
+<td>message enum/variant, serializer, decoder, transfer checks</td>
+</tr>
+<tr>
+<td><code>bs-tls.h</code></td>
+<td>Ed25519 mTLS + framed read/write</td>
+</tr>
+<tr>
+<td><code>bs-osc52.h</code></td>
+<td>OSC 52 clipboard scanner</td>
+</tr>
+<tr>
+<td><code>bs-pty.h</code></td>
+<td>PTY / ConPTY and hosted session-worker</td>
+</tr>
+<tr>
+<td><code>bs-cua-dispatch.h</code></td>
+<td>computer-use dispatch and video capture</td>
+</tr>
+<tr>
+<td><code>bs-config.h</code></td>
+<td>config, paths, persistence, protocol logs</td>
+</tr>
+<tr>
+<td><code>bs-session-registry.h</code></td>
+<td>session lifecycle</td>
+</tr>
+<tr>
+<td><code>bs-mesh-controller.h</code></td>
+<td>mesh event-loop facade</td>
+</tr>
+<tr>
+<td><code>bs-mesh-support.h</code></td>
+<td>poll, terminal, WebRTC/DHT/NAT, worker pool</td>
+</tr>
+<tr>
+<td><code>bs-mesh-conn.h</code></td>
+<td>MeshController handshake and connection state</td>
+</tr>
+<tr>
+<td><code>bs-mesh-transfer.h</code></td>
+<td>file transfer, dispatch, enroll, gossip</td>
+</tr>
+<tr>
+<td><code>bs-mesh-cli.h</code></td>
+<td>ctor, <code>run()</code>, CLI entry points</td>
+</tr>
+<tr>
+<td><code>bs-mesh-ui.h</code></td>
+<td>clipboard, image render, peer helpers</td>
 </tr>
 <tr>
 <td><code>bs-session.h</code></td>
@@ -1420,7 +1472,7 @@
 </tr>
 </tbody>
 </table>
-<p><code>bs-protocol.h</code> is the authoritative enum, variant, serializer, and decoder source. Any new message is incomplete until the four agree and round-trip tests cover it. The wire format itself is summarized in <a href="../protocol/">Protocol</a>.</p>
+<p><code>bs-codec.h</code> (included from <code>bs-protocol.h</code>) is the authoritative enum, variant, serializer, and decoder source. Any new message is incomplete until the four agree and round-trip tests cover it. The wire format itself is summarized in <a href="../protocol/">Protocol</a>.</p>
 <h2 id="operating-model">Operating model<a class="headerlink" href="#operating-model" title="Permanent link">&para;</a></h2>
 <h3 id="bootstrap">Bootstrap<a class="headerlink" href="#bootstrap" title="Permanent link">&para;</a></h3>
 <p>Invite/join is the normal flow. A pinned seed runs <code>bs invite</code>. The CLI prints a listen address and a single-use token. The new node runs <code>bs join &lt;addr&gt; &lt;token&gt; --start</code>. The seed signs a directory enrollment. The mesh gossips the new key; every peer auto-trusts the joiner without a roster edit.</p>
