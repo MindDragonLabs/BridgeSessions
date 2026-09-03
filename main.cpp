@@ -2051,39 +2051,81 @@ int main(int argc, char** argv) {
         }
 #endif
 
-        // Stop daemon before swap
-        std::cout << "→ Stopping daemon...\n";
-        bs::log::get("upgrade")->info("stopping daemon");
+        // Stop daemon before swap — SAFELY.
+        //
+        // 2026-09-03 fecv3 incident: `pkill -9 -f 'bridgesessions --config'`
+        // SIGKILLed the daemon mid-flight, skipping the graceful-shutdown
+        // session persist, and left hosted session-workers uncoordinated.
+        // Workers are detached (systemd-run scope / setsid) and survive the
+        // daemon, but a SIGKILL also races `systemctl --user stop` against
+        // `Restart=on-failure`, so a mid-restart daemon could re-exec the OLD
+        // binary right after the swap.
+        //
+        // Safe sequence:
+        //   1. `systemctl --user stop` (graceful SIGTERM) — the daemon's
+        //      shutdown path persists live sessions, and detached workers
+        //      keep their shells running. NEVER pkill -9 the daemon, and
+        //      NEVER kill session-workers: one of them may be hosting the
+        //      very terminal running this upgrade (self-kill = dead shell).
+        //   2. Wait for the daemon to actually exit (poll IPC port), with a
+        //      bounded timeout, so the swap never races a live daemon.
+        std::cout << "→ Stopping daemon (sessions keep running)...\n";
+        bs::log::get("upgrade")->info("stopping daemon (graceful)");
         pause_mesh_daemon();
-        // Kill daemon processes (NOT the CLI itself — exclude own PID).
-        // 'pkill -9 -f bridgesessions' would match the running upgrade CLI's
-        // own command line and SIGKILL it mid-swap. Use a precise kill of the
-        // daemon binary only.
-        std::string kill_cmd = "pkill -9 -f 'bridgesessions --config' 2>/dev/null";
-#ifdef __APPLE__
-        kill_cmd = "pkill -9 -f 'bridgesessions --config' 2>/dev/null; "
-                   "pkill -9 -f 'BridgeSessions.app' 2>/dev/null";
-#endif
-        std::system(kill_cmd.c_str());
 #ifdef _WIN32
         Sleep(2000);
 #else
-        sleep(2);
+        {
+            // pause_mesh_daemon() issued the graceful stop (and masked the
+            // unit so Restart=on-failure cannot resurrect the old binary
+            // mid-swap). Poll the CLI IPC port until the daemon is gone —
+            // up to 10s — instead of a blind sleep(2). No pkill: the daemon
+            // was started by systemd/launchd and answers to it.
+            const std::string probe =
+                "bridgesessions stats >/dev/null 2>&1";   // IPC connect probe
+            for (int i = 0; i < 100; ++i) {
+                // Daemon is down when a STATS probe reports not-running.
+                if (std::system(probe.c_str()) != 0) break;
+                ::usleep(100 * 1000);
+            }
+        }
 #endif
 
-        // Atomic swap: rename old, move new
+        // Atomic swap: install via a sibling temp name + rename(2).
+        //
+        // NEVER cp onto the live path: cp opens the destination in place, so
+        // it fails with ETXTBSY while any process (daemon, session-worker,
+        // another CLI) still execs the old inode — the exact failure that
+        // half-broke the 2026-09-03 fecv3 upgrade. rename(2) only swaps the
+        // directory entry, so running processes on the old inode are untouched
+        // (they show "(deleted)" in /proc/<pid>/exe until they exit) and every
+        // new exec gets the new binary.
+        // The rename fallback path is kept for exotic cross-device $HOME
+        // setups: install to <dir>/.bridgesessions.upg then rename again.
         std::string old_path = bin_path + ".old";
+        std::string stage_path = bin_path + ".upg-new";
         std::cout << "→ Swapping binary...\n";
         bs::log::get("upgrade")->info("swapping binary");
         ::rename(bin_path.c_str(), old_path.c_str());  // may fail if not exists
         if (::rename(tmp_path.c_str(), bin_path.c_str()) != 0) {
-            // rename failed (cross-device?) — fall back to copy
-            std::string cp_cmd = "cp '" + tmp_path + "' '" + bin_path + "'";
-            if (std::system(cp_cmd.c_str()) != 0) {
-                // cp failed — rollback old binary and abort
-                std::cerr << "upgrade: binary swap failed (cp fallback) — rolling back\n";
+            // First rename failed (cross-device tmp vs bin). Stage on the SAME
+            // filesystem as bin_path, then rename — still never cp-in-place.
+            std::error_code copy_ec;
+            std::filesystem::copy_file(tmp_path, stage_path,
+                std::filesystem::copy_options::overwrite_existing, copy_ec);
+            if (copy_ec) {
+                std::cerr << "upgrade: staging copy failed — rolling back\n";
                 ::rename(old_path.c_str(), bin_path.c_str());
                 ::unlink(tmp_path.c_str());
+                resume_mesh_daemon(current_exe_path(argv[0]), home_dir + "/config");
+                return 1;
+            }
+            ::chmod(stage_path.c_str(), 0755);
+            if (::rename(stage_path.c_str(), bin_path.c_str()) != 0) {
+                std::cerr << "upgrade: binary swap failed (staged rename) — rolling back\n";
+                ::rename(old_path.c_str(), bin_path.c_str());
+                ::unlink(tmp_path.c_str());
+                ::unlink(stage_path.c_str());
                 resume_mesh_daemon(current_exe_path(argv[0]), home_dir + "/config");
                 return 1;
             }

@@ -164,7 +164,8 @@ foreach(TEST_SRC ${TEST_SOURCES})
             -include ${CMAKE_CURRENT_SOURCE_DIR}/tests/catch2_apple_shim.h)
     endif()
     target_compile_definitions(${TEST_NAME} PRIVATE BS_TESTING BS_NO_NAT BS_NO_WEBRTC BS_NO_DHT
-        BS_VERSION_FILE_PATH="${CMAKE_CURRENT_SOURCE_DIR}/VERSION")
+        BS_VERSION_FILE_PATH="${CMAKE_CURRENT_SOURCE_DIR}/VERSION"
+        BRIDGESESSIONS_MAIN_CPP_PATH="${CMAKE_CURRENT_SOURCE_DIR}/main.cpp")
     target_link_libraries(${TEST_NAME}
         OpenSSL::SSL OpenSSL::Crypto
         ${ZSTD_TARGET}
