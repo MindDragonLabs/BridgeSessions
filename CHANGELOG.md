@@ -24,12 +24,11 @@ Notable user-visible changes. Git history contains implementation-level detail.
   invite tokens, matching the 300s redeem window.
 - docs: `AGENTS.md` / skill / `SECURITY.md` stamps match `VERSION`. Bridge Panel
   trusted-IP bypass is reads-only, matching `require_token=True` on POST.
-
-### Fixed
-
 - test: panel fixtures read `id_ed25519.pub` (keygen's real filename, not
-  `identity.pub`). Detach-signal and ephemeral-prune cases no longer race
-  on `read`/`echo hi` exiting before the assertion.
+  `identity.pub`) and start the binary in the foreground. `--daemon` forks
+  and exits the parent, which the helpers treated as a crash. Detach-signal
+  and ephemeral-prune cases no longer race on `read`/`echo hi` exiting
+  before the assertion.
 
 ### Changed
 

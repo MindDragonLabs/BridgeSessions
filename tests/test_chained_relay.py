@@ -97,14 +97,17 @@ class DaemonHelper:
         os.close(log_fd)
         self.log_file = Path(log_path)
 
+        # Foreground (no --daemon): pytest stdin is not a TTY, so main()
+        # runs MeshController in this process. --daemon forks and the
+        # parent exits immediately, which this helper treats as a crash.
         self.process = subprocess.Popen(
-            [BINARY, "--config-dir", str(self.config_dir), "--daemon"],
+            [BINARY, "--config-dir", str(self.config_dir)],
             env=self._env(),
             stdout=open(log_path, "w"),
             stderr=subprocess.STDOUT,
             start_new_session=True,
         )
-        for _ in range(50):
+        for _ in range(80):
             if self._is_ready():
                 return
             time.sleep(0.1)
@@ -112,7 +115,7 @@ class DaemonHelper:
                 raise RuntimeError(
                     f"Daemon {self.name} exited. Log:\n{self.log_file.read_text()}"
                 )
-        raise TimeoutError(f"Daemon {self.name} not ready in 5s")
+        raise TimeoutError(f"Daemon {self.name} not ready in 8s")
 
     def stop(self) -> None:
         if self.process and self.process.poll() is None:

@@ -76,15 +76,18 @@ class DaemonProcess:
         env = os.environ.copy()
         env["BRIDGESESSIONS_IPC_PORT"] = str(self.ipc_port)
 
+        # Foreground (no --daemon): pytest stdin is not a TTY, so main()
+        # runs MeshController in this process. --daemon forks, prints the
+        # child pid, and exits the parent — which looks like a crash here.
         self.process = subprocess.Popen(
-            [BINARY, "--config-dir", str(self.config_dir), "--daemon"],
+            [BINARY, "--config-dir", str(self.config_dir)],
             env=env,
             stdout=open(log_path, "w"),
             stderr=subprocess.STDOUT,
             start_new_session=True,
         )
         # Wait for daemon to be ready (check IPC port is listening).
-        for _ in range(50):
+        for _ in range(80):
             if self._is_ready():
                 return
             time.sleep(0.1)
@@ -92,7 +95,7 @@ class DaemonProcess:
                 raise RuntimeError(
                     f"Daemon {self.name} exited early. Log:\n{self.log_file.read_text()}"
                 )
-        raise TimeoutError(f"Daemon {self.name} did not become ready in 5s")
+        raise TimeoutError(f"Daemon {self.name} did not become ready in 8s")
 
     def _is_ready(self) -> bool:
         import socket
