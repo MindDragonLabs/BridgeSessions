@@ -115,7 +115,8 @@ Source of truth:
 
 - `main.cpp` — CLI/upgrade,
 - `bs-protocol.h` — include facade,
-- `bs-codec.h` / `bs-tls.h` / `bs-pty.h` / `bs-cua-dispatch.h` / `bs-mesh-controller.h` — codec, TLS, session/PTY, CUA, mesh,
+- `bs-codec.h` / `bs-tls.h` / `bs-pty.h` / `bs-cua-dispatch.h` — codec, TLS, session/PTY, CUA,
+- `bs-mesh-controller.h` + `bs-mesh-{support,conn,transfer,cli,ui}.h` — mesh event loop,
 - `bs-session.h` — session lifetime,
 - `bs-session-worker.h` — optional worker,
 - `bs-cua-helper.h` / `macos-capture.mm` — desktop support.

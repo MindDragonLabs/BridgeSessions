@@ -56,7 +56,12 @@ Git contains source, tests, scripts, and docs. Binaries, app bundles, checksums,
 | `bs-cua-dispatch.h` | computer-use dispatch and video capture |
 | `bs-config.h` | config, paths, persistence, protocol logs |
 | `bs-session-registry.h` | session lifecycle |
-| `bs-mesh-controller.h` | event loop, gossip, transfers, CLI helpers |
+| `bs-mesh-controller.h` | mesh event-loop facade |
+| `bs-mesh-support.h` | poll, terminal, WebRTC/DHT/NAT, worker pool |
+| `bs-mesh-conn.h` | MeshController handshake and connection state |
+| `bs-mesh-transfer.h` | file transfer, dispatch, enroll, gossip |
+| `bs-mesh-cli.h` | ctor, `run()`, CLI entry points |
+| `bs-mesh-ui.h` | clipboard, image render, peer helpers |
 | `bs-session.h` | session lifetime and scrollback |
 | `bs-session-worker.h` | optional per-session child process |
 | `bs-cua-helper.h` | desktop helper |

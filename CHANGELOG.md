@@ -26,7 +26,8 @@ Notable user-visible changes. Git history contains implementation-level detail.
 ### Changed
 
 - refactor: split `bs-protocol.h` (~18k LOC) into sibling headers along
-  codec/transfer, TLS, session/PTY, CUA, and mesh boundaries.
+  codec/transfer, TLS, session/PTY, CUA, and mesh boundaries, then split
+  `MeshController` into support/conn/transfer/cli/ui headers (R6b).
   `bs-protocol.h` remains the public include facade. Audit 2026-09-02
   behavior (always-reread keys, HID range, invite CSPRNG, join-window
   invite drop) is preserved in the sibling headers.

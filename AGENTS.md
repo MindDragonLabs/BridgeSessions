@@ -32,7 +32,8 @@ Shipping release: **v26.09.01-release**. Probe live `--version`.
 | Path | Role |
 |------|------|
 | `main.cpp` + `bs-protocol.h` | CLI/upgrade + include facade |
-| `bs-codec.h` / `bs-tls.h` / `bs-pty.h` / `bs-cua-dispatch.h` / `bs-mesh-controller.h` | Codec, TLS, session/PTY, CUA, mesh |
+| `bs-codec.h` / `bs-tls.h` / `bs-pty.h` / `bs-cua-dispatch.h` | Codec, TLS, session/PTY, CUA |
+| `bs-mesh-controller.h` + `bs-mesh-{support,conn,transfer,cli,ui}.h` | Mesh event loop |
 | `bs-cua-helper.h` | CUA helper (Windows/macOS user-session input + capture) |
 | `macos-capture.mm` | macOS ScreenCaptureKit backend |
 | `CHANGELOG.md` / `docs/RELEASE-PROVENANCE.md` | Public release evidence and provenance |

@@ -148,7 +148,7 @@ typedef int pid_t;
 //   bs-cua-dispatch.h      computer-use + video capture
 //   bs-config.h            config, paths, persistence, protocol logs
 //   bs-session-registry.h  session lifecycle
-//   bs-mesh-controller.h   event loop, gossip, CLI helpers
+//   bs-mesh-controller.h   event-loop facade (support/conn/transfer/cli/ui)
 // ────────────────────────────────────────────────────────────────────
 
 namespace bs::mesh {
