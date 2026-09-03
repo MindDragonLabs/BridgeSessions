@@ -249,6 +249,11 @@ extern "C" int bs_macos_capture_png(const char*, unsigned, char*, size_t);
 [[nodiscard]] CuaResponseMsg cua_execute(const CuaRequestMsg& req, const std::string& app_home = "") {
     CuaResponseMsg resp;
     resp.status = 0;
+    if (req.action == 1 && req.hid_key > 0xFFu) {
+        resp.status = 1;
+        resp.error = "hid key out of range";
+        return resp;
+    }
 
 #ifdef _WIN32
     // Prefer cua-helper for ALL actions (including capture). Session 0 daemons
@@ -449,7 +454,7 @@ extern "C" int bs_macos_capture_png(const char*, unsigned, char*, size_t);
             resp.status = 1; resp.error = "cannot determine screen size";
             return resp;
         }
-        case 1: // key press
+        case 1: // key press — hid_key range is enforced in cua_execute
             cmd = "xdotool key --delay 0 " + std::to_string(req.hid_key) + " 2>/dev/null";
             break;
         case 2: { // text entry

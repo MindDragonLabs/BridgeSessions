@@ -94,7 +94,7 @@ A peer key in `authorized_keys` is near-interactive host access. The mesh refuse
 
 ## Current limits
 
-- `select()` inherits the platform FD ceiling. The target is small trusted fleets, not thousands of peers on a single daemon.
+- The main mesh loop uses `poll()` / `WSAPoll`. Helper paths still call `select()` and refuse file descriptors at or above `FD_SETSIZE`. The target is small trusted fleets, not thousands of peers on a single daemon.
 - Authorization is host-level, not capability-scoped. The mesh does not implement fine-grained per-command policy.
 - Cross-platform compatibility currently caps TLS at 1.2. TLS 1.3 is not yet negotiated.
 - Windows ConPTY and macOS permissions require platform E2E testing. The unit suite covers contracts; the E2E suite covers reality.

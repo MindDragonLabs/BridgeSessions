@@ -4,12 +4,34 @@ Notable user-visible changes. Git history contains implementation-level detail.
 
 ## Unreleased
 
+### Security
+
+- audit(2026-09-02): re-verified pin binding, receive_dir confinement, spectator
+  CUA denial, and seed-only enrollment. Documented residuals in `AUDIT.md`.
+
+### Fixed
+
+- fix(install): default `BRIDGESESSIONS_TAG` is `26.09.01-release`, not the
+  GitHub-labeled broken `26.08.26-r2`. macOS `CFBundleVersion` follows `${TAG}`.
+- fix(join): `bs invite` fails closed if `RAND_bytes` cannot mint a token.
+- fix(auth): `authorized_keys` hot-reload always re-reads the file. A
+  mtime/size cache missed same-tick equal-length key replacements.
+- fix(cua): reject HID usage IDs above 0xFF before dispatch (Linux xdotool
+  had no range check; helpers already did).
+- fix(join): closing the TLS join window on its hard cap now drops unclaimed
+  invite tokens, matching the 300s redeem window.
+- docs: `AGENTS.md` / skill / `SECURITY.md` stamps match `VERSION`. Bridge Panel
+  trusted-IP bypass is reads-only, matching `require_token=True` on POST.
+
 ### Changed
 
 - refactor: split `bs-protocol.h` (~18k LOC) into sibling headers along
   codec/transfer, TLS, session/PTY, CUA, and mesh boundaries.
-  `bs-protocol.h` remains the public include facade; wire format and
-  behavior are unchanged (R6 structural refactor).
+  `bs-protocol.h` remains the public include facade. Audit 2026-09-02
+  behavior (always-reread keys, HID range, invite CSPRNG, join-window
+  invite drop) is preserved in the sibling headers.
+- ci: Linux CI runs installer pytest. The Catch2 `--exclude-regex test_tls$`
+  exclude was a no-op against discovered test-case names and is removed.
 - Release binaries for all three platforms are now built by GitHub-hosted
   runners (`release-builds.yml`; `workflow_dispatch` + `v*` tags only). The
   Windows release build bootstraps a pinned hermetic MinGW dependency prefix

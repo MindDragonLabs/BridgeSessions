@@ -55,7 +55,8 @@ TEST_CASE("join window hard cap closes with an unclaimed invite", "[a1][join-win
         controller.test_close_join_window();
 
         REQUIRE_FALSE(controller.test_join_window_open());
-        REQUIRE(controller.test_pending_invite_count() == 1);
+        REQUIRE(controller.test_pending_invite_count() == 0);
+        REQUIRE_FALSE(controller.test_has_unclaimed_invite("still-unclaimed"));
     }
     fs::remove_all(home);
 }

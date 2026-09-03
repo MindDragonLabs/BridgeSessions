@@ -199,7 +199,7 @@ The default bind is loopback. A typical operator bind is the VPN address on port
 
 The process prints a URL that includes a bearer token. Open that URL in a browser on the same trusted network.
 
-If the client address is in `BRIDGEPANEL_TRUSTED_IPS`, write calls may skip the token. Treat that list as a trust list.
+If the client address is in `BRIDGEPANEL_TRUSTED_IPS`, read calls may skip the token. Writes still require the bearer. Treat that list as a read-trust list.
 
 ### What you can do
 

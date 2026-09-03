@@ -340,7 +340,6 @@ bool write_private_text_file_impl(const std::string& path,
 struct AuthorizedKeys {
     std::vector<std::vector<uint8_t>> keys;
     std::string file_path;  // stored for R4.1 hot-reload
-    std::filesystem::file_time_type last_mtime_{};  // P2 audit fix: reload cache
 
     void load_from_file(const std::string& path) {
         file_path = path;
@@ -368,16 +367,11 @@ struct AuthorizedKeys {
         }
     }
 
-    // R4.1: reload from disk — called per-accept so revocations take effect
-    // immediately. P2 audit fix: only re-read when the file mtime changed
-    // (avoids disk I/O + TOCTOU on every accept under connection storms).
+    // R4.1: reload from disk on every call so revocations take effect
+    // immediately. The file is a handful of 64-hex lines; a mtime/size cache
+    // missed same-tick equal-length key replacements (coarse-mtime FS).
     void reload() {
         if (file_path.empty()) return;
-        std::error_code ec;
-        auto mtime = std::filesystem::last_write_time(file_path, ec);
-        if (ec) return;
-        if (mtime == last_mtime_) return;
-        last_mtime_ = mtime;
         load_from_file(file_path);
     }
 

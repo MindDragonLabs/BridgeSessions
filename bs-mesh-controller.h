@@ -4928,6 +4928,17 @@ public:
         const auto max_window = std::chrono::seconds(config_.join_window_max_secs);
         if (join_window_opened_at_ != std::chrono::steady_clock::time_point{} &&
             now - join_window_opened_at_ >= max_window) {
+            // Unknown certs cannot redeem a token after the TLS window closes.
+            // Drop unclaimed invites so IPC state matches that fact.
+            for (auto it = pending_invites_.begin(); it != pending_invites_.end();) {
+                if (it->claimed_by.empty()) {
+                    log_event("invite_expired", "reason=join_window_hard_cap");
+                    ++invite_expired_event_count_;
+                    it = pending_invites_.erase(it);
+                } else {
+                    ++it;
+                }
+            }
             close_join_window_locked("hard_cap");
             return;
         }
@@ -6930,24 +6941,30 @@ public:
                 response = daemon_stats_summary() + "\n";
             }
             else if (line == "INVITE") {
-                // Generate a 2-hour invite token
+                // Generate an invite token. Redeemable only while the TLS join
+                // window is open (mesh.join_window_max_secs, default 300s).
+                // A 2-hour record TTL is the backstop if the event loop never
+                // ticks the hard cap.
                 std::lock_guard lock(invite_mutex_);
                 unsigned char raw_bytes[16];
-                RAND_bytes(raw_bytes, sizeof(raw_bytes));
-                std::ostringstream tok;
-                for (size_t i = 0; i < sizeof(raw_bytes); ++i)
-                    tok << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(raw_bytes[i]);
-                auto now = std::chrono::steady_clock::now();
-                expire_pending_invites_locked(now);
-                PendingInvite pi;
-                pi.token = tok.str();
-                pi.created_at = now;
-                response = pi.token + "\n";
-                pending_invites_.push_back(std::move(pi));
-                // Open the join window so unknown peers can TLS-connect to
-                // present their invite token. Closed after successful join
-                // or naturally expires when invites time out.
-                open_join_window_locked(now);
+                if (RAND_bytes(raw_bytes, sizeof(raw_bytes)) != 1) {
+                    response = "ERROR could not generate invite token\n";
+                } else {
+                    std::ostringstream tok;
+                    for (size_t i = 0; i < sizeof(raw_bytes); ++i)
+                        tok << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(raw_bytes[i]);
+                    auto now = std::chrono::steady_clock::now();
+                    expire_pending_invites_locked(now);
+                    PendingInvite pi;
+                    pi.token = tok.str();
+                    pi.created_at = now;
+                    response = pi.token + "\n";
+                    pending_invites_.push_back(std::move(pi));
+                    // Open the join window so unknown peers can TLS-connect to
+                    // present their invite token. Closed after successful join
+                    // or naturally expires when invites time out.
+                    open_join_window_locked(now);
+                }
             }
             else if (line.rfind("ENROLL ", 0) == 0) {
                 // "ENROLL <name> <pubkey_hex> <addr>" — issue a signed directory

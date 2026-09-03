@@ -11,7 +11,7 @@ set -euo pipefail
 # On Windows (PowerShell):
 #   irm https://raw.githubusercontent.com/MindDragonLabs/BridgeSessions/main/scripts/install.ps1 | iex
 
-TAG="${BRIDGESESSIONS_TAG:-26.08.26-r2}"
+TAG="${BRIDGESESSIONS_TAG:-26.09.01-release}"
 BASE="https://github.com/MindDragonLabs/BridgeSessions/releases/download/v${TAG}"
 INSTALL_DIR="${HOME}/.local/bin"
 VERSION_FILE="${INSTALL_DIR}/.bridgesessions-version"
@@ -496,8 +496,8 @@ EOF
   <key>CFBundleName</key><string>BridgeSessions</string>
   <key>CFBundleDisplayName</key><string>BridgeSessions</string>
   <key>CFBundleIdentifier</key><string>com.minddragon.bridgesessions</string>
-  <key>CFBundleVersion</key><string>26.08.26-r2</string>
-  <key>CFBundleShortVersionString</key><string>26.08.25</string>
+  <key>CFBundleVersion</key><string>${TAG}</string>
+  <key>CFBundleShortVersionString</key><string>${TAG}</string>
   <key>CFBundleExecutable</key><string>bridgesessions</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>LSMinimumSystemVersion</key><string>13.0</string>
