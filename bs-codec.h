@@ -6,6 +6,8 @@
 // Does NOT open its own namespace — parent file provides it.
 #pragma once
 
+#include <optional>
+
 // ── Upgrade tag validation (shared with tests) ────────────────────
 // W4-P1 guard: only [A-Za-z0-9._-] allowed so a malicious --tag cannot
 // break out of single-quoted curl/system commands in the upgrade path.

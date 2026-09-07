@@ -127,6 +127,15 @@ TEST_CASE("session picker maps choice to session name (0/1 = new)", "[tui][menu]
     REQUIRE(bs::tui::session_picker_choice(list, 99) == "");
 }
 
+TEST_CASE("session picker frame wraps through menu_frame unchanged", "[tui][menu][session]") {
+    bs::mesh::SessionListMsg list;
+    list.sessions.push_back({"hermes", "attached", 3600});
+    auto rows = bs::tui::session_picker_rows(list);
+    auto f = bs::tui::menu_frame({"fecv4 — choose a session:"}, rows, 0, 40);
+    REQUIRE(f.find("New session") != std::string::npos);
+    REQUIRE(f.find("hermes") != std::string::npos);
+}
+
 int main(int argc, char* argv[]) {
     return Catch::Session().run(argc, argv);
 }

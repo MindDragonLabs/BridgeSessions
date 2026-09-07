@@ -2713,17 +2713,14 @@ public:
         return true;
     }
 
-    // ── CLI: list_sessions ────────────────────────────────────
-    void list_sessions(const std::string& peer_name, bool all) {
-        (void)all;
-        if (peer_name.empty()) {
-            std::cout << sessions_.summary() << "\n";
-            return;
-        }
+    // ── CLI: session listing helpers ───────────────────────────
+    // Queries a peer's session list over direct TLS. Returns nullopt on any
+    // failure (unknown peer, connect failure, timeout, protocol error).
+    std::optional<SessionListMsg> fetch_peer_sessions(const std::string& peer_name) {
         std::string addr = find_peer_addr(peer_name);
-        if (addr.empty()) { std::cerr << "Peer not found: " << peer_name << "\n"; return; }
+        if (addr.empty()) return std::nullopt;
         auto sc = connect_and_hello(addr, trusted_peer_pubkey(config_, peer_name));
-        if (!sc.ssl || sc.sfd == INVALID_SOCKET) { print_connect_failure(peer_name, sc); return; }
+        if (!sc.ssl || sc.sfd == INVALID_SOCKET) return std::nullopt;
         try {
             SessionListMsg req; write_frame(sc.ssl.get(), req, 0);
             fd_set read_fds; FD_ZERO(&read_fds); FD_SET(sc.sfd, &read_fds);
@@ -2734,12 +2731,33 @@ public:
             if (select((int)sc.sfd+1, &read_fds, nullptr, nullptr, &tv) > 0) {
 #endif
                 Message resp = read_frame(sc.ssl.get());
+                CLOSESOCK(sc.sfd);
                 if (std::holds_alternative<SessionListMsg>(resp))
-                    for (auto& si : std::get<SessionListMsg>(resp).sessions)
-                        std::cout << si.name << "  " << si.state << "  uptime=" << si.uptime_seconds << "s\n";
-            } else std::cerr << "Timeout\n";
+                    return std::get<SessionListMsg>(resp);
+                return std::nullopt;
+            }
             CLOSESOCK(sc.sfd);
         } catch (...) { if (sc.sfd != INVALID_SOCKET) CLOSESOCK(sc.sfd); }
+        return std::nullopt;
+    }
+
+    // ── CLI: list_sessions ────────────────────────────────────
+    void list_sessions(const std::string& peer_name, bool all) {
+        (void)all;
+        if (peer_name.empty()) {
+            std::cout << sessions_.summary() << "\n";
+            return;
+        }
+        auto listed = fetch_peer_sessions(peer_name);
+        if (!listed) {
+            // Distinguish the two failure modes the old inline code printed.
+            std::string addr = find_peer_addr(peer_name);
+            if (addr.empty()) { std::cerr << "Peer not found: " << peer_name << "\n"; return; }
+            std::cerr << "Timeout\n";
+            return;
+        }
+        for (auto& si : listed->sessions)
+            std::cout << si.name << "  " << si.state << "  uptime=" << si.uptime_seconds << "s\n";
     }
 
     // ── CLI: health_check ─────────────────────────────────────
