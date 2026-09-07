@@ -122,7 +122,9 @@ TEST_CASE("nonblocking PTY drain coalesces burst output", "[session][pty-drain]"
         80, 24, "xterm-256color");
     REQUIRE(result.has_value());
     auto& s = *result;
-    std::string output = read_session_output(s, 8000);
+    // Generous budget: python3 cold start + 12k burst on a loaded CI runner
+    // can exceed 8s (GitHub Actions flake, 2026-09-07).
+    std::string output = read_session_output(s, 20000);
     // Allow modest PTY framing overhead; require full payload present.
     REQUIRE(output.find(std::string(12000, 'X')) != std::string::npos);
     terminate_session_child(s);
