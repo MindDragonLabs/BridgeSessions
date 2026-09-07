@@ -723,20 +723,26 @@ int main(int argc, char** argv) {
     // Unknown peer names are resolved through `ssh -G` for address discovery only;
     // terminal data still travels exclusively over the BridgeSessions protocol.
     std::string quick_peer, quick_session;
+    bool quick_select = false;
     app.add_option("PEER", quick_peer, "Peer name or SSH Host alias");
     app.add_option("SESSION", quick_session,
                    "Session name (omit to start a new session; give a name to reattach)");
+    app.add_flag("-s,--select", quick_select,
+                 "Interactively pick a session to attach (or start a new one)");
 
     // Subcommand: shell
     std::string shell_peer, shell_session = "default", shell_cmd;
     uint16_t shell_cols = 80, shell_rows = 24;
     bool shell_detach = false, shell_wait = false;
     bool shell_interactive = false;
+    bool shell_select = false;
     bool shell_record = false, shell_signal_forward = true;
     std::string shell_signal_on_detach;
     auto* shell_cmd_app = app.add_subcommand("shell", "Open shell on a peer");
     shell_cmd_app->add_option("peer", shell_peer, "Peer name")->required();
     shell_cmd_app->add_option("-n,--name", shell_session, "Session name");
+    shell_cmd_app->add_flag("-s,--select", shell_select,
+                            "Interactively pick a session to attach");
     shell_cmd_app->add_option("-x,--cmd", shell_cmd, "Command override");
     auto* shell_cols_opt = shell_cmd_app->add_option("--cols", shell_cols, "Terminal columns");
     auto* shell_rows_opt = shell_cmd_app->add_option("--rows", shell_rows, "Terminal rows");
@@ -1081,6 +1087,41 @@ int main(int argc, char** argv) {
         auto [cols, rows] = bs::mesh::get_winsize();
         bs::mesh::MeshController mc(cfg, home_dir);
         const bool unnamed_session = quick_session.empty();
+        // -s/--select: interactively pick an existing session (or new). Never
+        // hard-fails the connect — a peer that cannot be queried falls back
+        // to the default flow with a one-line warning.
+        if (quick_select && bs::mesh::stdin_is_terminal()) {
+            auto listed = mc.fetch_peer_sessions(quick_peer);
+            if (listed) {
+                if (bs::mesh::stdin_is_terminal() && stdout_is_terminal()) {
+                    int choice = connect_menu_pick(
+                        quick_peer + " — choose a session:",
+                        bs::tui::session_picker_rows(*listed));
+                    if (choice > 0) {
+                        std::string picked =
+                            bs::tui::session_picker_choice(*listed,
+                                static_cast<size_t>(choice));
+                        if (!picked.empty()) quick_session = picked;
+                    }
+                    // choice 0 (cancel) or "" (new session): keep default flow
+                } else {
+                    // Non-TTY with -s: number the rows and read a choice.
+                    auto rows = bs::tui::session_picker_rows(*listed);
+                    for (size_t i = 0; i < rows.size(); ++i)
+                        std::cout << "  " << (i + 1) << ") " << rows[i] << "\n";
+                    std::cout << "> " << std::flush;
+                    int n = connect_menu_choice(rows.size());
+                    if (n > 0) {
+                        std::string picked = bs::tui::session_picker_choice(
+                            *listed, static_cast<size_t>(n));
+                        if (!picked.empty()) quick_session = picked;
+                    }
+                }
+            } else {
+                std::cerr << "note: could not list sessions on " << quick_peer
+                          << "; starting a new session\n";
+            }
+        }
         quick_session = bs::mesh::resolve_quick_connect_session_name(quick_session);
         if (unnamed_session) {
             std::cerr << "session " << quick_session << "\n";
@@ -1141,6 +1182,37 @@ int main(int argc, char** argv) {
             return mc.shell_peer(shell_peer, shell_session, shell_cmd,
                                  shell_cols, shell_rows, "xterm-256color",
                                  shell_signal_forward, shell_signal_on_detach);
+        }
+        // -s/--select: interactively pick an existing session (or new). Never
+        // hard-fails: an unqueryable peer falls back to the default flow.
+        if (shell_select) {
+            auto listed = mc.fetch_peer_sessions(shell_peer);
+            if (listed) {
+                if (bs::mesh::stdin_is_terminal() && stdout_is_terminal()) {
+                    int choice = connect_menu_pick(
+                        shell_peer + " — choose a session:",
+                        bs::tui::session_picker_rows(*listed));
+                    if (choice > 0) {
+                        std::string picked = bs::tui::session_picker_choice(
+                            *listed, static_cast<size_t>(choice));
+                        if (!picked.empty()) shell_session = picked;
+                    }
+                } else {
+                    auto rows = bs::tui::session_picker_rows(*listed);
+                    for (size_t i = 0; i < rows.size(); ++i)
+                        std::cout << "  " << (i + 1) << ") " << rows[i] << "\n";
+                    std::cout << "> " << std::flush;
+                    int n = connect_menu_choice(rows.size());
+                    if (n > 0) {
+                        std::string picked = bs::tui::session_picker_choice(
+                            *listed, static_cast<size_t>(n));
+                        if (!picked.empty()) shell_session = picked;
+                    }
+                }
+            } else {
+                std::cerr << "note: could not list sessions on " << shell_peer
+                          << "; using default session\n";
+            }
         }
         return mc.shell_peer(shell_peer, shell_session, shell_cmd, shell_cols, shell_rows, "xterm-256color", shell_signal_forward, shell_signal_on_detach, shell_interactive);
     }
