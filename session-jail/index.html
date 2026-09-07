@@ -10,10 +10,8 @@
       
       
       
-        <link rel="canonical" href="https://minddragonlabs.github.io/BridgeSessions/why-bridge-sessions/">
+        <link rel="canonical" href="https://minddragonlabs.github.io/BridgeSessions/session-jail/">
       
-      
-        <link rel="prev" href="../RELEASE-PROVENANCE/">
       
       
       
@@ -25,7 +23,7 @@
     
     
       
-        <title>Why BridgeSessions - BridgeSessions</title>
+        <title>Session Filesystem Jail - BridgeSessions</title>
       
     
     
@@ -76,7 +74,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#why-bridgesessions" class="md-skip">
+        <a href="#session-filesystem-jail" class="md-skip">
           Skip to content
         </a>
       
@@ -110,7 +108,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Why BridgeSessions
+              Session Filesystem Jail
             
           </span>
         </div>
@@ -430,11 +428,9 @@
   
   
   
-    
   
-  
-    <li class="md-tabs__item md-tabs__item--active">
-      <a href="./" class="md-tabs__link">
+    <li class="md-tabs__item">
+      <a href="../why-bridge-sessions/" class="md-tabs__link">
         
   
   
@@ -793,37 +789,10 @@
       
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Why BridgeSessions
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../why-bridge-sessions/" class="md-nav__link">
         
   
   
@@ -839,125 +808,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#compared-to-a-traditional-stack" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Compared to a traditional stack
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#the-useful-difference-the-connection-is-not-the-session" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        The useful difference: the connection is not the session
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#files-and-desktop-use-the-same-identity" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Files and desktop use the same identity
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#built-for-operator-controlled-meshes" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Built for operator-controlled meshes
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#a-typical-agent-loop" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        A typical agent loop
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#when-bridgesessions-is-the-wrong-tool" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        When BridgeSessions is the wrong tool
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#trade-offs" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Trade-offs
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#operating-posture" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Operating posture
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#related" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Related
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -989,10 +839,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#compared-to-a-traditional-stack" class="md-nav__link">
+  <a href="#enforcement" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Compared to a traditional stack
+        Enforcement
       
     </span>
   </a>
@@ -1000,10 +850,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#the-useful-difference-the-connection-is-not-the-session" class="md-nav__link">
+  <a href="#opt-out" class="md-nav__link">
     <span class="md-ellipsis">
       
-        The useful difference: the connection is not the session
+        Opt-out
       
     </span>
   </a>
@@ -1011,76 +861,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#files-and-desktop-use-the-same-identity" class="md-nav__link">
+  <a href="#implementation-map" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Files and desktop use the same identity
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#built-for-operator-controlled-meshes" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Built for operator-controlled meshes
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#a-typical-agent-loop" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        A typical agent loop
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#when-bridgesessions-is-the-wrong-tool" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        When BridgeSessions is the wrong tool
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#trade-offs" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Trade-offs
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#operating-posture" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Operating posture
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#related" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Related
+        Implementation map
       
     </span>
   </a>
@@ -1107,116 +891,75 @@
   
 
 
-<h1 id="why-bridgesessions">Why BridgeSessions<a class="headerlink" href="#why-bridgesessions" title="Permanent link">&para;</a></h1>
-<p>Remote work often combines a transport, a multiplexer, a file copier, platform-specific Windows automation, and ad hoc agent tooling. BridgeSessions puts the common path behind one peer identity and one CLI. The point is not "yet another remote shell." The point is that the identity, the session, and the file move all live on the same pinned mesh.</p>
-<h2 id="compared-to-a-traditional-stack">Compared to a traditional stack<a class="headerlink" href="#compared-to-a-traditional-stack" title="Permanent link">&para;</a></h2>
+<h1 id="session-filesystem-jail">Session Filesystem Jail<a class="headerlink" href="#session-filesystem-jail" title="Permanent link">&para;</a></h1>
+<p>Every session shell (the PTY child a peer spawns for <code>bs shell</code> / <code>bs &lt;peer&gt;</code>)
+runs under a filesystem jail with this policy:</p>
+<blockquote>
+<p><strong>Read everywhere. Write only in your working roots.</strong></p>
+</blockquote>
+<ul>
+<li><strong>Read</strong> access is unrestricted — an agent working in a session may look at
+  <code>/etc/os-release</code>, <code>/usr/include</code>, anything it needs <em>to know where things
+  are</em>.</li>
+<li><strong>Write</strong> access is confined to the allowed roots:</li>
+<li><code>$HOME</code></li>
+<li>the daemon's working directory (the operator's project root)</li>
+<li><code>/tmp</code> (POSIX) / <code>%TEMP%</code> (Windows)</li>
+<li>anything listed explicitly in <code>BS_JAIL_RW="path1:path2:~/notes"</code>
+    (colon-separated, <code>~</code> expanded against <code>$HOME</code>)</li>
+<li><strong>Explicit grants only:</strong> servers (Windows / Linux) get write access to a
+  location only when the operator names it. macOS: sessions never touch
+  anything that triggers a TCC privacy prompt (Desktop/Documents/Downloads/
+  screen/mic beyond the roots above). Windows desktops: same idea — no
+  protected-path writes.</li>
+</ul>
+<h2 id="enforcement">Enforcement<a class="headerlink" href="#enforcement" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
 <tr>
-<th>Need</th>
-<th>Traditional stack</th>
-<th>BridgeSessions</th>
+<th>Platform</th>
+<th>Mechanism</th>
+<th>Notes</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>Encrypted shell</td>
-<td>SSH</td>
-<td>Mutual-TLS mesh shell with pinned Ed25519</td>
+<td>Linux ≥ 5.13</td>
+<td><strong>Landlock</strong> (unprivileged LSM, <code>PR_SET_NO_NEW_PRIVS</code>)</td>
+<td>Write-deny ruleset + path-beneath grants for each root. Applied in the <code>forkpty</code> child before <code>exec</code>, so the shell and everything it launches inherits the jail.</td>
 </tr>
 <tr>
-<td>Survive disconnect</td>
-<td><code>tmux</code> or <code>zellij</code> on top of SSH</td>
-<td>Server-owned named PTY/ConPTY, attachments are temporary</td>
+<td>Linux (older kernels)</td>
+<td>degrade to env markers only</td>
+<td>A session <strong>never fails to start</strong> because the jail cannot be enforced.</td>
 </tr>
 <tr>
-<td>Copy files</td>
-<td>SCP/SFTP</td>
-<td>Resumable, hash-verified file protocol</td>
-</tr>
-<tr>
-<td>Run a script on a peer</td>
-<td><code>ssh host 'bash -s'</code></td>
-<td><code>bs run-script</code> ships the file and runs it</td>
-</tr>
-<tr>
-<td>Windows automation</td>
-<td>WinRM, RDP helpers</td>
-<td>Same peer mesh plus CUA helper</td>
-</tr>
-<tr>
-<td>Desktop capture</td>
-<td>separate RDP/VNC session</td>
-<td><code>bs cua capture</code>, <code>bs capture-video</code></td>
-</tr>
-<tr>
-<td>Agent artifacts</td>
-<td>paste, base64, chat uploads</td>
-<td>Files, captures, and the optional Bridge Panel</td>
+<td>macOS / Windows</td>
+<td>env markers only (<code>BS_JAIL=1</code>, <code>BS_JAIL_RW=…</code>)</td>
+<td>No kernel jail. Tooling in sessions is expected to honor the markers; document violations, don't mask them.</td>
 </tr>
 </tbody>
 </table>
-<p>Each row is a real workflow that operators assemble from parts. BridgeSessions is the assembly done.</p>
-<p>BS never shells out to tmux/zellij; sessions live in the daemon's own PTY layer, and <code>BS_SESSION=1</code> in every session shell tells user rc-files to skip multiplexer auto-attach.</p>
-<h2 id="the-useful-difference-the-connection-is-not-the-session">The useful difference: the connection is not the session<a class="headerlink" href="#the-useful-difference-the-connection-is-not-the-session" title="Permanent link">&para;</a></h2>
-<p>The remote daemon owns the terminal and the child process. Clients attach and detach. A laptop sleep, a Wi-Fi change, or a client restart does not require restarting the shell or the agent TUI inside it. The same named session is waiting on the other side.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>bs<span class="w"> </span>shell<span class="w"> </span>build-peer<span class="w"> </span>--name<span class="w"> </span>agent
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="c1"># network drops, laptop sleeps, you walk away</span>
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="c1"># come back later</span>
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>bs<span class="w"> </span>shell<span class="w"> </span>build-peer<span class="w"> </span>--name<span class="w"> </span>agent
-</code></pre></div>
-<p>The remote state survives. The agent inside the shell kept running.</p>
-<h2 id="files-and-desktop-use-the-same-identity">Files and desktop use the same identity<a class="headerlink" href="#files-and-desktop-use-the-same-identity" title="Permanent link">&para;</a></h2>
-<p>Files, desktop captures, and CUA input travel on the same pinned peer identity. There is no separate service to authenticate to and no second authorization boundary to maintain.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>bs<span class="w"> </span>file<span class="w"> </span>send<span class="w"> </span>build-peer<span class="w"> </span>./artifact.bin<span class="w"> </span>--wait
-<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>bs<span class="w"> </span>cua<span class="w"> </span>capture<span class="w"> </span>desktop-peer<span class="w"> </span>-o<span class="w"> </span>screen.png
-</code></pre></div>
-<p>The CLI, the daemon, and the helper all check the same Ed25519 pin.</p>
-<h2 id="built-for-operator-controlled-meshes">Built for operator-controlled meshes<a class="headerlink" href="#built-for-operator-controlled-meshes" title="Permanent link">&para;</a></h2>
+<h2 id="opt-out">Opt-out<a class="headerlink" href="#opt-out" title="Permanent link">&para;</a></h2>
+<p><code>BS_JAIL=0</code> (in the daemon's environment) disables the jail. This exists for
+debugging, not as a mode.</p>
+<h2 id="implementation-map">Implementation map<a class="headerlink" href="#implementation-map" title="Permanent link">&para;</a></h2>
 <ul>
-<li>One Ed25519 identity per node.</li>
-<li>Explicit seed pins and inbound <code>authorized_keys</code>.</li>
-<li>One TCP port for mesh traffic.</li>
-<li>Linux, macOS, and Windows peers.</li>
-<li>Structured progress and output that scripts and agents can parse.</li>
+<li><code>bs-jail-policy.h</code> — policy model: <code>FilesystemJailPolicy</code>,
+  <code>jail_policy_from_env(home, cwd)</code>, <code>BS_JAIL_RW</code> parsing. Included inside
+  <code>namespace bs::mesh</code>, before <code>bs-pty.h</code>.</li>
+<li><code>bs-jail.h</code> — Landlock enforcement half: <code>landlock_available()</code>,
+  <code>apply_filesystem_jail(policy)</code>. Included at global scope after the facade.</li>
+<li><code>bs-pty.h</code> <code>create_session()</code> — calls both in the child, best-effort,
+  immediately before <code>exec /bin/sh -c &lt;command&gt;</code>.</li>
+<li><code>tests/test_jail.cpp</code> — policy unit tests + a live fork/Landlock
+  enforcement test (write inside root allowed, <code>/var/tmp</code> denied, read of
+  <code>/etc/hostname</code> allowed).</li>
 </ul>
-<p>This is not a public multi-tenant remote-access service. Authorizing a peer is close to granting shell access. The security boundary is the peer key and the host account.</p>
-<h2 id="a-typical-agent-loop">A typical agent loop<a class="headerlink" href="#a-typical-agent-loop" title="Permanent link">&para;</a></h2>
-<p>A coding agent or a build pipeline usually repeats the same shape:</p>
-<ol>
-<li>Attach to a durable build or session peer with <code>--name</code>.</li>
-<li>Run or upload work in that session.</li>
-<li>Capture a remote desktop when the workflow needs GUI context.</li>
-<li>Transfer the artifact back, wait for the final <code>OK</code>.</li>
-<li>Publish a concise report to Bridge Panel.</li>
-</ol>
-<p>Each step uses the same mesh identity and the same CLI. There is no glue to write between SSH, SCP, RDP, and a clipboard sync tool.</p>
-<h2 id="when-bridgesessions-is-the-wrong-tool">When BridgeSessions is the wrong tool<a class="headerlink" href="#when-bridgesessions-is-the-wrong-tool" title="Permanent link">&para;</a></h2>
-<ul>
-<li>You need a public multi-tenant service. BridgeSessions assumes operator-controlled peer sets.</li>
-<li>You have a single machine and no need for persistent sessions. A local shell is enough.</li>
-<li>You need MOSH-style UDP roaming across aggressive NAT. BridgeSessions uses TCP/TLS and application-level reattach.</li>
-<li>You want a managed SaaS. There is no managed service to subscribe to.</li>
-</ul>
-<h2 id="trade-offs">Trade-offs<a class="headerlink" href="#trade-offs" title="Permanent link">&para;</a></h2>
-<ul>
-<li>TCP/TLS favors deployability over MOSH-style UDP roaming. Sleep recovery works through application-level reattach, not transport-level migration.</li>
-<li>A single event loop keeps reasoning simple but caps concurrency per process. The mesh scales by adding nodes, not threads.</li>
-<li>Authorization is host-level, not capability-scoped. Adding per-command policy is a feature for later; today the peer key is the boundary.</li>
-<li>CUA depends on user-session helpers and OS permissions. The desktop lane is the most setup-heavy part of the system.</li>
-<li>A compromised authorized node can affect every node that trusts it. The mesh does not pretend to be safer than the keys in <code>authorized_keys</code>.</li>
-<li>Beta releases require active upgrade discipline. The protocol is additive, but operators upgrade.</li>
-</ul>
-<h2 id="operating-posture">Operating posture<a class="headerlink" href="#operating-posture" title="Permanent link">&para;</a></h2>
-<p>The mesh assumes you control the peers and the network between them. A typical deployment runs on a private LAN or a VPN. Exposing port <code>19949</code> to the public internet is allowed only when the operator accepts the corresponding risk.</p>
-<h2 id="related">Related<a class="headerlink" href="#related" title="Permanent link">&para;</a></h2>
-<ul>
-<li><a href="../QUICKSTART/">Quickstart</a> — install, join, first shell</li>
-<li><a href="../design/">Design</a> — architecture and core decisions</li>
-<li><a href="../protocol/">Protocol</a> — wire format and handshake</li>
-<li><a href="https://github.com/MindDragonLabs/BridgeSessions/blob/main/SECURITY.md">Security</a> — trust boundary and reporting</li>
-<li><a href="../building/">Building</a> — compile and sign</li>
-</ul>
+<p>The policy is <strong>declarative</strong>: roots stay in the list even if the path does
+not exist right now. A root that cannot be opened at enforcement time simply
+grants nothing — a typoed <code>BS_JAIL_RW</code> entry can never silently broaden the
+jail.</p>
 
 
 
