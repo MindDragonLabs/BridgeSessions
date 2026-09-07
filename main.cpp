@@ -533,23 +533,35 @@ struct MenuTermGuard {
     }
 };
 
-// Interactive ↑/↓ + Enter selector. Returns 1-based choice, 0 on cancel
-// (Esc alone, q, Ctrl-C) or EOF.
-size_t arrow_menu_select(const std::vector<std::string>& rows) {
+// Interactive ↑/↓ + Enter selector with charm-style frame rendering.
+// Returns 1-based choice, 0 on cancel (Esc alone, q, Ctrl-C) or EOF.
+size_t arrow_menu_select(const std::vector<std::string>& rows,
+                         const std::string& title = {}) {
     if (rows.empty()) return 0;
     MenuTermGuard guard;
     const size_t n = rows.size();
     size_t sel = 0;
+    // Frame geometry: box lines + one footer line. Rows are padded/truncated
+    // to a fixed width by bs::tui::menu_frame so redraws never reflow.
+    size_t width = 0;
+    for (auto& r : rows)
+        width = std::max(width, bs::tui::tui_row_width(r));
+    width = std::clamp(width + 2, size_t{24}, size_t{72});
+    const size_t frame_lines = n + 4;  // top, title, separator, rows, bottom
+    const std::string footer =
+        bs::tui::menu_footer("  ↑/↓ or j/k move · Enter select · q quit");
     auto draw = [&](bool first) {
-        if (!first) std::cout << "\x1b[" << n << "A";  // back to first row
-        for (size_t i = 0; i < n; ++i) {
-            std::cout << "\r\x1b[2K"
-                      << (i == sel ? "\x1b[7m> " : "  ")
-                      << rows[i]
-                      << (i == sel ? "\x1b[0m" : "")
-                      << "\n";
+        if (first)
+            std::cout << bs::tui::menu_frame({title.empty() ? " " : title, true},
+                                             rows, sel, width) << "\n"
+                      << footer << std::flush;
+        else {
+            // Rewind to the top of the frame and repaint it in place.
+            std::cout << "\x1b[" << frame_lines << "A"
+                      << bs::tui::menu_frame({title.empty() ? " " : title, true},
+                                             rows, sel, width) << "\n"
+                      << footer << std::flush;
         }
-        std::cout << std::flush;
     };
     draw(true);
     for (;;) {

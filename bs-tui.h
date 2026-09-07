@@ -42,6 +42,9 @@ inline std::string menu_footer(const std::string& hint) {
     return std::string("\x1b[2m") + hint + "\x1b[0m";
 }
 
+// Visible cell width of a row label (so callers can size the frame).
+inline size_t tui_row_width(const std::string& s) { return tui_visible_len(s); }
+
 // Rounded charm-style box: dim borders, a title row, one reverse-video
 // `❯`-highlighted row at `selected`, rows padded to a fixed visible width.
 inline std::string menu_frame(const MenuStyle& style, const std::vector<std::string>& rows,
