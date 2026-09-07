@@ -424,6 +424,15 @@ inline void close_nonstdio_fds_before_exec() {
         // corrupt BS shell sessions with escape-sequence noise.
         unsetenv("FORCE_STARSHIP");
         unsetenv("ZELLIJ_AUTO_ATTACH");
+        // Session filesystem jail (operator policy, 26.09.06-r1): writes are
+        // confined to the user's working roots ($HOME, daemon cwd, /tmp,
+        // BS_JAIL_RW extras) — read stays unrestricted. Best-effort: if the
+        // kernel cannot enforce (no Landlock), proceed without it; BS_JAIL /
+        // BS_JAIL_RW remain exported for agents/rc-files to honor.
+        {
+            auto pol = jail_policy_from_env(jail_home_dir(), jail_daemon_cwd());
+            (void)apply_filesystem_jail(pol);  // degrade silently on failure
+        }
         // Close inherited daemon FDs before exec.
         close_nonstdio_fds_before_exec();
         execl("/bin/sh", "sh", "-c", command.c_str(), nullptr);

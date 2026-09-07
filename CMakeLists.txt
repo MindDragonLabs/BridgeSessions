@@ -70,6 +70,8 @@ add_executable(bridgesessions main.cpp
     bs-mesh-cli.h
     bs-mesh-ui.h
     bs-tui.h
+    bs-jail.h
+    bs-jail-policy.h
     bs-session.h
     bs-session-worker.h)
 # Console subsystem on Windows: this is a CLI/daemon (int main), not WinMain GUI.

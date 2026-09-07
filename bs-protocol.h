@@ -162,6 +162,7 @@ inline constexpr std::string_view kBridgeSessionsVersion = BS_VERSION;
 #include "bs-codec.h"
 #include "bs-tls.h"
 #include "bs-osc52.h"
+#include "bs-jail-policy.h"
 #include "bs-pty.h"
 #include "bs-cua-dispatch.h"
 #include "bs-config.h"
@@ -169,6 +170,13 @@ inline constexpr std::string_view kBridgeSessionsVersion = BS_VERSION;
 #include "bs-mesh-controller.h"
 
 } // namespace bs::mesh
+
+// Session filesystem jail — Landlock enforcement half (bs-jail-policy.h,
+// the policy model, is included inside the namespace above, after bs-pty.h
+// which calls it in create_session's child). Included at global scope
+// because it pulls C system headers. Write-confined to user working roots;
+// see docs/session-jail.md.
+#include "bs-jail.h"
 
 // TUI rendering primitives live in their own top-level namespace (bs::tui)
 // because their functions are called from main.cpp's anonymous namespace and
