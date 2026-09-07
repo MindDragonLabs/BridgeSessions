@@ -23,8 +23,8 @@ TEST_CASE("soft cleanup keeps the alternate screen alive", "[shell][reconnect]")
 }
 
 TEST_CASE("reconnect status line shows peer, attempt, held keystrokes", "[shell][reconnect]") {
-    auto line = bs::mesh::reconnect_status_line("fecv4", 3, 128, 80, 24);
-    REQUIRE(line.find("fecv4") != std::string::npos);
+    auto line = bs::mesh::reconnect_status_line("host-a", 3, 128, 80, 24);
+    REQUIRE(line.find("host-a") != std::string::npos);
     REQUIRE(line.find("attempt 3") != std::string::npos);
     REQUIRE(line.find("128B held") != std::string::npos);
     REQUIRE(line.find("Ctrl-D") != std::string::npos);

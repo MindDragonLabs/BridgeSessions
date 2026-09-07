@@ -42,7 +42,7 @@ size_t visible_len(const std::string& s) {
 } // namespace
 
 TEST_CASE("menu frame draws rounded charm-style box", "[tui][menu]") {
-    auto f = bs::tui::menu_frame({"pick a server"}, {"fecv4", "btcr"}, 0, 20);
+    auto f = bs::tui::menu_frame({"pick a server"}, {"host-a", "host-b"}, 0, 20);
     REQUIRE(f.find("╭") != std::string::npos);
     REQUIRE(f.find("╰") != std::string::npos);
     REQUIRE(f.find("\x1b[7m") != std::string::npos);
@@ -131,7 +131,7 @@ TEST_CASE("session picker frame wraps through menu_frame unchanged", "[tui][menu
     bs::mesh::SessionListMsg list;
     list.sessions.push_back({"hermes", "attached", 3600});
     auto rows = bs::tui::session_picker_rows(list);
-    auto f = bs::tui::menu_frame({"fecv4 — choose a session:"}, rows, 0, 40);
+    auto f = bs::tui::menu_frame({"host-a — choose a session:"}, rows, 0, 40);
     REQUIRE(f.find("New session") != std::string::npos);
     REQUIRE(f.find("hermes") != std::string::npos);
 }
