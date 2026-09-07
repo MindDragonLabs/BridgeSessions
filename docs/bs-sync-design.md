@@ -10,7 +10,7 @@ another machine" — to every platform the mesh already runs on, with zero new
 daemons, ports, keys, or kernel drivers.
 
 ```
-bs sync macbook ~/dev/project hub:/home/work/project
+bs sync laptop ~/dev/project hub:/home/work/project
 ```
 
 While the sync session lives, edits on either side appear on the other in real
