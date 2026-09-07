@@ -16,6 +16,8 @@ Remote work often combines a transport, a multiplexer, a file copier, platform-s
 
 Each row is a real workflow that operators assemble from parts. BridgeSessions is the assembly done.
 
+BS never shells out to tmux/zellij; sessions live in the daemon's own PTY layer, and `BS_SESSION=1` in every session shell tells user rc-files to skip multiplexer auto-attach.
+
 ## The useful difference: the connection is not the session
 
 The remote daemon owns the terminal and the child process. Clients attach and detach. A laptop sleep, a Wi-Fi change, or a client restart does not require restarting the shell or the agent TUI inside it. The same named session is waiting on the other side.
