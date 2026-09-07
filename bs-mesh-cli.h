@@ -2433,6 +2433,7 @@ public:
         bool local_stop = false;
         bool announced_reconnect = false;
         int reconnect_delay_ms = 100;
+        int reconnect_attempt = 1;
         try {
         while (!local_stop) {
             addr = find_peer_addr(peer_name);
@@ -2458,6 +2459,7 @@ public:
             }
 
             reconnect_delay_ms = 100;
+            reconnect_attempt = 1;
             bool transport_alive = true;
             auto [last_cols, last_rows] = get_winsize();
             if (last_cols == 0 || last_rows == 0) {
@@ -2474,7 +2476,10 @@ public:
                 am.signal_on_detach = signal_on_detach;
                 write_frame(sc.ssl.get(), am, CONTROL_STREAM_ID);
                 if (announced_reconnect) {
-                    std::cerr << "[reconnected]\r\n" << std::flush;
+                    // Clear the reconnect badge (bottom row); the server's
+                    // scrollback replay repaints the remote TUI over it.
+                    std::cout << bs::mesh::reconnect_status_clear(last_rows)
+                              << std::flush;
                     announced_reconnect = false;
                 }
                 if (!pending_input.empty()) {
@@ -2601,17 +2606,31 @@ public:
             }
             sc.sfd = INVALID_SOCKET;
             if (!local_stop) {
-                // Unexpected transport loss (daemon died, network drop). The
-                // remote TUI may have left mouse/alt-screen/bracketed-paste
-                // modes active in OUR terminal — reset them now so the
-                // reconnect wait is not a jammed terminal, and say what is
-                // happening (silent retry reads as a hang; users force-kill
-                // the client and lose the terminal entirely).
-                try { cleanup_terminal_modes(); } catch (...) {}
+                // Unexpected transport loss (daemon died, network drop). Soft
+                // terminal reset: mouse/focus/paste modes are cleared so the
+                // terminal is not jammed, but the alternate screen stays up —
+                // the remote TUI's last frame remains visible (no blanking).
+                // A reverse-video badge on the bottom row announces the
+                // reconnect state; keystrokes keep buffering (below).
+                try { cleanup_terminal_modes_soft(); } catch (...) {}
                 std::cerr << "\r\n[transport lost — reconnecting to " << peer_name
                           << "… Ctrl-D to quit]\r\n" << std::flush;
+                {
+                    auto [sc_cols, sc_rows] = get_winsize();
+                    std::cout << bs::mesh::reconnect_status_line(
+                        peer_name, reconnect_attempt, pending_input.size(),
+                        sc_cols, sc_rows) << std::flush;
+                }
                 announced_reconnect = true;
                 local_stop = wait_for_local_stop(reconnect_delay_ms);
+                if (!local_stop) {
+                    ++reconnect_attempt;
+                    // Refresh the badge (attempt counter ticks per backoff).
+                    auto [sc_cols, sc_rows] = get_winsize();
+                    std::cout << bs::mesh::reconnect_status_line(
+                        peer_name, reconnect_attempt, pending_input.size(),
+                        sc_cols, sc_rows) << std::flush;
+                }
                 reconnect_delay_ms = std::min(reconnect_delay_ms * 2, 5000);
             }
         }
