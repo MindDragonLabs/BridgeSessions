@@ -169,6 +169,12 @@ inline constexpr std::string_view kBridgeSessionsVersion = BS_VERSION;
 #include "bs-mesh-controller.h"
 
 } // namespace bs::mesh
+
+// TUI rendering primitives live in their own top-level namespace (bs::tui)
+// because their functions are called from main.cpp's anonymous namespace and
+// from tests directly — including them inside bs::mesh would nest them as
+// bs::mesh::bs::tui and break name lookup. Included after the facade close.
+#include "bs-tui.h"
 // ────────────────────────────────────────────────────────────────────
 // Convert daemon pipe-separated SESSIONS output to JSON (global helper)
 
