@@ -62,11 +62,18 @@ struct FilesystemJailPolicy {
 // Build the jail policy from the environment.
 //   home_dir:  the peer user's home ($HOME on the peer).
 //   daemon_cwd: the daemon's working directory (a "user working directory").
+//
+// OPT-IN since 26.09.06-r5: the jail previously defaulted ON and set
+// PR_SET_NO_NEW_PRIVS in every session child, which silently broke
+// `sudo` inside sessions ("The no new privileges flag is set") and was
+// heavier-handed than intended (operator, 2026-09-07: "the jail wasn't
+// supposed to be so massive"). Confinement now runs ONLY when the
+// session opts in via BS_JAIL=1; set BS_JAIL_RW for extra writable roots.
 inline FilesystemJailPolicy jail_policy_from_env(const std::string& home_dir,
                                                  const std::string& daemon_cwd) {
     FilesystemJailPolicy p;
     const char* dis = std::getenv("BS_JAIL");
-    if (dis && std::string(dis) == "0") {
+    if (!dis || !*dis || std::string(dis) == "0") {
         p.enabled = false;
         return p;
     }

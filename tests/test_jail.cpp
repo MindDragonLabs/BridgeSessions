@@ -27,8 +27,20 @@
 
 using namespace bs::mesh;
 
-TEST_CASE("jail policy defaults to enabled with home/tmp roots", "[jail]") {
-    ::setenv("BS_JAIL", "", 1);          // unset-ish: default on
+TEST_CASE("jail is opt-in: unset/empty BS_JAIL means disabled", "[jail]") {
+    // 26.09.06-r5: jail defaults OFF — PR_SET_NO_NEW_PRIVS broke sudo in
+    // sessions and the confinement was heavier than intended (operator).
+    ::unsetenv("BS_JAIL");
+    ::unsetenv("BS_JAIL_RW");
+    auto p = jail_policy_from_env("/home/testuser", "/home/testuser/proj");
+    REQUIRE_FALSE(p.enabled);
+    ::setenv("BS_JAIL", "", 1);
+    auto p2 = jail_policy_from_env("/home/testuser", "/home/testuser/proj");
+    REQUIRE_FALSE(p2.enabled);
+}
+
+TEST_CASE("jail policy enables with BS_JAIL=1 and builds home/tmp roots", "[jail]") {
+    ::setenv("BS_JAIL", "1", 1);
     ::unsetenv("BS_JAIL_RW");
     auto p = jail_policy_from_env("/home/testuser", "/home/testuser/proj");
     REQUIRE(p.enabled);
