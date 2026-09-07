@@ -394,18 +394,56 @@ inline bool queue_disconnected_input(std::string& pending, std::string_view inpu
     return false;
 }
 
-inline std::string terminal_cleanup_sequence() {
+inline std::string terminal_cleanup_sequence(bool leave_alt_screen = true) {
     // A remote TUI can leave these modes enabled when its transport disappears.
-    // Reset every common mouse protocol plus focus/bracketed-paste, restore the
-    // cursor, and leave the alternate screen only when the local client exits.
-    return "\x1b[?9l"
-           "\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1004l"
-           "\x1b[?1005l\x1b[?1006l\x1b[?1015l\x1b[?1016l"
-           "\x1b[?2004l\x1b[0m\x1b[?25h\x1b[?1049l";
+    // Reset every common mouse protocol plus focus/bracketed-paste and restore
+    // the cursor. `leave_alt_screen` controls the final `\x1b[?1049l`:
+    //   true  (default) — full restore for client exit.
+    //   false           — soft cleanup for reconnect waits: keep the alternate
+    //                     screen so the remote TUI's last frame stays visible
+    //                     instead of blanking the terminal.
+    std::string seq =
+        "\x1b[?9l"
+        "\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1004l"
+        "\x1b[?1005l\x1b[?1006l\x1b[?1015l\x1b[?1016l"
+        "\x1b[?2004l\x1b[0m\x1b[?25h";
+    if (leave_alt_screen) seq += "\x1b[?1049l";
+    return seq;
 }
 
 inline void cleanup_terminal_modes() {
     std::cout << terminal_cleanup_sequence() << std::flush;
+}
+
+// Soft variant for reconnect waits: resets mouse/focus/paste modes (so the
+// terminal is not jammed) but keeps the alternate screen — the remote TUI's
+// last frame remains on screen while we reconnect.
+inline void cleanup_terminal_modes_soft() {
+    std::cout << terminal_cleanup_sequence(/*leave_alt_screen=*/false) << std::flush;
+}
+
+// Reconnect status line, drawn on the bottom row of the CURRENT screen
+// (alt-screen stays up — the remote TUI remains visible behind it).
+// Reverse-video badge: ⟳ peer · reconnecting — attempt N · B held · Ctrl-D quit.
+inline std::string reconnect_status_line(const std::string& peer, int attempt,
+                                         size_t buffered_bytes, uint16_t cols,
+                                         uint16_t rows) {
+    std::string label = " ⟳ " + peer + " · reconnecting — attempt "
+                        + std::to_string(attempt);
+    if (buffered_bytes > 0)
+        label += " · " + std::to_string(buffered_bytes) + "B held";
+    label += " · Ctrl-D quit";
+    size_t width = cols > 0 ? cols : 80;
+    if (label.size() > width) label.resize(width);
+    std::string r = "\x1b7\x1b[" + std::to_string(rows) + ";1H\x1b[7m" + label;
+    if (width > label.size()) r.append(width - label.size(), ' ');
+    r += "\x1b[0m\x1b8";
+    return r;
+}
+
+// Erases the reconnect status line (bottom row only), restoring the cursor.
+inline std::string reconnect_status_clear(uint16_t rows) {
+    return "\x1b7\x1b[" + std::to_string(rows) + ";1H\x1b[2K\x1b8";
 }
 
 #ifdef _WIN32
