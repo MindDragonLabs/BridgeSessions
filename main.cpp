@@ -663,7 +663,26 @@ int cmd_connect_selector(const std::string& config_path,
         return 2;
     }
 
-    // ── 3. Open the shell ───────────────────────────────────────
+    // ── 3. Session selection (best-effort) ──────────────────────
+    // Offer attaching to an existing session when the peer has live ones.
+    // Never hard-fails: an unqueryable peer keeps the harness-name flow.
+    bs::mesh::MeshConfig cfg_for_connect = cfg;
+    bs::mesh::MeshController mc_probe(cfg_for_connect, home_dir);
+    std::string session = harness;  // default: reuse harness name for reattach
+    {
+        auto listed = mc_probe.fetch_peer_sessions(peer);
+        if (listed && !listed->sessions.empty()) {
+            int choice = connect_menu_pick(peer + " — attach or start:",
+                                           bs::tui::session_picker_rows(*listed));
+            if (choice > 0) {
+                std::string picked = bs::tui::session_picker_choice(
+                    *listed, static_cast<size_t>(choice));
+                if (!picked.empty()) session = picked;
+            }
+        }
+    }
+
+    // ── 4. Open the shell ───────────────────────────────────────
     auto [cols, rows] = bs::mesh::get_winsize();
     std::cout << "\nConnecting to " << peer << " → " << harness
               << (cmd.empty() ? "" : " (" + cmd + ")") << "\n\n";
@@ -672,7 +691,7 @@ int cmd_connect_selector(const std::string& config_path,
     // `bs shell <peer> -n <harness>`.
     // force_interactive: harness commands are full-screen TUIs — they need the
     // raw-terminal path; the plain -x path strips ANSI and scrambles them.
-    return mc.shell_peer(peer, harness, cmd, cols, rows, "xterm-256color",
+    return mc.shell_peer(peer, session, cmd, cols, rows, "xterm-256color",
                          true, "", /*force_interactive=*/true);
 }
 
