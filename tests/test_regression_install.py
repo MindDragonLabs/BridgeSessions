@@ -9,6 +9,7 @@ Bug coverage:
   10. Bare binary not in TCC: .app bundle wrapper creation
 """
 import re
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -260,6 +261,8 @@ class TestStaticBinary:
 
     @pytest.mark.skipif(not (REPO_ROOT / "dist" / "bridgesessions-macos-arm64").exists(),
                         reason="dist binary not built")
+    @pytest.mark.skipif(shutil.which("otool") is None,
+                        reason="otool not available on this host (macOS-only tool)")
     def test_no_homebrew_dylib_deps(self):
         binary = REPO_ROOT / "dist" / "bridgesessions-macos-arm64"
         result = subprocess.run(
