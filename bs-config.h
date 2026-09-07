@@ -644,8 +644,8 @@ inline void shell_signal_cleanup_handler(int sig) noexcept {
     if (is_local_node_name(name, cfg.node_name)) return true;
     const std::string h = local_hostname();
     if (is_local_node_name(name, h)) return true;
-    // Bonjour/FQDN drift: macOS reports "Jeffersons-Mini.local" while
-    // `hostname -s` gives "Jeffersons-Mini". Compare first DNS labels so
+    // Bonjour/FQDN drift: macOS reports "MacBook-Studio.local" while
+    // `hostname -s` gives "MacBook-Studio". Compare first DNS labels so
     // short ↔ FQDN mismatches still catch self. A false-positive refusal is
     // the safe direction (a real peer connect falls under the trust check).
     auto first_label = [](const std::string& s) {

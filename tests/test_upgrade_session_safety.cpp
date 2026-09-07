@@ -1,4 +1,4 @@
-// test_upgrade_session_safety.cpp — regression tests for the 2026-09-03 fecv3
+// test_upgrade_session_safety.cpp — regression tests for the 2026-09-03 fleet node
 // upgrade incident. Contract: `bs upgrade` must NEVER kill a live session
 // shell, and the binary swap must never touch the inode a running process
 // holds (ETXTBSY), nor race the service manager's restart.
@@ -48,7 +48,7 @@ TEST_CASE("upgrade never pkill -9s the daemon or session workers",
     //   - SIGKILLed the daemon before it could save_persisted_sessions(),
     //   - raced `Restart=on-failure` (old binary could re-exec mid-swap),
     //   - and, when the operator adapted it to "kill workers too", killed the
-    //     session-worker hosting the upgrade's own terminal (fecv3, 2026-09-03).
+    //     session-worker hosting the upgrade's own terminal (fleet node, 2026-09-03).
     const std::string main_cpp = read_file_or_empty(BRIDGESESSIONS_MAIN_CPP_PATH);
     REQUIRE_FALSE(main_cpp.empty());
 

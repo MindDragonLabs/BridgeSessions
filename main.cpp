@@ -2053,7 +2053,7 @@ int main(int argc, char** argv) {
 
         // Stop daemon before swap — SAFELY.
         //
-        // 2026-09-03 fecv3 incident: `pkill -9 -f 'bridgesessions --config'`
+        // 2026-09-03 fleet incident: `pkill -9 -f 'bridgesessions --config'`
         // SIGKILLed the daemon mid-flight, skipping the graceful-shutdown
         // session persist, and left hosted session-workers uncoordinated.
         // Workers are detached (systemd-run scope / setsid) and survive the
@@ -2096,7 +2096,7 @@ int main(int argc, char** argv) {
         // NEVER cp onto the live path: cp opens the destination in place, so
         // it fails with ETXTBSY while any process (daemon, session-worker,
         // another CLI) still execs the old inode — the exact failure that
-        // half-broke the 2026-09-03 fecv3 upgrade. rename(2) only swaps the
+        // half-broke the 2026-09-03 fleet upgrade. rename(2) only swaps the
         // directory entry, so running processes on the old inode are untouched
         // (they show "(deleted)" in /proc/<pid>/exe until they exit) and every
         // new exec gets the new binary.

@@ -157,3 +157,4 @@ site/
 
 # ── Local protocol / design standards (not published) ──
 .standards/
+build.ninja
