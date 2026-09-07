@@ -435,15 +435,15 @@ inline std::string reconnect_status_line(const std::string& peer, int attempt,
     label += " · Ctrl-D quit";
     size_t width = cols > 0 ? cols : 80;
     if (label.size() > width) label.resize(width);
-    std::string r = "\x1b7\x1b[" + std::to_string(rows) + ";1H\x1b[7m" + label;
+    std::string r = std::string("\x1b") + "7" + "\x1b[" + std::to_string(rows) + ";1H\x1b[7m" + label;
     if (width > label.size()) r.append(width - label.size(), ' ');
-    r += "\x1b[0m\x1b8";
+    r += "\x1b[0m" + std::string("\x1b") + "8";
     return r;
 }
 
 // Erases the reconnect status line (bottom row only), restoring the cursor.
 inline std::string reconnect_status_clear(uint16_t rows) {
-    return "\x1b7\x1b[" + std::to_string(rows) + ";1H\x1b[2K\x1b8";
+    return std::string("\x1b") + "7" + "\x1b[" + std::to_string(rows) + ";1H\x1b[2K" + std::string("\x1b") + "8";
 }
 
 #ifdef _WIN32

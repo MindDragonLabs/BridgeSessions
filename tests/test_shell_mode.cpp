@@ -30,8 +30,8 @@ TEST_CASE("reconnect status line shows peer, attempt, held keystrokes", "[shell]
     REQUIRE(line.find("Ctrl-D") != std::string::npos);
     // Draws on the bottom row via cursor addressing; saves/restores cursor.
     REQUIRE(line.find("\x1b[24;1H") != std::string::npos);
-    REQUIRE(line.find("\x1b7") != std::string::npos);
-    REQUIRE(line.find("\x1b8") != std::string::npos);
+    REQUIRE(line.find(std::string("\x1b") + "7") != std::string::npos);
+    REQUIRE(line.find(std::string("\x1b") + "8") != std::string::npos);
     // Never exceeds terminal width (visible cells, escapes stripped).
     size_t vis = 0;
     bool in_esc = false;
@@ -55,8 +55,8 @@ TEST_CASE("status-line clear erases the bottom row only", "[shell][reconnect]") 
     auto c = bs::mesh::reconnect_status_clear(24);
     REQUIRE(c.find("\x1b[24;1H\x1b[2K") != std::string::npos);
     REQUIRE(c.find("\x1b[?1049l") == std::string::npos);
-    REQUIRE(c.find("\x1b7") != std::string::npos);  // cursor saved/restored
-    REQUIRE(c.find("\x1b8") != std::string::npos);
+    REQUIRE(c.find(std::string("\x1b") + "7") != std::string::npos);  // cursor saved/restored
+    REQUIRE(c.find(std::string("\x1b") + "8") != std::string::npos);
 }
 
 int main(int argc, char* argv[]) {

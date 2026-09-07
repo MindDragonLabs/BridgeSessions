@@ -14,10 +14,22 @@
 #pragma once
 
 #include <fcntl.h>
-#include <sys/prctl.h>
 #include <sys/stat.h>
-#include <sys/syscall.h>
 #include <unistd.h>
+
+#if !defined(__linux__)
+// Non-Linux hosts: enforcement is a documented no-op (env markers only).
+// Keep the API callable so bs-pty.h needs no platform branches.
+inline bool landlock_available() { return false; }
+namespace bs::mesh {
+inline bool apply_filesystem_jail(const FilesystemJailPolicy& p) {
+    (void)p;
+    return false;  // caller proceeds WITHOUT the jail (availability degrade)
+}
+} // namespace bs::mesh
+#else
+#include <sys/prctl.h>
+#include <sys/syscall.h>
 
 // ── Linux enforcement (Landlock, best-effort) ──────────────────────
 
@@ -79,3 +91,5 @@ inline bool apply_filesystem_jail(const FilesystemJailPolicy& p) {
 }
 
 } // namespace bs::mesh
+
+#endif // __linux__
