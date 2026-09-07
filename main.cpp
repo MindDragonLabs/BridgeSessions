@@ -1849,6 +1849,48 @@ int main(int argc, char** argv) {
         return 0;
     }
     if (upgrade_cmd_app->parsed()) {
+        // Fleet-context safety (2026-09-07 incident): when this upgrade runs
+        // inside a hosted mesh session (BS_SESSION=1), pausing the daemon
+        // kills the session-worker's IPC and the upgrade dies before
+        // resume_mesh_daemon() can un-mask the systemd unit — leaving the
+        // peer offline. Instead of refusing, re-exec DETACHED from the
+        // session: `setsid` + full stdio redirection to a log file, so the
+        // swap completes even after the carrying daemon stops. The caller's
+        // channel drops (expected; same as the old behavior) but the upgrade
+        // itself now survives and the daemon comes back on the new binary.
+        if (bs::mesh::upgrade_in_mesh_session() && !bs::mesh::upgrade_in_mesh_override()) {
+#ifdef __linux__
+            const std::string upg_log = home_dir + "/upgrade.log";
+            const std::string self_exe = current_exe_path(argv[0]);
+            std::string reexec = "setsid sh -c \"'" + self_exe + "' upgrade\"";
+            if (!upgrade_tag.empty()) reexec += " --tag '" + upgrade_tag + "'";
+            if (allow_downgrade) reexec += " --allow-downgrade";
+            reexec += " >>'" + upg_log + "' 2>&1 <'/dev/null'\"";
+            if (std::system(reexec.c_str()) == 0) {
+                std::cout << "→ Detaching upgrade from this session (daemon carrier).\n"
+                          << "  Log: " << upg_log << "\n"
+                          << "  This shell will drop when the daemon stops — the\n"
+                          << "  upgrade continues detached and the daemon restarts\n"
+                          << "  on the new version.\n";
+                return 0;
+            }
+            // setsid unavailable or spawn failed: fall through to the hard
+            // refusal below rather than repeating the 2026-09-07 failure.
+#endif
+            std::cerr << "upgrade: refusing to run inside a mesh shell session.\n"
+                         "         The daemon you would pause is the one carrying\n"
+                         "         this command's IPC — pausing it kills the upgrade\n"
+                         "         before resume_mesh_daemon() can restart anything.\n"
+                         "\n"
+                         "Run the upgrade OUTSIDE the mesh:\n"
+                         "  • local:  exit the mesh shell, then `bs upgrade --tag <v>`\n"
+                         "  • remote: SSH in directly (not via `bs shell`):\n"
+                         "              ssh user@host 'bridgesessions upgrade --tag <v>'\n"
+                         "    On Windows: schtasks / WinRM, not a mesh shell.\n"
+                         "(Override only with BS_UPGRADE_IN_MESH=1 if you really know\n"
+                         "what you are doing — and you have a recovery plan.)\n";
+            return 1;
+        }
         // Self-update: download latest (or specified) release from GitHub,
         // verify SHA256 (mandatory), atomic swap, restart daemon.
         std::string tag = upgrade_tag.empty() ? "latest" : upgrade_tag;
