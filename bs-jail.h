@@ -30,6 +30,7 @@ inline bool apply_filesystem_jail(const FilesystemJailPolicy& p) {
 #else
 #include <sys/prctl.h>
 #include <sys/syscall.h>
+#include <initializer_list>
 
 // ── Linux enforcement (Landlock, best-effort) ──────────────────────
 
@@ -63,11 +64,33 @@ inline bool apply_filesystem_jail(const FilesystemJailPolicy& p) {
     if (!p.enabled) return true;
     if (!landlock_available()) return false;
 
+    // Device nodes that session shells legitimately write to must stay
+    // writable: /dev/null (every `2>/dev/null`), /dev/full, /dev/zero,
+    // /dev/tty. These are opened directly (O_RDWR), NOT under an allowed
+    // root, so without explicit rules the 26.09.06-r2/r3 jail broke
+    // `curl -o … 2>/dev/null` and any other redirect inside a session.
+    // Char devices carry no directory-beneath semantics — each rule
+    // covers exactly that node.
+    //
     // 1. Create a ruleset that denies file writes by default.
     unsigned long attr = detail::kLandlockAccessFileWrite;
     int ruleset_fd = static_cast<int>(
         ::syscall(444 /* __NR_landlock_create_ruleset */, &attr, sizeof(attr), 0));
     if (ruleset_fd < 0) return false;
+
+    for (const char* dev : {"/dev/null", "/dev/full", "/dev/zero", "/dev/tty"}) {
+        int fd = ::open(dev, O_RDWR | O_CLOEXEC);
+        if (fd < 0) continue;  // node absent on this host
+        // Char devices accept only WRITE_FILE in a PathBeneath rule — any
+        // REMOVE_*/MAKE_* bit makes add_rule fail with EINVAL (2026-09-07
+        // jail EINVAL hunt; bisected on ABI 9). WRITE_FILE is exactly what
+        // `2>/dev/null` needs; removes/creates don't apply to device nodes.
+        detail::LandlockPathBeneathAttr rule{0x0002 /* WRITE_FILE */, fd};
+        long rc = ::syscall(445 /* __NR_landlock_add_rule */, ruleset_fd,
+                            detail::kLandlockRulePathBeneath, &rule, 0);
+        ::close(fd);
+        if (rc != 0) { ::close(ruleset_fd); return false; }
+    }
 
     // 2. Grant write-beneath for each allowed root.
     for (const auto& root : p.writable_roots) {

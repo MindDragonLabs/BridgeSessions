@@ -15,6 +15,8 @@
 #include <filesystem>
 #include <string>
 #include <vector>
+#include <fcntl.h>
+#include <unistd.h>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -113,7 +115,17 @@ TEST_CASE("landlock jail blocks writes outside roots, allows inside",
         // this host — grants nothing at enforcement open-time). Crucially NOT
         // "/", which would be a writable root covering everything.
         auto p = jail_policy_from_env("/home/testuser", "/home/testuser");
-        if (!apply_filesystem_jail(p)) _exit(99);
+        if (!apply_filesystem_jail(p)) {
+            // Diagnose which step failed (2026-09-07: worked standalone,
+            // failed in Catch fork child).
+            FILE* dbg = ::fopen("/tmp/bs-jail-test-fail.txt", "w");
+            if (dbg) {
+                ::fprintf(dbg, "avail=%d errno=%d (%s)\n",
+                          (int)landlock_available(), errno, ::strerror(errno));
+                ::fclose(dbg);
+            }
+            _exit(99);
+        }
         // 1. Write inside the root → allowed.
         int ok = ::open((root / "w.txt").c_str(), O_CREAT | O_WRONLY, 0600);
         if (ok < 0) _exit(1);
@@ -137,6 +149,24 @@ TEST_CASE("landlock jail blocks writes outside roots, allows inside",
 }
 #endif
 
+TEST_CASE("jail permits writing /dev/null (2>/dev/null works in sessions)", "[jail][landlock]") {
+    // 26.09.06-r2/r3 regression: Landlock jailed shells lost write access to
+    // /dev/null, breaking every `2>/dev/null` redirect — including the
+    // internal curl of `bs upgrade`. Device nodes must stay writable.
+    auto pol = bs::mesh::jail_policy_from_env("/tmp", "/tmp");
+    if (!bs::mesh::apply_filesystem_jail(pol)) {
+        WARN("apply_filesystem_jail failed (kernels without Landlock "
+             "supporting device-node rules degrade gracefully)");
+        return;
+    }
+    int fd = ::open("/dev/null", O_RDWR);
+    REQUIRE(fd >= 0);
+    const char* probe = "x";
+    REQUIRE(::write(fd, probe, 1) == 1);
+    ::close(fd);
+}
+
 int main(int argc, char* argv[]) {
     return Catch::Session().run(argc, argv);
 }
+
