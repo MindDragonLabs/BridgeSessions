@@ -109,7 +109,7 @@ inline void arm_upgrade_watchdog(const std::string& bin_path,
     std::string s;
     s += "@echo off\r\n";
     s += "timeout /t 20 /nobreak >nul\r\n";
-    s += "for %i in (1 2 3 4 5 6) do (\r\n";
+    s += "for %%i in (1 2 3 4 5 6) do (\r\n";
     s += "  curl -s -m 2 -o nul http://127.0.0.1:" + port + "/ >nul 2>&1\r\n";
     s += "  if not errorlevel 1 exit /b 0\r\n";
     s += "  timeout /t 10 /nobreak >nul\r\n";
