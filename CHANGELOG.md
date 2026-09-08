@@ -2,6 +2,34 @@
 
 Notable user-visible changes. Git history contains implementation-level detail.
 
+## 26.09.08-r3
+
+### Fixed
+
+- fix(upgrade): Windows in-band `upgrade` was broken beyond the r2 curl-quoting
+  fix — five more POSIX-only assumptions in the path, each sufficient to fail
+  on `cmd.exe`:
+  - SHA256 verification ran a `grep | awk | sha256sum` shell pipeline that
+    does not exist on Windows, so verification could never succeed. It is now
+    pure C++ on all platforms (parses `SHA256SUMS`, hashes the download
+    in-process), tolerant of CRLF line endings.
+  - The downloaded-binary and post-swap `--version` probes single-quoted the
+    exe path, which `cmd.exe` treats as literal characters
+    ("cannot find the path specified"). Now platform-aware quoting.
+  - The binary swap raced the old process's exe-file lock after
+    `schtasks /end` with a fixed sleep. The swap now retries the rename for
+    up to 15s while the lock clears, and on persistent failure aborts and
+    restarts the old daemon instead of stranding the peer.
+
+### Added
+
+- feat(upgrade): the rollback watchdog now arms on **Windows**, not just
+  Linux. Before an upgrade stops the daemon, a detached helper script is
+  dropped in the BridgeSessions home: if the new daemon does not bind the
+  mesh port within ~80s, it restores the previous binary and restarts the
+  scheduled task. A failed Windows upgrade can no longer strand the peer
+  offline until a manual rescue.
+
 ## 26.09.08-r2
 
 ### Fixed

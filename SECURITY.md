@@ -2,7 +2,7 @@
 
 ## Supported version
 
-`26.09.08-r2` is the current release line. The repository stamps the same version in `VERSION`, in the installer default tag, and in the binary itself. Upgrade older builds before reporting unless you are reproducing a regression that requires the older code.
+`26.09.08-r3` is the current release line. The repository stamps the same version in `VERSION`, in the installer default tag, and in the binary itself. Upgrade older builds before reporting unless you are reproducing a regression that requires the older code.
 
 The previous release lines include `26.08.31-release` and `26.08.27-r1`. Mixed lines on the same mesh still talk to each other through the protocol compatibility profile; mixed major protocol lines may not. The release pipeline enforces version negotiation at handshake time.
 
