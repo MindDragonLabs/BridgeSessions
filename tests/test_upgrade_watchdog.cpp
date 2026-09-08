@@ -13,28 +13,28 @@
 // The test reconstructs the helper script with the same rules as the armer
 // and executes it with sh (running the real armer would detach and race).
 //
-// Linux-only: the watchdog armer itself is POSIX/Linux (setsid + /dev/tcp).
-// On other platforms this target builds an empty test binary.
+// Linux-only: the watchdog armer is POSIX/Linux (setsid + bash /dev/tcp).
+// On other platforms this file compiles to a stub main() so the CMake
+// GLOB-produced target still links (an empty Catch binary is fine; it
+// discovers zero tests).
+
+#include <catch2/catch_session.hpp>
+
+#ifdef __linux__
 
 #include <catch2/catch_test_macros.hpp>
-#include <catch2/catch_session.hpp>
 #include "../bs-protocol.h"
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
 #include <filesystem>
 #include <string>
-
-#ifdef __linux__
 #include <sys/stat.h>
 #include <unistd.h>
 #include <chrono>
 #include <thread>
-#endif
 
 using namespace std::chrono_literals;
-
-#ifdef __linux__
 
 namespace {
 
@@ -101,15 +101,17 @@ TEST_CASE("upgrade watchdog restores old binary when new daemon never binds", "[
         std::string content((std::istreambuf_iterator<char>(in)),
                              std::istreambuf_iterator<char>());
         REQUIRE(content == "whatever");
+        std::ifstream lm(log);
+        REQUIRE(lm.good());          // failure logged
         std::ifstream mk(marker);
-        REQUIRE(mk.good());
+        REQUIRE(mk.good());          // start command still ran
     }
 
     SECTION("live port short-circuits to success with no side effects") {
         std::remove(marker.c_str());
         std::remove(log.c_str());
-        // Track freshness via a rename: earlier sections recreate the marker,
-        // so assert on a path that only THIS section's script can create.
+        // Track freshness via a unique path: earlier sections recreate the
+        // marker, so assert on a file only THIS section's script can create.
         const std::string fresh_marker = base + "/fresh-marker";
         std::remove(fresh_marker.c_str());
         // find a free port by binding one
@@ -144,10 +146,13 @@ TEST_CASE("upgrade watchdog restores old binary when new daemon never binds", "[
     std::system(("rm -rf " + base).c_str());
 }
 
-#endif // __linux__
-
-#ifdef __linux__
 int main(int argc, char* argv[]) {
     return Catch::Session().run(argc, argv);
 }
+
+#else // !__linux__
+
+// Stub main so the GLOB-generated target links on macOS/Windows.
+int main() { return 0; }
+
 #endif // __linux__
