@@ -1,7 +1,8 @@
 # Session Filesystem Jail
 
-Every session shell (the PTY child a peer spawns for `bs shell` / `bs <peer>`)
-runs under a filesystem jail with this policy:
+The session filesystem jail is **opt-in as of 26.09.07**. When enabled
+(`BS_JAIL=1`), every session shell (the PTY child a peer spawns for
+`bs shell` / `bs <peer>`) runs under this policy:
 
 > **Read everywhere. Write only in your working roots.**
 
@@ -28,10 +29,13 @@ runs under a filesystem jail with this policy:
 | Linux (older kernels) | degrade to env markers only | A session **never fails to start** because the jail cannot be enforced. |
 | macOS / Windows | env markers only (`BS_JAIL=1`, `BS_JAIL_RW=…`) | No kernel jail. Tooling in sessions is expected to honor the markers; document violations, don't mask them. |
 
-## Opt-out
+## Enabling and disabling
 
-`BS_JAIL=0` (in the daemon's environment) disables the jail. This exists for
-debugging, not as a mode.
+`BS_JAIL=1` (in the daemon's environment) enables the jail. Unset, empty,
+or `0` leaves sessions unconfined — the default, chosen so session shells
+keep full privileges (including `sudo`; the Landlock contract requires
+`PR_SET_NO_NEW_PRIVS`, which is incompatible with setuid elevation).
+`BS_JAIL_RW` adds writable roots when the jail is enabled.
 
 ## Implementation map
 

@@ -2,6 +2,36 @@
 
 Notable user-visible changes. Git history contains implementation-level detail.
 
+## 26.09.07
+
+### Added
+
+- feat(upgrade): **self-healing rollback watchdog.** Before an upgrade stops
+  the daemon, the CLI arms a detached watchdog. If the new daemon does not
+  bind the mesh port within ~80s of the swap, the watchdog restores the
+  previous binary (`bridgesessions.old`) and restarts the daemon. A failed
+  upgrade can no longer strand a peer offline. On success the watchdog is a
+  silent no-op (the verified swap deletes `.old`).
+
+### Fixed
+
+- fix(jail): the session filesystem jail is now **opt-in**. `BS_JAIL=1`
+  enables it (writable roots: `$HOME`, daemon cwd, `/tmp`, `BS_JAIL_RW`
+  extras; reads stay unrestricted). Unset/empty/`0` means disabled, so
+  session shells keep full privileges — including `sudo` — by default.
+  (26.09.06-r4 defaulted the jail on; `PR_SET_NO_NEW_PRIVS` broke `sudo`
+  in sessions, and 26.09.06-r3's jail denied `/dev/null` writes, breaking
+  redirects like `2>/dev/null` inside upgrade runs.)
+- fix(shell): the PTY drain test budget/retry no longer flakes on loaded
+  CI runners where a child's 12KB burst was lost at kernel hangup.
+
+### Changed
+
+- The upgrade path detaches from the carrier mesh session before pausing
+  the daemon (Linux `setsid` re-exec), so fleet upgrades no longer kill
+  the session that launched them. In-mesh upgrades require
+  `BS_UPGRADE_IN_MESH=1` unless the detach succeeds automatically.
+
 ## 26.09.03-release
 
 ### Security

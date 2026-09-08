@@ -2,7 +2,7 @@
 
 This page takes you from a download to a working remote shell. Read [Security](https://github.com/MindDragonLabs/BridgeSessions/blob/main/SECURITY.md) first.
 
-Current release: **`26.09.03-release`**.
+Current release: **`26.09.07`**.
 
 ## 1. Install
 
@@ -25,7 +25,7 @@ bs --version
 bs doctor
 ```
 
-`bs --version` must print `26.09.03-release`.
+`bs --version` must print `26.09.07`.
 
 If the shell cannot find `bs`, add `~/.local/bin` (Linux/macOS) or `%LOCALAPPDATA%\bridgesessions` (Windows) to `PATH`.
 
