@@ -850,10 +850,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#opt-out" class="md-nav__link">
+  <a href="#enabling-and-disabling" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Opt-out
+        Enabling and disabling
       
     </span>
   </a>
@@ -892,8 +892,9 @@
 
 
 <h1 id="session-filesystem-jail">Session Filesystem Jail<a class="headerlink" href="#session-filesystem-jail" title="Permanent link">&para;</a></h1>
-<p>Every session shell (the PTY child a peer spawns for <code>bs shell</code> / <code>bs &lt;peer&gt;</code>)
-runs under a filesystem jail with this policy:</p>
+<p>The session filesystem jail is <strong>opt-in as of 26.09.07</strong>. When enabled
+(<code>BS_JAIL=1</code>), every session shell (the PTY child a peer spawns for
+<code>bs shell</code> / <code>bs &lt;peer&gt;</code>) runs under this policy:</p>
 <blockquote>
 <p><strong>Read everywhere. Write only in your working roots.</strong></p>
 </blockquote>
@@ -940,9 +941,12 @@ runs under a filesystem jail with this policy:</p>
 </tr>
 </tbody>
 </table>
-<h2 id="opt-out">Opt-out<a class="headerlink" href="#opt-out" title="Permanent link">&para;</a></h2>
-<p><code>BS_JAIL=0</code> (in the daemon's environment) disables the jail. This exists for
-debugging, not as a mode.</p>
+<h2 id="enabling-and-disabling">Enabling and disabling<a class="headerlink" href="#enabling-and-disabling" title="Permanent link">&para;</a></h2>
+<p><code>BS_JAIL=1</code> (in the daemon's environment) enables the jail. Unset, empty,
+or <code>0</code> leaves sessions unconfined — the default, chosen so session shells
+keep full privileges (including <code>sudo</code>; the Landlock contract requires
+<code>PR_SET_NO_NEW_PRIVS</code>, which is incompatible with setuid elevation).
+<code>BS_JAIL_RW</code> adds writable roots when the jail is enabled.</p>
 <h2 id="implementation-map">Implementation map<a class="headerlink" href="#implementation-map" title="Permanent link">&para;</a></h2>
 <ul>
 <li><code>bs-jail-policy.h</code> — policy model: <code>FilesystemJailPolicy</code>,
