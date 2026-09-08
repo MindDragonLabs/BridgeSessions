@@ -7,11 +7,21 @@
     <key>CFBundleIdentifier</key>
     <string>com.minddragon.bridgesessions</string>
     <key>CFBundleName</key>
-    <string>BridgeSessions</string>
+    <string>Bridge Sessions</string>
+    <key>CFBundleDisplayName</key>
+    <string>Bridge Sessions</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
     <key>CFBundleVersion</key>
-    <string>26.08.26-r2</string>
+    <string>26.09.08</string>
     <key>CFBundleShortVersionString</key>
-    <string>26.08.25</string>
+    <string>26.09.08</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>13.0</string>
+    <key>NSHumanReadableCopyright</key>
+    <string>Copyright (c) Mind-Dragon</string>
     <!-- LSUIElement (not LSBackgroundOnly): no Dock icon, but TCC grant
          dialogs can still surface. LSBackgroundOnly silently drops them. -->
     <key>LSUIElement</key>
@@ -19,9 +29,8 @@
     <key>NSHighResolutionCapable</key>
     <false/>
     <key>NSScreenCaptureUsageDescription</key>
-    <string>BridgeSessions needs Screen Recording to capture the desktop for remote CUA automation.</string>
+    <string>Bridge Sessions needs Screen Recording to capture the desktop for remote CUA automation.</string>
     <key>NSAccessibilityUsageDescription</key>
-    <string>BridgeSessions needs Accessibility to inject keyboard and mouse events for remote CUA automation.</string>
+    <string>Bridge Sessions needs Accessibility to inject keyboard and mouse events for remote CUA automation.</string>
 </dict>
 </plist>
-

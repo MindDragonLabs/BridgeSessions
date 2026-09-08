@@ -4,7 +4,7 @@
 #
 
 $ErrorActionPreference = "Stop"
-$TAG = if ($env:BRIDGESESSIONS_TAG) { $env:BRIDGESESSIONS_TAG } else { "26.09.07" }
+$TAG = if ($env:BRIDGESESSIONS_TAG) { $env:BRIDGESESSIONS_TAG } else { "26.09.08" }
 $BASE = "https://github.com/MindDragonLabs/BridgeSessions/releases/download/v$TAG"
 $INSTALL_DIR = "$env:LOCALAPPDATA\bridgesessions"
 $BIN_PATH = "$INSTALL_DIR\bridgesessions.exe"
@@ -214,7 +214,7 @@ if (Test-Path $TRAY_SCRIPT_SRC) {
 
     # Create startup shortcut (shell:startup)
     $startupDir = [Environment]::GetFolderPath("Startup")
-    $shortcutPath = "$startupDir\BridgeSessions Tray.lnk"
+    $shortcutPath = "$startupDir\Bridge Sessions Tray.lnk"
     try {
         $shell = New-Object -ComObject WScript.Shell
         $shortcut = $shell.CreateShortcut($shortcutPath)
@@ -222,7 +222,7 @@ if (Test-Path $TRAY_SCRIPT_SRC) {
         $shortcut.Arguments = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$TRAY_SCRIPT_DST`""
         $shortcut.WorkingDirectory = $INSTALL_DIR
         $shortcut.IconLocation = "$BIN_PATH,0"
-        $shortcut.Description = "BridgeSessions System Tray"
+        $shortcut.Description = "Bridge Sessions System Tray"
         $shortcut.WindowStyle = 7  # Minimized
         $shortcut.Save()
         Write-Host "→ Startup shortcut created: $shortcutPath"

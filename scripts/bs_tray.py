@@ -228,7 +228,7 @@ def main():
         MenuItem("Quit", on_quit),
     )
 
-    icon = pystray.Icon("bridgesessions", icon_image, "BridgeSessions", menu)
+    icon = pystray.Icon("Bridge Sessions", icon_image, "Bridge Sessions", menu)
 
     # Start tooltip updater
     tooltip_thread = threading.Thread(target=update_tooltip, args=(icon,), daemon=True)

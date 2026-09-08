@@ -342,7 +342,7 @@ function Start-Tray {
 
     $notify = New-Object System.Windows.Forms.NotifyIcon
     $notify.Icon = Create-TrayIcon
-    $notify.Text = "BridgeSessions"
+    $notify.Text = "Bridge Sessions"
     $notify.Visible = $true
 
     # Double-click shows fleet status

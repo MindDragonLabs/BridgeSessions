@@ -709,7 +709,7 @@ int main(int argc, char** argv) {
         srand(rd());
     }
 
-    CLI::App app{"bridgesessions — mesh terminal relay"};
+    CLI::App app{"Bridge Sessions — mesh terminal relay"};
     app.set_version_flag("--version,-V", std::string(bs::mesh::kBridgeSessionsVersion));
 
     // Global options

@@ -21,8 +21,12 @@ echo "=== VERSION: $VERSION ==="
 mkdir -p /tmp/bs-win-shim/CLI
 ln -sf "$PREFIX/include/CLI11.hpp" /tmp/bs-win-shim/CLI/CLI.hpp
 
+# Windows version metadata resource (generated from VERSION by
+# scripts/gen-windows-version-rc.sh; contains ProductName "Bridge Sessions").
+bash scripts/gen-windows-version-rc.sh
 rm -rf build-win
 mkdir -p build-win
+x86_64-w64-mingw32-windres -O coff -i windows/version.rc -o build-win/app-res.o
 "$TRIPLE" -static -std=c++23 -O3 -DNDEBUG \
   -DWINVER=0x0A00 -D_WIN32_WINNT=0x0A00 -DNTDDI_VERSION=0x0A000006 \
   -fstack-protector-strong -D_FORTIFY_SOURCE=3 \
@@ -30,7 +34,7 @@ mkdir -p build-win
   -DSPDLOG_FMT_EXTERNAL=1 \
   -DBS_VERSION="\"$VERSION\"" -DBS_NO_NAT -DBS_NO_WEBRTC -DBS_NO_DHT \
   -isystem "$PREFIX/include" -isystem /tmp/bs-win-shim \
-  main.cpp -o build-win/bridgesessions.exe \
+  main.cpp build-win/app-res.o -o build-win/bridgesessions.exe \
   "$PREFIX/lib/libspdlog.a" "$PREFIX/lib/libfmt.a" \
   "$PREFIX/lib64/libssl.a" "$PREFIX/lib64/libcrypto.a" "$PREFIX/lib/libzstd.a" \
   -lpthread -lws2_32 -lcrypt32 -lgdi32 -luser32

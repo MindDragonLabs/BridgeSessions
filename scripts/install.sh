@@ -11,7 +11,7 @@ set -euo pipefail
 # On Windows (PowerShell):
 #   irm https://raw.githubusercontent.com/MindDragonLabs/BridgeSessions/main/scripts/install.ps1 | iex
 
-TAG="${BRIDGESESSIONS_TAG:-26.09.07}"
+TAG="${BRIDGESESSIONS_TAG:-26.09.08}"
 BASE="https://github.com/MindDragonLabs/BridgeSessions/releases/download/v${TAG}"
 INSTALL_DIR="${HOME}/.local/bin"
 VERSION_FILE="${INSTALL_DIR}/.bridgesessions-version"
@@ -493,19 +493,21 @@ EOF
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>CFBundleName</key><string>BridgeSessions</string>
-  <key>CFBundleDisplayName</key><string>BridgeSessions</string>
+  <key>CFBundleName</key><string>Bridge Sessions</string>
+  <key>CFBundleDisplayName</key><string>Bridge Sessions</string>
   <key>CFBundleIdentifier</key><string>com.minddragon.bridgesessions</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
   <key>CFBundleVersion</key><string>${TAG}</string>
   <key>CFBundleShortVersionString</key><string>${TAG}</string>
   <key>CFBundleExecutable</key><string>bridgesessions</string>
-  <key>CFBundlePackageType</key><string>APPL</string>
   <key>LSMinimumSystemVersion</key><string>13.0</string>
+  <key>NSHumanReadableCopyright</key><string>Copyright (c) Mind-Dragon</string>
   <key>LSUIElement</key><true/>
   <key>NSScreenCaptureUsageDescription</key>
-  <string>BridgeSessions needs Screen Recording to capture the desktop for remote CUA automation.</string>
+  <string>Bridge Sessions needs Screen Recording to capture the desktop for remote CUA automation.</string>
   <key>NSAccessibilityUsageDescription</key>
-  <string>BridgeSessions needs Accessibility to inject keyboard and mouse events for remote CUA automation.</string>
+  <string>Bridge Sessions needs Accessibility to inject keyboard and mouse events for remote CUA automation.</string>
 </dict>
 </plist>
 EOF
@@ -653,13 +655,15 @@ EOF
     cat > "${AUTOSTART_FILE}" <<EOF
 [Desktop Entry]
 Type=Application
-Name=BridgeSessions Tray
-Comment=BridgeSessions fleet status tray app
+Name=Bridge Sessions
+GenericName=Mesh Terminal Relay
+Comment=Bridge Sessions fleet status tray app
 Exec=${TRAY_SCRIPT_DEST}
 Icon=bridgesessions
 Terminal=false
 X-GNOME-Autostart-enabled=true
-Categories=Network;
+Categories=Network;Utility;
+StartupWMClass=Bridge Sessions
 EOF
     echo "  → Autostart entry created at ${AUTOSTART_FILE}"
 
