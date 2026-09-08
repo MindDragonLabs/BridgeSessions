@@ -142,6 +142,9 @@ TEST_CASE("upgrade watchdog restores old binary when new daemon never binds", "[
     std::system(("rm -rf " + base).c_str());
 }
 
+#endif // __linux__
+
+#ifdef __linux__
 int main(int argc, char* argv[]) {
     return Catch::Session().run(argc, argv);
 }
