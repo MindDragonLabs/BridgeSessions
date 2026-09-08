@@ -32,6 +32,8 @@
 #include <cstdlib>
 #include <random>
 #include <fstream>
+#include <algorithm>
+#include <cctype>
 #include <iostream>
 #include <sstream>
 #include <iomanip>
@@ -2082,20 +2084,43 @@ int main(int argc, char** argv) {
                 ::unlink(tmp_path.c_str());
                 return 1;
             }
-            // Compare: sha256sum (GNU/Linux) or shasum -a 256 (macOS/BSD) vs the
-            // line for binary_name in sums. Arch ships sha256sum only; macOS ships
-            // shasum. Both emit "<hash>  <file>", so awk '{print $1}' works either
-            // way — but detect the tool rather than assume one exists.
-            std::string check_cmd =
-                "grep '" + binary_name + "' '" + sums_path +
-                "' | awk '{print $1}' | while read h; do "
-                "  actual=$(sha256sum '" + tmp_path + "' 2>/dev/null | awk '{print $1}'); "
-                "  [ -z \"$actual\" ] && actual=$(shasum -a 256 '" + tmp_path + "' 2>/dev/null | awk '{print $1}'); "
-                "  [ -n \"$h\" ] && [ \"$h\" = \"$actual\" ] && exit 0; exit 1; done";
-            int verify_rc = std::system(check_cmd.c_str());
+            // Compare entirely in C++ (2026-09-08 RCA: the old grep|awk|sha256sum
+            // shell pipeline is POSIX-only — cmd.exe has no grep/awk/sha256sum,
+            // so SHA verification could never succeed on Windows). Parse
+            // SHA256SUMS ourselves and hash the download with
+            // sha256_file_stream() (in-tree, OpenSSL-backed, all platforms).
+            std::string expected_hash;
+            {
+                std::ifstream sums_in(sums_path);
+                std::string line;
+                while (std::getline(sums_in, line)) {
+                    // Format: "<hex>  <filename>" (two spaces, sha256sum style)
+                    const auto sp = line.find("  ");
+                    if (sp == std::string::npos) continue;
+                    std::string file = line.substr(sp + 2);
+                    while (!file.empty() && (file.back() == '\r' || file.back() == '\n'))
+                        file.pop_back();
+                    // Asset lines use the flat name; source tarballs keep the
+                    // versioned name — match either against binary_name.
+                    const auto base = file.find_last_of('/');
+                    if (base != std::string::npos) file = file.substr(base + 1);
+                    if (file == binary_name) {
+                        expected_hash = line.substr(0, sp);
+                        break;
+                    }
+                }
+            }
+            std::transform(expected_hash.begin(), expected_hash.end(),
+                           expected_hash.begin(),
+                           [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+            const std::string actual_hash = bs::mesh::sha256_file_stream(tmp_path);
+            bool hash_ok = expected_hash.size() == 64 && actual_hash.size() == 64 &&
+                           expected_hash == actual_hash;
             ::unlink(sums_path.c_str());
-            if (verify_rc != 0) {
-                std::cerr << "upgrade: SHA256 verification FAILED — download tampered or corrupt\n";
+            if (!hash_ok) {
+                std::cerr << "upgrade: SHA256 verification FAILED — download tampered or corrupt\n"
+                          << "  expected: " << expected_hash << "\n"
+                          << "  actual:   " << actual_hash << "\n";
                 ::unlink(tmp_path.c_str());
                 return 1;
             }
@@ -2104,10 +2129,12 @@ int main(int argc, char** argv) {
         }
 
         // Verify the binary runs and check version
-        // Capture output
+        // Capture output. Quote via shell_arg_quote — cmd.exe (Windows) does
+        // not treat single quotes as quoting, so the old "'path' --version"
+        // form failed with "cannot find the path specified" (2026-09-08 RCA).
         std::string reported_version;
         {
-            std::string cmd = "'" + tmp_path + "' --version 2>&1";
+            std::string cmd = bs::mesh::shell_arg_quote(tmp_path) + " --version 2>&1";
             FILE* p = BS_POPEN(cmd.c_str(), "r");
             if (p) {
                 char buf[256];
@@ -2239,6 +2266,8 @@ int main(int argc, char** argv) {
             std::string start_cmd = "systemctl --user start bridgesessions.service";
 #if defined(__APPLE__)
             start_cmd = "launchctl kickstart -k gui/$(id -u)/com.bridgesessions.mesh";
+#elif defined(_WIN32)
+            start_cmd = "schtasks /run /tn BridgeSessions";
 #endif
             bs::mesh::arm_upgrade_watchdog(bin_path, bin_path + ".old", start_cmd,
                                            listen_port.empty() ? "19949" : listen_port,
@@ -2300,7 +2329,28 @@ int main(int argc, char** argv) {
         std::string stage_path = bin_path + ".upg-new";
         std::cout << "→ Swapping binary...\n";
         bs::log::get("upgrade")->info("swapping binary");
+        // Windows: after schtasks /end the old process can hold the exe lock
+        // for a few seconds while it exits (2026-09-08 RCA: blind Sleep(2000)
+        // then a single rename raced the lock). Retry the first rename for up
+        // to ~15s before giving up; rename(2)/MoveFileEx never corrupts a
+        // running image, it just fails while the lock is held.
+#ifdef _WIN32
+        {
+            bool moved = ::rename(bin_path.c_str(), old_path.c_str()) == 0;
+            for (int i = 0; !moved && i < 30; ++i) {
+                Sleep(500);
+                moved = ::rename(bin_path.c_str(), old_path.c_str()) == 0;
+            }
+            if (!moved) {
+                std::cerr << "upgrade: old binary still locked — rolling back\n";
+                ::unlink(tmp_path.c_str());
+                resume_mesh_daemon(current_exe_path(argv[0]), home_dir + "/config");
+                return 1;
+            }
+        }
+#else
         ::rename(bin_path.c_str(), old_path.c_str());  // may fail if not exists
+#endif
         if (::rename(tmp_path.c_str(), bin_path.c_str()) != 0) {
             // First rename failed (cross-device tmp vs bin). Stage on the SAME
             // filesystem as bin_path, then rename — still never cp-in-place.
@@ -2351,7 +2401,8 @@ int main(int argc, char** argv) {
 #endif
 
         // Verify
-        std::string verify_final = "'" + bin_path + "' --version 2>&1";
+        // Verify. shell_arg_quote for the path (cmd.exe single-quote pitfall).
+        std::string verify_final = bs::mesh::shell_arg_quote(bin_path) + " --version 2>&1";
         FILE* p = BS_POPEN(verify_final.c_str(), "r");
         std::string final_version;
         if (p) {
