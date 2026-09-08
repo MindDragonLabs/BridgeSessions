@@ -2,6 +2,16 @@
 
 Notable user-visible changes. Git history contains implementation-level detail.
 
+## 26.09.08-r2
+
+### Fixed
+
+- fix(upgrade): Windows in-band `upgrade` failed with `curl exit 1` — the
+  download commands single-quoted the temp file path and URL, but `cmd.exe`
+  does not treat single quotes as quoting, so curl wrote a 0-byte file.
+  Quoting is now platform-aware (double quotes on Windows, POSIX single
+  quotes elsewhere).
+
 ## 26.09.08
 
 ### Added
