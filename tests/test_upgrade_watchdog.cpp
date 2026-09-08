@@ -12,6 +12,9 @@
 //   3. a live listener satisfies the probe → exit 0, no side effects.
 // The test reconstructs the helper script with the same rules as the armer
 // and executes it with sh (running the real armer would detach and race).
+//
+// Linux-only: the watchdog armer itself is POSIX/Linux (setsid + /dev/tcp).
+// On other platforms this target builds an empty test binary.
 
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/catch_session.hpp>
@@ -31,9 +34,10 @@
 
 using namespace std::chrono_literals;
 
+#ifdef __linux__
+
 namespace {
 
-#ifdef __linux__
 std::string shell_quote(const std::string& s) {
     std::string out{"'"};
     for (const char c : s) {
@@ -61,11 +65,9 @@ std::string build_script(const std::string& bin, const std::string& oldb,
     script += "eval " + shell_quote(start_cmd) + " >> " + shell_quote(log) + " 2>&1; ";
     return script;
 }
-#endif
 
 } // namespace
 
-#ifdef __linux__
 TEST_CASE("upgrade watchdog restores old binary when new daemon never binds", "[watchdog]") {
     char dir[] = "/tmp/bs-watchdog-test-XXXXXX";
     REQUIRE(mkdtemp(dir) != nullptr);
