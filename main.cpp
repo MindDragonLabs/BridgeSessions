@@ -752,11 +752,14 @@ int main(int argc, char** argv) {
     // terminal data still travels exclusively over the BridgeSessions protocol.
     std::string quick_peer, quick_session;
     bool quick_select = false;
+    bool quick_list = false;
     app.add_option("PEER", quick_peer, "Peer name or SSH Host alias");
     app.add_option("SESSION", quick_session,
                    "Session name (omit to start a new session; give a name to reattach)");
     app.add_flag("-s,--select", quick_select,
                  "Interactively pick a session to attach (or start a new one)");
+    app.add_flag("-l,--list", quick_list,
+                 "List sessions on PEER (or local sessions when PEER is omitted) and exit");
 
     // Subcommand: shell
     std::string shell_peer, shell_session = "default", shell_cmd;
@@ -1092,6 +1095,17 @@ int main(int argc, char** argv) {
         op_log->debug("app_home={}, config={}, daemon={}, cua_helper={}",
                       home_dir, config_path, daemon_flag, cua_helper_flag);
     }
+    // --list without a peer: list LOCAL sessions via the daemon IPC and exit
+    // (same SESSIONS IPC the `sessions` subcommand uses).
+    if (quick_list && quick_peer.empty()) {
+        std::string ipc = daemon_simple_ipc("SESSIONS", 3000, home_dir);
+        if (!ipc.empty() && ipc.rfind("ERROR", 0) != 0) {
+            std::cout << ipc << "\n";
+            return 0;
+        }
+        std::cerr << "daemon not reachable — is `bridgesessions --daemon` running?\n";
+        return 1;
+    }
     if (!quick_peer.empty()) {
         bs::mesh::MeshConfig cfg = bs::mesh::load_config(config_path);
         // Self-connect must be caught before SSH-alias import / trust checks —
@@ -1112,8 +1126,13 @@ int main(int argc, char** argv) {
             return 2;
         }
         bs::mesh::bootstrap_identity(home_dir);
-        auto [cols, rows] = bs::mesh::get_winsize();
         bs::mesh::MeshController mc(cfg, home_dir);
+        // --list: print the peer's session table and exit — no attach.
+        if (quick_list) {
+            mc.list_sessions(quick_peer, false);
+            return 0;
+        }
+        auto [cols, rows] = bs::mesh::get_winsize();
         const bool unnamed_session = quick_session.empty();
         // -s/--select: interactively pick an existing session (or new). Never
         // hard-fails the connect — a peer that cannot be queried falls back

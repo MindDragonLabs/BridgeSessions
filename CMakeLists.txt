@@ -151,6 +151,11 @@ add_test(NAME cli_keygen_refuses_identity_overwrite
         -DBS_BINARY=$<TARGET_FILE:bridgesessions>
         -DTEST_DIR=${CMAKE_CURRENT_BINARY_DIR}/keygen-refuse-test
         -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_keygen_refuse.cmake)
+add_test(NAME cli_list_flag
+    COMMAND ${CMAKE_COMMAND}
+        -DBS_BINARY=$<TARGET_FILE:bridgesessions>
+        -DTEST_DIR=${CMAKE_CURRENT_BINARY_DIR}/cli-list-flag-test
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_cli_list_flag.cmake)
 
 # ── Tests ──────────────────────────────────────────────────────
 if(BUILD_TESTING)
