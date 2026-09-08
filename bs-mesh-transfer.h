@@ -2230,6 +2230,30 @@ public:
             (void)enqueue_frame(conn, reply, CONTROL_STREAM_ID);
             return;
         }
+        // SessionListMsg — peer CLI asks for our session list (the `-s` picker
+        // and `sessions` listing query this over direct TLS). Without this
+        // reply the requester times out after 5s and always falls back to
+        // "could not list sessions" (real-PTY bug found 2026-09-08: the reply
+        // handler simply never existed — the only other SessionListMsg code
+        // was the client-side display path).
+        if (std::holds_alternative<SessionListMsg>(msg)) {
+            SessionListMsg reply;
+            const auto now = std::chrono::steady_clock::now();
+            for (const auto& info : sessions_.list()) {
+                auto* s = sessions_.get(info.name);
+                if (!s) continue;
+                SessionInfo si;
+                si.name = s->name;
+                si.state = session_state_str(s->state);
+                si.uptime_seconds = s->state == SessionState::Died
+                    ? 0
+                    : static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::seconds>(
+                          now - s->created_at).count());
+                reply.sessions.push_back(std::move(si));
+            }
+            (void)enqueue_frame(conn, reply, CONTROL_STREAM_ID);
+            return;
+        }
         // AttachMsg — peer wants to attach to one of our sessions
         if (std::holds_alternative<AttachMsg>(msg)) {
             auto& a = std::get<AttachMsg>(msg);

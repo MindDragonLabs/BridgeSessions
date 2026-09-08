@@ -87,7 +87,11 @@ TEST_CASE("menu frame pads rows to fixed width (no reflow wobble)", "[tui][menu]
     for (size_t p = 0; p < f.size();) {
         size_t nl = f.find('\n', p);
         if (nl == std::string::npos) { ls.push_back(f.substr(p)); break; }
-        ls.push_back(f.substr(p, nl - p));
+        std::string line = f.substr(p, nl - p);
+        // menu_frame uses \r\n (raw mode needs the CR); drop it so width math
+        // doesn't count the carriage return as a visible cell.
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        ls.push_back(line);
         p = nl + 1;
     }
     REQUIRE(ls.size() >= 5);  // top, title, separator, 2 rows, bottom

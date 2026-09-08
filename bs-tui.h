@@ -57,7 +57,10 @@ inline std::string menu_frame(const MenuStyle& style, const std::vector<std::str
     auto hline = [&](const std::string& l, const std::string& r) {
         std::string s = "\x1b[2m" + l;
         for (size_t i = 0; i < inner + 2; ++i) s += kH;
-        return s + r + "\x1b[0m\n";
+        // \r\n, not \n: the caller runs in raw mode (OPOST off), so a bare \n
+        // moves down WITHOUT resetting the column — frame lines would drift
+        // right one after another and shred the menu (real-PTY bug 2026-09-08).
+        return s + r + "\x1b[0m\r\n";
     };
     auto pad = [&](const std::string& s) {
         std::string r = s;
@@ -66,10 +69,10 @@ inline std::string menu_frame(const MenuStyle& style, const std::vector<std::str
         return r;
     };
     std::string out = hline(kTL, kTR);
-    out += "\x1b[2m" + kV + "\x1b[0m " + pad(style.title) + " \x1b[2m" + kV + "\x1b[0m\n";
+    out += "\x1b[2m" + kV + "\x1b[0m " + pad(style.title) + " \x1b[2m" + kV + "\x1b[0m\r\n";
     out += "\x1b[2m" + kML;
     for (size_t i = 0; i < inner + 2; ++i) out += kH;
-    out += kMR + "\x1b[0m\n";
+    out += kMR + "\x1b[0m\r\n";
     for (size_t i = 0; i < rows.size(); ++i) {
         std::string marker = (i == selected) ? "\x1b[7m❯ \x1b[0m" : "  ";
         // Marker occupies 2 visible cells, so rows pad to inner-2 to keep
@@ -91,7 +94,7 @@ inline std::string menu_frame(const MenuStyle& style, const std::vector<std::str
             }
             row.resize(cut);
         }
-        out += "\x1b[2m" + kV + "\x1b[0m " + marker + row + " \x1b[2m" + kV + "\x1b[0m\n";
+        out += "\x1b[2m" + kV + "\x1b[0m " + marker + row + " \x1b[2m" + kV + "\x1b[0m\r\n";
     }
     out += "\x1b[2m" + kBL;
     for (size_t i = 0; i < inner + 2; ++i) out += kH;

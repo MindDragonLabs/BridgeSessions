@@ -553,15 +553,22 @@ size_t arrow_menu_select(const std::vector<std::string>& rows,
     const std::string footer =
         bs::tui::menu_footer("  ↑/↓ or j/k move · Enter select · q quit");
     auto draw = [&](bool first) {
+        // Raw mode is on (OPOST off): every newline must be \r\n or the cursor
+        // keeps the previous line's column and the frame shreds diagonally.
         if (first)
             std::cout << bs::tui::menu_frame({title.empty() ? " " : title, true},
-                                             rows, sel, width) << "\n"
+                                             rows, sel, width) << "\r\n"
                       << footer << std::flush;
         else {
             // Rewind to the top of the frame and repaint it in place.
-            std::cout << "\x1b[" << frame_lines << "A"
+            // The \r matters: the previous frame ended on the footer with no
+            // trailing newline, so the cursor sits at the footer's end column.
+            // Cursor-up alone preserves that column and frame 2 would print
+            // mid-line, wrap, and trash the whole menu (observed in a real
+            // PTY capture 2026-09-08).
+            std::cout << "\x1b[" << frame_lines << "A\r"
                       << bs::tui::menu_frame({title.empty() ? " " : title, true},
-                                             rows, sel, width) << "\n"
+                                             rows, sel, width) << "\r\n"
                       << footer << std::flush;
         }
     };
