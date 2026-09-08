@@ -2,6 +2,22 @@
 
 Notable user-visible changes. Git history contains implementation-level detail.
 
+## 26.09.08
+
+### Added
+
+- feat(meta): proper application metadata on all three platforms. The
+  product/display name is **Bridge Sessions** everywhere (Explorer
+  Properties on Windows, Finder/Info.plist on macOS, desktop entries and
+  tray tooltips on Linux). The executable and CLI stay `bridgesessions`/`bs`.
+  - Windows: PE `VERSIONINFO` resource — ProductName, FileDescription,
+    FileVersion/ProductVersion, CompanyName, icon — compiled into the exe
+    (generated from `VERSION` by `scripts/gen-windows-version-rc.sh`).
+  - macOS: `Info.plist` completed — display name, package type, minimum
+    system version, copyright — alongside the existing usage descriptions.
+  - Linux: tray `.desktop` entry gets `Name=Bridge Sessions`,
+    `GenericName`, and `StartupWMClass`.
+
 ## 26.09.07
 
 ### Added
