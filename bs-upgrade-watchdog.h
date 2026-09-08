@@ -117,7 +117,7 @@ inline void arm_upgrade_watchdog(const std::string& bin_path,
     s += "echo %date% %time% watchdog: new daemon did not bind; rolling back >> " + qw(log) + "\r\n";
     s += "if exist " + qw(old_path) + " (\r\n";
     s += "  copy /y " + qw(old_path) + " " + qw(bin_path) + " >nul\r\n";
-    s += "  echo %date% %time% watchdog: restored old binary >> " + qw(log) + "\r\n");
+    s += "  echo %date% %time% watchdog: restored old binary >> " + qw(log) + "\r\n";
     s += ")\r\n";
     s += start_cmd + " >> " + qw(log) + " 2>&1\r\n";
 
