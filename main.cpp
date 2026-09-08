@@ -1038,6 +1038,288 @@ int main(int argc, char** argv) {
     pane_publish->add_option("--title", pane_title, "Display title / filename override");
     pane_publish->add_option("file", pane_file, "Local markdown file to publish")->required();
 
+    // ── Detailed help ─────────────────────────────────────────────
+    // Top-level display: richer description + example footer. Per-command:
+    // `bs <command> --help` shows a detailed description plus EXAMPLES footer.
+    // Descriptions here are the single source of truth for each command's
+    // behavior, args, and gotchas (kept in sync with the dispatch code above).
+    app.description(
+        "Bridge Sessions — persistent mesh terminal relay.\n"
+        "\n"
+        "Hosts live terminal sessions on a daemon so they survive disconnects,\n"
+        "and relays them over mTLS between peers. Attach from anywhere with\n"
+        "`bs <peer>`; sessions keep running while you are away.\n"
+        "\n"
+        "Quick start:\n"
+        "  bs --daemon                 Start the local relay daemon\n"
+        "  bs <peer>                   Attach to (or start) a session on a peer\n"
+        "  bs <peer> -s                Pick a session on a peer interactively\n"
+        "  bs <peer> --list            List that peer's sessions\n"
+        "  bs connect                  Browse the fleet and pick a harness");
+    app.footer(
+        "Run `bs <command> --help` for detailed help on any command.\n"
+        "Docs: https://github.com/MindDragonLabs/BridgeSessions");
+    app.set_help_flag("-h,--help", "Print this help message and exit");
+
+    {
+        shell_cmd_app->description(
+            "Open an interactive shell (or run a command) on a peer.\n"
+            "\n"
+            "Sessions live on the PEER's daemon: on transport loss the remote\n"
+            "process keeps running and you can reattach later with the same\n"
+            "-n/--name. Use -x to run a one-shot command instead of a shell.");
+        shell_cmd_app->footer(
+            "Examples:\n"
+            "  bs shell dev                          Interactive shell on peer 'dev'\n"
+            "  bs shell dev -n build                 Named session (reattach later)\n"
+            "  bs shell dev -x 'docker ps'           Run a one-shot command\n"
+            "  bs shell dev -x htop -i               Interactive TUI command (raw mode)\n"
+            "  bs shell dev -x ./long-job --detach   Fire-and-forget; runs on peer\n"
+            "  bs shell dev -n build --wait          Block until session exits");
+    }
+    {
+        connect_cmd_app->description(
+            "Interactive two-step selector: pick a fleet peer, then pick a\n"
+            "launch harness (a command the peer runs to start a session, e.g.\n"
+            "a shell or `hermes --tui`). Lists live sessions on the chosen peer\n"
+            "and offers attaching to one. Never hard-fails: cancel at any menu\n"
+            "exits cleanly with no session started.");
+        connect_cmd_app->footer(
+            "Examples:\n"
+            "  bs connect                    Full menu: peer, then harness\n"
+            "  bs connect --peer dev         Skip the peer menu\n"
+            "  bs connect --peer dev --harness bash   Skip both menus");
+    }
+    {
+        sessions_cmd_app->description(
+            "List sessions on this node (omit PEER) or on a remote PEER.\n"
+            "Shows session name, state, uptime, and traffic. Equivalent to the\n"
+            "shortcut `bs --list` / `bs <peer> --list`.");
+        sessions_cmd_app->footer(
+            "Examples:\n"
+            "  bs sessions                   Local sessions\n"
+            "  bs sessions dev               Sessions on peer 'dev'\n"
+            "  bs sessions --json            Machine-readable output");
+    }
+    {
+        keygen_cmd_app->description(
+            "Generate this node's ed25519 identity keypair. Done automatically\n"
+            "on first daemon start; refuses to overwrite an existing identity\n"
+            "(delete the key files first to rotate deliberately).");
+    }
+    {
+        auth_cmd_app->description(
+            "Authorize a peer's ed25519 public key for direct connections.\n"
+            "Adds the key to the local trust store so the peer can attach and\n"
+            "transfer files. Prefer `peers add --pubkey` for seed peers.");
+        auth_cmd_app->footer("Example:\n  bs authorize 9a1b...64hex");
+    }
+    {
+        doctor_cmd_app->description(
+            "Check local configuration: identity keys, config parse, daemon\n"
+            "reachability, listen port, and app-home layout. Run this first\n"
+            "when a node behaves oddly.");
+    }
+    {
+        peers_cmd->description("Manage seed peers: list, add, remove.");
+        peers_list->description(
+            "List configured peers with address, pubkey pin, and last status.");
+        peers_add->description(
+            "Add a seed peer (address + optional pinned pubkey).\n"
+            "The pubkey is required when mesh.require_seed_pins=true (recommended).");
+        peers_add->footer(
+            "Examples:\n"
+            "  bs peers add dev 100.x.y.z:19949 --pubkey 9a1b...\n"
+            "  bs peers add dev dev.example.com:19949");
+        peers_remove->description("Remove a seed peer from the config.");
+        peers_remove->footer("Example:\n  bs peers remove dev");
+    }
+    {
+        health_cmd_app->description(
+            "Ping/pong health check against a peer: verifies TLS handshake,\n"
+            "identity pins, and the data plane. Use --latency for RTT numbers.\n"
+            "Exit code 0 = healthy; non-zero = unreachable/untrusted.");
+        health_cmd_app->footer("Examples:\n  bs health dev\n  bs health dev --latency");
+    }
+    {
+        reconnect_cmd_app->description(
+            "Ask the local daemon to tear down and re-handshake one peer\n"
+            "(fresh TLS + gossip). Use after a peer's identity or address\n"
+            "changed, or when a connection is wedged but health still passes.");
+        reconnect_cmd_app->footer("Example:\n  bs reconnect dev");
+    }
+    {
+        invite_cmd_app->description(
+            "Generate a single-use invite token a new node can `bs join` with.\n"
+            "Tokens are time-limited; share them over a private channel.");
+        invite_cmd_app->footer("Example:\n  bs invite > token.txt   # send to the new node");
+    }
+    {
+        enroll_cmd_app->description(
+            "Vouch for a new mesh member: sign its node entry and gossip the\n"
+            "key to all peers, so the member is trusted mesh-wide without\n"
+            "per-peer `authorize` calls.");
+        enroll_cmd_app->footer(
+            "Example:\n  bs enroll dev 9a1b...64hex 100.x.y.z:19949");
+    }
+    {
+        join_cmd_app->description(
+            "Join an existing mesh using an invite token from a member.\n"
+            "Fetches the mesh directory, pins the inviting peer's key, and\n"
+            "(with --start) starts the local daemon.");
+        join_cmd_app->footer(
+            "Examples:\n"
+            "  bs join --token-file token.txt --start\n"
+            "  cat token.txt | bs join 100.x.y.z:19949 -");
+    }
+    {
+        image_cmd_app->description(
+            "Render an image file inline in the terminal (Sixel/Block art,\n"
+            "depending on terminal support).");
+        image_cmd_app->footer("Example:\n  bs image screenshot.png");
+    }
+    {
+        anim_cmd_app->description(
+            "Play an animated GIF inline in the terminal (frame-by-frame\n"
+            "rendering; Ctrl-C stops).");
+        anim_cmd_app->footer("Example:\n  bs anim capture.gif");
+    }
+    {
+        stats_cmd_app->description(
+            "Show local daemon statistics: connections, sessions, transfer\n"
+            "totals, and per-peer counters.");
+    }
+    {
+        fleet_cmd_app->description(
+            "Show the live fleet directory gathered by the daemon: every known\n"
+            "peer with address, version, health status, and resource usage\n"
+            "(cpu/mem/disk where reported). --json gives the raw daemon view.");
+        fleet_cmd_app->footer("Examples:\n  bs fleet\n  bs fleet --json");
+    }
+    {
+        upgrade_cmd_app->description(
+            "Self-update this node's binary from GitHub releases (or another\n"
+            "node with --all). Downloads, SHA256-verifies against the published\n"
+            "checksums, atomically swaps the binary, restarts the daemon, and\n"
+            "auto-rolls-back if the new daemon fails to bind. In-mesh upgrades\n"
+            "detach first so the carrying session survives (override:\n"
+            "BS_UPGRADE_IN_MESH=1).");
+        upgrade_cmd_app->footer(
+            "Examples:\n"
+            "  bs upgrade                    Latest release\n"
+            "  bs upgrade --tag 26.09.08-r2  Specific version\n"
+            "  bs upgrade --all              All healthy peers (mesh shell)");
+    }
+    {
+        telemetry_cmd_app->description(
+            "Show transfer telemetry: file-transfer and stream byte counters\n"
+            "per peer. --json for machine-readable output.");
+    }
+    {
+        file_cmd->description("File transfer between peers over the mesh (mTLS, chunked).");
+        file_send_app->description(
+            "Send a file to a peer. Lands under the peer's receive_dir unless\n"
+            "an explicit remote dest is given (home/tmp dest requires the\n"
+            "peer's file.dest_allow_home). Use --wait to block until the peer\n"
+            "acknowledges completion.");
+        file_send_app->footer(
+            "Examples:\n"
+            "  bs file send dev report.pdf\n"
+            "  bs file send dev report.pdf docs/report.pdf\n"
+            "  bs file send dev big.iso --wait");
+        file_recv_app->description(
+            "Receive a file from a peer (run on the target node). Pulls the\n"
+            "remote path into a local directory; --wait blocks until the\n"
+            "transfer completes or fails.");
+        file_recv_app->footer(
+            "Example:\n  bs file recv dev ~/logs/bs-mesh.log ./pull/");
+    }
+    {
+        capvid_cmd->description(
+            "Record the peer's screen to a video (via its CUA helper), transfer\n"
+            "it back with file recv, and print the local path.");
+        capvid_cmd->footer(
+            "Example:\n  bs capture-video dev --duration 30 --fps 4");
+    }
+    {
+        cua_cmd->description(
+            "Computer-use automation on a remote peer: screen size, screenshots,\n"
+            "and synthetic mouse/keyboard input. Requires the peer's CUA helper\n"
+            "(--cua-helper) running in its user session.");
+        cua_screen->description("Get remote screen dimensions (width x height).");
+        cua_capture->description(
+            "Capture a screenshot from the peer (PNG default; --output writes a\n"
+            "file instead of stdout).");
+        cua_capture->footer("Example:\n  bs cua capture dev -o shot.png");
+        cua_click->description(
+            "Click the mouse at coordinates (--button left|right|middle).");
+        cua_click->footer("Example:\n  bs cua click dev --x 640 --y 400");
+        cua_move->description("Move the mouse to coordinates.");
+        cua_type->description("Type text into the peer's focused window.");
+        cua_type->footer("Example:\n  bs cua type dev --text 'hello'");
+        cua_key->description("Press a HID key code (e.g. 40=Enter, 44=Q; see USB HID usage ids).");
+        cua_key->footer("Example:\n  bs cua key dev --code 40");
+        cua_scroll->description("Scroll the mouse wheel (--direction up|down, --amount ticks).");
+    }
+    {
+        vfolder_cmd->description(
+            "Virtual folder sync: keep a local directory mirrored to a peer\n"
+            "path (push, pull, or bidirectional) on an interval.");
+        vfolder_add->description(
+            "Add a mapping. --dir push|pull|bidirectional; --interval seconds.");
+        vfolder_add->footer(
+            "Example:\n  bs vfolder add code ~/src dev ~/src --dir bidirectional");
+        vfolder_sync->description("Trigger an immediate sync of one mapping.");
+        vfolder_list->description("List active folder mappings.");
+    }
+    {
+        edit_cmd_app->description(
+            "Edit a remote file locally: copies PEER:PATH to a temp file, opens\n"
+            "$EDITOR, and writes it back on save.");
+        edit_cmd_app->footer("Example:\n  bs edit dev:/etc/nginx.conf");
+    }
+    {
+        rscript_cmd_app->description(
+            "Send a local script to a peer and execute it there. Interpreter\n"
+            "'auto' picks bash/powershell/python from the shebang and platform.");
+        rscript_cmd_app->footer(
+            "Examples:\n"
+            "  bs run-script dev ./deploy.sh\n"
+            "  cat job.sh | bs run-script dev - --interpreter bash");
+    }
+    {
+        job_cmd->description(
+            "Multi-step JSON jobs: run an ordered list of commands on a peer\n"
+            "with per-step results (more robust than long && chains).");
+        job_run_app->description(
+            "Execute a job JSON file on a peer. --stop-on-error aborts remaining\n"
+            "steps after the first failure (default: run all steps).");
+        job_run_app->footer("Example:\n  bs job run dev job.json --stop-on-error");
+    }
+    {
+        script_cmd->description(
+            "Content-addressed script cache: store scripts once (hash-named),\n"
+            "then push/run them on peers by name or hash.");
+        script_add_app->description("Add a script file to the local cache (optionally with an alias).");
+        script_add_app->footer("Example:\n  bs script add ./deploy.sh --name deploy");
+        script_list_app->description("List cached scripts (name, hash, size).");
+        script_push_app->description("Push a cached script to a peer's cache.");
+        script_push_app->footer("Example:\n  bs script push deploy --peer dev");
+        script_run_app->description(
+            "Run a cached script on a peer; extra args after -- pass to it.");
+        script_run_app->footer("Example:\n  bs script run deploy --peer dev -- --prod");
+        script_remove_app->description("Remove a script from the local cache.");
+    }
+    {
+        pane_cmd_app->description(
+            "Publish content to the BridgePanel surface (web dashboard) of a\n"
+            "session on this node.");
+        pane_publish->description(
+            "Copy a local markdown file into a BridgePanel session surface\n"
+            "(--type documents|comms).");
+        pane_publish->footer("Example:\n  bs pane publish --title Notes ./notes.md");
+    }
+
     CLI11_PARSE(app, argc, argv);
 
 #ifndef _WIN32
