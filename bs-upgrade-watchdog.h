@@ -37,7 +37,7 @@
 //           The script is written to <home>\upgrade-watchdog.cmd and
 //           launched via _spawnl(_P_DETACH) so it survives this process
 //           and the daemon restart. Windows rollback is what the fleet
-//           was missing: avir/nunn hosts stranded exactly this way.
+//           was missing: peers stranded exactly this way before.
 
 #include <string>
 #include <cstdlib>
