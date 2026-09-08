@@ -1407,6 +1407,29 @@ struct AppPaths {
     return p;
 }
 
+// Quote a single argument for std::system(). POSIX: single quotes.
+// Windows (cmd.exe): double quotes, doubling interior quotes — cmd.exe does
+// not treat single quotes as quoting, so paths like 'C:\x y' break curl.
+[[nodiscard]] inline std::string shell_arg_quote(const std::string& value) {
+#ifdef _WIN32
+    std::string out = "\"";
+    for (char c : value) {
+        if (c == '"') out += "\"\"";
+        else out += c;
+    }
+    out += "\"";
+    return out;
+#else
+    std::string out = "'";
+    for (char c : value) {
+        if (c == '\'') out += "'\\''";
+        else out += c;
+    }
+    out += "'";
+    return out;
+#endif
+}
+
 [[nodiscard]] inline std::string private_tmp_dir(const std::string& app_home) {
     const std::string root = app_home.empty()
         ? expand_home("~/.bridgesessions") : app_home;

@@ -1964,8 +1964,9 @@ int main(int argc, char** argv) {
                 bs::mesh::create_private_temp_file("releases", ".json");
             const std::string releases_url =
                 "https://api.github.com/repos/MindDragonLabs/BridgeSessions/releases?per_page=20";
-            const std::string fetch = "curl -fL -s -o '" + releases_path +
-                "' '" + releases_url + "' 2>/dev/null";
+            const std::string fetch = "curl -fL -s -o " +
+                bs::mesh::shell_arg_quote(releases_path) + " " +
+                bs::mesh::shell_arg_quote(releases_url) + " 2>/dev/null";
             if (releases_path.empty() || std::system(fetch.c_str()) != 0) {
                 if (!releases_path.empty()) ::unlink(releases_path.c_str());
                 std::cerr << "upgrade: failed to resolve latest GitHub release\n";
@@ -2051,7 +2052,9 @@ int main(int argc, char** argv) {
         }
 
         // Use curl to download
-        std::string curl_cmd = "curl -fL -s -o '" + tmp_path + "' '" + download_url + "' 2>/dev/null";
+        std::string curl_cmd = "curl -fL -s -o " +
+            bs::mesh::shell_arg_quote(tmp_path) + " " +
+            bs::mesh::shell_arg_quote(download_url) + " 2>/dev/null";
         int rc = std::system(curl_cmd.c_str());
         if (rc != 0) {
             std::cerr << "upgrade: download failed (curl exit " << rc << ")\n";
@@ -2071,7 +2074,9 @@ int main(int argc, char** argv) {
                 ::unlink(tmp_path.c_str());
                 return 1;
             }
-            std::string sums_cmd = "curl -fL -s -o '" + sums_path + "' '" + sums_url + "' 2>/dev/null";
+            std::string sums_cmd = "curl -fL -s -o " +
+                bs::mesh::shell_arg_quote(sums_path) + " " +
+                bs::mesh::shell_arg_quote(sums_url) + " 2>/dev/null";
             if (std::system(sums_cmd.c_str()) != 0) {
                 std::cerr << "upgrade: FAILED to download SHA256SUMS — aborting (hash verification is mandatory)\n";
                 ::unlink(tmp_path.c_str());
