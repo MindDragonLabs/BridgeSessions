@@ -161,6 +161,12 @@ foreach(TEST_SRC ${TEST_SOURCES})
     if(WIN32 AND TEST_NAME STREQUAL "test_mesh_responsiveness")
         continue()
     endif()
+    if(APPLE AND TEST_NAME STREQUAL "test_upgrade_watchdog")
+        # Watchdog contract tests are Linux-only (setsid + /dev/tcp probe);
+        # a stub-main build discovers zero tests and breaks Catch test
+        # discovery, so skip the target on macOS entirely.
+        continue()
+    endif()
     add_executable(${TEST_NAME} ${TEST_SRC})
     if(APPLE AND BS_CATCH2_APPLE_SHIM)
         target_compile_options(${TEST_NAME} PRIVATE
