@@ -169,6 +169,7 @@ inline constexpr std::string_view kBridgeSessionsVersion = BS_VERSION;
 #include "bs-session-registry.h"
 #include "bs-mesh-controller.h"
 #include "bs-upgrade-safety.h"
+#include "bs-upgrade-watchdog.h"
 
 } // namespace bs::mesh
 

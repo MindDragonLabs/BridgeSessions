@@ -2196,6 +2196,50 @@ int main(int argc, char** argv) {
         }
 #endif
 
+        // Arm the self-healing rollback watchdog BEFORE stopping the daemon.
+        // Detached (setsid), so it survives both this process and the daemon
+        // restart. If the new daemon never binds the mesh port within ~80s,
+        // it restores bin_path from old_path and starts the daemon — a peer
+        // must never strand offline because an upgrade failed mid-flight
+        // (operator mandate: upgrades are seamless, quick, painless,
+        // non-destructive).
+        {
+            std::string listen_port;
+            {
+                // Best-effort: read the configured mesh listen port for the
+                // liveness probe; empty port falls back to version-only
+                // verification below (the watchdog then also checks the
+                // binary version, not just the port).
+                std::FILE* pf = std::fopen((home_dir + "/config").c_str(), "r");
+                if (pf) {
+                    char line[256];
+                    while (std::fgets(line, sizeof(line), pf)) {
+                        std::string l(line);
+                        const std::string key = "node.listen";
+                        if (l.rfind(key, 0) == 0) {
+                            auto pos = l.rfind(':');
+                            if (pos != std::string::npos) {
+                                std::string p;
+                                for (size_t k = pos + 1; k < l.size(); ++k) {
+                                    if (l[k] >= '0' && l[k] <= '9') p += l[k];
+                                    else if (!p.empty()) break;
+                                }
+                                listen_port = p;
+                            }
+                        }
+                    }
+                    std::fclose(pf);
+                }
+            }
+            std::string start_cmd = "systemctl --user start bridgesessions.service";
+#if defined(__APPLE__)
+            start_cmd = "launchctl kickstart -k gui/$(id -u)/com.bridgesessions.mesh";
+#endif
+            bs::mesh::arm_upgrade_watchdog(bin_path, bin_path + ".old", start_cmd,
+                                           listen_port.empty() ? "19949" : listen_port,
+                                           home_dir);
+        }
+
         // Stop daemon before swap — SAFELY.
         //
         // 2026-09-03 fleet incident: `pkill -9 -f 'bridgesessions --config'`
