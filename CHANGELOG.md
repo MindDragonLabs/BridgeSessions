@@ -2,6 +2,20 @@
 
 Notable user-visible changes. Git history contains implementation-level detail.
 
+## 26.09.10 (in progress)
+
+### Fixed
+
+- **Transport loss no longer dirties the screen.** The "transport lost"
+  announce is now drawn on the protected bottom row (same primitive as the
+  reconnect badge) instead of a raw stderr line that smeared over the frozen
+  remote TUI frame. The badge erase on reconnect uses the row the badge was
+  actually drawn on, so a terminal resize during the outage can no longer
+  strand a stale badge on the wrong row. On successful reattach the client
+  resets the surface (clear + home + visible cursor) just before the server's
+  scrollback replay, so the remote TUI repaints over a clean slate instead of
+  mashing a new frame over stale fragments of the old one.
+
 ## 26.09.09
 
 ### Added

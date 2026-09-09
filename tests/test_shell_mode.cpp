@@ -59,6 +59,45 @@ TEST_CASE("status-line clear erases the bottom row only", "[shell][reconnect]") 
     REQUIRE(c.find(std::string("\x1b") + "8") != std::string::npos);
 }
 
+TEST_CASE("transport-lost notice draws on the bottom row, never raw to stderr",
+          "[shell][reconnect]") {
+    auto n = bs::mesh::reconnect_notice_line("host-a", 80, 24);
+    REQUIRE(n.find("transport lost") != std::string::npos);
+    REQUIRE(n.find("host-a") != std::string::npos);
+    // Anchored: cursor-addressed to the bottom row, cursor protected.
+    REQUIRE(n.find("\x1b[24;1H") != std::string::npos);
+    REQUIRE(n.find(std::string("\x1b") + "7") != std::string::npos);
+    REQUIRE(n.find(std::string("\x1b") + "8") != std::string::npos);
+    // Never leaves the alternate screen and never clears the whole display.
+    REQUIRE(n.find("\x1b[?1049l") == std::string::npos);
+    REQUIRE(n.find("\x1b[2J") == std::string::npos);
+}
+
+TEST_CASE("badge refresh erases a stranded badge after a resize", "[shell][reconnect]") {
+    // Badge was drawn when the terminal was 24 rows; now 20 rows. The refresh
+    // must erase row 24 before drawing row 20.
+    auto line = bs::mesh::reconnect_status_line("host-a", 2, 0, 80, 20, /*prev_rows=*/24);
+    REQUIRE(line.find("\x1b[24;1H\x1b[2K") != std::string::npos);
+    REQUIRE(line.find("\x1b[20;1H") != std::string::npos);
+    // Same-row refresh emits no redundant erase.
+    auto same = bs::mesh::reconnect_status_line("host-a", 2, 0, 80, 24, /*prev_rows=*/24);
+    REQUIRE(same.find("\x1b[2K") == std::string::npos);
+    // Default (no previous badge) behaves exactly like the old draw.
+    auto fresh = bs::mesh::reconnect_status_line("host-a", 1, 0, 80, 24);
+    REQUIRE(fresh.find("\x1b[2K") == std::string::npos);
+    REQUIRE(fresh.find("\x1b[24;1H") != std::string::npos);
+}
+
+TEST_CASE("reattach surface reset clears the screen and shows the cursor",
+          "[shell][reconnect]") {
+    auto r = bs::mesh::reattach_surface_reset();
+    REQUIRE(r.find("\x1b[2J") != std::string::npos);   // clear stale frame remnants
+    REQUIRE(r.find("\x1b[H") != std::string::npos);    // home before scrollback replay
+    REQUIRE(r.find("\x1b[?25h") != std::string::npos); // cursor always visible after
+    REQUIRE(r.find("\x1b[?25l") == std::string::npos); // never hides the cursor
+    REQUIRE(r.find("\x1b[?1049") == std::string::npos); // never touches alt-screen here
+}
+
 int main(int argc, char* argv[]) {
     return Catch::Session().run(argc, argv);
 }
