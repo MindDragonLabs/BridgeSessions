@@ -243,6 +243,16 @@ constexpr int kAcceptHandshakeTimeoutMs = 2000;
 // (check_conn_read's catch closes the conn; backoff redials) instead of a freeze.
 // This applies only after select() reports frame data; idle healthy links do not
 // enter the blocking read, so the bound can stay below the ping cadence.
+// True when compiled for (or running app binaries on) Windows. Used to pick
+// cmd.exe-safe shell syntax (2>NUL vs 2>/dev/null) in generated commands.
+inline bool sys_is_windows() {
+#ifdef _WIN32
+    return true;
+#else
+    return false;
+#endif
+}
+
 constexpr int kPeerRecvTimeoutMs = 3000;
 constexpr uint16_t kDefaultMeshCliPort = 19980;
 

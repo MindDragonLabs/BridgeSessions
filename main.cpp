@@ -2835,23 +2835,109 @@ int bridgesessions_main(int argc, char** argv) {
         const std::string download_url = base_url + "/" + binary_name;
         const std::string sums_url = base_url + "/SHA256SUMS";
 
-        std::cout << "→ Downloading " << binary_name << " from " << download_url << "\n";
-        bs::log::get("upgrade")->info("downloading {} from {}", binary_name, download_url);
+        // Resolve download targets. On a PRIVATE repo browser_download_url
+        // 404s for everyone — assets must come from the API asset endpoint
+        // with a token (Accept: application/octet-stream). Token source:
+        // BRIDGESESSIONS_GITHUB_TOKEN, else GH_TOKEN, else GITHUB_TOKEN.
+        // No token → anonymous browser URLs (public installs). The token is
+        // passed to curl via a config file, never argv (process-list scrub).
+        std::string gh_token;
+        for (const char* env : {"BRIDGESESSIONS_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN"}) {
+            if (const char* v = std::getenv(env); v && *v) { gh_token = v; break; }
+        }
+        std::string bin_dl = download_url;
+        std::string sums_dl = sums_url;
+        std::string curl_auth_cfg;   // temp curl config file carrying auth headers
+        if (!gh_token.empty()) {
+            const std::string api_release_url =
+                "https://api.github.com/repos/MindDragonLabs/BridgeSessions/releases/tags/v" + tag;
+            std::string release_json = bs::mesh::create_private_temp_file("rel", "");
+            if (release_json.empty()) {
+                std::cerr << "upgrade: cannot create release-lookup temp file\n";
+                return 1;
+            }
+            std::string rel_cmd = "curl -sS -H \"Accept: application/vnd.github+json\" -o " +
+                bs::mesh::shell_arg_quote(release_json) + " " +
+                bs::mesh::shell_arg_quote(api_release_url) +
+                (bs::mesh::sys_is_windows() ? " 2>NUL" : " 2>/dev/null");
+            const int rel_rc = std::system(rel_cmd.c_str());
+            bool resolved = false;
+            if (rel_rc == 0) {
+                std::ifstream rel_in(release_json);
+                std::string jbuf((std::istreambuf_iterator<char>(rel_in)),
+                                 std::istreambuf_iterator<char>());
+                try {
+                    auto j = nlohmann::json::parse(jbuf);
+                    if (j.contains("assets") && j["assets"].is_array()) {
+                        for (const auto& a : j["assets"]) {
+                            const std::string name = a.value("name", "");
+                            if (name == binary_name)
+                                bin_dl = "https://api.github.com/repos/MindDragonLabs/BridgeSessions/releases/assets/" +
+                                         std::to_string(a.value("id", 0));
+                            else if (name == "SHA256SUMS")
+                                sums_dl = "https://api.github.com/repos/MindDragonLabs/BridgeSessions/releases/assets/" +
+                                          std::to_string(a.value("id", 0));
+                        }
+                        resolved = bin_dl != download_url && sums_dl != sums_url;
+                        if (!resolved)
+                            std::cerr << "upgrade: release v" << tag
+                                      << " found but expected assets are missing\n";
+                    } else {
+                        std::cerr << "upgrade: GitHub API did not return a release for v"
+                                  << tag << " (bad tag or token lacks repo access)\n";
+                    }
+                } catch (const std::exception& e) {
+                    std::cerr << "upgrade: release lookup parse failed: " << e.what() << "\n";
+                }
+            } else {
+                std::cerr << "upgrade: release lookup failed (curl exit " << rel_rc << ")\n";
+            }
+            ::unlink(release_json.c_str());
+            if (!resolved) return 1;
+            // curl config file carries the auth headers (kept off argv).
+            curl_auth_cfg = bs::mesh::create_private_temp_file("ghtok", "");
+            if (curl_auth_cfg.empty()) {
+                std::cerr << "upgrade: cannot create curl auth config\n";
+                return 1;
+            }
+            {
+                std::ofstream cfg(curl_auth_cfg);
+                cfg << "header = \"Authorization: Bearer " << gh_token << "\"\n";
+                cfg << "header = \"Accept: application/octet-stream\"\n";
+            }
+        }
+
+        // curl wrapper: stderr silenced per-platform (2>/dev/null is not
+        // valid cmd.exe syntax — it failed the whole command BEFORE curl
+        // ran with "The system cannot find the path specified"; cmd.exe
+        // uses 2>NUL. 2026-09-09 RCA of the Server 2016/2020 failures).
+        auto curl_fetch = [&](const std::string& url, const std::string& out) -> int {
+            std::string cmd = "curl -fL -s";
+            if (!curl_auth_cfg.empty()) cmd += " -K " + bs::mesh::shell_arg_quote(curl_auth_cfg);
+            cmd += " -o " + bs::mesh::shell_arg_quote(out) + " " +
+                   bs::mesh::shell_arg_quote(url) +
+                   (bs::mesh::sys_is_windows() ? " 2>NUL" : " 2>/dev/null");
+            return std::system(cmd.c_str());
+        };
+
+        std::cout << "→ Downloading " << binary_name
+                  << (curl_auth_cfg.empty() ? " (public)\n"
+                                            : " via GitHub API (private repo)\n");
+        bs::log::get("upgrade")->info("downloading {} from {}", binary_name, bin_dl);
 
         std::string tmp_path = bs::mesh::create_private_temp_file("upg", "");
         if (tmp_path.empty()) {
             std::cerr << "upgrade: cannot create private temp file\n";
+            if (!curl_auth_cfg.empty()) ::unlink(curl_auth_cfg.c_str());
             return 1;
         }
 
-        // Use curl to download
-        std::string curl_cmd = "curl -fL -s -o " +
-            bs::mesh::shell_arg_quote(tmp_path) + " " +
-            bs::mesh::shell_arg_quote(download_url) + " 2>/dev/null";
-        int rc = std::system(curl_cmd.c_str());
+        const int rc = curl_fetch(bin_dl, tmp_path);
         if (rc != 0) {
             std::cerr << "upgrade: download failed (curl exit " << rc << ")\n";
             bs::log::get("upgrade")->error("download failed (curl exit {})", rc);
+            ::unlink(tmp_path.c_str());
+            if (!curl_auth_cfg.empty()) ::unlink(curl_auth_cfg.c_str());
             return 1;
         }
 
@@ -2867,13 +2953,29 @@ int bridgesessions_main(int argc, char** argv) {
                 ::unlink(tmp_path.c_str());
                 return 1;
             }
-            std::string sums_cmd = "curl -fL -s -o " +
-                bs::mesh::shell_arg_quote(sums_path) + " " +
-                bs::mesh::shell_arg_quote(sums_url) + " 2>/dev/null";
-            if (std::system(sums_cmd.c_str()) != 0) {
+            const int sums_rc = curl_fetch(sums_dl, sums_path);
+            if (sums_rc != 0) {
                 std::cerr << "upgrade: FAILED to download SHA256SUMS — aborting (hash verification is mandatory)\n";
                 ::unlink(tmp_path.c_str());
+                if (!curl_auth_cfg.empty()) ::unlink(curl_auth_cfg.c_str());
                 return 1;
+            }
+            {
+                std::ifstream sums_probe(sums_path);
+                std::string first_line;
+                std::getline(sums_probe, first_line);
+                // sha256sum format: 64 hex chars + two spaces. A 404/HTML body
+                // (curl -f may still exit 0 on some proxies) fails this gate.
+                bool looks_like_sums = first_line.size() > 66 &&
+                    first_line[64] == ' ' && first_line[65] == ' ' &&
+                    first_line.find_first_not_of("0123456789abcdef") == 64;
+                if (!looks_like_sums) {
+                    std::cerr << "upgrade: SHA256SUMS content invalid (private repo without token?) — aborting\n";
+                    ::unlink(tmp_path.c_str());
+                    ::unlink(sums_path.c_str());
+                    if (!curl_auth_cfg.empty()) ::unlink(curl_auth_cfg.c_str());
+                    return 1;
+                }
             }
             // Compare entirely in C++ (2026-09-08 RCA: the old grep|awk|sha256sum
             // shell pipeline is POSIX-only — cmd.exe has no grep/awk/sha256sum,
