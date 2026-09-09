@@ -780,6 +780,10 @@ public:
                     out << "\"caps\":["
                         << (version_has_cap(c.remote_version, kCapFrm2) ? "\"frm2\"" : "")
                         << (version_has_cap(c.remote_version, kCapFrm2) &&
+                            version_has_cap(c.remote_version, kCapEnroll) ? "," : "")
+                        << (version_has_cap(c.remote_version, kCapEnroll) ? "\"enroll\"" : "")
+                        << (version_has_cap(c.remote_version, kCapFrm2) &&
+                            version_has_cap(c.remote_version, kCapEnroll) &&
                             version_has_cap(c.remote_version, "api") ? "," : "")
                         << (version_has_cap(c.remote_version, "api") ? "\"api\"" : "")
                         << "],";

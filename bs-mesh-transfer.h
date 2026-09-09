@@ -1622,6 +1622,13 @@
         else if (std::holds_alternative<DirectoryEnrollMsg>(msg)) {
             // Bootstrap: verify + apply a signed member enrollment, then
             // re-gossip it so it propagates transitively across the mesh.
+            // Mixed-version gate: a peer that never advertised +enroll has no
+            // DirectoryEnrollMsg codec contract — reject at the boundary
+            // instead of relying on the decode layer (26.09.09).
+            if (!version_has_cap(c.remote_version, kCapEnroll)) {
+                log_event("enroll_rejected_no_capability", c.peer_name);
+            }
+            else {
             // Relay only once per entry to bound flood (dedupe below).
             auto& e = std::get<DirectoryEnrollMsg>(msg);
             if (apply_directory_enroll(e)) {
@@ -1639,6 +1646,7 @@
                         (void)enqueue_frame(oc, e, CONTROL_STREAM_ID);
                     }
                 }
+            }
             }
         }
         else if (std::holds_alternative<ServerInfoMsg>(msg)) {
@@ -2096,6 +2104,49 @@ public:
             log_event("enroll_rejected_self", e.name);
             return false;
         }
+        // 4b. Replay guard — a consumed enrollment id (see 6b) may not mint
+        // trust a second time. If the member is still trusted the re-apply is
+        // the documented idempotent no-op (succeeds without mutating); if the
+        // member's trust is gone (revoked or lost state), resubmitting the
+        // same signed token is a REPLAY and is rejected — the token is
+        // single-use, exactly like the invite that preceded it.
+        {
+            const std::string enroll_id = e.issuer_pubkey + "|" + e.pubkey_hex +
+                                          "|" + std::to_string(e.issued_at);
+            bool seen = false;
+            {
+                std::lock_guard lock(enroll_seen_mutex_);
+                seen = enroll_seen_.contains(enroll_id);
+            }
+            if (seen) {
+                bool still_trusted = false;
+                if (!config_.authorized_keys_path.empty()) {
+                    std::ifstream ex(config_.authorized_keys_path);
+                    std::string line;
+                    while (std::getline(ex, line)) {
+                        if (!line.empty() && line.back() == '\r') line.pop_back();
+                        if (line == "pubkey " + e.pubkey_hex ||
+                            line == e.pubkey_hex) {
+                            still_trusted = true;
+                            break;
+                        }
+                    }
+                } else {
+                    // No durable key file: trust state lives in the peer list.
+                    for (const auto& s : config_.seeds)
+                        if (s.pubkey_hex == e.pubkey_hex) { still_trusted = true; break; }
+                    if (!still_trusted)
+                        for (const auto& d : config_.discovered)
+                            if (d.pubkey_hex == e.pubkey_hex) { still_trusted = true; break; }
+                }
+                if (still_trusted) {
+                    log_event("enroll_idempotent_ignored", e.name);
+                    return true;
+                }
+                log_event("enroll_rejected_replay", e.name);
+                return false;
+            }
+        }
         // 5. Append new member pubkey to authorized_keys (idempotent).
         std::string auth_path = config_.authorized_keys_path;
         if (!auth_path.empty()) {
@@ -2143,6 +2194,13 @@ public:
             config_.discovered.push_back(std::move(pe));
             gossip_generation_.fetch_add(1, std::memory_order_relaxed);
         }
+        // 6b. Remember the consumed enrollment id so any re-submission of the
+        // same signed token is rejected as a replay (see 4b).
+        {
+            std::lock_guard lock(enroll_seen_mutex_);
+            (void)enroll_seen_.insert(e.issuer_pubkey + "|" + e.pubkey_hex +
+                                      "|" + std::to_string(e.issued_at));
+        }
         log_event("enroll_applied", e.name + " issuer=" + e.issuer_pubkey.substr(0, 12) + "...");
         return true;
     }
@@ -2153,6 +2211,9 @@ public:
         for (auto& c : conns_) {
             if (c.sock_fd == INVALID_SOCKET || c.purpose != ConnectionPurpose::Mesh) continue;
             if (c.exec_busy && c.exec_busy->load()) continue;
+            // Never send a frame shape to a peer that did not advertise the
+            // capability (protocol.md backward-compatibility rule).
+            if (!version_has_cap(c.remote_version, kCapEnroll)) continue;
             (void)enqueue_frame(c, e, CONTROL_STREAM_ID);
         }
     }
