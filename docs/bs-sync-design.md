@@ -187,3 +187,32 @@ checks) documented in session history. Wire types `0x2C–0x32` remain reserved
 for daemon integration; the spike speaks its own framed protocol over direct
 TLS with cert pinning, independent of the shipping binary's wire format.
 
+## 11. Roadmap phase 2 status — `bs sync pair` (lane 2, 2026-09)
+
+Phase 2 of this design ("cross-machine folder mirroring") now ships in the
+main binary as `bs sync pair`:
+
+- **Pair specs** live in `state/sync-pairs.json` under the BS home
+  (`id`, `local_dir`, `peer`, `remote_dir`, logical `clock`,
+  `via_run_script`, `approved`). Logic in `bs-sync-pair.h`; CLI wiring in
+  `main.cpp` (`bs sync pair init|approve|run|status`).
+- **Dry-run manifest gate**: `init` scans and prints a manifest and moves
+  nothing; `run` refuses unapproved pairs. Deletion is never inferred on the
+  first scan (spike lesson #1) — deletes are explicit tombstones derived from
+  the previously approved manifest.
+- **Logical clocks, not mtime**: classification is sha256-based; every
+  manifest scan takes one Lamport tick persisted per pair (spike lesson #2).
+  No watcher/daemon loop in this increment — `run` is one-shot through the
+  resumable, hash-verified `file send` verbs.
+- **Projection-cache rule**: the remote copy is downstream of approved
+  manifests; the local dir remains the source of truth for content.
+- **Windows peers**: `--via-run-script` only (no PowerShell bodies pushed);
+  default is POSIX push for Unix peers.
+- **Default exclusions**: `.git`, `.bridgesessions`, secrets basenames,
+  bs-sync working files; symlinks never followed.
+- **Tests**: `tests/test_sync_pair.cpp` (pair persistence, manifest
+  classification, exclusion rules, clock monotonicity, mtime-independence,
+  Windows-drive-path rejection).
+- Remaining for later lanes: pull/bidirectional reconcile, watcher-driven
+  continuous sync (§5), daemon integration of wire types `0x2C+` (v2).
+

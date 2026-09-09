@@ -2,6 +2,26 @@
 
 Notable user-visible changes. Git history contains implementation-level detail.
 
+## Unreleased
+
+### Added
+
+- **`bs sync pair` — cross-machine folder mirroring (roadmap phase 2)**, per
+  `docs/bs-sync-design.md`. `bs sync pair init <local-dir> peer:/remote/dir`
+  persists a pair spec to `state/sync-pairs.json`, scans a **dry-run manifest**
+  (create/modify/delete classification, content-hash based) and prints it —
+  nothing transfers until the manifest is approved via `--approve` or
+  `bs sync pair approve <id>`; `bs sync pair run <id>` then applies it one-shot
+  through the existing resumable, hash-verified `file send` verbs.
+  `bs sync pair status [id]` shows per-pair file counts, pending changes, and
+  the Lamport logical clock (every manifest scan ticks it once; **mtime is
+  never used for ordering**, so cross-host clock skew cannot regress data).
+  Default exclusions: `.git`, `.bridgesessions`, secrets basenames
+  (`.env*`, `id_rsa`, `id_ed25519`, `*.pem`, `*.key`, `secrets*`,
+  `credentials.json`, `*secret*`), and bs-sync working files. Windows peers are
+  allowed only via an explicit `--via-run-script` init (no PowerShell bodies
+  pushed); the default path is POSIX push to Unix peers.
+
 ## 26.09.09
 
 ### Added

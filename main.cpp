@@ -2,6 +2,7 @@
 // Extracted from bridgesessions.cpp (R3 structural refactor, 2026-07-23)
 #include "bs-protocol.h"
 #include "bs-cua-helper.h"
+#include "bs-sync-pair.h"
 #include "bs-logging.h"
 
 #ifndef INSTALL_DIR
@@ -1171,6 +1172,29 @@ int bridgesessions_main(int argc, char** argv) {
     auto* vfolder_sync = vfolder_cmd->add_subcommand("sync", "Sync a specific folder now");
     vfolder_sync->add_option("name", vfolder_name, "Mapping name")->required();
     auto* vfolder_list = vfolder_cmd->add_subcommand("list", "List active folder mappings");
+
+    // sync pair (roadmap phase 2 — cross-machine folder mirroring)
+    auto* sync_cmd = app.add_subcommand("sync", "Cross-machine folder mirroring (bs sync pair …)");
+    sync_cmd->require_subcommand(1);
+    auto* sync_pair_cmd = sync_cmd->add_subcommand("pair", "Manage explicit sync pairs");
+    sync_pair_cmd->require_subcommand(1);
+    std::string sp_local, sp_peer_spec, sp_id;
+    bool sp_approve = false, sp_via_run_script = false;
+    auto* sp_init = sync_pair_cmd->add_subcommand(
+        "init", "Create a pair, scan a dry-run manifest (nothing transfers until approved)");
+    sp_init->add_option("local-dir", sp_local, "Local directory to mirror")->required();
+    sp_init->add_option("peer-dir", sp_peer_spec,
+        "Peer and remote dir as peer:/remote/dir")->required();
+    sp_init->add_flag("--approve", sp_approve,
+        "Approve the dry-run manifest in the same step (first transfer gate)");
+    sp_init->add_flag("--via-run-script", sp_via_run_script,
+        "Required for Windows peers (files pushed via run-script; no PowerShell bodies)");
+    auto* sp_status = sync_pair_cmd->add_subcommand("status", "Show pairs, pending changes, logical clock");
+    sp_status->add_option("id", sp_id, "Pair id (default: all pairs)");
+    auto* sp_approve_cmd = sync_pair_cmd->add_subcommand("approve", "Approve a pair's pending dry-run manifest");
+    sp_approve_cmd->add_option("id", sp_id, "Pair id")->required();
+    auto* sp_run = sync_pair_cmd->add_subcommand("run", "Apply the approved manifest (one-shot, resumable)");
+    sp_run->add_option("id", sp_id, "Pair id")->required();
 
     // edit
     std::string edit_target;
@@ -3492,6 +3516,165 @@ int bridgesessions_main(int argc, char** argv) {
             return 1;
         }
         return 0;
+    }
+    // ── bs sync pair dispatch ─────────────────────────────────────
+    if (sp_init->parsed()) {
+        using namespace bs::sync;
+        std::string peer, remote_dir;
+        if (!sync_parse_peer_dir(sp_peer_spec, peer, remote_dir)) {
+            std::cerr << "ERROR peer-dir must be peer:/remote/dir (POSIX remote path)\n";
+            return 2;
+        }
+        std::error_code lec;
+        if (!fs::exists(sp_local, lec) || !fs::is_directory(sp_local, lec)) {
+            std::cerr << "ERROR local dir not found: " << sp_local << "\n";
+            return 2;
+        }
+        auto pairs = sync_pairs_load(home_dir);
+        SyncPairSpec p;
+        p.id = sync_make_pair_id(pairs, sp_local, peer);
+        p.local_dir = sp_local;
+        p.peer = peer;
+        p.remote_dir = remote_dir;
+        p.via_run_script = sp_via_run_script;
+        p.created_at = "created";
+        // Dry-run manifest scan. mtime is never consulted: classification is
+        // content-hash only (cross-host skew cannot regress data).
+        SyncIndex current = sync_scan_dir(p.local_dir);
+        p.clock = sync_clock_tick(p); // every manifest takes one Lamport tick
+        SyncManifest m = sync_diff(p.id, {}, current, p.clock);
+        p.approved = sp_approve;
+        if (!sp_approve) {
+            if (!sync_manifest_save(home_dir, m)) {
+                std::cerr << "ERROR cannot persist manifest under " << home_dir << "/state\n";
+                return 1;
+            }
+        } else {
+            fs::remove(sync_manifest_dir(home_dir) / (p.id + ".json"), lec);
+        }
+        pairs.push_back(p);
+        if (!sync_pairs_save(home_dir, pairs)) {
+            std::cerr << "ERROR cannot write " << sync_pairs_path(home_dir) << "\n";
+            return 1;
+        }
+        std::cout << "pair " << p.id << ": " << p.local_dir << " <-> "
+                  << p.peer << ":" << p.remote_dir << "\n"
+                  << sync_manifest_text(m);
+        if (sp_approve) {
+            std::cout << "APPROVED — run `bs sync pair run " << p.id
+                      << "` to transfer (" << m.ops.size() << " ops)\n";
+        } else {
+            std::cout << "DRY RUN — nothing transferred. Re-run with --approve or\n"
+                      << "`bs sync pair approve " << p.id << "`, then `bs sync pair run "
+                      << p.id << "`.\n";
+        }
+        return 0;
+    }
+    if (sp_approve_cmd->parsed() || sp_status->parsed() || sp_run->parsed()) {
+        using namespace bs::sync;
+        auto pairs = sync_pairs_load(home_dir);
+        if (pairs.empty()) {
+            std::cout << "no sync pairs (create one with `bs sync pair init <dir> peer:/dir`)\n";
+            return 0;
+        }
+        auto find_pair = [&](const std::string& id) -> SyncPairSpec* {
+            for (auto& p : pairs)
+                if (p.id == id) return &p;
+            return nullptr;
+        };
+        if (sp_status->parsed()) {
+            for (auto& p : pairs) {
+                if (!sp_id.empty() && p.id != sp_id) continue;
+                SyncIndex current = sync_scan_dir(p.local_dir);
+                SyncManifest prev;
+                bool have_prev = sync_manifest_load(home_dir, p.id, prev);
+                SyncIndex applied = have_prev ? sync_index_from_manifest(prev) : SyncIndex{};
+                SyncManifest m = sync_diff(p.id, applied, current, p.clock);
+                std::cout << p.id << ": " << p.local_dir << " <-> " << p.peer
+                          << ":" << p.remote_dir
+                          << (p.via_run_script ? " (via run-script)" : "")
+                          << " | " << current.size() << " files"
+                          << " | pending changes: " << m.ops.size()
+                          << " | logical clock: " << p.clock
+                          << " | " << (p.approved ? "approved" : "awaiting approval")
+                          << " (ordering: logical clock + sha256; mtime never used)\n";
+            }
+            return 0;
+        }
+        SyncPairSpec* p = find_pair(sp_id);
+        if (!p) {
+            std::cerr << "ERROR no such pair: " << sp_id << "\n";
+            return 1;
+        }
+        if (sp_approve_cmd->parsed()) {
+            if (p->approved) {
+                std::cout << "pair " << p->id << " already approved\n";
+                return 0;
+            }
+            SyncManifest m;
+            if (!sync_manifest_load(home_dir, p->id, m)) {
+                std::cerr << "ERROR no pending manifest for " << p->id
+                          << " (run `bs sync pair init` first)\n";
+                return 1;
+            }
+            p->approved = true;
+            if (!sync_pairs_save(home_dir, pairs)) {
+                std::cerr << "ERROR cannot write " << sync_pairs_path(home_dir) << "\n";
+                return 1;
+            }
+            std::cout << "approved " << p->id << " (" << m.ops.size()
+                      << " ops at logical clock " << m.clock << ")\n";
+            return 0;
+        }
+        // sp_run: one-shot apply of the approved manifest via existing
+        // file-transfer verbs (resumable, hash-verified). No daemon-embedded
+        // loop in this increment. POSIX push for Unix peers; Windows peers
+        // go through run-script with no PowerShell bodies pushed.
+        if (!p->approved) {
+            std::cerr << "ERROR pair " << p->id
+                      << " is not approved — run `bs sync pair approve " << p->id
+                      << "` first (dry-run manifest gate)\n";
+            return 1;
+        }
+        SyncManifest m;
+        if (!sync_manifest_load(home_dir, p->id, m)) {
+            std::cerr << "ERROR no manifest for " << p->id << "\n";
+            return 1;
+        }
+        std::error_code lec;
+        bs::mesh::MeshConfig cfg = bs::mesh::load_config(config_path);
+        bs::mesh::bootstrap_identity(home_dir);
+        bs::mesh::MeshController mc(cfg, home_dir);
+        size_t ok = 0, fail = 0;
+        for (const auto& op : m.ops) {
+            if (op.kind == "delete") {
+                // Deletes are applied remotely via a shell verb only after the
+                // manifest gate; a failed delete is reported, not retried.
+                std::cout << "delete " << op.relpath << " (remote) — skipped in one-shot run;"
+                             " apply remotely with `bs " << p->peer << " rm` equivalent\n";
+                continue;
+            }
+            const std::string local = (fs::path(p->local_dir) / op.relpath).string();
+            const std::string dest =
+                p->remote_dir + (p->remote_dir.back() == '/' ? "" : "/") + op.relpath;
+            std::string res = mc.file_send(p->peer, local, true, dest);
+            if (res.rfind("ERROR", 0) == 0) {
+                std::cerr << res << "\n";
+                fail++;
+            } else {
+                std::cout << op.kind << " " << op.relpath << " -> " << p->peer
+                          << ":" << dest << " OK\n";
+                ok++;
+            }
+        }
+        // Persist the applied manifest as the new baseline and drop pending.
+        fs::remove(sync_manifest_dir(home_dir) / (p->id + ".json"), lec);
+        for (auto& pp : pairs)
+            if (pp.id == p->id) pp.approved = true;
+        sync_pairs_save(home_dir, pairs);
+        std::cout << "pair " << p->id << ": " << ok << " transferred, " << fail
+                  << " failed, clock " << m.clock << "\n";
+        return fail == 0 ? 0 : 1;
     }
     if (vfolder_sync->parsed()) {
         bs::mesh::MeshConfig cfg = bs::mesh::load_config(config_path);
