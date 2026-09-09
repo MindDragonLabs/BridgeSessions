@@ -166,6 +166,7 @@ inline constexpr std::string_view kBridgeSessionsVersion = BS_VERSION;
 #include "bs-pty.h"
 #include "bs-cua-dispatch.h"
 #include "bs-config.h"
+#include "bs-run.h"
 #include "bs-session-registry.h"
 #include "bs-mesh-controller.h"
 #include "bs-upgrade-safety.h"

@@ -626,6 +626,40 @@ public:
                 response = "{\"cursor\":" + std::to_string(cursor)
                          + ",\"events\":" + json + "}\n";
             }
+            else if (line.rfind("BS_START ", 0) == 0) {
+                // BS_START <name> <b64-command> — `bs run` (26.09.10)
+                auto rest = line.substr(9);
+                auto sp = rest.find(' ');
+                if (sp == std::string::npos) {
+                    response = "ERROR usage: BS_START <name> <b64-cmd>\n";
+                } else {
+                    response = run_ipc_start(rest.substr(0, sp),
+                                             rest.substr(sp + 1));
+                }
+            }
+            else if (line.rfind("BS_STOP ", 0) == 0) {
+                response = run_ipc_stop(line.substr(8));
+            }
+            else if (line.rfind("BS_STATUS", 0) == 0) {
+                std::string name;
+                if (line.size() > 9) {
+                    name = line.substr(9);
+                    while (!name.empty() && (name.front() == ' ')) name.erase(name.begin());
+                }
+                response = run_ipc_status(name);
+            }
+            else if (line.rfind("BS_LOGS ", 0) == 0) {
+                auto rest = line.substr(8);
+                auto sp = rest.find(' ');
+                const std::string name = (sp == std::string::npos)
+                    ? rest : rest.substr(0, sp);
+                size_t max_bytes = 0;
+                if (sp != std::string::npos) {
+                    try { max_bytes = static_cast<size_t>(std::stoull(rest.substr(sp + 1))); }
+                    catch (...) { max_bytes = 0; }
+                }
+                response = run_ipc_logs(name, max_bytes);
+            }
             else if (line == "PEERS") {
                 // One line per live mesh conn: name addr state=... last_pong_s=N
                 std::ostringstream out;
@@ -1454,6 +1488,226 @@ public:
 
     // ── Main event loop ───────────────────────────────────────
 
+    // ── `bs run` persistent background services (26.09.10 lane 1) ──
+    // The daemon supervises commands launched detached from any session:
+    // restart on failure with capped backoff, survive daemon restarts via
+    // pid re-adoption, per-service log under the BridgeSessions home.
+
+    [[nodiscard]] runsrv::RunServiceState* run_service_find(const std::string& name) {
+        for (auto& s : run_services_)
+            if (s.name == name) return &s;
+        return nullptr;
+    }
+
+    bool run_services_save() {
+        const std::string path = runsrv::run_services_state_path(home_dir_);
+        if (!runsrv::save_run_services(path, run_services_)) {
+            log_event("run_state_save_failed", path);
+            return false;
+        }
+        return true;
+    }
+
+    void run_services_load() {
+        const std::string path = runsrv::run_services_state_path(home_dir_);
+        auto loaded = runsrv::load_run_services(path);
+        for (auto& s : loaded) {
+            if (!run_service_find(s.name)) run_services_.push_back(std::move(s));
+        }
+        if (!loaded.empty())
+            log_event("run_state_loaded",
+                      std::to_string(loaded.size()) + " service(s)");
+    }
+
+    // Spawn (or re-spawn) a service and record the new pid. POSIX only;
+    // Windows callers gate on BS_ERR_UNSUPPORTED.
+    bool run_service_spawn(runsrv::RunServiceState& s) {
+#ifndef _WIN32
+        const std::string log_path =
+            runsrv::run_service_log_path(home_dir_, s.name);
+        const int64_t pid =
+            runsrv::run_spawn_detached(s.command, log_path);
+        if (pid <= 0) {
+            log_event("run_spawn_failed", s.name);
+            return false;
+        }
+        s.pid = pid;
+        s.restart_count = 0;
+        s.next_start_after = 0;
+        append_private_text_file(
+            log_path, "[bs-run] spawned pid " + std::to_string(pid) + "\n");
+        log_event("run_spawned", s.name + " pid=" + std::to_string(pid));
+        return true;
+#else
+        (void)s;
+        return false;
+#endif
+    }
+
+    // One supervision tick for every registered service. Called each event
+    // loop pass (cheap: liveness probe is kill(pid, 0)).
+    void run_services_tick() {
+#ifndef _WIN32
+        if (run_services_.empty()) return;
+        bool dirty = false;
+        const int64_t now = runsrv::run_now_unix();
+        for (auto& s : run_services_) {
+            if (s.desired != "running") continue;
+            // Backoff gate: not yet time to (re)start.
+            if (s.pid <= 0 && s.next_start_after > now) continue;
+            if (s.pid > 0 && runsrv::run_pid_alive(s.pid)) continue;
+
+            // Child exited (or we never spawned / pid was reaped elsewhere).
+            int64_t exit_code = -1;
+            bool have_exit = false;
+            if (s.pid > 0) {
+                int status = 0;
+                const pid_t r =
+                    ::waitpid(static_cast<pid_t>(s.pid), &status, WNOHANG);
+                if (r == static_cast<pid_t>(s.pid)) {
+                    have_exit = true;
+                    if (WIFEXITED(status)) exit_code = WEXITSTATUS(status);
+                    else if (WIFSIGNALED(status)) exit_code = 128 + WTERMSIG(status);
+                } else if (r < 0 && errno == ECHILD) {
+                    // Adopted pid from a previous daemon: liveness says dead,
+                    // exit status is unrecoverable — treat as failure.
+                    have_exit = true;
+                }
+            }
+            if (s.pid > 0 && !have_exit && runsrv::run_pid_alive(s.pid))
+                continue;  // race: alive again — leave it be
+
+            const bool clean_exit = have_exit && exit_code == 0;
+            s.last_exit_code = have_exit ? exit_code : -1;
+            auto decision = runsrv::run_supervise_after_exit(
+                s, s.last_exit_code, clean_exit, now);
+            if (decision.give_up) {
+                s.restart_count = decision.next_restart_count;
+                s.pid = -1;
+                s.desired = "stopped";  // circuit breaker: operator decides
+                dirty = true;
+                log_event("run_give_up", s.name + " failures=" +
+                          std::to_string(s.restart_count));
+                continue;
+            }
+            if (!decision.restart) {
+                s.pid = -1;
+                dirty = true;
+                log_event("run_exited", s.name + " exit=" +
+                          std::to_string(s.last_exit_code));
+                continue;
+            }
+            // Restart under backoff.
+            s.restart_count = decision.next_restart_count;
+            s.next_start_after = now + decision.backoff_secs;
+            s.pid = -1;
+            dirty = true;
+            log_event("run_restart_scheduled", s.name + " failure=" +
+                      std::to_string(s.restart_count) + " backoff=" +
+                      std::to_string(decision.backoff_secs) + "s");
+        }
+        // Second pass: due restarts.
+        for (auto& s : run_services_) {
+            if (s.desired != "running" || s.pid > 0) continue;
+            const int64_t now2 = runsrv::run_now_unix();
+            if (s.next_start_after > now2) continue;
+            if (run_service_spawn(s)) dirty = true;
+        }
+        if (dirty) (void)run_services_save();
+#endif
+    }
+
+    // BS_START <name> <b64-command> — register + spawn immediately.
+    std::string run_ipc_start(const std::string& name, const std::string& b64cmd) {
+        const std::string command = b64dec(b64cmd);
+        if (!runsrv::run_service_name_valid(name))
+            return "ERROR invalid service name (use [A-Za-z0-9:._-], <=64)\n";
+        if (command.empty() || command.size() > 8192)
+            return "ERROR empty or oversized command\n";
+        if (run_service_find(name))
+            return "ERROR service already exists: " + name + "\n";
+        runsrv::RunServiceState s;
+        s.name = name;
+        s.command = command;
+        s.desired = "running";
+        s.created_at = runsrv::run_now_unix();
+        if (!run_service_spawn(s)) {
+#ifdef _WIN32
+            return "ERROR bs run is not supported on this platform yet\n";
+#else
+            return "ERROR spawn failed for " + name + "\n";
+#endif
+        }
+        run_services_.push_back(std::move(s));
+        (void)run_services_save();
+        return "OK started " + name + "\n";
+    }
+
+    // BS_STOP <name> — kill the process group and mark stopped.
+    std::string run_ipc_stop(const std::string& name) {
+        auto* s = run_service_find(name);
+        if (!s) return "ERROR no such service: " + name + "\n";
+        s->desired = "stopped";
+#ifdef _WIN32
+        s->pid = -1;
+#else
+        runsrv::run_kill_process_group(s->pid);
+        s->pid = -1;
+#endif
+        s->restart_count = 0;
+        s->next_start_after = 0;
+        (void)run_services_save();
+        log_event("run_stopped", name);
+        return "OK stopped " + name + "\n";
+    }
+
+    // BS_STATUS [<name>] — JSON list (all) or one service.
+    std::string run_ipc_status(const std::string& name) {
+        nlohmann::json j = nlohmann::json::array();
+        const int64_t now = runsrv::run_now_unix();
+        for (const auto& s : run_services_) {
+            if (!name.empty() && s.name != name) continue;
+            nlohmann::json e;
+            e["name"] = s.name;
+            e["command"] = s.command;
+            e["desired"] = s.desired;
+#ifdef _WIN32
+            e["state"] = s.desired == "running" ? "unsupported" : "stopped";
+#else
+            const bool alive = s.pid > 0 && runsrv::run_pid_alive(s.pid);
+            e["state"] = s.desired != "running" ? "stopped"
+                       : (s.pid > 0 && alive ? "running"
+                          : (s.next_start_after > now ? "backoff" : "starting"));
+#endif
+            e["pid"] = s.pid;
+            e["restart_count"] = s.restart_count;
+            e["last_exit_code"] = s.last_exit_code;
+            e["next_start_after"] = s.next_start_after;
+            e["created_at"] = s.created_at;
+            j.push_back(e);
+        }
+        return j.dump() + "\n";
+    }
+
+    // BS_LOGS <name> [max_bytes] — tail of the per-service log.
+    std::string run_ipc_logs(const std::string& name, size_t max_bytes) {
+        auto* s = run_service_find(name);
+        if (!s) return "ERROR no such service: " + name + "\n";
+        if (max_bytes == 0 || max_bytes > 262144) max_bytes = 16384;
+        const std::string path =
+            runsrv::run_service_log_path(home_dir_, name);
+        std::ifstream f(path, std::ios::binary | std::ios::ate);
+        if (!f) return "OK \n";  // no output yet
+        const std::streamoff size = f.tellg();
+        const std::streamoff start = (size > static_cast<std::streamoff>(max_bytes))
+            ? size - static_cast<std::streamoff>(max_bytes)
+            : std::streamoff{0};
+        f.seekg(start);
+        std::string body((std::istreambuf_iterator<char>(f)),
+                         std::istreambuf_iterator<char>());
+        return "OK " + b64enc(body) + "\n";
+    }
+
     void run() {
         running_ = true;
 
@@ -1566,6 +1820,12 @@ public:
         catch (const std::exception& e) { log_event("session_adopt_failed", e.what()); }
         catch (...) { log_event("session_adopt_failed", "unknown error"); }
 #endif
+        // `bs run` services: reload persisted state, re-adopt still-live pids,
+        // and restart anything that died while the daemon was down.
+        try { run_services_load(); } catch (const std::exception& e) {
+            log_event("run_state_load_failed", e.what());
+        } catch (...) { log_event("run_state_load_failed", "unknown error"); }
+        run_services_tick();
 
         // Boot-time network readiness gate: wait for at least one seed before
         // entering the event loop (config: mesh.startup_wait_secs, default 30).
@@ -1783,6 +2043,12 @@ public:
             // drains final output and emits SessionDied. Reaping it here first
             // steals waitpid() and leaves the client waiting forever.
             sessions_.reap_dead(false);
+
+            // 11. `bs run` supervision (liveness + backoff restarts) — 1s cadence
+            if (now - last_run_service_tick_ >= std::chrono::seconds(1)) {
+                run_services_tick();
+                last_run_service_tick_ = now;
+            }
             (void)nfds; // readiness is driven by poll revents, not the count
         }
 
