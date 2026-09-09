@@ -243,6 +243,16 @@ constexpr int kAcceptHandshakeTimeoutMs = 2000;
 // (check_conn_read's catch closes the conn; backoff redials) instead of a freeze.
 // This applies only after select() reports frame data; idle healthy links do not
 // enter the blocking read, so the bound can stay below the ping cadence.
+// True when compiled for (or running app binaries on) Windows. Used to pick
+// cmd.exe-safe shell syntax (2>NUL vs 2>/dev/null) in generated commands.
+inline bool sys_is_windows() {
+#ifdef _WIN32
+    return true;
+#else
+    return false;
+#endif
+}
+
 constexpr int kPeerRecvTimeoutMs = 3000;
 constexpr uint16_t kDefaultMeshCliPort = 19980;
 
@@ -422,17 +432,12 @@ inline void cleanup_terminal_modes_soft() {
     std::cout << terminal_cleanup_sequence(/*leave_alt_screen=*/false) << std::flush;
 }
 
-// Reconnect status line, drawn on the bottom row of the CURRENT screen
-// (alt-screen stays up — the remote TUI remains visible behind it).
-// Reverse-video badge: ⟳ peer · reconnecting — attempt N · B held · Ctrl-D quit.
-inline std::string reconnect_status_line(const std::string& peer, int attempt,
-                                         size_t buffered_bytes, uint16_t cols,
-                                         uint16_t rows) {
-    std::string label = " ⟳ " + peer + " · reconnecting — attempt "
-                        + std::to_string(attempt);
-    if (buffered_bytes > 0)
-        label += " · " + std::to_string(buffered_bytes) + "B held";
-    label += " · Ctrl-D quit";
+// Shared renderer: draws `label` reverse-video on the bottom row of the
+// CURRENT screen, width-padded, cursor saved/restored. All reconnect-time
+// overlay output goes through this so nothing ever smears into the frozen
+// remote TUI frame.
+inline std::string render_bottom_row(std::string label, uint16_t cols,
+                                     uint16_t rows) {
     size_t width = cols > 0 ? cols : 80;
     if (label.size() > width) label.resize(width);
     std::string r = std::string("\x1b") + "7" + "\x1b[" + std::to_string(rows) + ";1H\x1b[7m" + label;
@@ -441,9 +446,49 @@ inline std::string reconnect_status_line(const std::string& peer, int attempt,
     return r;
 }
 
+inline std::string erase_bottom_row(uint16_t rows) {
+    return std::string("\x1b") + "7" + "\x1b[" + std::to_string(rows) + ";1H\x1b[2K" + std::string("\x1b") + "8";
+}
+
+// One-shot "transport lost" notice, drawn on the bottom row (replaces the old
+// unanchored stderr line that smeared over the remote TUI's last frame).
+inline std::string reconnect_notice_line(const std::string& peer, uint16_t cols,
+                                         uint16_t rows) {
+    std::string label = "[transport lost — reconnecting to " + peer + " · Ctrl-D quit]";
+    return render_bottom_row(label, cols, rows);
+}
+
+// Reconnect status line, drawn on the bottom row of the CURRENT screen
+// (alt-screen stays up — the remote TUI remains visible behind it).
+// Reverse-video badge: ⟳ peer · reconnecting — attempt N · B held · Ctrl-D quit.
+// `prev_rows` (optional) erases a badge previously drawn on a different row
+// (resize during the outage) so it cannot be stranded on screen.
+inline std::string reconnect_status_line(const std::string& peer, int attempt,
+                                         size_t buffered_bytes, uint16_t cols,
+                                         uint16_t rows, uint16_t prev_rows = 0) {
+    std::string label = " ⟳ " + peer + " · reconnecting — attempt "
+                        + std::to_string(attempt);
+    if (buffered_bytes > 0)
+        label += " · " + std::to_string(buffered_bytes) + "B held";
+    label += " · Ctrl-D quit";
+    std::string r;
+    if (prev_rows != 0 && prev_rows != rows) r += erase_bottom_row(prev_rows);
+    r += render_bottom_row(label, cols, rows);
+    return r;
+}
+
 // Erases the reconnect status line (bottom row only), restoring the cursor.
 inline std::string reconnect_status_clear(uint16_t rows) {
-    return std::string("\x1b") + "7" + "\x1b[" + std::to_string(rows) + ";1H\x1b[2K" + std::string("\x1b") + "8";
+    return erase_bottom_row(rows);
+}
+
+// Surface reset emitted just before the server's scrollback replay after a
+// successful reconnect: attribute reset, clear-screen, cursor-home, and a
+// guaranteed visible cursor. The replay then paints the remote TUI over a
+// clean slate instead of mashing a new frame over stale fragments — and a
+// plain (non-TUI) shell reattach still ends with a visible cursor.
+inline std::string reattach_surface_reset() {
+    return std::string("\x1b[0m\x1b[2J\x1b[H\x1b[?25h");
 }
 
 #ifdef _WIN32

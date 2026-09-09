@@ -22,6 +22,48 @@ Notable user-visible changes. Git history contains implementation-level detail.
   allowed only via an explicit `--via-run-script` init (no PowerShell bodies
   pushed); the default path is POSIX push to Unix peers.
 
+### Added
+
+- **Phase 3, first slice — signed mesh enrollment hardening.** The seed already
+  signs a directory enrollment at `bs join` time and gossips it so every peer
+  auto-trusts the new node's key with no manual `peers add --pubkey`. This
+  slice closes the verification gaps: a **replay guard** (consumed enrollment
+  ids `issuer|pubkey|issued_at` are remembered, so a signed token is
+  single-use mesh-wide and a replayed frame can never re-trust a key),
+  **mixed-version gating** via the new additive `+enroll` Hello capability
+  (peers that do not advertise it are never sent a `DirectoryEnrollMsg`, and
+  one arriving from a peer without the capability is rejected at the trust
+  boundary), and `bs fleet` now lists `enroll` in each peer's `caps` array.
+  `mesh.require_seed_pins` stays the trust root: enrollment accepts
+  signatures only from explicitly pinned seed keys. Covered by
+  `tests/test_enroll_lane3.cpp` (sign/verify, replay rejection,
+  require_seed_pins interplay, expiry, capability parsing).
+## 26.09.10 (in progress)
+
+### Added
+
+- **`bs run` — persistent background services supervised by the mesh.**
+  `bs run <peer|--self> --name <name> -- <cmd...>` launches a command
+  detached from any session; the daemon supervises it (crash restarts with
+  exponential backoff capped at 60s, gives up after 10 consecutive
+  failures, clean exits stay dead), and state persists in
+  `state/run-services.json` so supervision survives daemon restarts.
+  Inspect and control with `bs run --self --status [name]`,
+  `--stop <name>` (kills the process group), and `--logs <name>`.
+
+### Fixed
+
+- **Transport loss no longer dirties the screen.** The "transport lost"
+  announce is now drawn on the protected bottom row (same primitive as the
+  reconnect badge) instead of a raw stderr line that smeared over the frozen
+  remote TUI frame. The badge erase on reconnect uses the row the badge was
+  actually drawn on, so a terminal resize during the outage can no longer
+  strand a stale badge on the wrong row. On successful reattach the client
+  resets the surface (clear + home + visible cursor) just before the server's
+  scrollback replay, so the remote TUI repaints over a clean slate instead of
+  mashing a new frame over stale fragments of the old one.
+
+
 ## 26.09.09
 
 ### Added

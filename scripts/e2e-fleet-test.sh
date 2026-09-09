@@ -201,6 +201,22 @@ shell_hostname_cmd() {
   esac
 }
 
+# Run a --cmd probe and retry until real command output appears (a read that
+# returns only the TLS banner / blank lines is a transport race, not a test
+# failure — seen live right after daemon restarts).
+shell_probe_with_retry() {
+  local peer="$1" cmd="$2" tries="${3:-3}" out i
+  for i in $(seq 1 "$tries"); do
+    out="$(run_to "$BS_BIN" shell "$peer" --cmd "$cmd" 2>&1 || true)"
+    if printf '%s\n' "$out" | grep -qv -E 'Using direct TLS|^[[:space:]]*$'; then
+      printf '%s\n' "$out"
+      return 0
+    fi
+    sleep 2
+  done
+  printf '%s\n' "$out"
+}
+
 shell_version_cmd() {
   case "$1" in
     windows)
@@ -241,7 +257,7 @@ test_peer() {
   record PASS "$peer" os_detect "$os"
 
   # shell hostname
-  out="$(run_to "$BS_BIN" shell "$peer" --cmd "$(shell_hostname_cmd "$os")" 2>&1 || true)"
+  out="$(shell_probe_with_retry "$peer" "$(shell_hostname_cmd "$os")")"
   out_clean="$(printf '%s\n' "$out" | grep -v -E 'Using direct TLS|^\s*$' | head -5 || true)"
   if [[ -n "$out_clean" ]] && ! assert_contains "$out" "Failed to connect"; then
     record PASS "$peer" shell_hostname "$(echo "$out_clean" | tr '\n' ' ' | head -c 80)"
@@ -258,7 +274,7 @@ test_peer() {
   fi
 
   # remote binary version (best-effort path matrix)
-  out="$(run_to "$BS_BIN" shell "$peer" --cmd "$(shell_version_cmd "$os")" 2>&1 || true)"
+  out="$(shell_probe_with_retry "$peer" "$(shell_version_cmd "$os")")"
   if [[ -n "$EXPECTED_VERSION" ]] && assert_contains "$out" "$EXPECTED_VERSION"; then
     record PASS "$peer" remote_version "$EXPECTED_VERSION"
   elif assert_contains "$out" "26." || assert_contains "$out" "2.0."; then

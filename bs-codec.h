@@ -625,6 +625,11 @@ constexpr size_t   MAX_IMAGE_BYTES       = 50ull * 1024ull * 1024ull;
 
 // Hello.version capability tags (appended as +tag[+tag...]).
 inline constexpr std::string_view kCapFrm2 = "frm2"; // u32 frame length support
+// +enroll: peer understands DirectoryEnrollMsg (signed mesh-directory
+// enrollment issued at join time). Peers that do not advertise it never
+// receive the frame, and enrollments from peers not advertising it are
+// rejected at the trust boundary (26.09.09).
+inline constexpr std::string_view kCapEnroll = "enroll";
 
 enum FrameFlags : uint8_t {
     FLAG_COMPRESSED      = 0x01,
@@ -651,7 +656,8 @@ enum FrameFlags : uint8_t {
 }
 
 [[nodiscard]] inline std::string version_string_with_local_caps() {
-    return std::string(kBridgeSessionsVersion) + "+" + std::string(kCapFrm2);
+    return std::string(kBridgeSessionsVersion) + "+" + std::string(kCapFrm2) +
+           "+" + std::string(kCapEnroll);
 }
 
 // Strip capability tags: "26.08.12-beta3+frm2" → "26.08.12-beta3"

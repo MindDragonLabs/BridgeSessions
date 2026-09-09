@@ -117,13 +117,16 @@ TEST_CASE("create_session applies requested PTY dimensions", "[session][pty-size
 TEST_CASE("nonblocking PTY drain coalesces burst output", "[session][pty-drain]") {
 #ifndef _WIN32
     // Poll until full burst is available — single short sleep+read was flaky under load.
-    auto result = create_session("pty-drain",
-        "python3 -c 'import sys;sys.stdout.write(\"X\"*12000);sys.stdout.flush();sys.stdout.close()'",
-        80, 24, "xterm-256color");
+    // Hermetic burst generator: shell printf builtin + tr (no python3 —
+    // absent in minimal builder containers; a missing generator made the
+    // child exit instantly and starved every retry attempt).
+    const std::string burst_cmd =
+        "printf '%12000s' '' | tr ' ' 'X'";
+    auto result = create_session("pty-drain", burst_cmd, 80, 24, "xterm-256color");
     REQUIRE(result.has_value());
     auto& s0 = *result;
     (void)s0;
-    // Generous budget: python3 cold start + 12k burst on a loaded CI runner
+    // Generous budget: shell cold start + 12k burst on a loaded CI runner
     // can exceed 8s (GitHub Actions flake, 2026-09-07).
     //
     // ALSO tolerate the Linux PTY hangup race: a child that writes one large
@@ -135,9 +138,7 @@ TEST_CASE("nonblocking PTY drain coalesces burst output", "[session][pty-drain]"
     // attempt that completes.
     size_t best_len = 0;
     for (int attempt = 0; attempt < 5; ++attempt) {
-        auto retry = create_session("pty-drain",
-            "python3 -c 'import sys;sys.stdout.write(\"X\"*12000);sys.stdout.flush();sys.stdout.close()'",
-            80, 24, "xterm-256color");
+        auto retry = create_session("pty-drain", burst_cmd, 80, 24, "xterm-256color");
         REQUIRE(retry.has_value());
         std::string output = read_session_output(*retry, 20000);
         terminate_session_child(*retry);

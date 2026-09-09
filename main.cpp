@@ -1265,6 +1265,36 @@ int bridgesessions_main(int argc, char** argv) {
     api_cmd->add_option("verb", api_verb, "sessions | peers | daemon | events")->required();
     api_cmd->add_option("arg", api_arg, "Optional argument (events: since_id)");
 
+    // 26.09.10: `bs run` — persistent background services supervised by the
+    // daemon (lane 1). Not a foreground desktop app: the command runs detached
+    // from any session, restarts with backoff on failure, and survives daemon
+    // restarts via state/run-services.json.
+    auto* run_cmd = app.add_subcommand("run",
+        "Launch a command as a persistent background service (daemon-supervised)");
+    std::string run_peer;
+    std::string run_name;
+
+    std::string run_stop_name;
+    std::string run_logs_name;
+    bool run_status_flag = false;
+    bool run_self_flag = false;
+    run_cmd->add_flag("--self", run_self_flag, "Target this node (the local daemon)");
+    run_cmd->add_option("--peer", run_peer, "Remote peer (not supported yet)");
+    run_cmd->add_option("--name", run_name, "Service name");
+    run_cmd->add_flag("--status", run_status_flag, "Show service status (filter with --name)");
+    run_cmd->add_option("--stop", run_stop_name, "Stop the named service (kills its process group)");
+    run_cmd->add_option("--logs", run_logs_name, "Tail the named service's log");
+    std::vector<std::string> run_args;
+    run_cmd->add_option("args", run_args, "Command to run (after --)");
+    run_cmd->footer(
+        "Examples:\n"
+        "  bs run --self --name worker -- ./agent.sh        Start a supervised service\n"
+        "  bs run --self --status                            List run services\n"
+        "  bs run --self --status --name worker              One service\n"
+        "  bs run --self --stop worker                       Kill + stop supervision\n"
+        "  bs run --self --logs worker                       Tail the service log\n"
+        "The daemon restarts the command with capped backoff (max 60s) if it fails.");
+
     // ── Detailed help ─────────────────────────────────────────────
     // Top-level display: richer description + example footer. Per-command:
     // `bs <command> --help` shows a detailed description plus EXAMPLES footer.
@@ -1826,6 +1856,119 @@ int bridgesessions_main(int argc, char** argv) {
         }
         std::cout << out << "\n";
         return 0;
+    }
+    // ── bs run dispatch (26.09.10 lane 1) ────────────────────────
+    if (run_cmd->parsed()) {
+        const bool self_target = (run_self_flag || run_peer == "--self" ||
+                                  run_peer == "self" || run_peer.empty());
+        // Status/stop/logs also default to self when no peer is given.
+        if (!self_target) {
+            std::cerr << "bs run: remote peer launch is not supported yet; "
+                         "use --self (or omit the peer)\n";
+            return 2;
+    }
+#ifdef _WIN32
+        std::cerr << "bs run: not supported on Windows yet (scheduled-task "
+                     "worker pattern pending)\n";
+        return 2;
+#endif
+        // Verify the daemon is reachable up front for better errors.
+        if (!run_status_flag && run_stop_name.empty() && run_logs_name.empty()) {
+            // Start path: require --name and a command after --
+            if (run_name.empty()) {
+                std::cerr << "bs run: --name is required\n";
+                return 2;
+            }
+            if (run_args.empty()) {
+                std::cerr << "bs run: no command given (use: bs run --self "
+                             "--name <n> -- <cmd...>)\n";
+                return 2;
+            }
+            const std::string command = bs::mesh::runsrv::run_join_command(run_args);
+            if (!bs::mesh::runsrv::run_service_name_valid(run_name)) {
+                std::cerr << "bs run: invalid service name '" << run_name
+                          << "' (use [A-Za-z0-9:._-], max 64 chars)\n";
+                return 2;
+            }
+            std::string out = daemon_simple_ipc(
+                "BS_START " + run_name + " " + bs::mesh::b64enc(command), 5000, home_dir);
+            if (out.empty()) {
+                std::cerr << "daemon not reachable — start it with "
+                             "`bridgesessions --daemon`\n";
+                return 1;
+            }
+            if (out.rfind("ERROR", 0) == 0) { std::cerr << out << "\n"; return 1; }
+            std::cout << out << "\n";
+            return 0;
+        }
+        if (run_status_flag) {
+            std::string filter = run_name;
+            std::string out = daemon_simple_ipc(
+                filter.empty() ? std::string("BS_STATUS")
+                                : "BS_STATUS " + filter,
+                3000, home_dir);
+            if (out.empty()) {
+                std::cerr << "daemon not reachable — start it with "
+                             "`bridgesessions --daemon`\n";
+                return 1;
+            }
+            if (out.rfind("ERROR", 0) == 0) { std::cerr << out << "\n"; return 1; }
+            // Pretty-print the JSON status list.
+            try {
+                auto j = nlohmann::json::parse(out);
+                if (j.empty()) { std::cout << "No run services.\n"; return 0; }
+                std::cout << "NAME        STATE     PID       RESTARTS  LAST-EXIT  COMMAND\n";
+                for (const auto& e : j) {
+                    auto pad = [](const std::string& v, size_t w) {
+                        return v.size() >= w ? v : v + std::string(w - v.size(), ' ');
+                    };
+                    std::cout << pad(e.value("name", ""), 12) << " "
+                              << pad(e.value("state", ""), 10) << " "
+                              << pad(std::to_string(e.value("pid", (long long)-1)), 10) << " "
+                              << pad(std::to_string(e.value("restart_count", 0)), 10) << " "
+                              << pad(std::to_string(e.value("last_exit_code", (long long)0)), 11)
+                              << " " << e.value("command", "") << "\n";
+                }
+            } catch (...) {
+                std::cout << out << "\n";
+            }
+            return 0;
+        }
+        if (!run_stop_name.empty()) {
+            std::string out = daemon_simple_ipc("BS_STOP " + run_stop_name,
+                                                15000, home_dir);
+            if (out.empty()) {
+                std::cerr << "daemon not reachable — start it with "
+                             "`bridgesessions --daemon`\n";
+                return 1;
+            }
+            if (out.rfind("ERROR", 0) == 0) { std::cerr << out << "\n"; return 1; }
+            std::cout << out << "\n";
+            return 0;
+        }
+        if (!run_logs_name.empty()) {
+            std::string out = daemon_simple_ipc("BS_LOGS " + run_logs_name + " 16384",
+                                                3000, home_dir);
+            if (out.empty()) {
+                std::cerr << "daemon not reachable — start it with "
+                             "`bridgesessions --daemon`\n";
+                return 1;
+            }
+            if (out.rfind("ERROR", 0) == 0) { std::cerr << out << "\n"; return 1; }
+            if (out.rfind("OK ", 0) == 0) {
+                std::string body = bs::mesh::b64dec(out.substr(3));
+                // Trim the trailing newline the IPC protocol appends.
+                while (!body.empty() && body.back() == '\n') body.pop_back();
+                if (body.empty()) std::cout << "(no log output yet)\n";
+                else std::cout << body << "\n";
+            } else {
+                std::cout << out << "\n";
+            }
+            return 0;
+        }
+        std::cerr << "bs run: nothing to do (use --name + -- <cmd>, --status, "
+                     "--stop, or --logs)\n";
+        return 2;
     }
     if (peers_list->parsed()) {
         bs::mesh::MeshConfig cfg = bs::mesh::load_config(config_path);
@@ -2716,23 +2859,109 @@ int bridgesessions_main(int argc, char** argv) {
         const std::string download_url = base_url + "/" + binary_name;
         const std::string sums_url = base_url + "/SHA256SUMS";
 
-        std::cout << "→ Downloading " << binary_name << " from " << download_url << "\n";
-        bs::log::get("upgrade")->info("downloading {} from {}", binary_name, download_url);
+        // Resolve download targets. On a PRIVATE repo browser_download_url
+        // 404s for everyone — assets must come from the API asset endpoint
+        // with a token (Accept: application/octet-stream). Token source:
+        // BRIDGESESSIONS_GITHUB_TOKEN, else GH_TOKEN, else GITHUB_TOKEN.
+        // No token → anonymous browser URLs (public installs). The token is
+        // passed to curl via a config file, never argv (process-list scrub).
+        std::string gh_token;
+        for (const char* env : {"BRIDGESESSIONS_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN"}) {
+            if (const char* v = std::getenv(env); v && *v) { gh_token = v; break; }
+        }
+        std::string bin_dl = download_url;
+        std::string sums_dl = sums_url;
+        std::string curl_auth_cfg;   // temp curl config file carrying auth headers
+        if (!gh_token.empty()) {
+            const std::string api_release_url =
+                "https://api.github.com/repos/MindDragonLabs/BridgeSessions/releases/tags/v" + tag;
+            std::string release_json = bs::mesh::create_private_temp_file("rel", "");
+            if (release_json.empty()) {
+                std::cerr << "upgrade: cannot create release-lookup temp file\n";
+                return 1;
+            }
+            std::string rel_cmd = "curl -sS -H \"Accept: application/vnd.github+json\" -o " +
+                bs::mesh::shell_arg_quote(release_json) + " " +
+                bs::mesh::shell_arg_quote(api_release_url) +
+                (bs::mesh::sys_is_windows() ? " 2>NUL" : " 2>/dev/null");
+            const int rel_rc = std::system(rel_cmd.c_str());
+            bool resolved = false;
+            if (rel_rc == 0) {
+                std::ifstream rel_in(release_json);
+                std::string jbuf((std::istreambuf_iterator<char>(rel_in)),
+                                 std::istreambuf_iterator<char>());
+                try {
+                    auto j = nlohmann::json::parse(jbuf);
+                    if (j.contains("assets") && j["assets"].is_array()) {
+                        for (const auto& a : j["assets"]) {
+                            const std::string name = a.value("name", "");
+                            if (name == binary_name)
+                                bin_dl = "https://api.github.com/repos/MindDragonLabs/BridgeSessions/releases/assets/" +
+                                         std::to_string(a.value("id", 0));
+                            else if (name == "SHA256SUMS")
+                                sums_dl = "https://api.github.com/repos/MindDragonLabs/BridgeSessions/releases/assets/" +
+                                          std::to_string(a.value("id", 0));
+                        }
+                        resolved = bin_dl != download_url && sums_dl != sums_url;
+                        if (!resolved)
+                            std::cerr << "upgrade: release v" << tag
+                                      << " found but expected assets are missing\n";
+                    } else {
+                        std::cerr << "upgrade: GitHub API did not return a release for v"
+                                  << tag << " (bad tag or token lacks repo access)\n";
+                    }
+                } catch (const std::exception& e) {
+                    std::cerr << "upgrade: release lookup parse failed: " << e.what() << "\n";
+                }
+            } else {
+                std::cerr << "upgrade: release lookup failed (curl exit " << rel_rc << ")\n";
+            }
+            ::unlink(release_json.c_str());
+            if (!resolved) return 1;
+            // curl config file carries the auth headers (kept off argv).
+            curl_auth_cfg = bs::mesh::create_private_temp_file("ghtok", "");
+            if (curl_auth_cfg.empty()) {
+                std::cerr << "upgrade: cannot create curl auth config\n";
+                return 1;
+            }
+            {
+                std::ofstream cfg(curl_auth_cfg);
+                cfg << "header = \"Authorization: Bearer " << gh_token << "\"\n";
+                cfg << "header = \"Accept: application/octet-stream\"\n";
+            }
+        }
+
+        // curl wrapper: stderr silenced per-platform (2>/dev/null is not
+        // valid cmd.exe syntax — it failed the whole command BEFORE curl
+        // ran with "The system cannot find the path specified"; cmd.exe
+        // uses 2>NUL. 2026-09-09 RCA of the Server 2016/2020 failures).
+        auto curl_fetch = [&](const std::string& url, const std::string& out) -> int {
+            std::string cmd = "curl -fL -s";
+            if (!curl_auth_cfg.empty()) cmd += " -K " + bs::mesh::shell_arg_quote(curl_auth_cfg);
+            cmd += " -o " + bs::mesh::shell_arg_quote(out) + " " +
+                   bs::mesh::shell_arg_quote(url) +
+                   (bs::mesh::sys_is_windows() ? " 2>NUL" : " 2>/dev/null");
+            return std::system(cmd.c_str());
+        };
+
+        std::cout << "→ Downloading " << binary_name
+                  << (curl_auth_cfg.empty() ? " (public)\n"
+                                            : " via GitHub API (private repo)\n");
+        bs::log::get("upgrade")->info("downloading {} from {}", binary_name, bin_dl);
 
         std::string tmp_path = bs::mesh::create_private_temp_file("upg", "");
         if (tmp_path.empty()) {
             std::cerr << "upgrade: cannot create private temp file\n";
+            if (!curl_auth_cfg.empty()) ::unlink(curl_auth_cfg.c_str());
             return 1;
         }
 
-        // Use curl to download
-        std::string curl_cmd = "curl -fL -s -o " +
-            bs::mesh::shell_arg_quote(tmp_path) + " " +
-            bs::mesh::shell_arg_quote(download_url) + " 2>/dev/null";
-        int rc = std::system(curl_cmd.c_str());
+        const int rc = curl_fetch(bin_dl, tmp_path);
         if (rc != 0) {
             std::cerr << "upgrade: download failed (curl exit " << rc << ")\n";
             bs::log::get("upgrade")->error("download failed (curl exit {})", rc);
+            ::unlink(tmp_path.c_str());
+            if (!curl_auth_cfg.empty()) ::unlink(curl_auth_cfg.c_str());
             return 1;
         }
 
@@ -2748,13 +2977,29 @@ int bridgesessions_main(int argc, char** argv) {
                 ::unlink(tmp_path.c_str());
                 return 1;
             }
-            std::string sums_cmd = "curl -fL -s -o " +
-                bs::mesh::shell_arg_quote(sums_path) + " " +
-                bs::mesh::shell_arg_quote(sums_url) + " 2>/dev/null";
-            if (std::system(sums_cmd.c_str()) != 0) {
+            const int sums_rc = curl_fetch(sums_dl, sums_path);
+            if (sums_rc != 0) {
                 std::cerr << "upgrade: FAILED to download SHA256SUMS — aborting (hash verification is mandatory)\n";
                 ::unlink(tmp_path.c_str());
+                if (!curl_auth_cfg.empty()) ::unlink(curl_auth_cfg.c_str());
                 return 1;
+            }
+            {
+                std::ifstream sums_probe(sums_path);
+                std::string first_line;
+                std::getline(sums_probe, first_line);
+                // sha256sum format: 64 hex chars + two spaces. A 404/HTML body
+                // (curl -f may still exit 0 on some proxies) fails this gate.
+                bool looks_like_sums = first_line.size() > 66 &&
+                    first_line[64] == ' ' && first_line[65] == ' ' &&
+                    first_line.find_first_not_of("0123456789abcdef") == 64;
+                if (!looks_like_sums) {
+                    std::cerr << "upgrade: SHA256SUMS content invalid (private repo without token?) — aborting\n";
+                    ::unlink(tmp_path.c_str());
+                    ::unlink(sums_path.c_str());
+                    if (!curl_auth_cfg.empty()) ::unlink(curl_auth_cfg.c_str());
+                    return 1;
+                }
             }
             // Compare entirely in C++ (2026-09-08 RCA: the old grep|awk|sha256sum
             // shell pipeline is POSIX-only — cmd.exe has no grep/awk/sha256sum,

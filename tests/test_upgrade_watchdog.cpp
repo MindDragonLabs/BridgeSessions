@@ -33,6 +33,8 @@
 #include <unistd.h>
 #include <chrono>
 #include <thread>
+#include <netinet/in.h>
+#include <sys/socket.h>
 
 using namespace std::chrono_literals;
 
@@ -49,13 +51,20 @@ std::string shell_quote(const std::string& s) {
 }
 
 // Same script rules as bs-upgrade-watchdog.h, parameterized for tests.
+// Probe mirrors the product's arm-time selection: bash /dev/tcp when bash
+// exists, curl otherwise — the test must never emit a probe the shell
+// running it cannot execute (dash has no /dev/tcp).
 std::string build_script(const std::string& bin, const std::string& oldb,
                          const std::string& start_cmd, const std::string& log,
-                         const std::string& port) {
+                         const std::string& port, bool have_bash) {
     std::string script;
     script += "sleep 1; ";
     script += "for i in 1 2; do ";
-    script += "  if (exec 3<>/dev/tcp/127.0.0.1/" + port + ") 2>/dev/null; then exit 0; fi; ";
+    if (have_bash)
+        script += "  if (exec 3<>/dev/tcp/127.0.0.1/" + port + ") 2>/dev/null; then exit 0; fi; ";
+    else
+        script += "  curl -m 2 -sk https://127.0.0.1:" + port +
+                  "/ >/dev/null 2>&1; if [ $? -ne 7 ]; then exit 0; fi; ";
     script += "  sleep 1; ";
     script += "done; ";
     script += "echo \"watchdog: rolling back\" >> " + shell_quote(log) + "; ";
@@ -77,7 +86,12 @@ TEST_CASE("upgrade watchdog restores old binary when new daemon never binds", "[
     std::string log = base + "/watchdog.log";
     std::string marker = base + "/start-marker";
     const std::string dead_port = "59999";
-    std::string script = build_script(bin, oldb, "touch " + marker, log, dead_port);
+    // The production armer probes with bash /dev/tcp when bash exists,
+    // curl otherwise. Reproduce that selection so the test runs the same
+    // probe the product would arm on this host (dash containers exercise
+    // the curl path; bash hosts exercise /dev/tcp).
+    const bool have_bash = std::system("command -v bash >/dev/null 2>&1") == 0;
+    std::string script = build_script(bin, oldb, "touch " + marker, log, dead_port, have_bash);
 
     SECTION("rollback fires when port stays dead and old binary exists") {
         { std::ofstream(bin) << "new-binary"; }
@@ -114,29 +128,28 @@ TEST_CASE("upgrade watchdog restores old binary when new daemon never binds", "[
         // marker, so assert on a file only THIS section's script can create.
         const std::string fresh_marker = base + "/fresh-marker";
         std::remove(fresh_marker.c_str());
-        // find a free port by binding one
-        std::string live_port;
-        {
-            FILE* p = popen(
-                "python3 -c \"import socket;s=socket.socket();s.bind(('127.0.0.1',0));print(s.getsockname()[1])\"",
-                "r");
-            char buf[16] = {0};
-            if (p && fgets(buf, sizeof(buf), p)) {
-                live_port = buf;
-                while (!live_port.empty() && (live_port.back() == '\n' || live_port.back() == '\r'))
-                    live_port.pop_back();
-            }
-            if (p) pclose(p);
-        }
-        REQUIRE_FALSE(live_port.empty());
-        // hold the port open for the duration of the probe. setsid so the
-        // listener survives this std::system call's shell exit.
-        std::string launch = "setsid python3 -c \"import socket;s=socket.socket();s.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1);s.bind(('127.0.0.1'," +
-                             live_port + "));s.listen(1);import time;time.sleep(15)\" >/dev/null 2>&1 < /dev/null &";
-        std::system(launch.c_str());
-        std::this_thread::sleep_for(1500ms);
-        std::string ok_script = build_script(bin, oldb, "touch " + fresh_marker, log, live_port);
+        // Hold a live port with a listening socket owned by THIS process:
+        // bind :0, read the assigned port back, listen(1). The watchdog's
+        // bash /dev/tcp probe completes against the kernel accept queue, so
+        // the script must see the port as live. No external interpreter
+        // needed (python3 is absent in minimal builder containers).
+        int listener = ::socket(AF_INET, SOCK_STREAM, 0);
+        REQUIRE(listener >= 0);
+        int reuse = 1;
+        ::setsockopt(listener, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
+        sockaddr_in laddr{};
+        laddr.sin_family = AF_INET;
+        laddr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        laddr.sin_port = 0;
+        REQUIRE(::bind(listener, reinterpret_cast<sockaddr*>(&laddr), sizeof(laddr)) == 0);
+        sockaddr_in got{};
+        socklen_t got_len = sizeof(got);
+        REQUIRE(::getsockname(listener, reinterpret_cast<sockaddr*>(&got), &got_len) == 0);
+        const std::string live_port = std::to_string(ntohs(got.sin_port));
+        REQUIRE(::listen(listener, 1) == 0);
+        std::string ok_script = build_script(bin, oldb, "touch " + fresh_marker, log, live_port, have_bash);
         int rc = std::system(("timeout 60 sh -c " + shell_quote(ok_script)).c_str());
+        ::close(listener);
         REQUIRE(rc == 0);
         REQUIRE_FALSE(std::filesystem::exists(fresh_marker)); // start command never ran
         std::ifstream lm(log);
