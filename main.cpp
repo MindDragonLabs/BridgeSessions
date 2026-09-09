@@ -2859,12 +2859,12 @@ int bridgesessions_main(int argc, char** argv) {
         const std::string download_url = base_url + "/" + binary_name;
         const std::string sums_url = base_url + "/SHA256SUMS";
 
-        // Resolve download targets. On a PRIVATE repo browser_download_url
-        // 404s for everyone — assets must come from the API asset endpoint
-        // with a token (Accept: application/octet-stream). Token source:
-        // BRIDGESESSIONS_GITHUB_TOKEN, else GH_TOKEN, else GITHUB_TOKEN.
-        // No token → anonymous browser URLs (public installs). The token is
-        // passed to curl via a config file, never argv (process-list scrub).
+        // Resolve download targets. Token source (optional, for private
+        // repo operation): BRIDGESESSIONS_GITHUB_TOKEN, else GH_TOKEN, else
+        // GITHUB_TOKEN. With a token, assets resolve via the API asset
+        // endpoint (Accept: application/octet-stream); the token rides in
+        // a curl config file, never argv (process-list scrub). Without a
+        // token → anonymous browser URLs (public installs).
         std::string gh_token;
         for (const char* env : {"BRIDGESESSIONS_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN"}) {
             if (const char* v = std::getenv(env); v && *v) { gh_token = v; break; }
