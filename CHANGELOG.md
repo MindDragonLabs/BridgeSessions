@@ -38,7 +38,7 @@ Notable user-visible changes. Git history contains implementation-level detail.
   signatures only from explicitly pinned seed keys. Covered by
   `tests/test_enroll_lane3.cpp` (sign/verify, replay rejection,
   require_seed_pins interplay, expiry, capability parsing).
-## 26.09.10 (in progress)
+## 26.09.10
 
 ### Added
 
