@@ -1241,6 +1241,36 @@ int bridgesessions_main(int argc, char** argv) {
     api_cmd->add_option("verb", api_verb, "sessions | peers | daemon | events")->required();
     api_cmd->add_option("arg", api_arg, "Optional argument (events: since_id)");
 
+    // 26.09.10: `bs run` — persistent background services supervised by the
+    // daemon (lane 1). Not a foreground desktop app: the command runs detached
+    // from any session, restarts with backoff on failure, and survives daemon
+    // restarts via state/run-services.json.
+    auto* run_cmd = app.add_subcommand("run",
+        "Launch a command as a persistent background service (daemon-supervised)");
+    std::string run_peer;
+    std::string run_name;
+
+    std::string run_stop_name;
+    std::string run_logs_name;
+    bool run_status_flag = false;
+    bool run_self_flag = false;
+    run_cmd->add_flag("--self", run_self_flag, "Target this node (the local daemon)");
+    run_cmd->add_option("--peer", run_peer, "Remote peer (not supported yet)");
+    run_cmd->add_option("--name", run_name, "Service name");
+    run_cmd->add_flag("--status", run_status_flag, "Show service status (filter with --name)");
+    run_cmd->add_option("--stop", run_stop_name, "Stop the named service (kills its process group)");
+    run_cmd->add_option("--logs", run_logs_name, "Tail the named service's log");
+    std::vector<std::string> run_args;
+    run_cmd->add_option("args", run_args, "Command to run (after --)");
+    run_cmd->footer(
+        "Examples:\n"
+        "  bs run --self --name worker -- ./agent.sh        Start a supervised service\n"
+        "  bs run --self --status                            List run services\n"
+        "  bs run --self --status --name worker              One service\n"
+        "  bs run --self --stop worker                       Kill + stop supervision\n"
+        "  bs run --self --logs worker                       Tail the service log\n"
+        "The daemon restarts the command with capped backoff (max 60s) if it fails.");
+
     // ── Detailed help ─────────────────────────────────────────────
     // Top-level display: richer description + example footer. Per-command:
     // `bs <command> --help` shows a detailed description plus EXAMPLES footer.
@@ -1802,6 +1832,119 @@ int bridgesessions_main(int argc, char** argv) {
         }
         std::cout << out << "\n";
         return 0;
+    }
+    // ── bs run dispatch (26.09.10 lane 1) ────────────────────────
+    if (run_cmd->parsed()) {
+        const bool self_target = (run_self_flag || run_peer == "--self" ||
+                                  run_peer == "self" || run_peer.empty());
+        // Status/stop/logs also default to self when no peer is given.
+        if (!self_target) {
+            std::cerr << "bs run: remote peer launch is not supported yet; "
+                         "use --self (or omit the peer)\n";
+            return 2;
+    }
+#ifdef _WIN32
+        std::cerr << "bs run: not supported on Windows yet (scheduled-task "
+                     "worker pattern pending)\n";
+        return 2;
+#endif
+        // Verify the daemon is reachable up front for better errors.
+        if (!run_status_flag && run_stop_name.empty() && run_logs_name.empty()) {
+            // Start path: require --name and a command after --
+            if (run_name.empty()) {
+                std::cerr << "bs run: --name is required\n";
+                return 2;
+            }
+            if (run_args.empty()) {
+                std::cerr << "bs run: no command given (use: bs run --self "
+                             "--name <n> -- <cmd...>)\n";
+                return 2;
+            }
+            const std::string command = bs::mesh::runsrv::run_join_command(run_args);
+            if (!bs::mesh::runsrv::run_service_name_valid(run_name)) {
+                std::cerr << "bs run: invalid service name '" << run_name
+                          << "' (use [A-Za-z0-9:._-], max 64 chars)\n";
+                return 2;
+            }
+            std::string out = daemon_simple_ipc(
+                "BS_START " + run_name + " " + bs::mesh::b64enc(command), 5000, home_dir);
+            if (out.empty()) {
+                std::cerr << "daemon not reachable — start it with "
+                             "`bridgesessions --daemon`\n";
+                return 1;
+            }
+            if (out.rfind("ERROR", 0) == 0) { std::cerr << out << "\n"; return 1; }
+            std::cout << out << "\n";
+            return 0;
+        }
+        if (run_status_flag) {
+            std::string filter = run_name;
+            std::string out = daemon_simple_ipc(
+                filter.empty() ? std::string("BS_STATUS")
+                                : "BS_STATUS " + filter,
+                3000, home_dir);
+            if (out.empty()) {
+                std::cerr << "daemon not reachable — start it with "
+                             "`bridgesessions --daemon`\n";
+                return 1;
+            }
+            if (out.rfind("ERROR", 0) == 0) { std::cerr << out << "\n"; return 1; }
+            // Pretty-print the JSON status list.
+            try {
+                auto j = nlohmann::json::parse(out);
+                if (j.empty()) { std::cout << "No run services.\n"; return 0; }
+                std::cout << "NAME        STATE     PID       RESTARTS  LAST-EXIT  COMMAND\n";
+                for (const auto& e : j) {
+                    auto pad = [](const std::string& v, size_t w) {
+                        return v.size() >= w ? v : v + std::string(w - v.size(), ' ');
+                    };
+                    std::cout << pad(e.value("name", ""), 12) << " "
+                              << pad(e.value("state", ""), 10) << " "
+                              << pad(std::to_string(e.value("pid", (long long)-1)), 10) << " "
+                              << pad(std::to_string(e.value("restart_count", 0)), 10) << " "
+                              << pad(std::to_string(e.value("last_exit_code", (long long)0)), 11)
+                              << " " << e.value("command", "") << "\n";
+                }
+            } catch (...) {
+                std::cout << out << "\n";
+            }
+            return 0;
+        }
+        if (!run_stop_name.empty()) {
+            std::string out = daemon_simple_ipc("BS_STOP " + run_stop_name,
+                                                15000, home_dir);
+            if (out.empty()) {
+                std::cerr << "daemon not reachable — start it with "
+                             "`bridgesessions --daemon`\n";
+                return 1;
+            }
+            if (out.rfind("ERROR", 0) == 0) { std::cerr << out << "\n"; return 1; }
+            std::cout << out << "\n";
+            return 0;
+        }
+        if (!run_logs_name.empty()) {
+            std::string out = daemon_simple_ipc("BS_LOGS " + run_logs_name + " 16384",
+                                                3000, home_dir);
+            if (out.empty()) {
+                std::cerr << "daemon not reachable — start it with "
+                             "`bridgesessions --daemon`\n";
+                return 1;
+            }
+            if (out.rfind("ERROR", 0) == 0) { std::cerr << out << "\n"; return 1; }
+            if (out.rfind("OK ", 0) == 0) {
+                std::string body = bs::mesh::b64dec(out.substr(3));
+                // Trim the trailing newline the IPC protocol appends.
+                while (!body.empty() && body.back() == '\n') body.pop_back();
+                if (body.empty()) std::cout << "(no log output yet)\n";
+                else std::cout << body << "\n";
+            } else {
+                std::cout << out << "\n";
+            }
+            return 0;
+        }
+        std::cerr << "bs run: nothing to do (use --name + -- <cmd>, --status, "
+                     "--stop, or --logs)\n";
+        return 2;
     }
     if (peers_list->parsed()) {
         bs::mesh::MeshConfig cfg = bs::mesh::load_config(config_path);

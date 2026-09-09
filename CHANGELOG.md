@@ -2,6 +2,19 @@
 
 Notable user-visible changes. Git history contains implementation-level detail.
 
+## 26.09.10 (in progress)
+
+### Added
+
+- **`bs run` — persistent background services supervised by the mesh.**
+  `bs run <peer|--self> --name <name> -- <cmd...>` launches a command
+  detached from any session; the daemon supervises it (crash restarts with
+  exponential backoff capped at 60s, gives up after 10 consecutive
+  failures, clean exits stay dead), and state persists in
+  `state/run-services.json` so supervision survives daemon restarts.
+  Inspect and control with `bs run --self --status [name]`,
+  `--stop <name>` (kills the process group), and `--logs <name>`.
+
 ## 26.09.09
 
 ### Added

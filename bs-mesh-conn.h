@@ -438,6 +438,10 @@ private:
     std::optional<LongOperationWorkerPool> worker_pool_;
     static constexpr size_t kLongOperationWorkers = 2;
 
+    // `bs run` persistent background services (26.09.10 lane 1).
+    std::vector<runsrv::RunServiceState> run_services_;
+    std::chrono::steady_clock::time_point last_run_service_tick_{};
+
     // Auto-upgrade: last attempt time per peer (cooldown).
     std::unordered_map<std::string, std::chrono::steady_clock::time_point> auto_upgrade_last_;
 
