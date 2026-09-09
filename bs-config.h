@@ -1850,7 +1850,10 @@ inline bool save_sessions(const std::string& path,
     return true;
 }
 
-// Load session list (supports v1:plain and legacy raw JSON)
+// Load session list (supports v1:plain and legacy raw JSON).
+// 26.09.09: an unparseable state file is quarantined (renamed .corrupt) instead
+// of being silently ignored every startup — a corrupt file used to vanish
+// sessions with no trace and no signal.
 inline std::vector<SessionMeta> load_sessions(const std::string& path) {
     std::ifstream f(path);
     if (!f) return {};
@@ -1858,7 +1861,7 @@ inline std::vector<SessionMeta> load_sessions(const std::string& path) {
     if (!std::getline(f, header)) return {};
     std::string data((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
     std::string plain;
-    if (header == "v1:plain") {
+    if (header == "v1:plain" || header == "v2:plain") {
         plain = data;
     } else {
         plain = header + "\n" + data;  // legacy raw JSON
@@ -1876,7 +1879,16 @@ inline std::vector<SessionMeta> load_sessions(const std::string& path) {
             result.push_back(m);
         }
         return result;
-    } catch (...) { return {}; }
+    } catch (...) {
+        // Quarantine: keep the bytes for inspection, stop them from being
+        // overwritten or re-parsed.
+        std::error_code ec;
+        std::filesystem::rename(path, path + ".corrupt", ec);
+        if (!ec) {
+            log_event("state_quarantined", path + " (unparseable; renamed .corrupt)");
+        }
+        return {};
+    }
 }
 
 // ────────────────────────────────────────────────────────────────────
@@ -1973,11 +1985,104 @@ inline void log_event_at(spdlog::level::level_enum level,
     l->log(level, j.dump());
 }
 
+inline void record_mesh_event(const std::string& event, const std::string& detail);
+
 inline void log_event(const std::string& event, const std::string& detail = "") {
+    record_mesh_event(event, detail);   // in-memory ring for API_EVENTS (26.09.09)
     log_event_at(spdlog::level::info, event, detail);
 }
 
 inline void log_debug_event(const std::string& event, const std::string& detail = "") {
     log_event_at(spdlog::level::debug, event, detail);
+}
+
+// ── Mesh event ring (26.09.09) ──────────────────────────────────────
+// Bounded in-memory event feed for GUI/mobile clients: `API_EVENTS <since_id>`
+// replays everything newer than the cursor. Fed from log_event (a curated
+// whitelist below filters agent/health noise) plus explicit record_mesh_event
+// calls. Monotonic ids; clients poll with their last seen id — no websockets
+// needed over the one-shot local IPC.
+struct MeshEvent {
+    uint64_t id = 0;
+    std::string wall;     // ISO 8601 UTC
+    std::string event;
+    std::string detail;
+};
+
+inline std::mutex& mesh_event_mutex() {
+    static std::mutex m;
+    return m;
+}
+
+inline std::vector<MeshEvent>& mesh_event_ring() {
+    static std::vector<MeshEvent> ring;
+    return ring;
+}
+
+inline uint64_t& mesh_event_next_id() {
+    static uint64_t next = 1;
+    return next;
+}
+
+// Events worth surfacing to clients. Probes/health noise excluded so a fleet
+// of pollers does not drown the ring.
+[[nodiscard]] inline bool mesh_event_worth_recording(const std::string& event) {
+    return event == "session_attached" || event == "session_detached"
+        || event == "session_died" || event == "session_killed"
+        || event == "session_kill_foreign" || event == "session_restart"
+        || event == "mesh_peer_connected" || event == "mesh_conn_close"
+        || event == "mesh_seed_cooldown" || event == "peer_reconnect"
+        || event == "tls_verify_server" || event == "file_transfer_complete"
+        || event == "daemon_started" || event == "daemon_stopping";
+}
+
+inline void record_mesh_event(const std::string& event, const std::string& detail) {
+    if (!mesh_event_worth_recording(event)) return;
+    std::lock_guard lock(mesh_event_mutex());
+    auto& ring = mesh_event_ring();
+    MeshEvent e;
+    e.id = mesh_event_next_id()++;
+    auto now = std::chrono::system_clock::now();
+    auto tt = std::chrono::system_clock::to_time_t(now);
+    std::tm tm{};
+#ifdef _WIN32
+    gmtime_s(&tm, &tt);
+#else
+    gmtime_r(&tt, &tm);
+#endif
+    char tbuf[32]{};
+    std::strftime(tbuf, sizeof(tbuf), "%Y-%m-%dT%H:%M:%SZ", &tm);
+    e.wall = tbuf;
+    e.event = event;
+    e.detail = detail;
+    ring.push_back(std::move(e));
+    constexpr size_t kMaxMeshEvents = 512;
+    if (ring.size() > kMaxMeshEvents)
+        ring.erase(ring.begin(), ring.begin() + static_cast<ptrdiff_t>(ring.size() - kMaxMeshEvents));
+}
+
+// Peer connect/close sites log via log_event — add an explicit connect event so
+// the ring sees peer-up even where only tls_verify_server fires.
+inline uint64_t mesh_events_since_json(uint64_t since_id, std::string& out_json) {
+    std::lock_guard lock(mesh_event_mutex());
+    out_json = "[";
+    bool first = true;
+    for (const auto& e : mesh_event_ring()) {
+        if (e.id <= since_id) continue;
+        if (!first) out_json += ",";
+        first = false;
+        out_json += "{\"id\":" + std::to_string(e.id)
+                  + ",\"wall\":\"" + e.wall
+                  + "\",\"event\":\"" + e.event
+                  + "\",\"detail\":\"";
+        for (char c : e.detail) {
+            if (c == '"' || c == '\\') out_json += '\\';
+            if (c == '\n') { out_json += "\\n"; continue; }
+            out_json += c;
+        }
+        out_json += "\"}";
+    }
+    out_json += "]";
+    return mesh_event_next_id() - 1;
 }
 

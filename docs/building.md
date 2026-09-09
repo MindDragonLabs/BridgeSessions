@@ -4,7 +4,7 @@ BridgeSessions needs C++23 and CMake 3.25 or newer.
 
 Dependencies: OpenSSL 3, zstd, spdlog/fmt, CLI11, nlohmann-json, and Catch2 3 for tests.
 
-Current release stamp: **`26.09.08-r3`**. The version string lives in the `VERSION` file at the repo root. CMake reads that file. Bump `VERSION` before you rebuild a release.
+Current release stamp: **`26.09.09`**. The version string lives in the `VERSION` file at the repo root. CMake reads that file. Bump `VERSION` before you rebuild a release.
 
 ## Developer build
 

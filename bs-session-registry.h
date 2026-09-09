@@ -643,6 +643,59 @@ public:
         return out.str();
     }
 
+    // ── JSON rows for the GUI/mobile API (26.09.09) ─────────────
+    // Structured view of every session (live + recent) — the contract the
+    // desktop app consumes. Lives here so it shares the registry lock with
+    // summary() and can never disagree with it.
+    std::string json_rows() const {
+        std::shared_lock lock(mutex_);
+        auto now = std::chrono::steady_clock::now();
+        auto esc = [](const std::string& v) {
+            std::string o;
+            for (char c : v) {
+                if (c == '"' || c == '\\') o += '\\';
+                if (c == '\n') { o += "\\n"; continue; }
+                o += c;
+            }
+            return o;
+        };
+        std::ostringstream out;
+        out << "[";
+        bool first = true;
+        auto emit = [&](const std::string& scope, const std::string& name,
+                        const std::string& state, const std::string& pid,
+                        const std::string& peer, uint64_t uptime_s,
+                        uint64_t bytes, bool has_exit, int32_t exit_code,
+                        const std::string& kind, const std::string& command) {
+            if (!first) out << ",";
+            first = false;
+            out << "{\"scope\":\"" << scope << "\",\"name\":\"" << esc(name)
+                << "\",\"state\":\"" << state << "\",\"pid\":\"" << pid
+                << "\",\"peer\":\"" << esc(peer) << "\",\"uptime_s\":" << uptime_s
+                << ",\"bytes\":" << bytes;
+            if (has_exit) out << ",\"exit_code\":" << exit_code;
+            out << ",\"kind\":\"" << kind << "\"";
+            if (!command.empty()) out << ",\"command\":\"" << esc(command) << "\"";
+            out << "}";
+        };
+        for (auto& [key, s] : sessions_) {
+            auto uptime = std::chrono::duration_cast<std::chrono::seconds>(
+                now - s->created_at).count();
+            emit("live", s->name, session_state_str(s->state),
+                 session_pid_string(*s),
+                 s->peer_ids.empty() ? "" : s->peer_ids.front(),
+                 static_cast<uint64_t>(uptime),
+                 static_cast<uint64_t>(s->scrollback.total_written()),
+                 false, 0, session_kind_str(s->kind), s->command);
+        }
+        for (auto it = recent_.rbegin(); it != recent_.rend(); ++it) {
+            emit("recent", it->name, it->state, it->pid, it->peer,
+                 it->runtime_seconds, it->bytes, true, it->exit_code, "user", "");
+        }
+        out << "]";
+        return out.str();
+    }
+
     void record_finished(Session& s, int32_t exit_code, const std::string& state) {
         std::unique_lock lock(mutex_);
         record_history_locked(s, exit_code, state);

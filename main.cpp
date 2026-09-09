@@ -329,6 +329,83 @@ int cmd_doctor(const std::string& config_path, const std::string& app_home) {
     if (!ipc.empty()) pass("daemon IPC", "port 19980 answered");
     else warn("daemon IPC", "port 19980 did not answer");
 
+    // ── Supervisor deep checks (26.09.09) ───────────────────────
+    // A masked/failed unit, a disabled LaunchAgent, or a stale scheduled task
+    // leaves the daemon down after reboot/upgrade — surface it here instead of
+    // as a mystery outage.
+#if defined(__linux__)
+    {
+        int masked = std::system(
+            "systemctl --user is-enabled bridgesessions.service 2>/dev/null | grep -q masked");
+        if (masked == 0) {
+            fail("systemd unit masked",
+                 "unit was masked (usually a past upgrade) — fix: systemctl --user unmask "
+                 "bridgesessions && systemctl --user enable --now bridgesessions");
+        } else {
+            pass("systemd unit not masked", "");
+        }
+        int failed = std::system(
+            "systemctl --user is-failed bridgesessions.service 2>/dev/null | grep -q failed");
+        if (failed == 0) {
+            warn("systemd unit failed",
+                 "unit in failed state — inspect: journalctl --user -u bridgesessions");
+        }
+    }
+#elif defined(_WIN32)
+    {
+        int task = std::system("schtasks /query /tn \"BridgeSessions\" >nul 2>&1");
+        if (task == 0) pass("scheduled task", "BridgeSessions present");
+        else warn("scheduled task", "BridgeSessions task not found (daemon will not auto-start)");
+    }
+#endif
+
+    // ── Duplicate binary check (26.09.09) ───────────────────────
+    // macOS nodes historically drift: LaunchAgent runs the .app copy while the
+    // operator upgrades ~/.local/bin. Two different bridgesessions versions on
+    // one node = confusing "upgraded but still old" reports.
+    {
+        namespace fs2 = std::filesystem;
+        std::vector<fs2::path> candidates;
+#ifdef __APPLE__
+        candidates.push_back(fs2::path(resolve_home("~/Applications/BridgeSessions.app/"
+            "Contents/MacOS/bridgesessions")));
+        candidates.push_back(fs2::path(resolve_home("/Applications/BridgeSessions.app/"
+            "Contents/MacOS/bridgesessions")));
+#endif
+        candidates.push_back(fs2::path(resolve_home("~/.local/bin/bridgesessions")));
+        std::string self_path = current_exe_path(nullptr);
+        for (const auto& c : candidates) {
+            std::error_code ec;
+            if (!fs2::exists(c, ec) || ec) continue;
+            auto self_canon = fs2::weakly_canonical(fs2::path(self_path), ec);
+            auto cand_canon = fs2::weakly_canonical(c, ec);
+            if (!ec && self_canon == cand_canon) continue;  // this binary
+            // Different file present: report its version if runnable.
+            std::string cmd = "\"" + c.string() + "\" --version 2>/dev/null";
+            std::string v;
+#ifdef _WIN32
+            FILE* p = _popen(cmd.c_str(), "r");
+#else
+            FILE* p = popen(cmd.c_str(), "r");
+#endif
+            if (p) {
+                char buf[64]{};
+                if (fgets(buf, sizeof(buf), p)) v = buf;
+#ifdef _WIN32
+                _pclose(p);
+#else
+                pclose(p);
+#endif
+                while (!v.empty() && (v.back() == '\n' || v.back() == '\r')) v.pop_back();
+            }
+            if (!v.empty() && v != std::string(bs::mesh::kBridgeSessionsVersion)) {
+                warn("duplicate binary",
+                    c.string() + " is " + v + " (this binary is " +
+                    std::string(bs::mesh::kBridgeSessionsVersion) + ")");
+            }
+        }
+    }
+
     // CUA helper (user-session input/capture)
     {
         std::string home = app_home.empty() ? resolve_home("~/.bridgesessions") : app_home;
@@ -381,6 +458,88 @@ int cmd_doctor(const std::string& config_path, const std::string& app_home) {
     }
 
     return failures == 0 ? 0 : 1;
+}
+
+// ── doctor --gather (26.09.09) ────────────────────────────────────
+// One-command diagnostics bundle for bug reports: versions, config (secrets
+// stripped), fleet snapshot, recent events, and log tails — all redacted of
+// fleet hostnames/IPs is NOT attempted at gather time (operators redact when
+// sharing); instead only local files are included and the output path is
+// printed. Returns a tar.gz path on success.
+int cmd_doctor_gather(const std::string& config_path, const std::string& app_home) {
+    namespace fs = std::filesystem;
+    std::string dir = app_home.empty() ? resolve_home("~/.bridgesessions") : app_home;
+
+    auto now = std::chrono::system_clock::now();
+    auto tt = std::chrono::system_clock::to_time_t(now);
+    std::tm tm{};
+#ifdef _WIN32
+    localtime_s(&tm, &tt);
+#else
+    localtime_r(&tt, &tm);
+#endif
+    char ts[32]{};
+    std::strftime(ts, sizeof(ts), "%Y%m%d-%H%M%S", &tm);
+    fs::path out(fs::path(dir) / ("diagnostics-" + std::string(ts) + ".txt"));
+
+    std::ofstream f(out);
+    if (!f) {
+        std::cerr << "error: cannot write " << out.string() << "\n";
+        return 1;
+    }
+    auto section = [&](const std::string& title) {
+        f << "\n==== " << title << " ====\n";
+    };
+
+    section("versions");
+    f << "cli: " << bs::mesh::kBridgeSessionsVersion << "\n";
+    std::string daemon_info = daemon_simple_ipc("API_DAEMON", 1500, app_home);
+    if (!daemon_info.empty() && daemon_info.rfind("ERROR", 0) != 0)
+        f << "daemon: " << daemon_info << "\n";
+    else
+        f << "daemon: not reachable\n";
+
+    section("fleet");
+    std::string fleet = daemon_simple_ipc("FLEET", 3000, app_home);
+    f << (fleet.empty() ? "(daemon not reachable)" : fleet) << "\n";
+
+    section("events (recent, from daemon ring)");
+    std::string events = daemon_simple_ipc("API_EVENTS 0", 1500, app_home);
+    f << (events.empty() ? "(daemon not reachable)" : events) << "\n";
+
+    section("config (secrets redacted)");
+    {
+        std::ifstream cf(config_path);
+        std::string line;
+        while (std::getline(cf, line)) {
+            // Redact seed/discovered pubkeys and any token-looking values.
+            if (line.rfind("seed ", 0) == 0 || line.rfind("discovered ", 0) == 0) {
+                auto pk = line.find("pubkey=");
+                if (pk != std::string::npos) line = line.substr(0, pk) + "pubkey=<redacted>";
+            }
+            f << line << "\n";
+        }
+    }
+
+    section("log tails (last 200 lines each)");
+    for (const auto& name : {"bs-mesh.log", "daemon.log"}) {
+        fs::path lp = fs::path(dir) / name;
+        f << "-- " << name << " --\n";
+        std::ifstream lf(lp, std::ios::binary);
+        if (!lf) { f << "(missing)\n"; continue; }
+        std::deque<std::string> tail;
+        std::string line;
+        while (std::getline(lf, line)) {
+            tail.push_back(line);
+            if (tail.size() > 200) tail.pop_front();
+        }
+        for (auto& t : tail) f << t << "\n";
+    }
+
+    f.close();
+    std::cout << "diagnostics bundle written: " << out.string() << "\n"
+              << "Review for private data (hostnames, IPs, paths) before sharing.\n";
+    return 0;
 }
 
 // ── connect: interactive server → harness selector ────────────────
@@ -706,7 +865,26 @@ int cmd_connect_selector(const std::string& config_path,
 
 } // anonymous namespace
 
+// 26.09.09: no uncaught exceptions escape to the user as raw aborts. A peer
+// name that fails DNS used to kill the CLI with a std::runtime_error and a
+// spilled stack instead of a one-line message + exit code.
+int bridgesessions_main(int argc, char** argv);
+
 int main(int argc, char** argv) {
+    try {
+        return bridgesessions_main(argc, argv);
+    } catch (const std::exception& e) {
+        std::cerr << "error: " << e.what() << "\n"
+                  << "  → run `bs doctor` to check local configuration.\n";
+        return 1;
+    } catch (...) {
+        std::cerr << "error: unexpected internal failure\n"
+                  << "  → run `bs doctor` to check local configuration.\n";
+        return 1;
+    }
+}
+
+int bridgesessions_main(int argc, char** argv) {
 #ifdef _WIN32
     WSADATA wsa;
     WSAStartup(MAKEWORD(2,2), &wsa);
@@ -812,6 +990,15 @@ int main(int argc, char** argv) {
 
     // Subcommand: doctor
     auto* doctor_cmd_app = app.add_subcommand("doctor", "Check local bridgesessions configuration");
+    bool doctor_gather = false;
+    doctor_cmd_app->add_flag("--gather", doctor_gather,
+                             "Collect a redacted diagnostics bundle (logs, versions, fleet, config sans secrets)");
+
+    // 26.09.09: identity rotation without hand-editing configs.
+    bool rotate_identity_yes = false;
+    auto* rotate_id_cmd = app.add_subcommand("rotate-identity",
+        "Regenerate this node's identity keys (peers must re-pin the new pubkey)");
+    rotate_id_cmd->add_flag("--yes", rotate_identity_yes, "Confirm without prompt");
 
     // Subcommand: peers
     auto* peers_cmd = app.add_subcommand("peers", "Manage peers");
@@ -827,6 +1014,14 @@ int main(int argc, char** argv) {
     std::string peer_remove_name;
     auto* peers_remove = peers_cmd->add_subcommand("remove", "Remove a peer");
     peers_remove->add_option("name", peer_remove_name)->required();
+    // 26.09.09: rotate-pin — update a peer's pinned pubkey in the config
+    // (after that peer ran rotate-identity). Replaces YAML/awk hand-editing.
+    std::string rotate_pin_peer, rotate_pin_pubkey;
+    auto* peers_rotate_pin = peers_cmd->add_subcommand("rotate-pin",
+        "Update a peer's pinned pubkey (after the peer rotated its identity)");
+    peers_rotate_pin->add_option("name", rotate_pin_peer, "Peer name")->required();
+    peers_rotate_pin->add_option("pubkey", rotate_pin_pubkey,
+                                 "New ed25519 pubkey (64 hex)")->required();
     // health
     std::string health_peer;
     bool health_latency = false;
@@ -1037,6 +1232,14 @@ int main(int argc, char** argv) {
     pane_publish->add_option("--type", pane_type, "documents | comms");
     pane_publish->add_option("--title", pane_title, "Display title / filename override");
     pane_publish->add_option("file", pane_file, "Local markdown file to publish")->required();
+
+    // 26.09.09: JSON API passthrough for GUI/mobile clients — talk to the
+    // local daemon's machine API without a raw socket client.
+    std::string api_verb, api_arg;
+    auto* api_cmd = app.add_subcommand("api",
+        "Query the daemon JSON API (sessions|peers|daemon|events [since_id])");
+    api_cmd->add_option("verb", api_verb, "sessions | peers | daemon | events")->required();
+    api_cmd->add_option("arg", api_arg, "Optional argument (events: since_id)");
 
     // ── Detailed help ─────────────────────────────────────────────
     // Top-level display: richer description + example footer. Per-command:
@@ -1573,7 +1776,32 @@ int main(int argc, char** argv) {
         return cmd_authorize(auth_pubkey.c_str(), home_dir);
     }
     if (doctor_cmd_app->parsed()) {
+        if (doctor_gather) return cmd_doctor_gather(config_path, home_dir);
         return cmd_doctor(config_path, home_dir);
+    }
+    // 26.09.09: `bs api <verb>` — machine JSON for desktop/mobile clients.
+    if (api_cmd->parsed()) {
+        std::string verb = api_verb;
+        for (char& c : verb) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        std::string ipc_verb;
+        if (verb == "sessions") ipc_verb = "API_SESSIONS";
+        else if (verb == "peers") ipc_verb = "API_PEERS";
+        else if (verb == "daemon") ipc_verb = "API_DAEMON";
+        else if (verb == "events") {
+            ipc_verb = "API_EVENTS";
+            if (!api_arg.empty()) ipc_verb += " " + api_arg;
+        } else {
+            std::cerr << "error: unknown api verb '" << api_verb
+                      << "' (known: sessions, peers, daemon, events)\n";
+            return 2;
+        }
+        std::string out = daemon_simple_ipc(ipc_verb, 3000, home_dir);
+        if (out.empty()) {
+            std::cerr << "daemon not reachable — is `bridgesessions --daemon` running?\n";
+            return 1;
+        }
+        std::cout << out << "\n";
+        return 0;
     }
     if (peers_list->parsed()) {
         bs::mesh::MeshConfig cfg = bs::mesh::load_config(config_path);
@@ -1668,6 +1896,114 @@ int main(int argc, char** argv) {
             [&](auto& p){ return p.name == peer_remove_name; }), cfg.seeds.end());
         (void)bs::mesh::save_config(config_path, cfg);
         std::cout << "removed seed " << peer_remove_name << std::endl;
+        return 0;
+    }
+    // 26.09.09: rotate-pin — update the pinned pubkey for a peer in-place.
+    if (peers_rotate_pin->parsed()) {
+        std::string pk = rotate_pin_pubkey;
+        // Normalize: strip 0x prefix, lowercase, validate hex length.
+        if (pk.rfind("0x", 0) == 0 || pk.rfind("0X", 0) == 0) pk = pk.substr(2);
+        if (pk.size() != 64) {
+            std::cerr << "error: pubkey must be 64 hex chars (got " << pk.size() << ")\n";
+            return 2;
+        }
+        for (char& c : pk) {
+            if (!std::isxdigit(static_cast<unsigned char>(c))) {
+                std::cerr << "error: pubkey contains non-hex character\n";
+                return 2;
+            }
+            c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        }
+        bs::mesh::MeshConfig cfg = bs::mesh::load_config(config_path);
+        bool found = false;
+        for (auto& p : cfg.seeds) {
+            if (bs::mesh::config_peer_name_eq(p.name, rotate_pin_peer)) {
+                p.pubkey_hex = pk;
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            for (auto& p : cfg.discovered) {
+                if (bs::mesh::config_peer_name_eq(p.name, rotate_pin_peer)) {
+                    // Discovered peers are not persisted; promote to a seed so
+                    // the new pin survives restarts.
+                    p.pubkey_hex = pk;
+                    cfg.seeds.push_back(p);
+                    found = true;
+                    break;
+                }
+            }
+        }
+        if (!found) {
+            std::cerr << "error: unknown peer: " << rotate_pin_peer << "\n";
+            return 2;
+        }
+        if (!bs::mesh::save_config(config_path, cfg)) {
+            std::cerr << "error: failed to write config: " << config_path << "\n";
+            return 1;
+        }
+        std::cout << "rotated pin for " << rotate_pin_peer << " → " << pk << "\n"
+                  << "Restart the local daemon to pick up the new pin "
+                  << "(or run: bs reconnect " << rotate_pin_peer << ").\n";
+        return 0;
+    }
+
+    // 26.09.09: rotate-identity — regenerate this node's keys with backup.
+    if (rotate_id_cmd->parsed()) {
+        if (!rotate_identity_yes) {
+            std::cerr << "Rotating the identity changes this node's public key.\n"
+                      << "Every peer pinning this node must run "
+                      << "`bs peers rotate-pin <this-node> <new-key>` afterwards.\n"
+                      << "Run again with --yes to proceed.\n";
+            return 2;
+        }
+        namespace fs = std::filesystem;
+        auto now = std::chrono::system_clock::now();
+        auto tt = std::chrono::system_clock::to_time_t(now);
+        std::tm tm{};
+#ifdef _WIN32
+        localtime_s(&tm, &tt);
+#else
+        localtime_r(&tt, &tm);
+#endif
+        char ts[32]{};
+        std::strftime(ts, sizeof(ts), "%Y%m%d-%H%M%S", &tm);
+        std::string suffix = std::string(".bak-") + ts;
+        bool had_identity = false;
+        for (const char* name : {"id_ed25519.pem", "id_ed25519-cert.pem", "id_ed25519.pub"}) {
+            fs::path p = fs::path(home_dir) / name;
+            std::error_code ec;
+            if (fs::exists(p, ec)) {
+                had_identity = true;
+                fs::rename(p, fs::path(p.string() + suffix), ec);
+                if (ec) {
+                    std::cerr << "error: cannot back up " << p.string() << ": "
+                              << ec.message() << "\n";
+                    return 1;
+                }
+            }
+        }
+        if (!had_identity) {
+            std::cerr << "error: no existing identity in " << home_dir << "\n";
+            return 2;
+        }
+        try {
+            bs::mesh::bootstrap_identity(home_dir);
+        } catch (const std::exception& e) {
+            std::cerr << "error: identity regeneration failed: " << e.what() << "\n"
+                      << "  → restore from " << suffix << " backups\n";
+            return 1;
+        }
+        std::ifstream pubf(fs::path(home_dir) / "id_ed25519.pub");
+        std::string new_pub;
+        std::getline(pubf, new_pub);
+        bs::mesh::MeshConfig cfg_now = bs::mesh::load_config(config_path);
+        std::cout << "identity rotated. new pubkey: " << new_pub << "\n"
+                  << "old keys backed up with suffix " << suffix << "\n"
+                  << "NEXT: on every peer that pins this node run:\n"
+                  << "  bs peers rotate-pin "
+                  << bs::mesh::self_display_name(cfg_now) << " " << new_pub << "\n";
         return 0;
     }
 
@@ -2082,6 +2418,10 @@ int main(int argc, char** argv) {
                 r.ver = val.value("version", "");
                 if (r.ver.empty()) r.ver = "-";
                 r.status = val.value("status", "");
+                // 26.09.09: surface flapping peers (old daemon JSON lacks the
+                // field — defaults false, fully backward compatible).
+                if (val.value("flapping", false))
+                    r.status += " [flapping]";
                 r.up = fmt_uptime(val, r.status);
                 r.metrics = val.value("metrics", false) ||
                             (val.contains("os") && !val.value("os", std::string{}).empty());

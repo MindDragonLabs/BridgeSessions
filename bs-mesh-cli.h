@@ -6,6 +6,8 @@
 // Does NOT open its own namespace or class — parent file provides it.
 #pragma once
 
+#include <map>  // API_PEERS flap transitions (26.09.09)
+
 public:
     // ── Constructor ───────────────────────────────────────────
 
@@ -526,6 +528,104 @@ public:
             else if (line == "SESSIONS") {
                 response = sessions_.summary() + "\n";
             }
+            // ── JSON API (26.09.09) — stable machine contract for the
+            // desktop/mobile clients. Same token auth as every other verb.
+            else if (line == "API_SESSIONS") {
+                response = sessions_.json_rows() + "\n";
+            }
+            else if (line == "API_PEERS") {
+                // JSON peer directory: live conns + configured seeds/discovered
+                // with dial health + flap detection from the event ring.
+                std::ostringstream out;
+                auto now = std::chrono::steady_clock::now();
+                auto fresh = std::chrono::seconds(config_.pong_timeout_secs > 0
+                                                  ? config_.pong_timeout_secs : 30);
+                // Flap detection: count peer up/down transitions in the ring.
+                std::map<std::string, int> transitions_5m;
+                {
+                    std::lock_guard lock(mesh_event_mutex());
+                    auto cutoff = now - std::chrono::minutes(5);
+                    (void)cutoff;  // ring has wall times, not steady — use count only
+                    for (const auto& e : mesh_event_ring()) {
+                        if (e.event == "mesh_peer_connected" ||
+                            e.event == "mesh_conn_close")
+                            transitions_5m[e.detail.substr(0, e.detail.find(' '))]++;
+                    }
+                }
+                auto jesc = [](const std::string& v) {
+                    std::string o;
+                    for (char c : v) {
+                        if (c == '"' || c == '\\') o += '\\';
+                        o += c;
+                    }
+                    return o;
+                };
+                out << "[";
+                bool first = true;
+                auto emit = [&](const std::string& name, const std::string& addr,
+                                const std::string& state, const std::string& extra,
+                                const std::string& pubkey) {
+                    if (!first) out << ",";
+                    first = false;
+                    int transitions = 0;
+                    auto tit = transitions_5m.find(name);
+                    if (tit != transitions_5m.end()) transitions = tit->second;
+                    out << "{\"name\":\"" << jesc(name) << "\",\"addr\":\""
+                        << jesc(addr) << "\",\"state\":\"" << state << "\"";
+                    if (!pubkey.empty())
+                        out << ",\"pubkey\":\"" << jesc(pubkey) << "\"";
+                    if (!extra.empty()) out << "," << extra;
+                    if (transitions >= 3)
+                        out << ",\"flapping\":true,\"transitions_5m\":" << transitions;
+                    out << "}";
+                };
+                for (auto& c : conns_) {
+                    if (c.purpose != ConnectionPurpose::Mesh || c.sock_fd == INVALID_SOCKET) continue;
+                    bool ok = (now - c.last_pong) <= fresh;
+                    auto age = std::chrono::duration_cast<std::chrono::seconds>(now - c.last_pong).count();
+                    std::ostringstream extra;
+                    extra << "\"last_pong_s\":" << age;
+                    emit(c.peer_name, c.peer_addr, ok ? "healthy" : "no-pong",
+                         extra.str(), c.peer_pubkey);
+                }
+                auto seed_emit = [&](const PeerEntry& p) {
+                    if (p.name.empty() || has_conn_for_addr(p.addr)) return;
+                    std::ostringstream extra;
+                    extra << "\"dial_health\":\"" << seed_dial_health(p.addr, now) << "\"";
+                    emit(p.name, p.addr, "offline", extra.str(), p.pubkey_hex);
+                };
+                for (const auto& s : config_.seeds) seed_emit(s);
+                for (const auto& d : config_.discovered) seed_emit(d);
+                out << "]";
+                response = out.str() + "\n";
+            }
+            else if (line == "API_DAEMON") {
+                std::ostringstream out;
+                auto uptime = std::chrono::duration_cast<std::chrono::seconds>(
+                    std::chrono::steady_clock::now() - started_at_).count();
+                out << "{\"version\":\"" << bs::mesh::kBridgeSessionsVersion
+                    << "\",\"caps\":[\"frm2\",\"api\"],\"node_name\":\""
+                    << config_.node_name << "\",\"listen\":\""
+                    << config_.listen_addr << ":" << config_.listen_port
+                    << "\",\"uptime_s\":" << uptime
+                    << ",\"sessions\":" << sessions_.count()
+                    << ",\"pid\":" << static_cast<long>(getpid())
+                    << "}";
+                response = out.str() + "\n";
+            }
+            else if (line.rfind("API_EVENTS", 0) == 0) {
+                uint64_t since = 0;
+                {
+                    std::istringstream es(line);
+                    std::string verb; es >> verb;
+                    long long v = 0;
+                    if (es >> v) since = v < 0 ? 0 : static_cast<uint64_t>(v);
+                }
+                std::string json;
+                uint64_t cursor = mesh_events_since_json(since, json);
+                response = "{\"cursor\":" + std::to_string(cursor)
+                         + ",\"events\":" + json + "}\n";
+            }
             else if (line == "PEERS") {
                 // One line per live mesh conn: name addr state=... last_pong_s=N
                 std::ostringstream out;
@@ -674,6 +774,15 @@ public:
                     out << ",\"" << gossip_json_escape(c.peer_name) << "\":{";
                     out << "\"addr\":\"" << gossip_json_escape(addr) << "\",";
                     out << "\"version\":\"" << gossip_json_escape(c.remote_version) << "\",";
+                    // 26.09.09: explicit capability list (parsed from Hello
+                    // version "+tag" suffixes) so GUI clients can degrade
+                    // gracefully instead of string-matching versions.
+                    out << "\"caps\":["
+                        << (version_has_cap(c.remote_version, kCapFrm2) ? "\"frm2\"" : "")
+                        << (version_has_cap(c.remote_version, kCapFrm2) &&
+                            version_has_cap(c.remote_version, "api") ? "," : "")
+                        << (version_has_cap(c.remote_version, "api") ? "\"api\"" : "")
+                        << "],";
                     out << "\"status\":\"" << (ok ? "healthy" : "no-pong") << "\",";
                     out << "\"uptime_s\":" << uptime;
                     emit_host_from_json(out, c.remote_host_stats_json);
@@ -2353,8 +2462,19 @@ public:
         std::optional<InteractiveTerminalGuard> terminal_guard;
         try {
             terminal_guard.emplace(signal_forward);
+        } catch (const std::exception& e) {
+            // Never fail silently (26.09.09): a non-TTY stdin (`bs <peer>` from
+            // a script or GUI client) used to die rc=255 with no message here.
+            std::cerr << "error: interactive attach requires a TTY on stdin ("
+                      << e.what() << ")\n"
+                      << "  → from scripts/GUI clients use: bs shell " << resolved.name
+                      << " -x '<command>'\n";
+            return 2;
         } catch (...) {
-            return 255;
+            std::cerr << "error: interactive attach requires a TTY on stdin\n"
+                      << "  → from scripts/GUI clients use: bs shell " << resolved.name
+                      << " -x '<command>'\n";
+            return 2;
         }
 #ifndef _WIN32
         struct sigaction shell_sa{};

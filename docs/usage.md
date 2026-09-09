@@ -72,7 +72,7 @@ Windows and macOS need one helper in the interactive user session. See [Computer
 bs invite
 bs join <seed-address>:19949 <token> --start
 bs upgrade
-bs upgrade --tag 26.09.08-r3
+bs upgrade --tag 26.09.09
 ```
 
 `bs invite` works on a pinned seed. The token is single-use.

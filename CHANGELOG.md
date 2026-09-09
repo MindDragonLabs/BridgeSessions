@@ -2,6 +2,56 @@
 
 Notable user-visible changes. Git history contains implementation-level detail.
 
+## 26.09.09
+
+### Added
+
+- **JSON API for desktop and mobile clients** (`bs api {sessions|peers|daemon|events}`).
+  The daemon now answers four machine-readable verbs over the existing local
+  IPC: `API_SESSIONS` (every live + recent session with state, pid, peer, uptime,
+  bytes, kind, command), `API_PEERS` (live conns + configured seeds/discovered
+  with dial health and a `flapping` flag when ≥3 transitions appear in the
+  in-memory ring), `API_DAEMON` (version + caps + listen + uptime + session
+  count + pid), and `API_EVENTS <since_id>` (cursor-paginated event feed —
+  attaches, detaches, restarts, peer up/down, file transfer completion). Same
+  token auth as every other IPC verb.
+- **Capability negotiation** — peers advertise `+api` in their Hello version;
+  `bs fleet` exposes a `caps` array (e.g. `["frm2","api"]`) so clients can
+  degrade gracefully instead of string-matching versions.
+- **`bs doctor --gather`** writes a redacted diagnostics bundle to
+  `~/.bridgesessions/diagnostics-<ts>.txt` (versions, fleet, recent events,
+  config with pubkeys stripped, last 200 lines of each log) for one-shot bug
+  reports.
+- **`bs doctor` supervisor deep checks** — systemd masked/failed unit detection
+  (with the unblock recipe), Windows `BridgeSessions` scheduled-task presence,
+  and a duplicate-binary warning (e.g. macOS .app vs `~/.local/bin` mismatch).
+- **`bs peers rotate-pin <name> <pubkey>`** — update a peer's pinned pubkey in
+  the config without hand-editing YAML. Normalizes 0x prefix + case.
+- **`bs rotate-identity --yes`** — back up identity keys to `*.bak-<ts>` and
+  regenerate; prints the new pubkey with the exact `rotate-pin` command to run
+  on every peer that pins this node.
+- **State-file quarantine** — an unparseable session JSON is renamed
+  `*.corrupt` instead of silently ignored, so a half-written restart no longer
+  drops sessions with no trace.
+- **Event ring** — every important `log_event` (session/peer state changes,
+  mesh_peer_connected, mesh_conn_close, peer_reconnect, file_transfer_complete)
+  feeds a 512-entry ring buffer keyed by monotonic id; `API_EVENTS <since_id>`
+  is the cursor-paginated client side.
+- **`flapping` flag in `bs fleet`** — counts peer up/down transitions from the
+  ring; surfaces `[flapping]` in the rendered fleet table.
+- **Never-silent-failure guard** — `bs <peer>` from a non-TTY stdin now prints
+  a one-line error + the right `bs shell <peer> -x '...'` escape hatch instead
+  of dying rc=255 with no output. All CLI dispatch is wrapped in a top-level
+  try/catch so uncaught exceptions become `error: ...` + rc=1 instead of an
+  abort.
+
+### Changed
+
+- File transfer resume path is now documented as a public feature (`.part` +
+  sidecar resume receiver-side; up to `kTransferReconnectMax=12` reconnect
+  attempts sender-side with per-chunk resume hint + whole-file SHA256 verify).
+- The `doctor` command supports `--gather` for diagnostics bundles.
+
 ## 26.09.08-r3
 
 ### Fixed
