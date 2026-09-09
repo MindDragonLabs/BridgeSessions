@@ -66,7 +66,7 @@ A separate stream per attachment keeps unrelated output from interleaving and le
 
 | Family | Examples | Purpose |
 |---|---|---|
-| Identity and mesh | `Hello`, `Gossip`, `DirectoryEnroll`, `Ping`, `Pong` | bootstrap, directory, liveness |
+| Identity and mesh | `Hello`, `Gossip`, `DirectoryEnroll` (`+enroll`), `Ping`, `Pong` | bootstrap, directory, liveness |
 | Sessions | `Attach`, `AttachAck`, `Detach`, `SessionList`, `SessionDied`, `Signal` | attach lifecycle, kill, signal |
 | Terminal | `Keystroke`, `Output`, `Resize`, `Scrollback`, `ScrollbackAck` | PTY/ConPTY traffic |
 | Files | `FileMeta`, `FileChunk`, `FileAck`, `FileRequest` | resumable transfer |
@@ -88,6 +88,18 @@ A new connection follows this order:
 6. Promote the transport to a live mesh connection. Earlier frames are dropped.
 
 During a bounded invite window, an unknown certificate may submit a `JoinRequest`. The single-use token is checked before authorization. Successful enrollment is signed; only configured seed keys are accepted as issuers.
+
+### Signed mesh enrollment (phase 3, first slice)
+
+When a node joins, the host signs a `DirectoryEnrollMsg` over the canonical payload `name || pubkey_hex || addr || issuer_pubkey || issued_at` with its Ed25519 identity key and gossips it to every connected peer. Each receiving peer:
+
+1. Verifies the issuer is an explicitly pinned seed key (`seed ... pubkey=`). Enrollment never bypasses `mesh.require_seed_pins`.
+2. Rejects stale tokens (`issued_at` older than 24 hours) and self-vouching.
+3. Verifies the Ed25519 signature over the canonical payload.
+4. Rejects replays: consumed enrollment ids (`issuer|pubkey|issued_at`) are remembered, making a token effectively single-use mesh-wide.
+5. Appends the joiner's key to `authorized_keys` and seeds it as a discovered peer, then re-gossips the enrollment (once per id) so it propagates transitively.
+
+The feature is additive: peers advertise `+enroll` in `Hello.version`. A peer that does not advertise `+enroll` is never sent a `DirectoryEnrollMsg`, and one arriving from a peer that did not advertise the capability is rejected at the trust boundary.
 
 ## Liveness
 

@@ -2,6 +2,22 @@
 
 Notable user-visible changes. Git history contains implementation-level detail.
 
+### Added
+
+- **Phase 3, first slice — signed mesh enrollment hardening.** The seed already
+  signs a directory enrollment at `bs join` time and gossips it so every peer
+  auto-trusts the new node's key with no manual `peers add --pubkey`. This
+  slice closes the verification gaps: a **replay guard** (consumed enrollment
+  ids `issuer|pubkey|issued_at` are remembered, so a signed token is
+  single-use mesh-wide and a replayed frame can never re-trust a key),
+  **mixed-version gating** via the new additive `+enroll` Hello capability
+  (peers that do not advertise it are never sent a `DirectoryEnrollMsg`, and
+  one arriving from a peer without the capability is rejected at the trust
+  boundary), and `bs fleet` now lists `enroll` in each peer's `caps` array.
+  `mesh.require_seed_pins` stays the trust root: enrollment accepts
+  signatures only from explicitly pinned seed keys. Covered by
+  `tests/test_enroll_lane3.cpp` (sign/verify, replay rejection,
+  require_seed_pins interplay, expiry, capability parsing).
 ## 26.09.10 (in progress)
 
 ### Added

@@ -61,24 +61,39 @@ inline void arm_upgrade_watchdog(const std::string& bin_path,
                                  const std::string& home_dir) {
     if (bin_path.empty() || old_path.empty() || start_cmd.empty()) return;
 #ifdef __linux__
-    // Helper script (sh): wait grace, then probe. Probe = TCP connect to the
-    // mesh port via bash /dev/tcp; success exits 0 silently. On final failure
-    // restore the previous binary and start the daemon.
+    // Helper script (sh): wait grace, then probe. Probe selection at arm
+    // time: /dev/tcp is a bash-ism — dash's /bin/sh cannot run it, and arming
+    // a prober the host can't execute would roll back HEALTHY daemons (the
+    // probe fails every round regardless of the real port state). Prefer
+    // bash (present on every server distro); fall back to curl (exit 7 is
+    // connect-refused, any other outcome means the port answered). With
+    // neither, do not arm: an unprobed rollback is worse than none.
     std::string log = home_dir + "/upgrade-watchdog.log";
+    const bool have_bash = std::system("command -v bash >/dev/null 2>&1") == 0;
+    const bool have_curl = std::system("command -v curl >/dev/null 2>&1") == 0;
+    if (!have_bash && !have_curl) {
+        std::ofstream lg(log, std::ios::app);
+        lg << "watchdog: no bash or curl for port probe; not armed\n";
+        return;
+    }
     auto q = [](const std::string& s) {
         std::string out{"'"};
         for (const char c : s) {
             if (c == '\'') out += "'\\''";
             else out += c;
         }
-        out += '\'';
+        out += "'";
         return out;
     };
 
     std::string script;
     script += "sleep 20; ";                                   // grace for new daemon
     script += "for i in 1 2 3 4 5 6; do ";                    // ~60s of probes
-    script += "  if (exec 3<>/dev/tcp/127.0.0.1/" + port + ") 2>/dev/null; then exit 0; fi; ";
+    if (have_bash)
+        script += "  if (exec 3<>/dev/tcp/127.0.0.1/" + port + ") 2>/dev/null; then exit 0; fi; ";
+    else
+        script += "  curl -m 2 -sk https://127.0.0.1:" + port +
+                  "/ >/dev/null 2>&1; if [ $? -ne 7 ]; then exit 0; fi; ";
     script += "  sleep 10; ";
     script += "done; ";
     script += "echo \"$(date -Is) watchdog: new daemon did not bind; rolling back\" >> " + q(log) + "; ";
