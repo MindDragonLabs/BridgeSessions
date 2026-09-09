@@ -40,6 +40,41 @@ Peers serve only from `receive_dir` by default. Do not enable sensitive or arbit
 
 Large binaries can stall a busy mesh hop. Prefer a direct path to the target peer. Keep transfers well under a few megabytes when you use a relay that is not the target.
 
+## Sync pairs (folder mirroring)
+
+```bash
+bs sync pair init <local-dir> <peer>:<remote-dir>       # dry-run manifest, nothing moves
+bs sync pair init <local-dir> <peer>:<remote-dir> --approve
+bs sync pair approve <id>                               # approve the pending manifest
+bs sync pair run <id>                                   # one-shot apply (resumable, hash-verified)
+bs sync pair status [id]
+```
+
+A pair mirrors one local directory to a peer directory through explicit,
+approved manifests — there is no cwd auto-sync and no daemon loop in this
+increment; you run each apply yourself. `init` prints the full manifest
+(classified as create / modify / delete) and persists the pair to
+`~/.bridgesessions/state/sync-pairs.json`; classification is content-hash
+based, and **mtime is never used for ordering** — a Lamport-style logical
+clock (one tick per manifest scan, persisted per pair) positions the pair
+instead, so cross-host clock skew cannot regress data.
+
+Nothing transfers until the dry-run manifest is approved (`--approve` or
+`bs sync pair approve <id>`). Deletion is never inferred from a missing peer
+index: deletes are explicit tombstones derived from the previously approved
+manifest.
+
+Default exclusions: `.git/`, `.bridgesessions/` (the BridgeSessions config
+dir), secrets basenames (`.env*`, `id_rsa`, `id_ed25519`, `*.pem`, `*.key`,
+`secrets*`, `credentials.json`, `*secret*`), and bs-sync working files
+(`.bs-sync/`, `.tmp-bs*`, `*.conflict-*`). Symlinks are never followed.
+
+Windows peers are allowed only via `bs sync pair init … --via-run-script`
+(files pushed through the run-script verb; no PowerShell bodies are pushed).
+The default path is a POSIX push to Unix peers.
+
+See `docs/bs-sync-design.md` for the full design and spike findings.
+
 ## Scripts
 
 ```bash
