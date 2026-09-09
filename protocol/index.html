@@ -787,6 +787,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Handshake">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#signed-mesh-enrollment-phase-3-first-slice" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Signed mesh enrollment (phase 3, first slice)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -1143,6 +1160,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Handshake">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#signed-mesh-enrollment-phase-3-first-slice" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Signed mesh enrollment (phase 3, first slice)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -1316,7 +1350,7 @@
 <tbody>
 <tr>
 <td>Identity and mesh</td>
-<td><code>Hello</code>, <code>Gossip</code>, <code>DirectoryEnroll</code>, <code>Ping</code>, <code>Pong</code></td>
+<td><code>Hello</code>, <code>Gossip</code>, <code>DirectoryEnroll</code> (<code>+enroll</code>), <code>Ping</code>, <code>Pong</code></td>
 <td>bootstrap, directory, liveness</td>
 </tr>
 <tr>
@@ -1363,6 +1397,16 @@
 <li>Promote the transport to a live mesh connection. Earlier frames are dropped.</li>
 </ol>
 <p>During a bounded invite window, an unknown certificate may submit a <code>JoinRequest</code>. The single-use token is checked before authorization. Successful enrollment is signed; only configured seed keys are accepted as issuers.</p>
+<h3 id="signed-mesh-enrollment-phase-3-first-slice">Signed mesh enrollment (phase 3, first slice)<a class="headerlink" href="#signed-mesh-enrollment-phase-3-first-slice" title="Permanent link">&para;</a></h3>
+<p>When a node joins, the host signs a <code>DirectoryEnrollMsg</code> over the canonical payload <code>name || pubkey_hex || addr || issuer_pubkey || issued_at</code> with its Ed25519 identity key and gossips it to every connected peer. Each receiving peer:</p>
+<ol>
+<li>Verifies the issuer is an explicitly pinned seed key (<code>seed ... pubkey=</code>). Enrollment never bypasses <code>mesh.require_seed_pins</code>.</li>
+<li>Rejects stale tokens (<code>issued_at</code> older than 24 hours) and self-vouching.</li>
+<li>Verifies the Ed25519 signature over the canonical payload.</li>
+<li>Rejects replays: consumed enrollment ids (<code>issuer|pubkey|issued_at</code>) are remembered, making a token effectively single-use mesh-wide.</li>
+<li>Appends the joiner's key to <code>authorized_keys</code> and seeds it as a discovered peer, then re-gossips the enrollment (once per id) so it propagates transitively.</li>
+</ol>
+<p>The feature is additive: peers advertise <code>+enroll</code> in <code>Hello.version</code>. A peer that does not advertise <code>+enroll</code> is never sent a <code>DirectoryEnrollMsg</code>, and one arriving from a peer that did not advertise the capability is rejected at the trust boundary.</p>
 <h2 id="liveness">Liveness<a class="headerlink" href="#liveness" title="Permanent link">&para;</a></h2>
 <p><code>Ping</code> and <code>Pong</code> run on the control stream. <code>bs health &lt;peer&gt;</code> combines data-plane success with a recent pong. A local IPC reply alone is not enough; the operator wants to know the peer daemon can actually move a frame.</p>
 <h2 id="file-transfer">File transfer<a class="headerlink" href="#file-transfer" title="Permanent link">&para;</a></h2>
