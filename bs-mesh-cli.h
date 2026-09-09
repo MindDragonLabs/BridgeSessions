@@ -2818,6 +2818,7 @@ public:
 
         bool local_stop = false;
         bool announced_reconnect = false;
+        uint16_t badge_rows = 0;  // rows at last bottom-row draw (badge/notice)
         int reconnect_delay_ms = 100;
         int reconnect_attempt = 1;
         try {
@@ -2862,10 +2863,14 @@ public:
                 am.signal_on_detach = signal_on_detach;
                 write_frame(sc.ssl.get(), am, CONTROL_STREAM_ID);
                 if (announced_reconnect) {
-                    // Clear the reconnect badge (bottom row); the server's
-                    // scrollback replay repaints the remote TUI over it.
-                    std::cout << bs::mesh::reconnect_status_clear(last_rows)
+                    // Clear the reconnect badge from the row it was drawn on
+                    // (resize-safe), reset the surface so the server's
+                    // scrollback replay repaints the remote TUI over a clean
+                    // slate — never a mash of stale frame + new frame.
+                    std::cout << bs::mesh::reconnect_status_clear(badge_rows)
+                              << bs::mesh::reattach_surface_reset()
                               << std::flush;
+                    badge_rows = 0;
                     announced_reconnect = false;
                 }
                 if (!pending_input.empty()) {
@@ -2998,24 +3003,31 @@ public:
                 // the remote TUI's last frame remains visible (no blanking).
                 // A reverse-video badge on the bottom row announces the
                 // reconnect state; keystrokes keep buffering (below).
+                // 26.09.09-rx: the announce line is drawn through the same
+                // bottom-row, cursor-protected primitive as the badge, so it
+                // can never smear across the frozen remote TUI frame — and
+                // the row it was drawn on is remembered so a resize during
+                // the outage cannot strand it.
                 try { cleanup_terminal_modes_soft(); } catch (...) {}
-                std::cerr << "\r\n[transport lost — reconnecting to " << peer_name
-                          << "… Ctrl-D to quit]\r\n" << std::flush;
                 {
                     auto [sc_cols, sc_rows] = get_winsize();
-                    std::cout << bs::mesh::reconnect_status_line(
-                        peer_name, reconnect_attempt, pending_input.size(),
-                        sc_cols, sc_rows) << std::flush;
+                    std::cout << bs::mesh::reconnect_notice_line(
+                        peer_name, sc_cols, sc_rows) << std::flush;
+                    badge_rows = sc_rows;
                 }
                 announced_reconnect = true;
                 local_stop = wait_for_local_stop(reconnect_delay_ms);
                 if (!local_stop) {
                     ++reconnect_attempt;
                     // Refresh the badge (attempt counter ticks per backoff).
+                    // Drawn on the CURRENT bottom row; the previous row is
+                    // erased first so a mid-outage resize never strands a
+                    // stale badge.
                     auto [sc_cols, sc_rows] = get_winsize();
                     std::cout << bs::mesh::reconnect_status_line(
                         peer_name, reconnect_attempt, pending_input.size(),
-                        sc_cols, sc_rows) << std::flush;
+                        sc_cols, sc_rows, badge_rows) << std::flush;
+                    badge_rows = sc_rows;
                 }
                 reconnect_delay_ms = std::min(reconnect_delay_ms * 2, 5000);
             }
