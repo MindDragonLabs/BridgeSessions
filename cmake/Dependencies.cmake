@@ -105,7 +105,7 @@ if(BS_OPENSSL STREQUAL "fetch" AND NOT BS_DEPS_MODE STREQUAL "system")
     endif()
     if(APPLE)
         if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64")
-            set(_ossl_target "darwin-arm64")
+            set(_ossl_target "darwin64-arm64-cc")
         else()
             set(_ossl_target "darwin64-x86_64-cc")
         endif()
@@ -113,8 +113,8 @@ if(BS_OPENSSL STREQUAL "fetch" AND NOT BS_DEPS_MODE STREQUAL "system")
     add_custom_command(
         OUTPUT "${_ossl_prefix}/lib/libssl.a"
         COMMAND ${CMAKE_COMMAND} -E remove_directory "${_ossl_prefix}"
-        COMMAND ./Configure ${_ossl_target} no-shared no-tests no-docs
-                no-apps --prefix=${_ossl_prefix} --libdir=lib
+        COMMAND ./Configure ${_ossl_target} no-shared no-tests
+                --prefix=${_ossl_prefix} --libdir=lib
         COMMAND ${CMAKE_MAKE_PROGRAM} -j
         COMMAND ${CMAKE_MAKE_PROGRAM} install_sw
         WORKING_DIRECTORY "${openssl_SOURCE_DIR}"

@@ -69,6 +69,7 @@ DO_TESTS=""
 DO_STRIP="yes"
 DEPS_MODE="fetch"
 OPENSSL_MODE="system"
+OPENSSL_EXPLICIT="no"
 NO_CACHE="no"
 IN_CONTAINER="no"
 KEEP_CONTAINER="no"
@@ -135,7 +136,7 @@ while [[ $# -gt 0 ]]; do
         --out)           OUT_DIR="${2:?--out needs a value}"; shift 2 ;;
         --jobs)          JOBS="${2:?--jobs needs a value}"; shift 2 ;;
         --deps)          DEPS_MODE="${2:?--deps needs a value}"; shift 2 ;;
-        --openssl)       OPENSSL_MODE="${2:?--openssl needs a value}"; shift 2 ;;
+        --openssl)       OPENSSL_MODE="${2:?--openssl needs a value}"; OPENSSL_EXPLICIT="yes"; shift 2 ;;
         --tests)         DO_TESTS="yes"; shift ;;
         --no-tests)      DO_TESTS="no"; shift ;;
         --no-strip)      DO_STRIP="no"; shift ;;
@@ -283,7 +284,7 @@ build_in_container() {
 ${bootstrap_extra}"
 
     # Pass the caller's options through to the in-container invocation.
-    local inner_args="--build-type=${BUILD_TYPE} --jobs=${JOBS} --deps=${DEPS_MODE} --openssl=${OPENSSL_MODE} --out=/work/dist"
+    local inner_args="--build-type ${BUILD_TYPE} --jobs ${JOBS} --deps ${DEPS_MODE} --openssl ${OPENSSL_MODE} --out /work/dist"
     [[ "${DO_TESTS}" == "yes" ]] && inner_args+=" --tests" || inner_args+=" --no-tests"
     [[ "${DO_STRIP}" == "no" ]] && inner_args+=" --no-strip"
     [[ "${VERBOSE}" == "yes" ]] && inner_args+=" --verbose"
@@ -377,15 +378,35 @@ build_macos() {
     local arch; arch="$(suffix_for_arch "$(uname -m)")"
     if [[ "${ARCH}" != "$(uname -m)" ]]; then arch="$(suffix_for_arch "${ARCH}")"; fi
     local build_dir="${BS_BUILD_ROOT}/macos-${arch}"
+
+    # A Homebrew OpenSSL produces a binary that links
+    # /opt/homebrew/opt/openssl@3/lib/libssl.3.dylib, which does not exist on a
+    # machine without Homebrew. Build OpenSSL statically for a portable
+    # artifact unless the caller asked for the system one explicitly.
+    if [[ "${OPENSSL_EXPLICIT}" != "yes" && "${OPENSSL_MODE}" == "system" ]]; then
+        OPENSSL_MODE="fetch"
+        note "macOS: building OpenSSL from source for a portable artifact"
+    fi
+    if [[ "${OPENSSL_MODE}" == "fetch" ]]; then
+        EXTRA_CMAKE_ARGS+=("-DBS_STATIC_DEPS=ON")
+    fi
+
     cmake_configure_build "${BS_ROOT}" "${build_dir}"
     run_ctest "${build_dir}"
-    # Ad-hoc sign so the binary runs without a Gatekeeper prompt. Release
-    # signing/notarization is a separate step (scripts/sign-macos.sh).
-    if [[ "${PRINT_ONLY}" != "yes" ]]; then
-        codesign --force --sign - "${build_dir}/bridgesessions" 2>/dev/null || \
-            note "ad-hoc codesign skipped"
-    fi
+
+    # Stage first, then sign. Stripping after signing invalidates the signature
+    # and the kernel kills the process (SIGKILL, "Killed: 9").
     stage_artifact "${build_dir}/bridgesessions" "bridgesessions-macos-${arch}"
+
+    if [[ "${PRINT_ONLY}" != "yes" ]]; then
+        # Ad-hoc sign so the binary runs without a Gatekeeper prompt. Release
+        # signing and notarization are separate (scripts/sign-macos.sh).
+        codesign --force --sign - "${OUT_DIR}/bridgesessions-macos-${arch}" 2>/dev/null \
+            || note "ad-hoc codesign skipped"
+        codesign --verify --strict "${OUT_DIR}/bridgesessions-macos-${arch}" 2>/dev/null \
+            && note "ad-hoc signature valid" \
+            || note "ad-hoc signature NOT valid"
+    fi
 }
 
 # ── Windows (mingw-w64 cross) ───────────────────────────────────────────────
