@@ -986,9 +986,12 @@ struct OutboundPeerVerifyResult {
     if (receive_root.empty()) return fs::path(full_path).filename().string();
     std::error_code ec;
     fs::path rel = fs::relative(fs::path(full_path), fs::path(receive_root), ec);
-    if (ec || rel.empty() || rel.native().rfind("..", 0) == 0)
+    // Compare on the generic (narrow, forward-slash) form: native() is a
+    // wstring on Windows and would not accept a narrow literal.
+    const std::string generic = rel.generic_string();
+    if (ec || generic.empty() || generic.rfind("..", 0) == 0)
         return fs::path(full_path).filename().string();
-    return rel.generic_string();
+    return generic;
 }
 
 // Resolve scp-style file-send destination on the receiver.
