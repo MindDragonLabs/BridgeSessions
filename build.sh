@@ -340,6 +340,9 @@ build_linux_container() {
 
     local -a inner=(
         "set -euo pipefail"
+        "# Return ownership even when the build fails, or the next run cannot"
+        "# remove the stale tree and silently reuses an old CMake cache."
+        "trap 'chown -R \"\${BS_HOST_UID:-0}:\${BS_HOST_GID:-0}\" /work/build /work/dist 2>/dev/null || true' EXIT"
         "export BS_DO_TESTS='${DO_TESTS}'"
         "if [ \"\$BS_DO_TESTS\" = yes ]; then BT=ON; else BT=OFF; fi"
         "cmake -S /work -B ${build_dir} -G Ninja -DCMAKE_BUILD_TYPE='${BUILD_TYPE}' -DBS_DEPS_MODE='${DEPS_MODE}' -DBS_OPENSSL='${OPENSSL_MODE}' -DBUILD_TESTING=\$BT"
@@ -347,8 +350,6 @@ build_linux_container() {
         "if [ \"\$BS_DO_TESTS\" = yes ]; then"
         "  ctest --test-dir ${build_dir} --output-on-failure --parallel '${JOBS}'"
         "fi"
-        "# Return ownership so the host user can clean or reuse the tree."
-        "chown -R \"\${BS_HOST_UID:-0}:\${BS_HOST_GID:-0}\" /work/build /work/dist 2>/dev/null || true"
     )
     local inner_script
     inner_script="$(printf '%s\n' "${inner[@]}")"
