@@ -909,6 +909,9 @@ int bridgesessions_main(int argc, char** argv) {
     app.add_option("--config-dir", config_dir, "Config directory (default: ~/.bridgesessions)");
     app.add_flag("--daemon", daemon_flag, "Detach from terminal (daemonize)");
     app.add_flag("--cua-helper", cua_helper_flag, "Run CUA helper server (screen capture + input injection in user session)");
+    // Internal: set by the helper's own Windows detach re-exec. Not documented.
+    bool cua_helper_detached = false;
+    app.add_flag("--cua-helper-detached", cua_helper_detached, "")->group("");
 
 #ifndef _WIN32
     // Internal worker mode: `bridgesessions session-worker --socket …` is
@@ -4012,6 +4015,10 @@ int bridgesessions_main(int argc, char** argv) {
     }
     // CUA helper mode: run in user session for screen capture + input injection
     if (cua_helper_flag) {
+#ifdef _WIN32
+        // Detach first so a logon scheduled task never shows a console window.
+        if (!cua_helper_detached && bs::mesh::win_detach_cua_helper()) return 0;
+#endif
         bs::log::get("cua-helper")->info("CUA helper starting (app_home={})", home_dir);
         return bs::mesh::run_cua_helper(home_dir);
     }

@@ -16,6 +16,7 @@ public:
     struct FileReceiveState {
         std::string filename;
         std::string path;          // full output path
+        std::string recv_dir;      // receive root this path was resolved under
         std::string checksum;      // expected SHA-256
         uint64_t expected_size = 0;
         uint64_t received_bytes = 0;
@@ -392,6 +393,7 @@ private:
     std::chrono::steady_clock::time_point last_mdns_time_;
     std::chrono::steady_clock::time_point last_session_prune_time_{};
     std::chrono::steady_clock::time_point last_discovered_prune_time_{};
+    std::chrono::steady_clock::time_point last_receive_prune_time_{};
     std::chrono::steady_clock::time_point started_at_ = std::chrono::steady_clock::now();
     // mDNS LAN discovery
     SOCKET mdns_fd_ = INVALID_SOCKET;
@@ -955,6 +957,69 @@ private:
             log_event("prune_stale_discovered",
                       "removed=" + std::to_string(before - d.size()));
             gossip_generation_.fetch_add(1, std::memory_order_relaxed);
+        }
+    }
+
+    // Receive-dir housekeeping. Every received file is written here first and
+    // then also delivered to the caller's own destination, so anything left
+    // behind doubles the storage cost of that transfer. Files older than
+    // receive_retention_hours are removed; in-flight parts are never touched.
+    void prune_receive_dir() {
+        if (config_.receive_retention_hours <= 0) return;  // 0 = keep forever
+        namespace fs = std::filesystem;
+        std::error_code ec;
+        const fs::path root = fs::path(expand_home(receive_dir_));
+        if (!fs::is_directory(root, ec)) return;
+        const auto now = std::chrono::system_clock::now();
+        const auto max_age = std::chrono::hours(config_.receive_retention_hours);
+        size_t removed = 0;
+        uintmax_t freed = 0;
+        auto walk = [&](const fs::path& dir, auto&& self) -> void {
+            for (fs::directory_iterator it(dir, fs::directory_options::skip_permission_denied, ec), end;
+                 !ec && it != end; it.increment(ec)) {
+                const fs::path p = it->path();
+                std::error_code tec;
+                if (fs::is_directory(p, tec)) { self(p, self); continue; }
+                if (!fs::is_regular_file(p, tec)) continue;
+                const std::string name = p.filename().string();
+                // Never remove a live partial or its resume sidecar: a slow
+                // transfer can legitimately outlive the retention window.
+                if (name.size() > 5 && name.compare(name.size() - 5, 5, ".part") == 0) continue;
+                if (name.size() > 11 && name.compare(name.size() - 11, 11, ".part.bsmeta") == 0) continue;
+                std::error_code mec;
+                auto mt = fs::last_write_time(p, mec);
+                if (mec) continue;
+                if (now - std::chrono::clock_cast<std::chrono::system_clock>(mt) < max_age) continue;
+                uintmax_t sz = fs::file_size(p, mec);
+                if (fs::remove(p, mec)) {
+                    ++removed;
+                    if (!mec) freed += sz;
+                }
+            }
+        };
+        walk(root, walk);
+        // Remove now-empty subdirectories, deepest first, and prune empty
+        // parents up to (but not including) the receive root.
+        std::vector<fs::path> dirs;
+        for (fs::recursive_directory_iterator it(
+                 root, fs::directory_options::skip_permission_denied, ec), end;
+             !ec && it != end; it.increment(ec)) {
+            std::error_code tec;
+            if (fs::is_directory(it->path(), tec)) dirs.push_back(it->path());
+        }
+        std::sort(dirs.begin(), dirs.end(), [](const fs::path& a, const fs::path& b) {
+            return a.native().size() > b.native().size();
+        });
+        for (const auto& d : dirs) {
+            std::error_code dec;
+            if (fs::is_empty(d, dec)) fs::remove(d, dec);
+        }
+        if (removed > 0) {
+            log_event("receive_dir_pruned",
+                      "removed=" + std::to_string(removed) +
+                      " freed_bytes=" + std::to_string(freed) +
+                      " age_hours=" + std::to_string(config_.receive_retention_hours) +
+                      " dir=" + root.string());
         }
     }
 

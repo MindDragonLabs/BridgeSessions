@@ -439,6 +439,44 @@ inline CuaResponseMsg cua_helper_execute(const CuaRequestMsg& req) {
 
 // ── server loop ─────────────────────────────────────────────────
 
+#if defined(_WIN32)
+// Re-launch the helper with no console window, then let the caller exit.
+//
+// The helper is registered as a logon scheduled task. A console application
+// started that way gets a visible console window on the user's desktop, which
+// steals focus and makes the helper look like it runs in the foreground. Doing
+// the detach here means the behaviour is identical no matter how the process
+// was started — scheduled task, `bs --cua-helper` in a shell, or an installer.
+//
+// Returns true when a detached child was started (the caller must then exit),
+// false when this process is already the detached one or the spawn failed.
+inline bool win_detach_cua_helper() {
+    if (std::getenv("BS_CUA_HELPER_DETACHED") != nullptr) return false;
+
+    std::wstring cmd = GetCommandLineW();
+    if (cmd.find(L"--cua-helper-detached") != std::wstring::npos) return false;
+    cmd += L" --cua-helper-detached";
+
+    std::vector<wchar_t> mutable_cmd(cmd.begin(), cmd.end());
+    mutable_cmd.push_back(L'\0');
+
+    STARTUPINFOW si{};
+    si.cb = sizeof(si);
+    PROCESS_INFORMATION pi{};
+    // CREATE_NO_WINDOW gives the child a console with no visible window, so
+    // stdio still resolves while nothing appears on the desktop. The group flag
+    // keeps the child off our console's signal path.
+    const DWORD flags = CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP;
+    if (!CreateProcessW(nullptr, mutable_cmd.data(), nullptr, nullptr, FALSE,
+                        flags, nullptr, nullptr, &si, &pi)) {
+        return false;  // fall through and run in-process
+    }
+    CloseHandle(pi.hThread);
+    CloseHandle(pi.hProcess);
+    return true;
+}
+#endif
+
 inline int run_cua_helper(const std::string& app_home_in) {
 #if !defined(_WIN32) && !defined(__APPLE__)
     std::cerr << "cua-helper: not needed on Linux (daemon already runs in the user session)\n";

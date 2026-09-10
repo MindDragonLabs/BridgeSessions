@@ -1947,6 +1947,12 @@ public:
                 prune_stale_discovered_peers();
                 last_discovered_prune_time_ = now;
             }
+            // Receive-dir housekeeping is I/O over a directory tree, so run it
+            // hourly rather than on the per-minute session cadence.
+            if (now - last_receive_prune_time_ >= std::chrono::hours(1)) {
+                prune_receive_dir();
+                last_receive_prune_time_ = now;
+            }
 #ifndef _WIN32
             if (g_config_reload_requested.exchange(false))
                 reload_seeds_from_disk();

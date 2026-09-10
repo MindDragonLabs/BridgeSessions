@@ -64,6 +64,11 @@ struct MeshConfig {
     int join_window_max_secs = 300;
     int startup_wait_secs = 30;  // boot-time network readiness gate (0 = skip)
     std::string receive_dir_override;  // override default received/ path (for SYSTEM daemons)
+    // Hours a file may stay in receive_dir before housekeeping removes it.
+    // Every byte written here is also written to the caller's own destination,
+    // so a copy left behind doubles the storage cost of every transfer. 0
+    // disables expiry. Default 24.
+    int receive_retention_hours = 24;
     int ping_interval_secs = 5;
     int pong_timeout_secs = 30;
     // When true, offer `bridgesessions upgrade` to peers that reconnect with an
@@ -304,6 +309,9 @@ void write_peer_line(std::ostream& os, const std::string& prefix, const PeerEntr
             if (v.has_value() && *v >= 0) cfg.startup_wait_secs = *v;
         } else if (key_str == "receive_dir") {
             cfg.receive_dir_override = val;
+        } else if (key_str == "receive_retention_hours") {
+            auto v = parse_int(val);
+            if (v.has_value() && *v >= 0) cfg.receive_retention_hours = *v;
         } else if (key_str == "mesh.ping_interval_secs") {
             auto v = parse_int(val);
             if (v.has_value()) cfg.ping_interval_secs = *v;
@@ -966,6 +974,21 @@ struct OutboundPeerVerifyResult {
     }
     return cand_s == root_s.substr(0, root_s.size() - 1) ||
            cand_s.rfind(root_s, 0) == 0;
+}
+
+// Report a received file's location the way the sender addressed it: the path
+// relative to the receive root, using forward slashes on every platform.
+// Echoing only the basename made `--dest nested/x.txt` report `dest=x.txt`,
+// which pointed the caller at a path the file was never written to.
+[[nodiscard]] inline std::string relative_receive_path(
+        const std::string& full_path, const std::string& receive_root) {
+    namespace fs = std::filesystem;
+    if (receive_root.empty()) return fs::path(full_path).filename().string();
+    std::error_code ec;
+    fs::path rel = fs::relative(fs::path(full_path), fs::path(receive_root), ec);
+    if (ec || rel.empty() || rel.native().rfind("..", 0) == 0)
+        return fs::path(full_path).filename().string();
+    return rel.generic_string();
 }
 
 // Resolve scp-style file-send destination on the receiver.

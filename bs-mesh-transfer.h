@@ -171,6 +171,7 @@
         state = FileReceiveState{};
         state.filename = *safe_name;
         state.path = out_path;
+        state.recv_dir = recv_dir;
         state.checksum = m.checksum;
         state.expected_size = m.filesize;
         state.total_chunks = m.total_chunks;
@@ -311,7 +312,7 @@
             state.active = false;
             state.hasher.reset();
             const std::string final_msg = complete_ok
-                ? ("path=" + fs::path(final_path).filename().string())
+                ? ("path=" + relative_receive_path(final_path, state.recv_dir))
                 : final_error;
             (void)enqueue_file_ack(
                 c, FileAckMsg{m.chunk_index, m.total_chunks, !complete_ok, final_msg});
@@ -683,10 +684,12 @@
                 ok += " WARNING dest not confirmed by peer"
                       " (likely landed in receive_dir; upgrade peer for scp-style dest)";
             } else {
-                ok += " dest=" + remote_path_confirmed;
+                ok += " dest=" + remote_path_confirmed
+                    + " (path under the peer's receive_dir)";
             }
         } else if (!remote_path_confirmed.empty()) {
-            ok += " dest=" + remote_path_confirmed;
+            ok += " dest=" + remote_path_confirmed
+                + " (path under the peer's receive_dir)";
         }
         return ok;
     }

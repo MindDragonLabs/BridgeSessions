@@ -271,7 +271,7 @@ if command -v apt-get >/dev/null 2>&1; then
     # pinned and built from source by cmake/Dependencies.cmake.
     apt-get install -y -qq --no-install-recommends \
         build-essential g++ gcc git perl pkg-config ca-certificates \
-        ninja-build python3 python3-dev python3-venv xz-utils file >/dev/null
+        curl wget ninja-build python3 python3-dev python3-venv xz-utils file >/dev/null
     # Ubuntu 22.04 defaults to gcc-11, which lacks complete C++23 support.
     if apt-cache show g++-12 >/dev/null 2>&1; then
         apt-get install -y -qq --no-install-recommends g++-12 gcc-12 >/dev/null
