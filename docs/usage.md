@@ -1,6 +1,8 @@
 # Usage
 
-This page is the command reference. Install and join first. See [Quickstart](QUICKSTART.md).
+This page is a task-oriented walkthrough. Install and join first. See [Quickstart](QUICKSTART.md).
+
+Every command and flag: [Command reference](cli.md), which is generated from the binary's own `--help`.
 
 The binary name is `bridgesessions`. The usual symlink is `bs`. The commands below use `bs`.
 
@@ -29,12 +31,18 @@ Resolve names with `bs peers list`. Do not guess. Ambiguous names return suggest
 
 ```bash
 bs file send <peer> <local> --wait
-bs file send <peer> <local> --dest <remote> --wait
+bs file send <peer> <local> --dest <path-under-receive-dir> --wait
 bs file recv <peer> <remote> --to <local> --wait
 bs telemetry
 ```
 
 Transfers are resumable. The receiver checks SHA-256. Success is the final `OK` line. A `PROGRESS` line is not success.
+
+`--dest` is a path **under the peer's receive directory**, not an absolute path. The peer may allow `~` and `/tmp` when `file.dest_allow_home` is set; do not enable that unless you accept host-level file access.
+
+Read the `dest=` field in the `OK` line: it is the path relative to the peer's receive directory, so you can find the file. If the peer is too old to confirm the destination, the sender says so instead of guessing.
+
+The receive directory is a staging area, not storage. Every received file is also written to the caller's destination, so a copy left behind doubles the disk cost of that transfer. Files older than `receive_retention_hours` (default 24) are removed hourly. Set it to `0` to keep them. Partial transfers are never removed.
 
 Peers serve only from `receive_dir` by default. Do not enable sensitive or arbitrary paths unless you accept host-level file access.
 
@@ -107,7 +115,7 @@ Windows and macOS need one helper in the interactive user session. See [Computer
 bs invite
 bs join <seed-address>:19949 <token> --start
 bs upgrade
-bs upgrade --tag 26.09.09
+bs upgrade --tag <tag>
 ```
 
 `bs invite` works on a pinned seed. The token is single-use.
