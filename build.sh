@@ -34,6 +34,11 @@ readonly BS_CMAKE_SHA256="804d231460ab3c8b556a42d2660af4ac7a0e21c98a7f8ee3318a74
 # Ubuntu 24.04, Arch), so 22.04 is the release target for Linux.
 readonly BS_DEFAULT_DISTRO="ubuntu:22.04"
 
+# The Windows cross build needs a C++23-capable mingw. Ubuntu 22.04 ships
+# mingw GCC 10, which rejects -std=c++23; 24.04 ships GCC 13, which accepts it.
+# The Linux glibc floor does not matter here — the output is a Windows PE.
+readonly BS_WIN_DISTRO="ubuntu:24.04"
+
 # Extra packages the Windows cross build needs inside the container. The
 # posix-thread mingw variant is required: the win32 variant fails at link on
 # <thread>. Alternatives are pinned too, or the wrong variant wins.
@@ -434,7 +439,7 @@ build_windows() {
     # Ubuntu 22.04 container the Linux release uses. --distro native forces a
     # host build (needs mingw-w64 plus a static OpenSSL prefix).
     if [[ "${IN_CONTAINER}" != "yes" && "${DISTRO}" != "native" ]]; then
-        build_in_container "${DISTRO:-${BS_DEFAULT_DISTRO}}" windows "${MINGW_BOOTSTRAP}"
+        build_in_container "${DISTRO:-${BS_WIN_DISTRO}}" windows "${MINGW_BOOTSTRAP}"
         stage_artifact "${BS_BUILD_ROOT}/windows-x86_64/bridgesessions.exe" \
                        "bridgesessions-windows-x86_64.exe"
         if [[ "${PRINT_ONLY}" != "yes" ]] && have x86_64-w64-mingw32-objdump; then
