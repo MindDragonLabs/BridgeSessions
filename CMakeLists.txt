@@ -126,6 +126,16 @@ if(WIN32)
     # Windows certificate store). The previous script-based Windows build passed
     # -lcrypt32 explicitly; the CMake path must too.
     target_link_libraries(bridgesessions ws2_32.lib gdiplus.lib gdi32.lib crypt32.lib)
+    # VERSIONINFO resource so Explorer shows a version under Properties.
+    # Generated from VERSION by scripts/gen-windows-version-rc.sh, which
+    # build.sh runs before configuring.
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/windows/version.rc")
+        target_sources(bridgesessions PRIVATE windows/version.rc)
+    else()
+        message(WARNING
+            "windows/version.rc is missing; the executable will have no version "
+            "metadata. Run scripts/gen-windows-version-rc.sh before configuring.")
+    endif()
 endif()
 
 add_test(NAME cli_quick_connect_help COMMAND bridgesessions --help)
