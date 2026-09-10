@@ -38,6 +38,23 @@ Notable user-visible changes. Git history contains implementation-level detail.
   signatures only from explicitly pinned seed keys. Covered by
   `tests/test_enroll_lane3.cpp` (sign/verify, replay rejection,
   require_seed_pins interplay, expiry, capability parsing).
+## 26.09.10-r1
+
+### Added
+
+- **Reconnect-or-new picker on bare `bs <peer>`.** On an interactive terminal,
+  attaching without a session name now offers: Reconnect (session list picker),
+  New (harness picker, same flow as `bs connect`), New plain shell (classic
+  direct attach). Cancel or non-TTY keeps the direct attach — scripts, e2e,
+  and `--cmd` are unaffected.
+
+### Fixed
+
+- e2e health probe retries up to 3x: a single TLS/data-plane attempt under
+  mesh churn flagged healthy peers unhealthy.
+- Linux release builds now come from the Ubuntu 22.04 toolchain so the
+  artifact runs on glibc 2.35+ (cpanel-class hosts) as well as current Arch.
+
 ## 26.09.10
 
 ### Added
