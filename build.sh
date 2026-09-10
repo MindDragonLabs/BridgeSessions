@@ -34,10 +34,27 @@ readonly BS_CMAKE_SHA256="804d231460ab3c8b556a42d2660af4ac7a0e21c98a7f8ee3318a74
 # Ubuntu 24.04, Arch), so 22.04 is the release target for Linux.
 readonly BS_DEFAULT_DISTRO="ubuntu:22.04"
 
-# The Windows cross build needs a C++23-capable mingw. Ubuntu 22.04 ships
-# mingw GCC 10, which rejects -std=c++23; 24.04 ships GCC 13, which accepts it.
-# The Linux glibc floor does not matter here — the output is a Windows PE.
+# mingw-w64 is a Linux-hosted cross-compiler: it runs here and emits a Windows
+# PE. So "building for Windows" always needs a Linux toolchain, and whose
+# toolchain decides whether C++23 works:
+#   Ubuntu 22.04 -> mingw GCC 10.3  (rejects -std=c++23)
+#   Ubuntu 24.04 -> mingw GCC 13.2  (accepts it)
+#   Arch (rolling) -> mingw GCC 16.x (accepts it)
+# Prefer a native mingw when it is new enough: it is faster, needs no container,
+# and is the toolchain that produced the shipped Windows binary. Fall back to
+# the 24.04 container only when the host's mingw is too old or missing.
 readonly BS_WIN_DISTRO="ubuntu:24.04"
+readonly BS_MINGW_MIN_GCC=13
+
+# True when $1 (a mingw g++) is at least BS_MINGW_MIN_GCC. 0 = usable, 1 = not.
+mingw_is_cxx23_capable() {
+    local cc="${1:-x86_64-w64-mingw32-g++}"
+    have "${cc}" || return 1
+    local major
+    major="$("${cc}" -dumpversion 2>/dev/null | cut -d. -f1)"
+    [[ "${major}" =~ ^[0-9]+$ ]] || return 1
+    [[ "${major}" -ge "${BS_MINGW_MIN_GCC}" ]]
+}
 
 # Extra packages the Windows cross build needs inside the container. The
 # posix-thread mingw variant is required: the win32 variant fails at link on
@@ -435,10 +452,24 @@ mingw_prefix() {
 }
 
 build_windows() {
-    # The mingw prefix script needs apt, so Windows builds default to the same
-    # Ubuntu 22.04 container the Linux release uses. --distro native forces a
-    # host build (needs mingw-w64 plus a static OpenSSL prefix).
-    if [[ "${IN_CONTAINER}" != "yes" && "${DISTRO}" != "native" ]]; then
+    # Prefer a native mingw when it is C++23-capable. Otherwise fall back to the
+    # ubuntu:24.04 container, whose mingw is new enough. --distro native forces
+    # the host toolchain; any other --distro forces the container.
+    local native_ok="no"
+    mingw_is_cxx23_capable && native_ok="yes"
+
+    local use_container="no"
+    if [[ "${IN_CONTAINER}" != "yes" ]]; then
+        if [[ "${DISTRO}" == "native" ]]; then
+            use_container="no"
+        elif [[ -n "${DISTRO}" ]]; then
+            use_container="yes"
+        elif [[ "${native_ok}" == "no" ]]; then
+            use_container="yes"
+        fi
+    fi
+
+    if [[ "${use_container}" == "yes" && "${IN_CONTAINER}" != "yes" ]]; then
         build_in_container "${DISTRO:-${BS_WIN_DISTRO}}" windows "${MINGW_BOOTSTRAP}"
         stage_artifact "${BS_BUILD_ROOT}/windows-x86_64/bridgesessions.exe" \
                        "bridgesessions-windows-x86_64.exe"
@@ -450,7 +481,14 @@ build_windows() {
         return 0
     fi
 
-    have x86_64-w64-mingw32-g++ || die "mingw-w64 is required (x86_64-w64-mingw32-g++)"
+    if ! mingw_is_cxx23_capable; then
+        local have_v; have_v="$(x86_64-w64-mingw32-g++ -dumpversion 2>/dev/null || echo none)"
+        die "mingw-w64 GCC ${have_v} cannot compile C++23 (need >= ${BS_MINGW_MIN_GCC}).
+Rebuild inside the container instead:
+    ./build.sh windows --distro ${BS_WIN_DISTRO}
+Or install a newer mingw-w64 on this host."
+    fi
+    note "mingw: $(x86_64-w64-mingw32-g++ --version | head -1)"
 
     local prefix; prefix="$(mingw_prefix)"
     if [[ -z "${prefix}" ]]; then

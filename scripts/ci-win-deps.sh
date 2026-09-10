@@ -28,16 +28,38 @@ cd "$DEPS_DL"
 
 if ! command -v x86_64-w64-mingw32-g++ >/dev/null 2>&1; then
   echo "=== installing mingw-w64 (posix threads variant) ==="
-  export DEBIAN_FRONTEND=noninteractive
-  apt-get update -qq
-  apt-get install -y -qq --no-install-recommends \
-    build-essential cmake ninja-build perl wget ca-certificates \
-    g++-mingw-w64-x86-64-posix gcc-mingw-w64-x86-64-posix binutils-mingw-w64-x86-64
+  if command -v apt-get >/dev/null 2>&1; then
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update -qq
+    apt-get install -y -qq --no-install-recommends \
+      build-essential cmake ninja-build perl wget ca-certificates \
+      g++-mingw-w64-x86-64-posix gcc-mingw-w64-x86-64-posix binutils-mingw-w64-x86-64
+  elif command -v pacman >/dev/null 2>&1; then
+    pacman -Sy --noconfirm --needed \
+      base-devel cmake ninja perl wget ca-certificates mingw-w64-gcc
+  else
+    echo "error: no mingw-w64 and no supported package manager" >&2
+    exit 1
+  fi
 fi
-# Pin the posix variant: std::thread on windows needs winpthreads (win32
-# variant fails at link on <thread>).
-update-alternatives --set x86_64-w64-mingw32-gcc /usr/bin/x86_64-w64-mingw32-gcc-posix
-update-alternatives --set x86_64-w64-mingw32-g++ /usr/bin/x86_64-w64-mingw32-g++-posix
+
+# Pin the posix-thread variant where the distro offers a choice. std::thread on
+# Windows needs winpthreads; the win32 variant fails at link on <thread>.
+# Arch ships a single (posix) variant and has no update-alternatives.
+if command -v update-alternatives >/dev/null 2>&1 \
+   && [ -x /usr/bin/x86_64-w64-mingw32-gcc-posix ]; then
+  update-alternatives --set x86_64-w64-mingw32-gcc /usr/bin/x86_64-w64-mingw32-gcc-posix
+  update-alternatives --set x86_64-w64-mingw32-g++ /usr/bin/x86_64-w64-mingw32-g++-posix
+fi
+
+# This project needs C++23. Verify before spending minutes building deps.
+_major="$(x86_64-w64-mingw32-g++ -dumpversion 2>/dev/null | cut -d. -f1)"
+if [ -z "${_major:-}" ] || [ "${_major}" -lt 13 ] 2>/dev/null; then
+  echo "error: mingw-w64 GCC ${_major:-unknown} cannot compile C++23 (need >= 13)." >&2
+  echo "       Ubuntu 22.04 ships GCC 10; use Ubuntu 24.04 or newer." >&2
+  exit 1
+fi
+echo "=== mingw: $(x86_64-w64-mingw32-g++ --version | head -1) ==="
 
 TOOLCHAIN="$DEPS_DL/mingw-toolchain.cmake"
 # NOTE: $PREFIX must be in CMAKE_FIND_ROOT_PATH — with MODE_* ONLY, package
