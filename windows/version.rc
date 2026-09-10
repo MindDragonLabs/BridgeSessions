@@ -16,12 +16,12 @@ BEGIN
     BEGIN
       VALUE "CompanyName",      "Mind-Dragon"
       VALUE "FileDescription",  "Bridge Sessions"
-      VALUE "FileVersion",      "26.09.10-r1"
+      VALUE "FileVersion",      "26.09.10-r2"
       VALUE "InternalName",     "bridgesessions"
       VALUE "LegalCopyright",   "Copyright (c) Mind-Dragon"
       VALUE "OriginalFilename", "bridgesessions.exe"
       VALUE "ProductName",      "Bridge Sessions"
-      VALUE "ProductVersion",   "26.09.10-r1"
+      VALUE "ProductVersion",   "26.09.10-r2"
     END
   END
   BLOCK "VarFileInfo"
