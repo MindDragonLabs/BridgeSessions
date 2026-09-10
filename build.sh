@@ -138,7 +138,8 @@ ${C_BOLD}OPTIONS${C_RESET}
   --no-cache       Ignore the container dependency cache.
   --in-container   Internal: set when build.sh re-invokes itself inside a
                    container. Do not use directly.
-  --keep-container Leave the container running for debugging.  --extra ARG      Extra -D argument passed to CMake. Repeatable.
+  --keep-container Leave the container running for debugging.
+  --extra ARG      Extra -D argument passed to CMake. Repeatable.
   -v, --verbose    Verbose build output.
   -n, --dry-run    Print the commands without running them.
   -h, --help       This help.
