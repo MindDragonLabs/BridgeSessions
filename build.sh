@@ -271,6 +271,7 @@ if command -v apt-get >/dev/null 2>&1; then
     # pinned and built from source by cmake/Dependencies.cmake.
     apt-get install -y -qq --no-install-recommends \
         build-essential g++ gcc git perl pkg-config ca-certificates \
+        libssl-dev zlib1g-dev \
         curl wget ninja-build python3 python3-dev python3-venv xz-utils file >/dev/null
     # Ubuntu 22.04 defaults to gcc-11, which lacks complete C++23 support.
     if apt-cache show g++-12 >/dev/null 2>&1; then
@@ -278,7 +279,7 @@ if command -v apt-get >/dev/null 2>&1; then
         export CC=gcc-12 CXX=g++-12
     fi
 elif command -v pacman >/dev/null 2>&1; then
-    pacman -Sy --noconfirm --needed base-devel cmake ninja git perl python python-pytest >/dev/null
+    pacman -Sy --noconfirm --needed base-devel cmake ninja git perl python python-pytest openssl zstd >/dev/null
 fi
 
 # CMake floor: this project requires >= 3.25. Install the pinned binary when
@@ -373,27 +374,70 @@ build_macos() {
 }
 
 # ── Windows (mingw-w64 cross) ───────────────────────────────────────────────
+# OpenSSL is the one dependency that cannot be resolved from the build host:
+# a Linux libssl would link a Linux binary. scripts/ci-win-deps.sh builds a
+# self-contained static mingw prefix (OpenSSL, fmt, spdlog, zstd, CLI11).
+# Everything else cross-compiles from source via cmake/Dependencies.cmake.
+mingw_prefix() {
+    if [[ -n "${BS_WIN_PREFIX:-}" ]]; then echo "${BS_WIN_PREFIX}"; return; fi
+    if [[ -d /opt/bs-win/include && -f /opt/bs-win/lib/libssl.a ]]; then
+        echo /opt/bs-win; return
+    fi
+    if [[ -d "${HOME}/bs-win/include" && -f "${HOME}/bs-win/lib/libssl.a" ]]; then
+        echo "${HOME}/bs-win"; return
+    fi
+    echo ""
+}
+
 build_windows() {
     have x86_64-w64-mingw32-g++ || die "mingw-w64 is required (x86_64-w64-mingw32-g++)"
+
+    local prefix; prefix="$(mingw_prefix)"
+    if [[ -z "${prefix}" ]]; then
+        log "building the static mingw dependency prefix (first run only)"
+        local target_prefix="${BS_ROOT}/build/mingw-prefix"
+        run bash "${BS_ROOT}/scripts/ci-win-deps.sh" "${target_prefix}" \
+            || die "mingw dependency prefix build failed"
+        prefix="${target_prefix}"
+    fi
+    note "mingw prefix: ${prefix}"
+
+    # Windows version resource (ProductName/FileVersion generated from VERSION).
+    if [[ -f "${BS_ROOT}/scripts/gen-windows-version-rc.sh" ]]; then
+        run bash -c "cd '${BS_ROOT}' && bash scripts/gen-windows-version-rc.sh" >/dev/null 2>&1 || \
+            note "version resource generation skipped"
+    fi
+
     local build_dir="${BS_BUILD_ROOT}/windows-x86_64"
     local -a args=(-S "${BS_ROOT}" -B "${build_dir}"
         -DCMAKE_SYSTEM_NAME=Windows
         -DCMAKE_C_COMPILER=x86_64-w64-mingw32-gcc
         -DCMAKE_CXX_COMPILER=x86_64-w64-mingw32-g++
         -DCMAKE_RC_COMPILER=x86_64-w64-mingw32-windres
+        "-DCMAKE_FIND_ROOT_PATH=${prefix}"
         -DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER
         -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY
         -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY
+        -DCMAKE_FIND_ROOT_PATH_MODE_PACKAGE=ONLY
+        "-DOPENSSL_ROOT_DIR=${prefix}"
+        "-DCMAKE_PREFIX_PATH=${prefix}"
         "-DCMAKE_EXE_LINKER_FLAGS=-static -static-libgcc -static-libstdc++"
         -DCMAKE_BUILD_TYPE="${BUILD_TYPE}"
-        -DBS_DEPS_MODE="${DEPS_MODE}"
-        "-DBS_OPENSSL=${OPENSSL_MODE}"
+        # spdlog/zstd/json/CLI11 cross-compile cleanly from source; using the
+        # prefix for them would couple us to its exact spdlog/fmt pair.
+        -DBS_DEPS_MODE=fetch
+        -DBS_OPENSSL=system
         -DBUILD_TESTING=OFF)
     log "configure windows (mingw-w64, static)"
     run cmake "${args[@]}"
     log "build windows"
     run cmake --build "${build_dir}" --parallel "${JOBS}"
     stage_artifact "${build_dir}/bridgesessions.exe" "bridgesessions-windows-x86_64.exe"
+    if [[ "${PRINT_ONLY}" != "yes" ]] && have x86_64-w64-mingw32-objdump; then
+        note "DLL imports (expect OS DLLs only):"
+        x86_64-w64-mingw32-objdump -p "${OUT_DIR}/bridgesessions-windows-x86_64.exe" 2>/dev/null \
+            | grep "DLL Name" | sed 's/^/      /' || true
+    fi
 }
 
 # ── Aggregate targets ───────────────────────────────────────────────────────

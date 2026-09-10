@@ -144,6 +144,16 @@ else()
     set(BS_OPENSSL_CRYPTO_TARGET OpenSSL::Crypto)
     message(STATUS "deps: OpenSSL ${OPENSSL_VERSION} from system packages")
 endif()
+if(NOT BS_OPENSSL_SSL_TARGET)
+    message(FATAL_ERROR
+        "OpenSSL was not found. Install the development headers:\n"
+        "  Debian/Ubuntu:  apt-get install libssl-dev\n"
+        "  Arch:           pacman -S openssl\n"
+        "  macOS:          brew install openssl@3\n"
+        "  Windows/mingw:  run scripts/ci-win-deps.sh <prefix> and pass\n"
+        "                  -DOPENSSL_ROOT_DIR=<prefix>\n"
+        "Or build OpenSSL from source with -DBS_OPENSSL=fetch.")
+endif()
 
 # ── zstd ────────────────────────────────────────────────────────────────────
 bs_resolve_source(ZSTD zstd)
