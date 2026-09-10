@@ -231,12 +231,12 @@ run_ctest() {
 # Stage one binary into OUT_DIR with a tidy, release-ready name.
 stage_artifact() {
     local bin="$1" name="$2"
-    [[ -f "${bin}" ]] || die "expected binary not found: ${bin}"
-    mkdir -p "${OUT_DIR}"
     if [[ "${PRINT_ONLY}" == "yes" ]]; then
         note "would stage ${bin} -> ${OUT_DIR}/${name}"
         return 0
     fi
+    [[ -f "${bin}" ]] || die "expected binary not found: ${bin}"
+    mkdir -p "${OUT_DIR}"
     cp -f "${bin}" "${OUT_DIR}/${name}"
     if [[ "${DO_STRIP}" == "yes" && "${BUILD_TYPE}" != "Debug" ]]; then
         case "${name}" in
