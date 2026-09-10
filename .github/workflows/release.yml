@@ -1,0 +1,145 @@
+name: Release
+
+# Cut a release by pushing a tag. The tag must match VERSION and the tree must
+# be clean; scripts/github-release.sh enforces both, and this workflow re-checks
+# so a bad tag fails fast instead of publishing half an artifact set.
+#
+#   git tag v26.09.10-r2 && git push origin v26.09.10-r2
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing tag to publish'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  guard:
+    name: verify tag and version
+    runs-on: ubuntu-22.04
+    outputs:
+      tag: ${{ steps.check.outputs.tag }}
+      version: ${{ steps.check.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: check
+        run: |
+          set -euo pipefail
+          tag="${{ github.event.inputs.tag || github.ref_name }}"
+          version="$(tr -d '[:space:]' < VERSION)"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if [ "v${version}" != "$tag" ]; then
+            echo "::error::tag $tag does not match VERSION ($version)"
+            exit 1
+          fi
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "::error::tree is dirty"
+            exit 1
+          fi
+
+  linux:
+    name: linux (release artifact)
+    needs: guard
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ninja-build libssl-dev zlib1g-dev python3-pip
+      - run: python3 -m pip install --user --quiet pytest pytest-timeout
+      - run: ./build.sh linux --out dist
+      - run: |
+          bin=dist/bridgesessions-linux-x86_64
+          ldd "$bin" | grep 'not found' && exit 1 || true
+          "$bin" --version
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rel-linux
+          path: dist/bridgesessions-linux-x86_64
+          if-no-files-found: error
+
+  macos:
+    name: macos (release artifact)
+    needs: guard
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 -m pip install --user --quiet pytest pytest-timeout
+      - run: ./build.sh macos --out dist
+      - run: |
+          bin=dist/bridgesessions-macos-arm64
+          otool -L "$bin"
+          "$bin" --version
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rel-macos
+          path: dist/bridgesessions-macos-arm64
+          if-no-files-found: error
+
+  windows:
+    name: windows (release artifact)
+    needs: guard
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ninja-build pkg-config ca-certificates wget xz-utils \
+            g++-mingw-w64-x86-64-posix gcc-mingw-w64-x86-64-posix \
+            binutils-mingw-w64-x86-64
+          sudo update-alternatives --set x86_64-w64-mingw32-gcc /usr/bin/x86_64-w64-mingw32-gcc-posix
+          sudo update-alternatives --set x86_64-w64-mingw32-g++ /usr/bin/x86_64-w64-mingw32-g++-posix
+      - run: bash scripts/ci-win-deps.sh "$RUNNER_TEMP/bs-win"
+      - env:
+          BS_WIN_PREFIX: ${{ runner.temp }}/bs-win
+        run: ./build.sh windows --out dist --no-tests
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rel-windows
+          path: dist/bridgesessions-windows-x86_64.exe
+          if-no-files-found: error
+
+  publish:
+    name: publish
+    needs: [guard, linux, macos, windows]
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Add source archives
+        run: |
+          set -euo pipefail
+          v="${{ needs.guard.outputs.version }}"
+          git archive --format=tar.gz --prefix="bridgesessions-${v}/" \
+            -o "dist/bridgesessions-${v}-source.tar.gz" HEAD
+          git archive --format=zip --prefix="bridgesessions-${v}/" \
+            -o "dist/bridgesessions-${v}-source.zip" HEAD
+      - name: SBOM
+        run: bash scripts/release-checksums.sh --sbom dist/SBOM-binaries.json || true
+      - name: Checksums
+        run: |
+          cd dist
+          sha256sum ./* | sed 's#\./##' | sort -k2 > SHA256SUMS
+          cat SHA256SUMS
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="${{ needs.guard.outputs.tag }}"
+          gh release create "$tag" dist/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "BridgeSessions ${{ needs.guard.outputs.version }}" \
+            --generate-notes

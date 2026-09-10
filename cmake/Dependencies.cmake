@@ -177,9 +177,19 @@ else()
         set(ZSTD_TARGET zstd::libzstd_static)
     elseif(TARGET libzstd_static)
         set(ZSTD_TARGET libzstd_static)
+    elseif(TARGET zstd_static)
+        set(ZSTD_TARGET zstd_static)
     else()
         set(ZSTD_TARGET zstd)
     endif()
+    # zstd's exported targets do not always carry the public include dir, which
+    # surfaces as "zstd.h: No such file or directory". Wrap it so the include
+    # path is guaranteed whatever target shape upstream picks.
+    add_library(bs_zstd INTERFACE)
+    target_include_directories(bs_zstd SYSTEM INTERFACE
+        "${zstd_SOURCE_DIR}/lib" "${zstd_BINARY_DIR}/lib")
+    target_link_libraries(bs_zstd INTERFACE ${ZSTD_TARGET})
+    set(ZSTD_TARGET bs_zstd)
     message(STATUS "deps: zstd ${BS_ZSTD_TAG} from source")
 endif()
 
