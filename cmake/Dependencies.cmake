@@ -172,42 +172,33 @@ else()
     set(ZSTD_BUILD_STATIC   ON  CACHE BOOL "" FORCE)
     set(ZSTD_LEGACY_SUPPORT OFF CACHE BOOL "" FORCE)
     bs_fetch(zstd "${BS_ZSTD_TAG}" "https://github.com/facebook/zstd.git")
-    FetchContent_MakeAvailable(zstd)
-    # zstd's exported target names vary by version, and its name-based fallback
-    # emits `-lzstd`, which fails when only the static archive was built. Find
-    # the archive the target actually produced and link that path.
-    set(_zstd_lib "")
-    file(GLOB _zstd_archives
-        "${zstd_BINARY_DIR}/lib/libzstd.a"
-        "${zstd_BINARY_DIR}/lib/libzstd_static.a"
-        "${zstd_BINARY_DIR}/libzstd.a"
-        "${zstd_BINARY_DIR}/lib/libzstd*.a")
-    foreach(_cand ${_zstd_archives})
-        if(EXISTS "${_cand}")
-            set(_zstd_lib "${_cand}")
-            break()
-        endif()
-    endforeach()
+    # zstd has no CMakeLists.txt at the repo root; its canonical CMake entry is
+    # build/cmake. FetchContent_MakeAvailable would silently configure nothing.
+    FetchContent_GetProperties(zstd)
+    if(NOT zstd_POPULATED)
+        FetchContent_Populate(zstd)
+    endif()
+    add_subdirectory("${zstd_SOURCE_DIR}/build/cmake"
+                     "${zstd_BINARY_DIR}/cmake" EXCLUDE_FROM_ALL)
+
     add_library(bs_zstd INTERFACE)
     # zstd's exported targets do not always carry the public include dir, which
     # surfaces as "zstd.h: No such file or directory".
     target_include_directories(bs_zstd SYSTEM INTERFACE
-        "${zstd_SOURCE_DIR}/lib" "${zstd_BINARY_DIR}/lib")
-    if(_zstd_lib)
-        target_link_libraries(bs_zstd INTERFACE "${_zstd_lib}")
+        "${zstd_SOURCE_DIR}/lib" "${zstd_BINARY_DIR}/cmake/lib")
+    if(TARGET libzstd_static)
+        target_link_libraries(bs_zstd INTERFACE libzstd_static)
+    elseif(TARGET zstd::libzstd_static)
+        target_link_libraries(bs_zstd INTERFACE zstd::libzstd_static)
+    elseif(TARGET libzstd_shared)
+        target_link_libraries(bs_zstd INTERFACE libzstd_shared)
     else()
-        if(TARGET zstd::libzstd_static)
-            target_link_libraries(bs_zstd INTERFACE zstd::libzstd_static)
-        elseif(TARGET libzstd_static)
-            target_link_libraries(bs_zstd INTERFACE libzstd_static)
-        else()
-            message(FATAL_ERROR
-                "zstd was built but no static archive was found under "
-                "${zstd_BINARY_DIR}. Remove the build directory and reconfigure.")
-        endif()
+        message(FATAL_ERROR
+            "zstd configured at ${zstd_BINARY_DIR} but defines no library target. "
+            "Remove the build directory and reconfigure.")
     endif()
     set(ZSTD_TARGET bs_zstd)
-    message(STATUS "deps: zstd ${BS_ZSTD_TAG} from source (${_zstd_lib})")
+    message(STATUS "deps: zstd ${BS_ZSTD_TAG} from source")
 endif()
 
 # ── spdlog ──────────────────────────────────────────────────────────────────
