@@ -577,9 +577,42 @@ do_package() {
 
 do_clean() {
     log "clean"
+    local dirs=()
     for d in "${BS_BUILD_ROOT}"/linux-* "${BS_BUILD_ROOT}"/macos-* \
-             "${BS_BUILD_ROOT}"/windows-* "${BS_BUILD_ROOT}"/container-*; do
-        [[ -e "${d}" ]] && run rm -rf "${d}" && note "removed ${d}"
+             "${BS_BUILD_ROOT}"/windows-* "${BS_BUILD_ROOT}"/container-* \
+             "${BS_BUILD_ROOT}"/mingw-prefix "${BS_BUILD_ROOT}"/test; do
+        [[ -e "${d}" ]] && dirs+=("${d}")
+    done
+    if [[ ${#dirs[@]} -eq 0 ]]; then
+        ok "clean — nothing to remove"
+        return 0
+    fi
+    if [[ "${PRINT_ONLY}" == "yes" ]]; then
+        note "would remove: ${dirs[*]}"
+        return 0
+    fi
+
+    # Container builds run as root and can leave files the host user cannot
+    # delete. Fall back to a root container for those trees instead of failing
+    # with a wall of "Permission denied".
+    local removed=0 failed=0
+    for d in "${dirs[@]}"; do
+        if rm -rf "${d}" 2>/dev/null; then
+            removed=$((removed+1))
+        else
+            failed=$((failed+1))
+        fi
+    done
+    if [[ "${failed}" -gt 0 ]] && have docker && docker info >/dev/null 2>&1; then
+        note "${failed} tree(s) need root; removing via a container"
+        local rel=()
+        for d in "${dirs[@]}"; do [[ -e "${d}" ]] && rel+=("/w${d#${BS_ROOT}}"); done
+        if docker run --rm -v "${BS_ROOT}:/w" alpine:3.20 rm -rf "${rel[@]}" 2>/dev/null; then
+            failed=0
+        fi
+    fi
+    for d in "${dirs[@]}"; do
+        [[ -e "${d}" ]] && warn "could not remove ${d} (owned by root? try: sudo rm -rf)"
     done
     ok "clean"
 }
