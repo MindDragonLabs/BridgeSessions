@@ -970,7 +970,7 @@ private:
         std::error_code ec;
         const fs::path root = fs::path(expand_home(receive_dir_));
         if (!fs::is_directory(root, ec)) return;
-        const auto now = std::chrono::system_clock::now();
+        const auto now_ft = fs::file_time_type::clock::now();
         const auto max_age = std::chrono::hours(config_.receive_retention_hours);
         size_t removed = 0;
         uintmax_t freed = 0;
@@ -989,7 +989,10 @@ private:
                 std::error_code mec;
                 auto mt = fs::last_write_time(p, mec);
                 if (mec) continue;
-                if (now - std::chrono::clock_cast<std::chrono::system_clock>(mt) < max_age) continue;
+                // Compare against file_time_type's own clock. Converting to
+                // system_clock needs std::chrono::clock_cast, which GCC 12
+                // (the Ubuntu 22.04 floor) does not provide.
+                if (now_ft - mt < max_age) continue;
                 uintmax_t sz = fs::file_size(p, mec);
                 if (fs::remove(p, mec)) {
                     ++removed;

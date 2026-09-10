@@ -3,7 +3,7 @@ name: bridgesessions
 description: Use when operating or developing BridgeSessions mesh peers.
 license: BUSL-1.1
 metadata:
-  version: "26.09.01-release"
+  version: "26.09.10-r1"
   product: BridgeSessions
   forge: "github.com/MindDragonLabs/BridgeSessions"
 ---
@@ -69,6 +69,15 @@ Parse `PROGRESS ...` lines. Success requires final `OK` after SHA-256 verificati
 
 By default peers serve only from `receive_dir`. Do not enable sensitive/arbitrary paths casually.
 
+`--dest` is a path **under the peer's receive directory**, not an absolute path. The `OK`
+line's `dest=` field is relative to that directory, so use it to find the file; if the peer
+is too old to confirm, the sender says so instead of guessing.
+
+The receive directory is staging, not storage. Every received file is also written to the
+caller's own destination, so a leftover copy doubles the disk cost. Files older than
+`receive_retention_hours` (default 24, `0` disables) are removed by an hourly sweep.
+`.part` / `.part.bsmeta` files are never removed.
+
 ## Computer use
 
 ```bash
@@ -79,6 +88,10 @@ bs cua type <peer> --text 'hello'
 ```
 
 Capture before clicking. Windows/macOS require one user-session `--cua-helper`; macOS also requires Screen Recording and Accessibility approval. Spectators cannot send CUA input.
+
+On Windows the helper re-execs itself with `CREATE_NO_WINDOW` and the installer marks the
+logon task hidden, so it must never show a console window. A visible console window means
+the helper was started some other way.
 
 ## Bootstrap
 
