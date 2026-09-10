@@ -224,6 +224,17 @@ host_can() {
     esac
 }
 
+# ── Build directory layout ──────────────────────────────────────────────────
+# Every target gets its own tree so a container build can never collide with a
+# native one. BS_BUILD_SUBDIR overrides the name and is how the container
+# invocation keeps its output separate from the host's.
+BS_BUILD_SUBDIR="${BS_BUILD_SUBDIR:-}"
+
+# Resolve the build directory for a logical target name.
+build_dir_for() {
+    printf '%s/%s' "${BS_BUILD_ROOT}" "${BS_BUILD_SUBDIR:-$1}"
+}
+
 # ── CMake invocation ────────────────────────────────────────────────────────
 cmake_configure_build() {
     local src="$1" build_dir="$2"
@@ -293,7 +304,7 @@ suffix_for_arch() {
 # ── Linux: native ───────────────────────────────────────────────────────────
 build_linux_native() {
     [[ "${HOST_KIND}" == "linux" ]] || die "native Linux build needs a Linux host (use --distro IMAGE)"
-    local build_dir="${BS_BUILD_ROOT}/linux-$(suffix_for_arch "${ARCH}")"
+    local build_dir; build_dir="$(build_dir_for "linux-$(suffix_for_arch "${ARCH}")")"
     cmake_configure_build "${BS_ROOT}" "${build_dir}"
     run_ctest "${build_dir}"
     stage_artifact "${build_dir}/bridgesessions" "bridgesessions-linux-$(suffix_for_arch "${ARCH}")"
@@ -326,6 +337,9 @@ ${bootstrap_extra}"
         # host user can clean or reuse the tree.
         -e "BS_HOST_UID=$(id -u)"
         -e "BS_HOST_GID=$(id -g)"
+        # Keep the container's build tree separate from the host's, so a
+        # container run can never overwrite (or be mistaken for) a native build.
+        -e "BS_BUILD_SUBDIR=container-${arch}"
         -e "CONTAINER_INNER_TARGET=${inner_target}"
         -e "CONTAINER_INNER_ARGS=${inner_args}"
     )
@@ -403,7 +417,7 @@ build_macos() {
     [[ "${HOST_KIND}" == "macos" ]] || die "macOS builds must run on macOS"
     local arch; arch="$(suffix_for_arch "$(uname -m)")"
     if [[ "${ARCH}" != "$(uname -m)" ]]; then arch="$(suffix_for_arch "${ARCH}")"; fi
-    local build_dir="${BS_BUILD_ROOT}/macos-${arch}"
+    local build_dir; build_dir="$(build_dir_for "macos-${arch}")"
 
     # A Homebrew OpenSSL produces a binary that links
     # /opt/homebrew/opt/openssl@3/lib/libssl.3.dylib, which does not exist on a
@@ -506,7 +520,7 @@ Or install a newer mingw-w64 on this host."
             note "version resource generation skipped"
     fi
 
-    local build_dir="${BS_BUILD_ROOT}/windows-x86_64"
+    local build_dir; build_dir="$(build_dir_for "windows-x86_64")"
     local -a args=(-S "${BS_ROOT}" -B "${build_dir}"
         -DCMAKE_SYSTEM_NAME=Windows
         -DCMAKE_C_COMPILER=x86_64-w64-mingw32-gcc
@@ -649,8 +663,9 @@ case "${TARGET}" in
     all)     build_all ;;
     test)    DO_TESTS="yes"
              if [[ "${HOST_KIND}" == "linux" ]]; then
-                 cmake_configure_build "${BS_ROOT}" "${BS_BUILD_ROOT}/test"
-                 run_ctest "${BS_BUILD_ROOT}/test"
+                 local td; td="$(build_dir_for test)"
+                 cmake_configure_build "${BS_ROOT}" "${td}"
+                 run_ctest "${td}"
              else
                  build_macos
              fi ;;
