@@ -229,6 +229,32 @@ TEST_CASE("file_path: meshmon-probe resolves basename under receive_dir",
     fs::remove_all(home);
 }
 
+// ── Received-path reporting (dest= feedback) ─────────────────────────
+//
+// Regression: the receiver echoed fs::path(final_path).filename(), so a send
+// with --dest nested/deeper/x.txt reported "dest=x.txt". The caller then looked
+// in the receive root and could not find the file, which had actually been
+// written to nested/deeper/. The reported path must be relative to the receive
+// directory and use forward slashes on every platform.
+
+TEST_CASE("relative_receive_path: reports the path under the receive dir",
+          "[file_path][dest_report][regression]") {
+    const std::string root = "/tmp/bs_recv_root";
+    REQUIRE(relative_receive_path(root + "/report.txt", root) == "report.txt");
+    REQUIRE(relative_receive_path(root + "/nested/deeper/x.txt", root)
+            == "nested/deeper/x.txt");
+    // Forward slashes regardless of host separator.
+    REQUIRE(relative_receive_path(root + "/a/b/c.bin", root).find('\\')
+            == std::string::npos);
+}
+
+TEST_CASE("relative_receive_path: falls back to the basename when it cannot relativize",
+          "[file_path][dest_report]") {
+    const std::string full = "/tmp/bs_recv_root/only/name.txt";
+    // Empty root cannot be relativized against.
+    REQUIRE(relative_receive_path(full, "") == "name.txt");
+}
+
 // ── Main ─────────────────────────────────────────────────────────────
 int main(int argc, char* argv[]) {
     return Catch::Session().run(argc, argv);

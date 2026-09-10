@@ -136,6 +136,53 @@ Source of truth:
 
 Generated artifacts are ignored and published through GitHub Releases. Release gate: [`docs/RELEASE-PROVENANCE.md`](../../docs/RELEASE-PROVENANCE.md).
 
+## Release versioning and artifact portability
+
+Version policy: the base stays for the whole release day; intraday fixes take an `-rN`
+suffix (`26.09.10` → `26.09.10-r1` → `26.09.10-r2`). Do not bump the base for a same-day fix.
+
+Every platform is built by `./build.sh` (`linux`, `macos`, `windows`, `all`, `package`,
+`test`, `deps`, `clean`). It is the only builder; do not hand-roll a cmake invocation.
+
+**Never promise a fleet roll before testing the published artifact on a real peer of each
+platform.** Run `ldd <asset> | grep 'not found'` and `<asset> --version` on the target.
+A release note claiming portability is not evidence.
+
+Which image, and why:
+
+- Linux release artifact: build in `ubuntu:22.04`. The glibc floor comes from the image,
+  not the host — a binary built on Arch or 24.04 will not start on a 22.04 host.
+- Windows: `mingw-w64` runs on Linux and emits a Windows PE, so it is always a cross build.
+  The host mingw version decides C++23 support: Ubuntu 22.04 ships GCC 10.3 (rejects
+  `-std=c++23`), 24.04 ships 13.2, Arch ships 16.x. `build.sh windows` uses a capable
+  native mingw first and falls back to the 24.04 container.
+- macOS: builds OpenSSL from source by default. A Homebrew OpenSSL leaves the binary
+  linked to `/opt/homebrew/opt/openssl@3/...`, which does not exist on a Mac without
+  Homebrew. Sign AFTER stripping — stripping invalidates a Mach-O signature and the
+  kernel kills the process (SIGKILL, "Killed: 9").
+
+Dependency portability: spdlog is built from source with its **bundled** fmt. Linking a
+distribution's spdlog pulls in an external `libfmt` whose soname differs per distro, which
+is how a release asset ended up needing `libspdlog.so.1` + `libfmt.so.8` and could not load
+on Arch. Only `libssl.so.3` / `libcrypto.so.3` come from the system.
+
+**Build the most constrained platform first.** The Windows mingw build caught a
+`rel.native()` wide-string error that the Linux and macOS builds accepted, because
+`path::native()` is `std::wstring` only on Windows. A Linux-only or macOS-only green build
+is not proof a change is portable.
+
+Publish gate: `scripts/github-release.sh` refuses a dirty tree, a local tag that is not
+HEAD, or an origin tag that is not HEAD. Publish **before** amending the release commit —
+an amend after the push desyncs the tag and blocks the gate.
+
+Handy evidence commands:
+
+```bash
+gh api "repos/$R/releases?per_page=40" --jq '.[] | "\(.tag_name) pr=\(.prerelease) n=\(.assets|length)"'
+gh api repos/$R/releases/tags/v$V --jq '.assets[] | "\(.name) \(.digest)"'
+git diff --stat v$V^{commit} origin/main      # tag vs main, authoritative
+```
+
 ## Common failure patterns
 
 | Symptom | Likely cause | Action |
