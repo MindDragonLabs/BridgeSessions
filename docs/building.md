@@ -128,16 +128,40 @@ You also need the Apple WWDR intermediate. The private key never belongs in git.
 
 ## Windows cross-compile
 
-`./build.sh windows` handles this end to end. OpenSSL is the one dependency that cannot come from the build host — a Linux `libssl` would produce a Linux binary — so the script locates a static mingw prefix in `BS_WIN_PREFIX`, then `/opt/bs-win`, then `~/bs-win`, and builds one with `scripts/ci-win-deps.sh` if it is missing.
+Windows is the one target that cannot be built natively on a Windows machine in this setup. `mingw-w64` is a **Linux-hosted cross-compiler**: it runs on Linux and emits a Windows PE. So "building for Windows" always means "run a Linux toolchain that targets Windows", and *which* Linux toolchain decides whether C++23 compiles at all:
+
+| Linux host | mingw-w64 GCC | `-std=c++23` |
+|---|---|---|
+| Ubuntu 22.04 | 10.3 | rejected |
+| Ubuntu 24.04 | 13.2 | accepted |
+| Debian 12 | 12.2 | accepted |
+| Arch (rolling) | 16.x | accepted |
+
+This project requires C++23, so a Ubuntu 22.04 container cannot build the Windows binary — that is the entire reason the two targets use different images. The Linux glibc floor is irrelevant for a Windows PE.
+
+`./build.sh windows` picks the toolchain for you:
+
+1. If the host has `x86_64-w64-mingw32-g++` with GCC 13 or newer, build natively. This is the fast path and the toolchain that produced the shipped binary.
+2. Otherwise, run the build inside `ubuntu:24.04`.
+
+Force one or the other:
+
+```bash
+./build.sh windows                        # auto (native if capable)
+./build.sh windows --distro native        # host toolchain, fails loudly if too old
+./build.sh windows --distro ubuntu:24.04  # force the container
+```
+
+OpenSSL is the one dependency that cannot come from the build host — a Linux `libssl` would produce a Linux binary. `scripts/ci-win-deps.sh` builds a static mingw prefix containing OpenSSL (plus fmt, spdlog, zstd, CLI11); `build.sh` looks for it in `BS_WIN_PREFIX`, then `/opt/bs-win`, then `~/bs-win`, and builds it if missing. It works with apt or pacman.
 
 ```bash
 bash scripts/ci-win-deps.sh "$PWD/build/mingw-prefix"   # optional; build.sh does this
 BS_WIN_PREFIX="$PWD/build/mingw-prefix" ./build.sh windows
 ```
 
-The prefix is toolchain-pinned: rebuild the dependencies and link the executable with the same mingw distribution. Mixing distributions' mingw builds fails on `__imp__` CRT symbols. Use the **posix** thread variant; the win32 variant fails at link on `<thread>`.
+The prefix is toolchain-pinned: rebuild the dependencies and link the executable with the same mingw distribution. Mixing distributions' mingw builds fails on `__imp__` CRT symbols. Use the **posix** thread variant; the win32 variant fails at link on `<thread>`. Arch ships only the posix variant.
 
-The remaining dependencies (spdlog, zstd, json, CLI11) cross-compile from source, which keeps spdlog on its bundled fmt. The build pins `WINVER`/`_WIN32_WINNT`/`NTDDI_VERSION` to `0x0A000006`; older mingw 11 header sets gate `HPCON` behind that NTDDI level.
+The remaining dependencies cross-compile from source, which keeps spdlog on its bundled fmt. The build pins `WINVER`/`_WIN32_WINNT`/`NTDDI_VERSION` to `0x0A000006`; older mingw 11 header sets gate `HPCON` behind that NTDDI level.
 
 ## Release builds on CI
 
