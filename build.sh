@@ -346,8 +346,9 @@ ${bootstrap_extra}"
         -e "BS_HOST_UID=$(id -u)"
         -e "BS_HOST_GID=$(id -g)"
         # Keep the container's build tree separate from the host's, so a
-        # container run can never overwrite (or be mistaken for) a native build.
-        -e "BS_BUILD_SUBDIR=container-${arch}"
+        # container run can never overwrite (or be mistaken for) a native build,
+        # and so the Linux and Windows containers never share a tree.
+        -e "BS_BUILD_SUBDIR=container-${inner_target}-${arch}"
         -e "CONTAINER_INNER_TARGET=${inner_target}"
         -e "CONTAINER_INNER_ARGS=${inner_args}"
     )
@@ -435,7 +436,7 @@ build_linux_container() {
         build_in_container "${image}" linux ""
     fi
 
-    stage_artifact "${BS_BUILD_ROOT}/container-$(suffix_for_arch "${ARCH}")/bridgesessions" \
+    stage_artifact "$(build_dir_for "container-linux-$(suffix_for_arch "${ARCH}")")/bridgesessions" \
                    "bridgesessions-linux-$(suffix_for_arch "${ARCH}")"
 }
 
@@ -512,7 +513,7 @@ build_windows() {
 
     if [[ "${use_container}" == "yes" && "${IN_CONTAINER}" != "yes" ]]; then
         build_in_container "${DISTRO:-${BS_WIN_DISTRO}}" windows "${MINGW_BOOTSTRAP}"
-        stage_artifact "${BS_BUILD_ROOT}/windows-x86_64/bridgesessions.exe" \
+        stage_artifact "$(build_dir_for "container-windows-$(suffix_for_arch "${ARCH}")")/bridgesessions.exe" \
                        "bridgesessions-windows-x86_64.exe"
         if [[ "${PRINT_ONLY}" != "yes" ]] && have x86_64-w64-mingw32-objdump; then
             note "DLL imports (expect OS DLLs only):"
@@ -595,7 +596,20 @@ build_all() {
         warn "skipping linux: no Linux host and no usable docker"
     fi
     if host_can macos; then build_macos; did=$((did+1)); else warn "skipping macos: host is ${HOST_KIND}"; fi
-    if host_can windows; then build_windows; did=$((did+1)); else warn "skipping windows: mingw-w64 not found"; fi
+    if host_can windows; then
+        # --distro selects the LINUX artifact's base image. It must not be
+        # forced on the Windows cross build: ubuntu:22.04 ships a mingw that
+        # cannot compile C++23, so `package --distro ubuntu:22.04` would fail on
+        # a target the user never asked about. build_windows chooses its own
+        # toolchain (native mingw when capable, else BS_WIN_DISTRO).
+        local saved_distro="${DISTRO}"
+        DISTRO=""
+        build_windows
+        DISTRO="${saved_distro}"
+        did=$((did+1))
+    else
+        warn "skipping windows: mingw-w64 not found and no usable docker"
+    fi
     [[ "${did}" -gt 0 ]] || die "this host cannot build any target"
 }
 
