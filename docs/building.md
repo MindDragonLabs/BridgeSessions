@@ -16,6 +16,26 @@ One script builds every platform. It resolves all dependencies itself, so a fres
 
 The version string lives in the `VERSION` file at the repo root. CMake reads that file. Bump `VERSION` before you rebuild a release. Do not hardcode a version in documentation; run `bs --version`.
 
+## Testing
+
+```bash
+./build.sh test                        # configure, build, run the full suite
+./build.sh linux --distro native       # build + test on the host
+./build.sh linux --distro ubuntu:22.04 # tests on the host, artifact in the container
+```
+
+The suite opens real sockets, binds real ports, and measures latency. Two consequences:
+
+- **ctest runs on the host, not in the container.** A stripped `ubuntu:22.04` container is a cross-compile environment, not a test environment: there the suite flakes with a different failing set each run, while the same commit passes natively. `build.sh` therefore tests on the host when the host is Linux, then builds the portable artifact in the container with tests off. Force the old behaviour with `BS_CONTAINER_TESTS=yes`.
+- **Parallelism is capped at 8 and failures are retried** (`--repeat until-pass:3`). At 64-way the socket and timing tests contend. Retries remove that noise without hiding a real defect: a deterministic failure still fails all three attempts. If a test only passes on retry, treat it as suspect and run it in isolation.
+
+If you suspect a flake, isolate it:
+
+```bash
+cd build/<target-dir>
+ctest --output-on-failure -R "<test name>"      # run it alone, a few times
+```
+
 ## Dependencies
 
 They are pinned in [`cmake/Dependencies.cmake`](../cmake/Dependencies.cmake) and built from source by default:
