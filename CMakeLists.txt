@@ -37,21 +37,10 @@ if(MSVC)
 endif()
 
 # ── Dependencies ────────────────────────────────────────────────
-find_package(OpenSSL REQUIRED)
-find_package(zstd REQUIRED)
-if(BUILD_TESTING)
-    find_package(Catch2 REQUIRED)
-endif()
-find_package(nlohmann_json 3.2.0 REQUIRED)
-find_package(CLI11 REQUIRED)
-find_package(spdlog REQUIRED)
-
-# Resolve zstd target name
-if(TARGET zstd::libzstd_static)
-    set(ZSTD_TARGET zstd::libzstd_static)
-else()
-    set(ZSTD_TARGET zstd::libzstd)
-endif()
+# Every third-party dependency is pinned and resolved in one place, so a fresh
+# clone builds with no machine-local edits and no hand-installed packages.
+# See cmake/Dependencies.cmake for BS_DEPS_MODE / BS_OPENSSL / BS_STATIC_DEPS.
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/Dependencies.cmake)
 
 # ── Core library (header-only) + binary ──────────────────────────
 add_executable(bridgesessions main.cpp
@@ -123,7 +112,7 @@ elseif(MINGW)
 endif()
 
 target_link_libraries(bridgesessions
-    OpenSSL::SSL OpenSSL::Crypto
+    ${BS_OPENSSL_SSL_TARGET} ${BS_OPENSSL_CRYPTO_TARGET}
     ${ZSTD_TARGET}
     nlohmann_json::nlohmann_json
     CLI11::CLI11
@@ -181,7 +170,7 @@ foreach(TEST_SRC ${TEST_SOURCES})
         BS_VERSION_FILE_PATH="${CMAKE_CURRENT_SOURCE_DIR}/VERSION"
         BRIDGESESSIONS_MAIN_CPP_PATH="${CMAKE_CURRENT_SOURCE_DIR}/main.cpp")
     target_link_libraries(${TEST_NAME}
-        OpenSSL::SSL OpenSSL::Crypto
+        ${BS_OPENSSL_SSL_TARGET} ${BS_OPENSSL_CRYPTO_TARGET}
         ${ZSTD_TARGET}
         nlohmann_json::nlohmann_json
         CLI11::CLI11

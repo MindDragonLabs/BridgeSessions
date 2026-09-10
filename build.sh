@@ -1,0 +1,490 @@
+#!/usr/bin/env bash
+#
+# build.sh — the one builder for BridgeSessions.
+#
+# Builds Linux, macOS, and Windows from a single entry point, with pinned
+# dependencies resolved by cmake/Dependencies.cmake (nothing hand-installed,
+# no machine-local edits).
+#
+#   ./build.sh linux                      build for this host
+#   ./build.sh linux --distro ubuntu:22.04   release build in a container
+#   ./build.sh macos                      build on macOS
+#   ./build.sh windows                    cross-compile with mingw-w64
+#   ./build.sh all                        every target this host can produce
+#   ./build.sh test                       configure, build, run ctest
+#   ./build.sh package                    stage dist/ + SHA256SUMS
+#   ./build.sh clean                      remove build directories
+#
+# Run `./build.sh --help` for the full option list.
+#
+set -euo pipefail
+
+BS_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly BS_ROOT
+readonly BS_BUILD_ROOT="${BS_ROOT}/build"
+readonly BS_DIST="${BS_ROOT}/dist"
+
+# Pinned build toolchain for container builds. Ubuntu 22.04 ships CMake 3.22;
+# this project needs 3.25 or newer.
+readonly BS_CMAKE_VERSION="3.28.3"
+readonly BS_CMAKE_SHA256="804d231460ab3c8b556a42d2660af4ac7a0e21c98a7f8ee3318a74b4a9a187a6"
+
+# Container images used for release Linux builds. The oldest glibc floor wins:
+# a binary built against glibc 2.35 runs on every newer distro (Debian 12,
+# Ubuntu 24.04, Arch), so 22.04 is the release target for Linux.
+readonly BS_DEFAULT_DISTRO="ubuntu:22.04"
+
+# ── Output helpers ──────────────────────────────────────────────────────────
+if [[ -t 1 ]]; then
+    C_RESET=$'\033[0m'; C_BOLD=$'\033[1m'; C_DIM=$'\033[2m'
+    C_RED=$'\033[31m'; C_GREEN=$'\033[32m'; C_YELLOW=$'\033[33m'
+else
+    C_RESET=""; C_BOLD=""; C_DIM=""; C_RED=""; C_GREEN=""; C_YELLOW=""
+fi
+log()  { printf '%s==>%s %s\n' "${C_BOLD}" "${C_RESET}" "$*"; }
+note() { printf '%s    %s%s\n' "${C_DIM}" "$*" "${C_RESET}"; }
+warn() { printf '%s[!] %s%s\n' "${C_YELLOW}" "$*" "${C_RESET}" >&2; }
+die()  { printf '%s[x] %s%s\n' "${C_RED}" "$*" "${C_RESET}" >&2; exit 1; }
+ok()   { printf '%s[ok] %s%s\n' "${C_GREEN}" "$*" "${C_RESET}"; }
+
+# ── Defaults ────────────────────────────────────────────────────────────────
+TARGET=""
+DISTRO=""
+ARCH="$(uname -m)"
+BUILD_TYPE="Release"
+JOBS=""
+OUT_DIR="${BS_DIST}"
+DO_TESTS=""
+DO_STRIP="yes"
+DEPS_MODE="fetch"
+OPENSSL_MODE="system"
+NO_CACHE="no"
+KEEP_CONTAINER="no"
+VERBOSE="no"
+PRINT_ONLY="no"
+EXTRA_CMAKE_ARGS=()
+
+usage() {
+    cat <<EOF
+${C_BOLD}build.sh${C_RESET} — build BridgeSessions for Linux, macOS, and Windows.
+
+${C_BOLD}USAGE${C_RESET}
+  ./build.sh <target> [options]
+
+${C_BOLD}TARGETS${C_RESET}
+  linux            Build the Linux binary. Add --distro to build inside a
+                   container so the artifact carries a low glibc floor.
+  macos            Build the macOS binary (must run on macOS).
+  windows          Cross-compile the Windows PE with mingw-w64.
+  all              Build every target this host supports.
+  test             Configure, build, and run the full ctest suite.
+  package          Build all supported targets, then stage dist/ + SHA256SUMS.
+  clean            Remove build/ and generated build directories.
+  deps             Print the resolved dependency pins.
+
+${C_BOLD}OPTIONS${C_RESET}
+  --distro IMAGE   Linux only. Build inside this container image.
+                   Recommended: ${BS_DEFAULT_DISTRO} (glibc 2.35 floor).
+                   Also useful: ubuntu:24.04, debian:12, archlinux:latest.
+                   Use 'native' to force a build on the host.
+  --arch ARCH      x86_64 | arm64. Default: host architecture.
+  --build-type T   Release | RelWithDebInfo | Debug. Default: Release.
+  --out DIR        Where to write artifacts. Default: ./dist
+  --jobs N         Parallel build jobs. Default: all cores.
+  --tests          Run ctest as part of the build. (default for native builds)
+  --no-tests       Skip ctest.
+  --deps MODE      fetch | system | auto. Default: fetch (pinned, portable).
+  --openssl MODE   system | fetch. Default: system (fast, ABI-stable).
+  --no-strip       Keep debug symbols in the staged artifact.
+  --no-cache       Ignore the container dependency cache.
+  --keep-container Leave the container running for debugging.
+  --extra ARG      Extra -D argument passed to CMake. Repeatable.
+  -v, --verbose    Verbose build output.
+  -n, --dry-run    Print the commands without running them.
+  -h, --help       This help.
+
+${C_BOLD}EXAMPLES${C_RESET}
+  ./build.sh linux --distro ubuntu:22.04 --tests
+  ./build.sh windows
+  ./build.sh package --distro ubuntu:22.04
+  ./build.sh linux --deps system --no-tests          # fast local iteration
+EOF
+}
+
+# ── Argument parsing ────────────────────────────────────────────────────────
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        linux|macos|windows|all|test|package|clean|deps) TARGET="$1"; shift ;;
+        --distro)        DISTRO="${2:?--distro needs a value}"; shift 2 ;;
+        --arch)          ARCH="${2:?--arch needs a value}"; shift 2 ;;
+        --build-type)    BUILD_TYPE="${2:?--build-type needs a value}"; shift 2 ;;
+        --out)           OUT_DIR="${2:?--out needs a value}"; shift 2 ;;
+        --jobs)          JOBS="${2:?--jobs needs a value}"; shift 2 ;;
+        --deps)          DEPS_MODE="${2:?--deps needs a value}"; shift 2 ;;
+        --openssl)       OPENSSL_MODE="${2:?--openssl needs a value}"; shift 2 ;;
+        --tests)         DO_TESTS="yes"; shift ;;
+        --no-tests)      DO_TESTS="no"; shift ;;
+        --no-strip)      DO_STRIP="no"; shift ;;
+        --no-cache)      NO_CACHE="yes"; shift ;;
+        --keep-container) KEEP_CONTAINER="yes"; shift ;;
+        --extra)         EXTRA_CMAKE_ARGS+=("${2:?--extra needs a value}"); shift 2 ;;
+        -v|--verbose)    VERBOSE="yes"; shift ;;
+        -n|--dry-run)    PRINT_ONLY="yes"; shift ;;
+        -h|--help)       usage; exit 0 ;;
+        *) die "unknown argument: $1 (try --help)" ;;
+    esac
+done
+
+[[ -n "${TARGET}" ]] || { usage; exit 1; }
+
+case "${DEPS_MODE}" in fetch|system|auto) ;; *) die "--deps must be fetch, system, or auto" ;; esac
+case "${OPENSSL_MODE}" in system|fetch) ;; *) die "--openssl must be system or fetch" ;; esac
+case "${BUILD_TYPE}" in Release|RelWithDebInfo|Debug) ;; *) die "--build-type must be Release, RelWithDebInfo, or Debug" ;; esac
+
+if [[ -z "${JOBS}" ]]; then
+    if command -v nproc >/dev/null 2>&1; then JOBS="$(nproc)"
+    elif command -v sysctl >/dev/null 2>&1; then JOBS="$(sysctl -n hw.ncpu 2>/dev/null || echo 4)"
+    else JOBS=4; fi
+fi
+
+# Native builds exercise the code, so they test by default. Container release
+# builds do too: the artifact is the release gate.
+if [[ -z "${DO_TESTS}" ]]; then
+    DO_TESTS="yes"
+fi
+
+run() {
+    if [[ "${PRINT_ONLY}" == "yes" ]]; then
+        printf '    %s\n' "$*"
+    else
+        "$@"
+    fi
+}
+
+# ── Host capability detection ───────────────────────────────────────────────
+HOST_OS="$(uname -s)"
+case "${HOST_OS}" in
+    Linux)  HOST_KIND="linux" ;;
+    Darwin) HOST_KIND="macos" ;;
+    *)      HOST_KIND="unknown" ;;
+esac
+
+have() { command -v "$1" >/dev/null 2>&1; }
+
+host_can() {
+    case "$1" in
+        linux)
+            [[ "${HOST_KIND}" == "linux" ]] \
+                || { have docker && docker info >/dev/null 2>&1; } ;;
+        macos)   [[ "${HOST_KIND}" == "macos" ]] ;;
+        windows) have x86_64-w64-mingw32-g++ ;;
+        *)       return 1 ;;
+    esac
+}
+
+# ── CMake invocation ────────────────────────────────────────────────────────
+cmake_configure_build() {
+    local src="$1" build_dir="$2"
+    local -a args=(
+        -S "${src}" -B "${build_dir}"
+        -DCMAKE_BUILD_TYPE="${BUILD_TYPE}"
+        -DBS_DEPS_MODE="${DEPS_MODE}"
+        -DBS_OPENSSL="${OPENSSL_MODE}"
+        -DBUILD_TESTING="$([[ "${DO_TESTS}" == "yes" || "${TARGET}" == "test" ]] && echo ON || echo OFF)"
+    )
+    if [[ "${VERBOSE}" == "yes" ]]; then args+=(-DCMAKE_VERBOSE_MAKEFILE=ON); fi
+    local a
+    for a in "${EXTRA_CMAKE_ARGS[@]:-}"; do
+        [[ -n "${a}" ]] && args+=("${a}")
+    done
+
+    log "configure (${BUILD_TYPE}, deps=${DEPS_MODE}, openssl=${OPENSSL_MODE})"
+    run cmake "${args[@]}"
+    log "build (${JOBS} jobs)"
+    local -a bargs=(--build "${build_dir}" --parallel "${JOBS}")
+    [[ "${VERBOSE}" == "yes" ]] && bargs+=(--verbose)
+    run cmake "${bargs[@]}"
+}
+
+run_ctest() {
+    local build_dir="$1"
+    [[ "${DO_TESTS}" == "yes" || "${TARGET}" == "test" ]] || return 0
+    log "ctest"
+    run ctest --test-dir "${build_dir}" --output-on-failure --parallel "${JOBS}"
+}
+
+# Stage one binary into OUT_DIR with a tidy, release-ready name.
+stage_artifact() {
+    local bin="$1" name="$2"
+    [[ -f "${bin}" ]] || die "expected binary not found: ${bin}"
+    mkdir -p "${OUT_DIR}"
+    if [[ "${PRINT_ONLY}" == "yes" ]]; then
+        note "would stage ${bin} -> ${OUT_DIR}/${name}"
+        return 0
+    fi
+    cp -f "${bin}" "${OUT_DIR}/${name}"
+    if [[ "${DO_STRIP}" == "yes" && "${BUILD_TYPE}" != "Debug" ]]; then
+        case "${name}" in
+            *.exe) have x86_64-w64-mingw32-strip && x86_64-w64-mingw32-strip \
+                       "${OUT_DIR}/${name}" 2>/dev/null || true ;;
+            *)     strip "${OUT_DIR}/${name}" 2>/dev/null || true ;;
+        esac
+    fi
+    chmod +x "${OUT_DIR}/${name}" 2>/dev/null || true
+    local sum size
+    if have sha256sum; then
+        sum="$(sha256sum "${OUT_DIR}/${name}" | cut -c1-16)"
+    else
+        sum="$(shasum -a 256 "${OUT_DIR}/${name}" | cut -c1-16)"
+    fi
+    if have du; then size="$(du -h "${OUT_DIR}/${name}" | cut -f1 | tr -d ' ')"; else size="?"; fi
+    printf '    %s  %s  %s\n' "${sum}…" "${size}" "${name}"
+}
+
+suffix_for_arch() {
+    case "$1" in
+        arm64|aarch64) echo "arm64" ;;
+        *)             echo "x86_64" ;;
+    esac
+}
+
+# ── Linux: native ───────────────────────────────────────────────────────────
+build_linux_native() {
+    [[ "${HOST_KIND}" == "linux" ]] || die "native Linux build needs a Linux host (use --distro IMAGE)"
+    local build_dir="${BS_BUILD_ROOT}/linux-$(suffix_for_arch "${ARCH}")"
+    cmake_configure_build "${BS_ROOT}" "${build_dir}"
+    run_ctest "${build_dir}"
+    stage_artifact "${build_dir}/bridgesessions" "bridgesessions-linux-$(suffix_for_arch "${ARCH}")"
+}
+
+# ── Linux: container ────────────────────────────────────────────────────────
+# The container build exists for one reason: the glibc floor. Building on a
+# newer host produces a binary that refuses to start on older LTS releases.
+container_bootstrap() {
+    cat <<'BOOTSTRAP'
+set -euo pipefail
+export DEBIAN_FRONTEND=noninteractive
+
+if command -v apt-get >/dev/null 2>&1; then
+    apt-get update -qq
+    # Build essentials. Note: no spdlog/zstd/json/cli11 packages — those are
+    # pinned and built from source by cmake/Dependencies.cmake.
+    apt-get install -y -qq --no-install-recommends \
+        build-essential g++ gcc git perl pkg-config ca-certificates \
+        ninja-build python3 python3-dev python3-venv xz-utils file >/dev/null
+    # Ubuntu 22.04 defaults to gcc-11, which lacks complete C++23 support.
+    if apt-cache show g++-12 >/dev/null 2>&1; then
+        apt-get install -y -qq --no-install-recommends g++-12 gcc-12 >/dev/null
+        export CC=gcc-12 CXX=g++-12
+    fi
+elif command -v pacman >/dev/null 2>&1; then
+    pacman -Sy --noconfirm --needed base-devel cmake ninja git perl python python-pytest >/dev/null
+fi
+
+# CMake floor: this project requires >= 3.25. Install the pinned binary when
+# the distro's own CMake is older.
+if ! cmake --version 2>/dev/null | head -1 | awk '{print $3}' | \
+      awk -F. '{ exit !($1 > 3 || ($1 == 3 && $2 >= 25)) }'; then
+    echo "==> installing pinned CMake __CMAKE_VERSION__"
+    tmp="$(mktemp -d)"
+    curl -fsSL -o "$tmp/cmake.tgz" \
+      "https://github.com/Kitware/CMake/releases/download/v__CMAKE_VERSION__/cmake-__CMAKE_VERSION__-linux-x86_64.tar.gz"
+    echo "__CMAKE_SHA256__  $tmp/cmake.tgz" | sha256sum -c - >/dev/null
+    mkdir -p /opt/cmake
+    tar xzf "$tmp/cmake.tgz" -C /opt/cmake --strip-components=1
+    ln -sf /opt/cmake/bin/cmake /usr/local/bin/cmake
+    ln -sf /opt/cmake/bin/ctest  /usr/local/bin/ctest
+    rm -rf "$tmp"
+fi
+cmake --version | head -1
+BOOTSTRAP
+}
+
+build_linux_container() {
+    local image="$1"
+    have docker || die "docker is required for --distro builds"
+    docker info >/dev/null 2>&1 || die "docker daemon is not reachable"
+
+    local arch; arch="$(suffix_for_arch "${ARCH}")"
+    local build_dir="/work/build/container-${arch}"
+    local name="bs-build-$$"
+    local bootstrap; bootstrap="$(container_bootstrap \
+        | sed -e "s/__CMAKE_VERSION__/${BS_CMAKE_VERSION}/g" \
+              -e "s/__CMAKE_SHA256__/${BS_CMAKE_SHA256}/g")"
+
+    log "container build: ${image} (${arch})"
+    note "glibc floor comes from the image, not from the host"
+
+    local -a docker_args=(
+        run --rm --name "${name}"
+        -v "${BS_ROOT}:/work"
+        -w /work
+        -e "BS_BUILD_TYPE=${BUILD_TYPE}"
+        -e "BS_JOBS=${JOBS}"
+        -e "BS_DEPS_MODE=${DEPS_MODE}"
+        -e "BS_OPENSSL=${OPENSSL_MODE}"
+        -e "BS_DO_TESTS=${DO_TESTS}"
+    )
+    [[ "${NO_CACHE}" == "yes" ]] && docker_args+=(-e "BS_NO_CACHE=1")
+
+    if [[ "${PRINT_ONLY}" == "yes" ]]; then
+        note "would run in ${image}: bootstrap + cmake configure/build/test"
+        return 0
+    fi
+
+    local -a inner=(
+        "set -euo pipefail"
+        "export BS_DO_TESTS='${DO_TESTS}'"
+        "if [ \"\$BS_DO_TESTS\" = yes ]; then BT=ON; else BT=OFF; fi"
+        "cmake -S /work -B ${build_dir} -G Ninja -DCMAKE_BUILD_TYPE='${BUILD_TYPE}' -DBS_DEPS_MODE='${DEPS_MODE}' -DBS_OPENSSL='${OPENSSL_MODE}' -DBUILD_TESTING=\$BT"
+        "cmake --build ${build_dir} --parallel '${JOBS}'"
+        "if [ \"\$BS_DO_TESTS\" = yes ]; then"
+        "  ctest --test-dir ${build_dir} --output-on-failure --parallel '${JOBS}'"
+        "fi"
+    )
+    local inner_script
+    inner_script="$(printf '%s\n' "${inner[@]}")"
+
+    docker_args+=("${image}" bash -lc "${bootstrap}
+${inner_script}
+")
+
+    run docker "${docker_args[@]}"
+
+    stage_artifact "${BS_BUILD_ROOT}/container-${arch}/bridgesessions" \
+                   "bridgesessions-linux-${arch}"
+}
+
+# ── macOS ───────────────────────────────────────────────────────────────────
+build_macos() {
+    [[ "${HOST_KIND}" == "macos" ]] || die "macOS builds must run on macOS"
+    local arch; arch="$(suffix_for_arch "$(uname -m)")"
+    if [[ "${ARCH}" != "$(uname -m)" ]]; then arch="$(suffix_for_arch "${ARCH}")"; fi
+    local build_dir="${BS_BUILD_ROOT}/macos-${arch}"
+    cmake_configure_build "${BS_ROOT}" "${build_dir}"
+    run_ctest "${build_dir}"
+    # Ad-hoc sign so the binary runs without a Gatekeeper prompt. Release
+    # signing/notarization is a separate step (scripts/sign-macos.sh).
+    if [[ "${PRINT_ONLY}" != "yes" ]]; then
+        codesign --force --sign - "${build_dir}/bridgesessions" 2>/dev/null || \
+            note "ad-hoc codesign skipped"
+    fi
+    stage_artifact "${build_dir}/bridgesessions" "bridgesessions-macos-${arch}"
+}
+
+# ── Windows (mingw-w64 cross) ───────────────────────────────────────────────
+build_windows() {
+    have x86_64-w64-mingw32-g++ || die "mingw-w64 is required (x86_64-w64-mingw32-g++)"
+    local build_dir="${BS_BUILD_ROOT}/windows-x86_64"
+    local -a args=(-S "${BS_ROOT}" -B "${build_dir}"
+        -DCMAKE_SYSTEM_NAME=Windows
+        -DCMAKE_C_COMPILER=x86_64-w64-mingw32-gcc
+        -DCMAKE_CXX_COMPILER=x86_64-w64-mingw32-g++
+        -DCMAKE_RC_COMPILER=x86_64-w64-mingw32-windres
+        -DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER
+        -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY
+        -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY
+        "-DCMAKE_EXE_LINKER_FLAGS=-static -static-libgcc -static-libstdc++"
+        -DCMAKE_BUILD_TYPE="${BUILD_TYPE}"
+        -DBS_DEPS_MODE="${DEPS_MODE}"
+        "-DBS_OPENSSL=${OPENSSL_MODE}"
+        -DBUILD_TESTING=OFF)
+    log "configure windows (mingw-w64, static)"
+    run cmake "${args[@]}"
+    log "build windows"
+    run cmake --build "${build_dir}" --parallel "${JOBS}"
+    stage_artifact "${build_dir}/bridgesessions.exe" "bridgesessions-windows-x86_64.exe"
+}
+
+# ── Aggregate targets ───────────────────────────────────────────────────────
+build_all() {
+    local did=0
+    if host_can linux; then
+        if [[ -n "${DISTRO}" && "${DISTRO}" != "native" ]]; then
+            build_linux_container "${DISTRO}"
+        elif [[ "${HOST_KIND}" == "linux" ]]; then
+            build_linux_native
+        else
+            build_linux_container "${BS_DEFAULT_DISTRO}"
+        fi
+        did=$((did+1))
+    else
+        warn "skipping linux: no Linux host and no usable docker"
+    fi
+    if host_can macos; then build_macos; did=$((did+1)); else warn "skipping macos: host is ${HOST_KIND}"; fi
+    if host_can windows; then build_windows; did=$((did+1)); else warn "skipping windows: mingw-w64 not found"; fi
+    [[ "${did}" -gt 0 ]] || die "this host cannot build any target"
+}
+
+do_package() {
+    build_all
+    [[ "${PRINT_ONLY}" == "yes" ]] && return 0
+    log "staging source archives"
+    mkdir -p "${OUT_DIR}"
+    local ver; ver="$(tr -d '[:space:]' < "${BS_ROOT}/VERSION")"
+    run git -C "${BS_ROOT}" archive --format=tar.gz \
+        --prefix="bridgesessions-${ver}/" -o "${OUT_DIR}/bridgesessions-${ver}-source.tar.gz" HEAD
+    run git -C "${BS_ROOT}" archive --format=zip \
+        --prefix="bridgesessions-${ver}/" -o "${OUT_DIR}/bridgesessions-${ver}-source.zip" HEAD
+    log "checksums"
+    ( cd "${OUT_DIR}" && shasum -a 256 ./* 2>/dev/null | sort -k2 > SHA256SUMS || \
+      sha256sum ./* | sort -k2 > SHA256SUMS )
+    ok "packaged into ${OUT_DIR}"
+    ( cd "${OUT_DIR}" && ls -1 )
+}
+
+do_clean() {
+    log "clean"
+    for d in "${BS_BUILD_ROOT}"/linux-* "${BS_BUILD_ROOT}"/macos-* \
+             "${BS_BUILD_ROOT}"/windows-* "${BS_BUILD_ROOT}"/container-*; do
+        [[ -e "${d}" ]] && run rm -rf "${d}" && note "removed ${d}"
+    done
+    ok "clean"
+}
+
+do_deps() {
+    cat <<EOF
+${C_BOLD}Pinned dependencies${C_RESET} (cmake/Dependencies.cmake)
+
+  spdlog          v1.15.3    built from source, bundled fmt, static
+  nlohmann/json   v3.11.3    header-only
+  CLI11           v2.4.2     header-only
+  zstd            v1.5.6     static
+  Catch2          v3.8.0     tests only
+  OpenSSL         openssl-3.0.16   system by default (--openssl fetch for static)
+
+  Mode:    --deps fetch|system|auto     (default: fetch)
+  OpenSSL: --openssl system|fetch       (default: system)
+
+  Container toolchain: CMake ${BS_CMAKE_VERSION} (sha256 ${BS_CMAKE_SHA256:0:16}…)
+  Release Linux image: ${BS_DEFAULT_DISTRO} (glibc 2.35 floor)
+EOF
+}
+
+# ── Dispatch ────────────────────────────────────────────────────────────────
+case "${TARGET}" in
+    linux)
+        if [[ -n "${DISTRO}" && "${DISTRO}" != "native" ]]; then
+            build_linux_container "${DISTRO}"
+        else
+            build_linux_native
+        fi ;;
+    macos)   build_macos ;;
+    windows) build_windows ;;
+    all)     build_all ;;
+    test)    DO_TESTS="yes"
+             if [[ "${HOST_KIND}" == "linux" ]]; then
+                 cmake_configure_build "${BS_ROOT}" "${BS_BUILD_ROOT}/test"
+                 run_ctest "${BS_BUILD_ROOT}/test"
+             else
+                 build_macos
+             fi ;;
+    package) do_package ;;
+    clean)   do_clean ;;
+    deps)    do_deps ;;
+    *)       die "unknown target: ${TARGET}" ;;
+esac
+
+if [[ "${PRINT_ONLY}" != "yes" && "${TARGET}" != "clean" && "${TARGET}" != "deps" ]]; then
+    ok "done — artifacts in ${OUT_DIR}"
+fi
