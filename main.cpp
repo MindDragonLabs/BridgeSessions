@@ -1708,6 +1708,63 @@ int bridgesessions_main(int argc, char** argv) {
                           << "; starting a new session\n";
             }
         }
+        // Default unnamed attach on a TTY: offer reconnect vs new (26.09.11).
+        // Reconnect → session picker; New → harness picker (mirrors `bs
+        // connect` steps 2–3). Cancel / plain-shell choice / non-TTY keeps
+        // the classic direct-attach flow (scripts and e2e unaffected).
+        if (unnamed_session && !quick_select && bs::mesh::stdin_is_terminal() &&
+            stdout_is_terminal()) {
+            auto listed = mc.fetch_peer_sessions(quick_peer);
+            std::vector<std::string> choice_rows{
+                "Reconnect — attach to an existing session",
+                "New — start a harness session",
+                "New — plain shell session",
+            };
+            int choice = connect_menu_pick(quick_peer + " — reconnect or new:",
+                                           choice_rows);
+            if (choice == 1) {
+                if (listed && !listed->sessions.empty()) {
+                    int c = connect_menu_pick(
+                        quick_peer + " — choose a session:",
+                        bs::tui::session_picker_rows(*listed));
+                    if (c > 0) {
+                        std::string picked = bs::tui::session_picker_choice(
+                            *listed, static_cast<size_t>(c));
+                        if (!picked.empty()) quick_session = picked;
+                    }
+                } else {
+                    std::cerr << "no live sessions on " << quick_peer
+                              << "; starting a new one\n";
+                }
+            } else if (choice == 2) {
+                auto harnesses = connect_harness_names(cfg);
+                std::vector<std::string> hrows;
+                hrows.reserve(harnesses.size());
+                for (auto& h : harnesses) {
+                    std::string hcmd = connect_harness_command(cfg, h);
+                    hrows.push_back(h + (hcmd.empty() ? "" : "  → " + hcmd));
+                }
+                int hc = connect_menu_pick(
+                    quick_peer + " — choose a harness:", hrows);
+                if (hc > 0) {
+                    std::string harness =
+                        harnesses[static_cast<size_t>(hc - 1)];
+                    std::string hcmd = connect_harness_command(cfg, harness);
+                    if (hcmd.empty() && harness != "shell") {
+                        std::cerr << "No launch command for harness '"
+                                  << harness << "'. Add `harness." << harness
+                                  << " <command>` to the config.\n";
+                        return 2;
+                    }
+                    const std::string hsession = harness;  // reattach by name
+                    return mc.shell_peer(quick_peer, hsession, hcmd, cols, rows,
+                                         "xterm-256color", true, "",
+                                         /*force_interactive=*/true);
+                }
+                // harness picker cancelled → plain default below
+            }
+            // choice 0 / plain-shell / reconnect-picked → direct attach below
+        }
         quick_session = bs::mesh::resolve_quick_connect_session_name(quick_session);
         if (unnamed_session) {
             std::cerr << "session " << quick_session << "\n";

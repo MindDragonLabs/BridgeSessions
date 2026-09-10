@@ -5,8 +5,8 @@
 #include <winver.h>
 
 1 VERSIONINFO
-FILEVERSION     26,09,08,0
-PRODUCTVERSION  26,09,08,0
+FILEVERSION     26,09,10,0
+PRODUCTVERSION  26,09,10,0
 FILEOS          VOS_NT_WINDOWS32
 FILETYPE        VFT_APP
 BEGIN
@@ -16,12 +16,12 @@ BEGIN
     BEGIN
       VALUE "CompanyName",      "Mind-Dragon"
       VALUE "FileDescription",  "Bridge Sessions"
-      VALUE "FileVersion",      "26.09.08-r2"
+      VALUE "FileVersion",      "26.09.10"
       VALUE "InternalName",     "bridgesessions"
       VALUE "LegalCopyright",   "Copyright (c) Mind-Dragon"
       VALUE "OriginalFilename", "bridgesessions.exe"
       VALUE "ProductName",      "Bridge Sessions"
-      VALUE "ProductVersion",   "26.09.08-r2"
+      VALUE "ProductVersion",   "26.09.10"
     END
   END
   BLOCK "VarFileInfo"

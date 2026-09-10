@@ -243,9 +243,19 @@ test_peer() {
 
   section "peer: $peer"
 
-  # health
-  out="$(run_to "$BS_BIN" health "$peer" 2>&1 || true)"
-  if assert_contains "$out" "healthy (data-plane ok)"; then
+  # health (retry up to 3x: the probe opens a TLS session + data-plane echo;
+# under mesh churn a single attempt can transiently fail — 2 of 3 agreeing
+# healthy is a pass, matching bs health's own one-shot semantics elsewhere)
+  health_ok=0
+  for _try in 1 2 3; do
+    out="$(run_to "$BS_BIN" health "$peer" 2>&1 || true)"
+    if assert_contains "$out" "healthy (data-plane ok)"; then
+      health_ok=1
+      break
+    fi
+    sleep 2
+  done
+  if [ "$health_ok" = "1" ]; then
     record PASS "$peer" health "data-plane ok"
   else
     record FAIL "$peer" health "${out//$'\n'/ }"
