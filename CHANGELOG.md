@@ -2,6 +2,40 @@
 
 Notable user-visible changes. Git history contains implementation-level detail.
 
+## 26.09.10-r2
+
+### Fixed
+
+- **File transfers reported the wrong destination.** The receiver echoed only the
+  basename, so `bs file send <peer> ./f --dest nested/deeper/f` reported
+  `dest=f`. Callers looked in the receive root and could not find a file that had
+  been written correctly to `nested/deeper/f`. The reported `dest=` is now the
+  path relative to the peer's receive directory, on every platform.
+- **Received files accumulated in the receive directory forever.** Every
+  transfer is also written to the caller's own destination, so a leftover copy
+  doubled the disk cost of that transfer. `receive_retention_hours` (default 24,
+  `0` disables) now expires them on an hourly sweep. In-flight `.part` and
+  `.part.bsmeta` files are never removed, and emptied directories are cleaned up.
+- **The Windows CUA helper opened a console window.** It runs as a logon
+  scheduled task, and a console application started that way gets a visible
+  window on the desktop that steals focus. The helper now re-execs itself with
+  `CREATE_NO_WINDOW`, and the installer marks the task hidden with a no-window
+  launcher for the schtasks fallback.
+
+### Changed
+
+- **The Linux artifact is portable again.** `26.09.10-r1` was built against
+  Ubuntu's `libspdlog.so.1` and `libfmt.so.8`, so it refused to load on any
+  distribution with different sonames — every Arch host in a mixed fleet.
+  Dependencies are now pinned in `cmake/Dependencies.cmake` and built from
+  source, with spdlog using its bundled fmt. The binary needs only glibc 2.34,
+  `libssl.so.3`, and `libcrypto.so.3`.
+- **One build entry point.** `./build.sh` builds Linux, macOS, and Windows, and
+  handles `package`, `test`, `deps`, and `clean`. A fresh clone needs only a
+  compiler, CMake 3.25+, git, and network access. No machine-local edits.
+- Command reference is generated from the binary's own `--help` into
+  [`docs/cli.md`](docs/cli.md), so it cannot drift.
+
 ## Unreleased
 
 ### Added

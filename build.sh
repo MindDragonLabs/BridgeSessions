@@ -624,8 +624,18 @@ do_package() {
     run git -C "${BS_ROOT}" archive --format=zip \
         --prefix="bridgesessions-${ver}/" -o "${OUT_DIR}/bridgesessions-${ver}-source.zip" HEAD
     log "checksums"
-    ( cd "${OUT_DIR}" && shasum -a 256 ./* 2>/dev/null | sort -k2 > SHA256SUMS || \
-      sha256sum ./* | sort -k2 > SHA256SUMS )
+    if [[ "${PRINT_ONLY}" != "yes" ]]; then
+        # Exclude SHA256SUMS from its own manifest (globbing after the redirect
+        # would otherwise include an empty file), and emit bare filenames with
+        # no ./ prefix so the manifest matches the published convention.
+        ( cd "${OUT_DIR}"
+          rm -f SHA256SUMS
+          for f in *; do
+              [ -f "${f}" ] || continue
+              [ "${f}" = "SHA256SUMS" ] && continue
+              if have sha256sum; then sha256sum "${f}"; else shasum -a 256 "${f}"; fi
+          done | sort -k2 > SHA256SUMS )
+    fi
     ok "packaged into ${OUT_DIR}"
     ( cd "${OUT_DIR}" && ls -1 )
 }
