@@ -454,11 +454,14 @@ inline bool win_detach_cua_helper() {
     if (std::getenv("BS_CUA_HELPER_DETACHED") != nullptr) return false;
 
     std::wstring cmd = GetCommandLineW();
-    if (cmd.find(L"--cua-helper-detached") != std::wstring::npos) return false;
-    cmd += L" --cua-helper-detached";
-
     std::vector<wchar_t> mutable_cmd(cmd.begin(), cmd.end());
     mutable_cmd.push_back(L'\0');
+
+    // Mark the child through the environment. CreateProcessW with a null
+    // environment block inherits this process's block, so setting the variable
+    // here is enough and no extra command-line flag is needed — which keeps the
+    // internal marker out of `bs --help`.
+    SetEnvironmentVariableW(L"BS_CUA_HELPER_DETACHED", L"1");
 
     STARTUPINFOW si{};
     si.cb = sizeof(si);

@@ -45,8 +45,18 @@ def wrap(text: str, width: int = 96) -> str:
     return text
 
 
+def _find_section(help_text: str, *names: str) -> int:
+    """Locate a help section header, tolerating CLI11's case choices."""
+    lowered = help_text.lower()
+    for name in names:
+        idx = lowered.find(name.lower() + ":")
+        if idx >= 0:
+            return idx
+    return -1
+
+
 def parse_subcommands(help_text: str) -> list[tuple[str, str]]:
-    idx = help_text.find("SUBCOMMANDS:")
+    idx = _find_section(help_text, "SUBCOMMANDS", "Subcommands")
     if idx < 0:
         return []
     out: list[tuple[str, str]] = []
@@ -65,11 +75,11 @@ def parse_subcommands(help_text: str) -> list[tuple[str, str]]:
 
 
 def parse_options(help_text: str) -> list[tuple[str, str]]:
-    idx = help_text.find("OPTIONS:")
+    idx = _find_section(help_text, "OPTIONS", "Options")
     if idx < 0:
         return []
     tail = help_text[idx:]
-    stop = tail.find("SUBCOMMANDS:")
+    stop = _find_section(tail, "SUBCOMMANDS", "Subcommands")
     if stop >= 0:
         tail = tail[:stop]
     out: list[tuple[str, str]] = []
