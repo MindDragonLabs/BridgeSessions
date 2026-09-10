@@ -325,6 +325,11 @@ build_linux_container() {
         -e "BS_DEPS_MODE=${DEPS_MODE}"
         -e "BS_OPENSSL=${OPENSSL_MODE}"
         -e "BS_DO_TESTS=${DO_TESTS}"
+        # The container runs as root (apt needs it), which would leave
+        # root-owned files in the build tree that the host user cannot delete.
+        # Hand the ownership back at the end.
+        -e "BS_HOST_UID=$(id -u)"
+        -e "BS_HOST_GID=$(id -g)"
     )
     [[ "${NO_CACHE}" == "yes" ]] && docker_args+=(-e "BS_NO_CACHE=1")
 
@@ -342,6 +347,8 @@ build_linux_container() {
         "if [ \"\$BS_DO_TESTS\" = yes ]; then"
         "  ctest --test-dir ${build_dir} --output-on-failure --parallel '${JOBS}'"
         "fi"
+        "# Return ownership so the host user can clean or reuse the tree."
+        "chown -R \"\${BS_HOST_UID:-0}:\${BS_HOST_GID:-0}\" /work/build /work/dist 2>/dev/null || true"
     )
     local inner_script
     inner_script="$(printf '%s\n' "${inner[@]}")"

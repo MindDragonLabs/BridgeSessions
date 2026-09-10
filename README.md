@@ -1,7 +1,7 @@
 # BridgeSessions
 
 [![Release](https://img.shields.io/github/v/release/MindDragonLabs/BridgeSessions?include_prereleases&label=release)](https://github.com/MindDragonLabs/BridgeSessions/releases)
-[![License: BUSL-1.1](https://img.shields.io/badge/license-BUSL--1.1-blue.svg)](LICENSE)
+[![License: BUSL-1.1](https://img.shields.io/badge/License-BUSL--1.1-blue.svg)](LICENSE)
 [![Platforms](https://img.shields.io/badge/platforms-Linux%20%7C%20macOS%20%7C%20Windows-informational)](docs/building.md)
 
 **Persistent shells, verified files, and desktop automation across a trusted peer mesh.**
@@ -10,17 +10,19 @@
 
 > **Beta software.** An authorized peer has near-interactive host access. Use BridgeSessions only on machines and networks that you control. Read [SECURITY.md](SECURITY.md) before you join a mesh.
 
-Current release tag: **`26.09.09`**.
+The current release tag is on the [releases page](https://github.com/MindDragonLabs/BridgeSessions/releases). `VERSION` in the repo root is the version built from source. Do not trust a hardcoded version string in documentation; run `bs --version`.
 
 ---
 
 ## Table of contents
 
 - [What it does](#what-it-does)
+- [Supported platforms](#supported-platforms)
 - [Install](#install)
 - [First mesh](#first-mesh)
 - [Always-online seed](#always-online-seed)
-- [Everyday commands](#everyday-commands)
+- [Commands](#commands)
+- [Files and the receive directory](#files-and-the-receive-directory)
 - [Bridge Panel](#bridge-panel)
 - [Install for AI agents](#install-for-ai-agents)
 - [Security model](#security-model)
@@ -36,9 +38,24 @@ Current release tag: **`26.09.09`**.
 | File copy | Resumable transfer with SHA-256 check. Final `OK` is the success signal. |
 | Remote script | `bs run-script` sends a file and runs it with the right interpreter. |
 | Desktop control | `bs cua` captures the screen and sends input on Windows and macOS. |
-| Review UI | Optional Bridge Panel lists inbox files on each peer. |
+| Folder mirroring | `bs sync pair` and `bs vfolder` keep directories aligned across hosts. |
+| Multi-step jobs | `bs job run` executes an ordered JSON command list on a peer. |
+| Remote editing | `bs edit` opens a peer's file in your local editor and writes it back. |
+| Review UI | Optional Bridge Panel lists and previews files on each peer. |
 
 One Ed25519 identity identifies each node. Mesh traffic uses mutual TLS on TCP port **19949**.
+
+## Supported platforms
+
+| Platform | Artifact | Notes |
+|---|---|---|
+| Linux x86_64 | `bridgesessions-linux-x86_64` | Built on Ubuntu 22.04. Runs on glibc 2.35 and newer: Debian 12+, Ubuntu 22.04/24.04, Arch, Fedora 38+. |
+| macOS arm64 | `bridgesessions-macos-arm64` | Developer ID signed. macOS 13 and newer. |
+| Windows x86_64 | `bridgesessions-windows-x86_64.exe` | Statically linked. Imports only OS DLLs. Windows 10 and newer. |
+
+The Linux artifact links `libssl.so.3` and `libcrypto.so.3` from the host. Every supported distribution provides those; nothing else is needed at runtime.
+
+`bs cua` needs a helper process inside the interactive desktop session on Windows and macOS (`bs --cua-helper`). On Linux the daemon already runs in the user session, so no helper is required.
 
 ## Install
 
@@ -62,11 +79,11 @@ irm https://raw.githubusercontent.com/MindDragonLabs/BridgeSessions/main/scripts
 
 ```bash
 # Linux / macOS
-BRIDGESESSIONS_TAG=26.09.09 \
+BRIDGESESSIONS_TAG=<tag> \
   bash -c 'curl -fsSL https://raw.githubusercontent.com/MindDragonLabs/BridgeSessions/main/scripts/install.sh | bash'
 
 # Windows PowerShell
-$env:BRIDGESESSIONS_TAG = '26.09.09'
+$env:BRIDGESESSIONS_TAG = '<tag>'
 irm https://raw.githubusercontent.com/MindDragonLabs/BridgeSessions/main/scripts/install.ps1 | iex
 ```
 
@@ -77,7 +94,7 @@ bs --version
 bs doctor
 ```
 
-The version string must contain `26.09.09`.
+The installer also removes any stale copy of the binary that appears earlier on `PATH`. Two versions on `PATH` is the most common cause of a node that reports the wrong version.
 
 macOS release binaries are Developer ID signed. The installer does not re-sign the file. Re-signing on a machine without the Developer ID certificate strips the seal and can make Gatekeeper kill the process.
 
@@ -160,26 +177,76 @@ Do not persist-disable the unit during an upgrade. A disable plus a failed resum
 
 Keep `mesh.require_seed_pins` enabled. Do not turn it off on an untrusted network.
 
-## Everyday commands
+## Commands
+
+Full reference with every flag: [docs/cli.md](docs/cli.md). It is generated from the binary's own `--help`, so it cannot drift.
+
+### Everyday use
 
 ```bash
-bs peers list
-bs health <peer>
-bs fleet
-bs shell <peer>
-bs shell <peer> --name agent
-bs shell <peer> --cmd 'uname -a'
-bs file send <peer> ./artifact.bin --wait
-bs file recv <peer> received/report.md --to ./report.md --wait
-bs run-script <peer> ./task.sh
-bs cua capture <peer> -o screen.png
+bs peers list                     # known peers and their state
+bs health <peer>                  # TLS + identity + data-plane check
+bs fleet                          # live directory with CPU, memory, disk, load
+bs shell <peer>                   # attach, or start a session
+bs shell <peer> --name agent      # named session; reattach with the same name
+bs shell <peer> --cmd 'uname -a'  # one-shot command
+bs connect                        # pick a peer, then a launch harness
 ```
 
 `Ctrl-D` detaches. The remote session stays alive. Reuse the same `--name` to reattach.
 
-Success for a file transfer is the final `OK` after the SHA-256 check. A progress line is not success.
-
 Stack dependent work in one remote command, or use `bs run-script`. Separate `bs shell --cmd` calls do not share working directory or environment.
+
+### All 31 commands
+
+| Command | What it does |
+|---|---|
+| `shell` | Open an interactive shell, or run one command, on a peer. |
+| `connect` | Two-step picker: choose a peer, then a launch harness. |
+| `sessions` | List sessions here, or on a peer. |
+| `run-script` | Send a script to a peer and execute it there. |
+| `job` | Run an ordered JSON command list on a peer. |
+| `script` | Content-addressed script cache. |
+| `edit` | Edit a peer's file in your local editor, then write it back. |
+| `file` | `send` and `recv` with SHA-256 verification and resume. |
+| `sync` | `sync pair` mirrors a local directory to a peer, with a dry-run manifest. |
+| `vfolder` | Virtual folder sync for a local directory. |
+| `cua` | Screen capture and input injection: `screen`, `capture`, `click`, `move`, `type`, `key`, `scroll`. |
+| `capture-video` | Record a peer's screen to a video file. |
+| `image` | Render an image inline in the terminal. |
+| `anim` | Play a GIF inline in the terminal. |
+| `pane` | Publish content to the peer's Bridge Panel. |
+| `api` | Query the daemon JSON API. |
+| `peers` | List, add, and remove seed peers. |
+| `health` | Ping/pong health check against a peer. |
+| `fleet` | Live fleet directory gathered by the daemon. |
+| `reconnect` | Tear down and re-handshake one peer. |
+| `stats` | Local daemon statistics. |
+| `telemetry` | Transfer telemetry and byte counters. |
+| `invite` | Generate a single-use invite token. |
+| `join` | Join a mesh with an invite token. |
+| `enroll` | Vouch for a new member out of band. |
+| `authorize` | Authorize a peer's public key for direct connections. |
+| `keygen` | Generate this node's Ed25519 identity. |
+| `rotate-identity` | Regenerate identity keys. Peers must re-pin. |
+| `doctor` | Check local configuration. |
+| `upgrade` | Self-update from GitHub releases. |
+| `--cua-helper` | Run the desktop helper in the user session (Windows, macOS). |
+
+## Files and the receive directory
+
+A peer serves and accepts files under its **receive directory**, `~/.bridgesessions/received` by default, or whatever `receive_dir` sets.
+
+```bash
+bs file send <peer> ./artifact.bin --wait
+bs file send <peer> ./artifact.bin --dest reports/artifact.bin --wait
+bs file recv <peer> reports/artifact.bin --to ./artifact.bin --wait
+```
+
+- Success is the final `OK` line after the SHA-256 check. A progress line is not success.
+- `--dest` is a path **under the peer's receive directory**, not an absolute path, unless the peer allows more (`file.dest_allow_home`).
+- The `OK` line reports `dest=` as the path relative to that directory, so the file is always findable. When the peer is too old to confirm the destination, the sender prints a warning instead of guessing.
+- The receive directory is a **staging area**, not storage. Every transfer is also written to the caller's own destination, so a copy left behind doubles the disk cost. Files older than `receive_retention_hours` (default 24) are removed by an hourly sweep. Set it to `0` to keep them forever. Partial transfers (`.part`, `.part.bsmeta`) are never removed.
 
 ## Bridge Panel
 
@@ -225,15 +292,15 @@ Full operator notes: [docs/bridge-panel.md](docs/bridge-panel.md).
 Give an agent these exact steps. Do not ask the agent to compile unless you want a development build.
 
 1. Install the release binary with `scripts/install.sh` or `scripts/install.ps1`.
-2. Confirm `bs --version` prints `26.09.09`.
+2. Confirm `bs --version` prints the version you installed.
 3. If this node is new, join with `bs join <seed-address>:19949 <token> --start`.
 4. If this node is the seed, run `bs invite` and give the token to the joining node only.
 5. Confirm `bs peers list` and `bs health <peer>`.
 6. Prefer `bs run-script` for multi-step remote work.
-7. For file copy, wait for the final `OK`.
+7. For file copy, wait for the final `OK`, and read the `dest=` path it reports.
 8. Optional: install the portable skill with `scripts/install-agent-skill.sh`.
 
-The agent skill lives at `skills/bridgesessions/SKILL.md`. It follows the Agent Skills layout. `AGENTS.md` in the repo root is the always-on contract for coding agents that work in this tree.
+The agent skill lives at [skills/bridgesessions/SKILL.md](skills/bridgesessions/SKILL.md). It follows the Agent Skills layout. `scripts/install-agent-skill.sh` links it into the harness search paths on the machine you run it on.
 
 Do not put private host names, VPN addresses, or keys in prompts that may be published.
 
@@ -251,14 +318,32 @@ Read [SECURITY.md](SECURITY.md) and [docs/configuration.md](docs/configuration.m
 
 ## Build from source
 
+One script builds every platform. It resolves all dependencies itself: a fresh clone needs a compiler, CMake 3.25 or newer, git, and network access. Nothing else is hand-installed.
+
 ```bash
-cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo
-cmake --build build --parallel
-ctest --test-dir build --output-on-failure
-bash scripts/prepublish-scan.sh
+./build.sh linux --distro ubuntu:22.04    # release Linux artifact (glibc 2.35 floor)
+./build.sh linux                          # native build on this host
+./build.sh macos                          # macOS (must run on macOS)
+./build.sh windows                        # cross-compile with mingw-w64
+./build.sh all                            # every target this host can produce
+./build.sh package                        # build all, stage dist/ and SHA256SUMS
+./build.sh test                           # configure, build, run ctest
+./build.sh deps                           # print the pinned dependency set
 ```
 
-Release platform notes: [docs/building.md](docs/building.md).
+Dependencies are pinned in [`cmake/Dependencies.cmake`](cmake/Dependencies.cmake) and built from source by default, so the binary does not depend on the host's `libspdlog.so.1`, `libfmt.so.8`, or any other distribution-specific soname. spdlog is built with its bundled fmt for that reason. `bs` links only `libssl.so.3` and `libcrypto.so.3` from the system.
+
+Useful options:
+
+```bash
+./build.sh linux --deps system    # fast local iteration against installed packages
+./build.sh linux --no-tests       # skip ctest
+./build.sh windows --no-strip     # keep debug symbols
+./build.sh --help
+```
+
+Platform notes and signing: [docs/building.md](docs/building.md).
+Release procedure: [docs/RELEASE-PROVENANCE.md](docs/RELEASE-PROVENANCE.md).
 
 Generated binaries, app bundles, checksums, and SBOMs are not committed. They belong in GitHub Releases.
 
@@ -266,8 +351,9 @@ Generated binaries, app bundles, checksums, and SBOMs are not committed. They be
 
 | Document | Contents |
 |---|---|
+| [Command reference](docs/cli.md) | Every command and flag, generated from `--help` |
 | [Quickstart](docs/QUICKSTART.md) | Install, join, first shell |
-| [Usage](docs/usage.md) | Command reference |
+| [Usage](docs/usage.md) | Task-oriented walkthrough |
 | [Configuration](docs/configuration.md) | Config file and directives |
 | [Always-online seed](docs/always-online-seed.md) | How to run a central node |
 | [Bridge Panel](docs/bridge-panel.md) | How to load and use the file UI |

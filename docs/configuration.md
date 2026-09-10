@@ -17,6 +17,7 @@ sessions.persistence_path ~/.bridgesessions/sessions.json
 sessions.authorized_keys_path ~/.bridgesessions/authorized_keys
 session.agent.command /bin/bash -lc 'exec hermes --tui'
 receive_dir ~/.bridgesessions/received
+receive_retention_hours 24
 transfer.max_bytes 8589934592
 transfer.allow_sensitive_paths false
 file.dest_allow_home false
@@ -32,12 +33,17 @@ The addresses above are documentation-only. Use addresses that belong to your ne
 | `mesh.ping_interval_secs`, `mesh.pong_timeout_secs` | Liveness |
 | `mesh.reconnect_backoff_max_secs` | Retry ceiling |
 | `mesh.join_window_max_secs` | Unknown-cert join window cap |
+| `mesh.discovered_ttl_secs` | How long a runtime-learned peer survives silence |
+| `mesh.auto_upgrade` | Offer `bs upgrade` to peers that reconnect with an older version |
 | `sessions.default_shell` | Remote shell command |
 | `session.<name>.command` | Named-session command |
+| `sessions.idle_timeout_hours` | Idle session expiry |
 | `sessions.authorized_keys_path` | Inbound trusted keys |
 | `receive_dir` | Inbox and default served-file root |
+| `receive_retention_hours` | Hours a received file stays in the inbox before removal. `0` keeps them forever. Default 24. |
 | `transfer.max_bytes` | Per-file limit |
 | `transfer.allow_sensitive_paths` | Arbitrary path access. High risk. |
+| `file.dest_allow_home` | Allow `--dest` outside the receive dir (`~`, `/tmp`) |
 
 ## Bind rules
 
@@ -54,5 +60,7 @@ The CLI talks to the local daemon on loopback port **19980**. The channel uses a
 ## Files and inbox
 
 `receive_dir` is the inbox. Bridge Panel lists that directory by default. Remote `bs file` serving stays inside this root unless you set `transfer.allow_sensitive_paths`. That flag removes a major safeguard.
+
+The inbox is a **staging area**. Every received file is also written to the caller's destination, so a copy left behind doubles the disk cost of that transfer. `receive_retention_hours` (default 24) expires it. Partial transfers (`.part`, `.part.bsmeta`) are never removed, so a slow transfer cannot be interrupted by housekeeping.
 
 See [`config.example`](https://github.com/MindDragonLabs/BridgeSessions/blob/main/config.example).
