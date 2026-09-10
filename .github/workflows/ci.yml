@@ -69,7 +69,7 @@ jobs:
         run: python3 -m pip install --user --quiet pytest pytest-timeout
 
       - name: Configure, build, and test
-        run: ./build.sh linux --out dist
+        run: ./build.sh linux --distro native --out dist
 
       - name: Artifact must load on a clean host
         run: |
@@ -88,6 +88,20 @@ jobs:
           "$bin" --version
           echo "--- newest symbol required ---"
           objdump -T "$bin" | grep -oE 'GLIBC_[0-9.]+' | sort -uV | tail -1
+
+      # The release artifact is built in ubuntu:22.04 so it carries the lowest
+      # glibc floor. That is a build-only step: the suite runs natively above,
+      # because a stripped container is a cross-compile environment, not a test
+      # environment (the socket/timing tests flake there and pass natively).
+      - name: Portable release artifact (ubuntu:22.04 floor)
+        run: |
+          set -euo pipefail
+          ./build.sh linux --distro ubuntu:22.04 --no-tests --out dist
+          bin=dist/bridgesessions-linux-x86_64
+          missing=$(ldd "$bin" | grep -c 'not found' || true)
+          echo "unresolved=$missing"
+          [ "$missing" = "0" ]
+          "$bin" --version
 
       - name: Upload Linux artifact
         uses: actions/upload-artifact@v4

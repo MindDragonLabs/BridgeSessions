@@ -138,8 +138,7 @@ ${C_BOLD}OPTIONS${C_RESET}
   --no-cache       Ignore the container dependency cache.
   --in-container   Internal: set when build.sh re-invokes itself inside a
                    container. Do not use directly.
-  --keep-container Leave the container running for debugging.
-  --extra ARG      Extra -D argument passed to CMake. Repeatable.
+  --keep-container Leave the container running for debugging.  --extra ARG      Extra -D argument passed to CMake. Repeatable.
   -v, --verbose    Verbose build output.
   -n, --dry-run    Print the commands without running them.
   -h, --help       This help.
@@ -263,7 +262,12 @@ run_ctest() {
     local build_dir="$1"
     [[ "${DO_TESTS}" == "yes" || "${TARGET}" == "test" ]] || return 0
     log "ctest"
-    run ctest --test-dir "${build_dir}" --output-on-failure --parallel "${JOBS}"
+    # Cap parallelism. This suite opens real sockets and binds real ports; at
+    # 64-way parallelism the socket/timing tests contend and flake, and the
+    # failing set is different every run. A modest cap keeps the signal clean.
+    local jobs="${JOBS}"
+    if [[ "${jobs}" =~ ^[0-9]+$ ]] && [[ "${jobs}" -gt 8 ]]; then jobs=8; fi
+    run ctest --test-dir "${build_dir}" --output-on-failure --parallel "${jobs}"
 }
 
 # Stage one binary into OUT_DIR with a tidy, release-ready name.
@@ -407,7 +411,26 @@ BOOTSTRAP
 
 build_linux_container() {
     local image="$1"
-    build_in_container "${image}" linux ""
+
+    # A container is a cross-compile environment, not a test environment. This
+    # suite opens real sockets and binds real ports; run inside a stripped
+    # container at high parallelism it flakes (a different set fails each run)
+    # while the same commit passes natively. So: test on the host when the host
+    # can, and use the container only to produce the portable artifact.
+    if [[ "${DO_TESTS}" == "yes" && "${HOST_KIND}" == "linux" \
+          && "${BS_CONTAINER_TESTS:-no}" != "yes" ]]; then
+        log "tests (native host) — the container only produces the artifact"
+        local tdir; tdir="$(build_dir_for "test")"
+        DO_TESTS="yes" cmake_configure_build "${BS_ROOT}" "${tdir}"
+        run_ctest "${tdir}"
+        # The artifact build must not re-run the suite.
+        local saved="${DO_TESTS}"; DO_TESTS="no"
+        build_in_container "${image}" linux ""
+        DO_TESTS="${saved}"
+    else
+        build_in_container "${image}" linux ""
+    fi
+
     stage_artifact "${BS_BUILD_ROOT}/container-$(suffix_for_arch "${ARCH}")/bridgesessions" \
                    "bridgesessions-linux-$(suffix_for_arch "${ARCH}")"
 }
