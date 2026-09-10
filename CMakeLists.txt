@@ -122,7 +122,10 @@ if(BS_OPENSSL_BUILD_TARGET)
     add_dependencies(bridgesessions ${BS_OPENSSL_BUILD_TARGET})
 endif()
 if(WIN32)
-    target_link_libraries(bridgesessions ws2_32.lib gdiplus.lib gdi32.lib)
+    # crypt32 is required by the OpenSSL static build (winstore_store uses the
+    # Windows certificate store). The previous script-based Windows build passed
+    # -lcrypt32 explicitly; the CMake path must too.
+    target_link_libraries(bridgesessions ws2_32.lib gdiplus.lib gdi32.lib crypt32.lib)
 endif()
 
 add_test(NAME cli_quick_connect_help COMMAND bridgesessions --help)
