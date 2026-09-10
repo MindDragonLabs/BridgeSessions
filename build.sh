@@ -34,6 +34,17 @@ readonly BS_CMAKE_SHA256="804d231460ab3c8b556a42d2660af4ac7a0e21c98a7f8ee3318a74
 # Ubuntu 24.04, Arch), so 22.04 is the release target for Linux.
 readonly BS_DEFAULT_DISTRO="ubuntu:22.04"
 
+# Extra packages the Windows cross build needs inside the container. The
+# posix-thread mingw variant is required: the win32 variant fails at link on
+# <thread>. Alternatives are pinned too, or the wrong variant wins.
+readonly MINGW_BOOTSTRAP='
+apt-get install -y -qq --no-install-recommends \
+    g++-mingw-w64-x86-64-posix gcc-mingw-w64-x86-64-posix binutils-mingw-w64-x86-64 >/dev/null
+update-alternatives --set x86_64-w64-mingw32-gcc /usr/bin/x86_64-w64-mingw32-gcc-posix
+update-alternatives --set x86_64-w64-mingw32-g++ /usr/bin/x86_64-w64-mingw32-g++-posix
+x86_64-w64-mingw32-g++ --version | head -1
+'
+
 # ── Output helpers ──────────────────────────────────────────────────────────
 if [[ -t 1 ]]; then
     C_RESET=$'\033[0m'; C_BOLD=$'\033[1m'; C_DIM=$'\033[2m'
@@ -59,6 +70,7 @@ DO_STRIP="yes"
 DEPS_MODE="fetch"
 OPENSSL_MODE="system"
 NO_CACHE="no"
+IN_CONTAINER="no"
 KEEP_CONTAINER="no"
 VERBOSE="no"
 PRINT_ONLY="no"
@@ -97,6 +109,8 @@ ${C_BOLD}OPTIONS${C_RESET}
   --openssl MODE   system | fetch. Default: system (fast, ABI-stable).
   --no-strip       Keep debug symbols in the staged artifact.
   --no-cache       Ignore the container dependency cache.
+  --in-container   Internal: set when build.sh re-invokes itself inside a
+                   container. Do not use directly.
   --keep-container Leave the container running for debugging.
   --extra ARG      Extra -D argument passed to CMake. Repeatable.
   -v, --verbose    Verbose build output.
@@ -126,6 +140,7 @@ while [[ $# -gt 0 ]]; do
         --no-tests)      DO_TESTS="no"; shift ;;
         --no-strip)      DO_STRIP="no"; shift ;;
         --no-cache)      NO_CACHE="yes"; shift ;;
+        --in-container)  IN_CONTAINER="yes"; shift ;;
         --keep-container) KEEP_CONTAINER="yes"; shift ;;
         --extra)         EXTRA_CMAKE_ARGS+=("${2:?--extra needs a value}"); shift 2 ;;
         -v|--verbose)    VERBOSE="yes"; shift ;;
@@ -256,6 +271,54 @@ build_linux_native() {
     run_ctest "${build_dir}"
     stage_artifact "${build_dir}/bridgesessions" "bridgesessions-linux-$(suffix_for_arch "${ARCH}")"
 }
+build_in_container() {
+    local image="$1" inner_target="$2" bootstrap_extra="$3"; shift 3
+
+    local arch; arch="$(suffix_for_arch "${ARCH}")"
+    local name="bs-build-$$"
+    local bootstrap; bootstrap="$(container_bootstrap \
+        | sed -e "s/__CMAKE_VERSION__/${BS_CMAKE_VERSION}/g" \
+              -e "s/__CMAKE_SHA256__/${BS_CMAKE_SHA256}/g")"
+    bootstrap="${bootstrap}
+${bootstrap_extra}"
+
+    # Pass the caller's options through to the in-container invocation.
+    local inner_args="--build-type=${BUILD_TYPE} --jobs=${JOBS} --deps=${DEPS_MODE} --openssl=${OPENSSL_MODE} --out=/work/dist"
+    [[ "${DO_TESTS}" == "yes" ]] && inner_args+=" --tests" || inner_args+=" --no-tests"
+    [[ "${DO_STRIP}" == "no" ]] && inner_args+=" --no-strip"
+    [[ "${VERBOSE}" == "yes" ]] && inner_args+=" --verbose"
+    local a; for a in "${EXTRA_CMAKE_ARGS[@]:-}"; do [[ -n "${a}" ]] && inner_args+=" --extra ${a}"; done
+
+    log "container build: ${image} (${arch}) — target ${inner_target}"
+
+    local -a docker_args=(
+        run --rm --name "${name}"
+        -v "${BS_ROOT}:/work"
+        -w /work
+        # The container runs as root (apt needs it). Hand ownership back so the
+        # host user can clean or reuse the tree.
+        -e "BS_HOST_UID=$(id -u)"
+        -e "BS_HOST_GID=$(id -g)"
+        -e "CONTAINER_INNER_TARGET=${inner_target}"
+        -e "CONTAINER_INNER_ARGS=${inner_args}"
+    )
+
+    if [[ "${PRINT_ONLY}" == "yes" ]]; then
+        note "would run in ${image}: bootstrap, then ./build.sh ${inner_target} ${inner_args}"
+        return 0
+    fi
+
+    have docker || die "docker is required for container builds (use --distro native)"
+    docker info >/dev/null 2>&1 || die "docker daemon is not reachable"
+
+    docker_args+=("${image}" bash -lc "${bootstrap}
+set -euo pipefail
+trap 'chown -R \"\${BS_HOST_UID:-0}:\${BS_HOST_GID:-0}\" /work/build /work/dist 2>/dev/null || true' EXIT
+./build.sh \"\${CONTAINER_INNER_TARGET}\" --in-container \${CONTAINER_INNER_ARGS}
+")
+
+    run docker "${docker_args[@]}"
+}
 
 # ── Linux: container ────────────────────────────────────────────────────────
 # The container build exists for one reason: the glibc floor. Building on a
@@ -303,65 +366,9 @@ BOOTSTRAP
 
 build_linux_container() {
     local image="$1"
-    have docker || die "docker is required for --distro builds"
-    docker info >/dev/null 2>&1 || die "docker daemon is not reachable"
-
-    local arch; arch="$(suffix_for_arch "${ARCH}")"
-    local build_dir="/work/build/container-${arch}"
-    local name="bs-build-$$"
-    local bootstrap; bootstrap="$(container_bootstrap \
-        | sed -e "s/__CMAKE_VERSION__/${BS_CMAKE_VERSION}/g" \
-              -e "s/__CMAKE_SHA256__/${BS_CMAKE_SHA256}/g")"
-
-    log "container build: ${image} (${arch})"
-    note "glibc floor comes from the image, not from the host"
-
-    local -a docker_args=(
-        run --rm --name "${name}"
-        -v "${BS_ROOT}:/work"
-        -w /work
-        -e "BS_BUILD_TYPE=${BUILD_TYPE}"
-        -e "BS_JOBS=${JOBS}"
-        -e "BS_DEPS_MODE=${DEPS_MODE}"
-        -e "BS_OPENSSL=${OPENSSL_MODE}"
-        -e "BS_DO_TESTS=${DO_TESTS}"
-        # The container runs as root (apt needs it), which would leave
-        # root-owned files in the build tree that the host user cannot delete.
-        # Hand the ownership back at the end.
-        -e "BS_HOST_UID=$(id -u)"
-        -e "BS_HOST_GID=$(id -g)"
-    )
-    [[ "${NO_CACHE}" == "yes" ]] && docker_args+=(-e "BS_NO_CACHE=1")
-
-    if [[ "${PRINT_ONLY}" == "yes" ]]; then
-        note "would run in ${image}: bootstrap + cmake configure/build/test"
-        return 0
-    fi
-
-    local -a inner=(
-        "set -euo pipefail"
-        "# Return ownership even when the build fails, or the next run cannot"
-        "# remove the stale tree and silently reuses an old CMake cache."
-        "trap 'chown -R \"\${BS_HOST_UID:-0}:\${BS_HOST_GID:-0}\" /work/build /work/dist 2>/dev/null || true' EXIT"
-        "export BS_DO_TESTS='${DO_TESTS}'"
-        "if [ \"\$BS_DO_TESTS\" = yes ]; then BT=ON; else BT=OFF; fi"
-        "cmake -S /work -B ${build_dir} -G Ninja -DCMAKE_BUILD_TYPE='${BUILD_TYPE}' -DBS_DEPS_MODE='${DEPS_MODE}' -DBS_OPENSSL='${OPENSSL_MODE}' -DBUILD_TESTING=\$BT"
-        "cmake --build ${build_dir} --parallel '${JOBS}'"
-        "if [ \"\$BS_DO_TESTS\" = yes ]; then"
-        "  ctest --test-dir ${build_dir} --output-on-failure --parallel '${JOBS}'"
-        "fi"
-    )
-    local inner_script
-    inner_script="$(printf '%s\n' "${inner[@]}")"
-
-    docker_args+=("${image}" bash -lc "${bootstrap}
-${inner_script}
-")
-
-    run docker "${docker_args[@]}"
-
-    stage_artifact "${BS_BUILD_ROOT}/container-${arch}/bridgesessions" \
-                   "bridgesessions-linux-${arch}"
+    build_in_container "${image}" linux ""
+    stage_artifact "${BS_BUILD_ROOT}/container-$(suffix_for_arch "${ARCH}")/bridgesessions" \
+                   "bridgesessions-linux-$(suffix_for_arch "${ARCH}")"
 }
 
 # ── macOS ───────────────────────────────────────────────────────────────────
@@ -398,6 +405,21 @@ mingw_prefix() {
 }
 
 build_windows() {
+    # The mingw prefix script needs apt, so Windows builds default to the same
+    # Ubuntu 22.04 container the Linux release uses. --distro native forces a
+    # host build (needs mingw-w64 plus a static OpenSSL prefix).
+    if [[ "${IN_CONTAINER}" != "yes" && "${DISTRO}" != "native" ]]; then
+        build_in_container "${DISTRO:-${BS_DEFAULT_DISTRO}}" windows "${MINGW_BOOTSTRAP}"
+        stage_artifact "${BS_BUILD_ROOT}/windows-x86_64/bridgesessions.exe" \
+                       "bridgesessions-windows-x86_64.exe"
+        if [[ "${PRINT_ONLY}" != "yes" ]] && have x86_64-w64-mingw32-objdump; then
+            note "DLL imports (expect OS DLLs only):"
+            x86_64-w64-mingw32-objdump -p "${OUT_DIR}/bridgesessions-windows-x86_64.exe" 2>/dev/null \
+                | grep "DLL Name" | sed 's/^/      /' || true
+        fi
+        return 0
+    fi
+
     have x86_64-w64-mingw32-g++ || die "mingw-w64 is required (x86_64-w64-mingw32-g++)"
 
     local prefix; prefix="$(mingw_prefix)"
