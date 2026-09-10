@@ -121,20 +121,25 @@ if(BS_OPENSSL STREQUAL "fetch" AND NOT BS_DEPS_MODE STREQUAL "system")
         COMMENT "Building pinned OpenSSL ${BS_OPENSSL_TAG} (static)"
         VERBATIM)
     add_custom_target(bs_openssl_build DEPENDS "${_ossl_prefix}/lib/libssl.a")
-    add_library(bs_openssl_ssl STATIC IMPORTED GLOBAL)
-    add_library(bs_openssl_crypto STATIC IMPORTED GLOBAL)
-    set_target_properties(bs_openssl_ssl PROPERTIES
-        IMPORTED_LOCATION "${_ossl_prefix}/lib/libssl.a"
-        INTERFACE_INCLUDE_DIRECTORIES "${_ossl_prefix}/include"
-        INTERFACE_LINK_LIBRARIES bs_openssl_crypto)
-    set_target_properties(bs_openssl_crypto PROPERTIES
-        IMPORTED_LOCATION "${_ossl_prefix}/lib/libcrypto.a"
-        INTERFACE_INCLUDE_DIRECTORIES "${_ossl_prefix}/include")
-    add_dependencies(bs_openssl_ssl bs_openssl_build)
+    # CMake validates an imported target's include directories at generate time,
+    # before the custom command has produced them, so create the directories now.
+    file(MAKE_DIRECTORY "${_ossl_prefix}/include" "${_ossl_prefix}/lib")
+    add_library(bs_openssl_ssl INTERFACE)
+    add_library(bs_openssl_crypto INTERFACE)
+    target_include_directories(bs_openssl_ssl SYSTEM INTERFACE
+        "${_ossl_prefix}/include")
+    target_include_directories(bs_openssl_crypto SYSTEM INTERFACE
+        "${_ossl_prefix}/include")
+    set_property(TARGET bs_openssl_ssl APPEND PROPERTY
+        INTERFACE_LINK_LIBRARIES "${_ossl_prefix}/lib/libssl.a")
+    set_property(TARGET bs_openssl_crypto APPEND PROPERTY
+        INTERFACE_LINK_LIBRARIES "${_ossl_prefix}/lib/libcrypto.a")
     if(UNIX AND NOT APPLE)
         set_property(TARGET bs_openssl_ssl APPEND PROPERTY
             INTERFACE_LINK_LIBRARIES dl pthread)
     endif()
+    # Consumers must wait for the archive. The caller wires this in.
+    set(BS_OPENSSL_BUILD_TARGET bs_openssl_build)
     set(BS_OPENSSL_SSL_TARGET bs_openssl_ssl)
     set(BS_OPENSSL_CRYPTO_TARGET bs_openssl_crypto)
     message(STATUS "deps: OpenSSL from source (${BS_OPENSSL_TAG}, static)")

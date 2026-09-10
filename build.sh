@@ -38,6 +38,10 @@ readonly BS_DEFAULT_DISTRO="ubuntu:22.04"
 # posix-thread mingw variant is required: the win32 variant fails at link on
 # <thread>. Alternatives are pinned too, or the wrong variant wins.
 readonly MINGW_BOOTSTRAP='
+# The Linux bootstrap exports CC/CXX=gcc-12 for the C++23 floor. The mingw
+# cross build must NOT inherit them, or OpenSSL resolves the compiler as
+# x86_64-w64-mingw32-gcc-12 and fails.
+unset CC CXX
 apt-get install -y -qq --no-install-recommends \
     g++-mingw-w64-x86-64-posix gcc-mingw-w64-x86-64-posix binutils-mingw-w64-x86-64 >/dev/null
 update-alternatives --set x86_64-w64-mingw32-gcc /usr/bin/x86_64-w64-mingw32-gcc-posix

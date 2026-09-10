@@ -118,6 +118,9 @@ target_link_libraries(bridgesessions
     CLI11::CLI11
     spdlog::spdlog
 )
+if(BS_OPENSSL_BUILD_TARGET)
+    add_dependencies(bridgesessions ${BS_OPENSSL_BUILD_TARGET})
+endif()
 if(WIN32)
     target_link_libraries(bridgesessions ws2_32.lib gdiplus.lib gdi32.lib)
 endif()
