@@ -20,14 +20,17 @@ endif()
 project(bridgesessions VERSION ${BRIDGESESSIONS_NUMERIC_VERSION} LANGUAGES C CXX)
 add_compile_definitions(BS_VERSION="${BRIDGESESSIONS_VERSION}")
 
-# ConPTY (HPCON, CreatePseudoConsole, ResizePseudoConsole) is a Windows 10 API
-# and mingw's headers only declare it when _WIN32_WINNT >= 0x0A00. mingw
-# defaults that target to an older Windows and the default moves with the GCC
-# version: the GCC 13 cross compiler used for the release leaves HPCON
-# undeclared, GCC 16 declares it. Pin it so the Windows build cannot depend on
-# whichever toolchain default happens to be in play.
+# ConPTY (HPCON, CreatePseudoConsole, ResizePseudoConsole) is a Windows 10 1809
+# (RS5) API. mingw's wincon.h gates it on NTDDI_VERSION >= 0x0A000006, and
+# sdkddkver.h derives NTDDI_VERSION from _WIN32_WINNT as Version##0000 — so
+# _WIN32_WINNT=0x0A00 alone yields 0x0A000000 and still leaves HPCON
+# undeclared. Nothing in the tree set either macro, so the build inherited the
+# toolchain default, which moves with the GCC version: the GCC 13 cross
+# compiler used for the release fails while GCC 16 happens to declare it. Pin
+# both so the Windows build cannot depend on the toolchain's default.
 if(WIN32)
-    add_compile_definitions(_WIN32_WINNT=0x0A00 WINVER=0x0A00)
+    add_compile_definitions(_WIN32_WINNT=0x0A00 WINVER=0x0A00
+                            NTDDI_VERSION=0x0A000006)
 endif()
 
 set(CMAKE_CXX_STANDARD 23)
