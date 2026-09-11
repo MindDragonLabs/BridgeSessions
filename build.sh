@@ -719,7 +719,10 @@ case "${TARGET}" in
     all)     build_all ;;
     test)    DO_TESTS="yes"
              if [[ "${HOST_KIND}" == "linux" ]]; then
-                 local td; td="$(build_dir_for test)"
+                 # No `local` here: this is the script body, not a function, and
+                 # bash rejects `local` outside one — which made `./build.sh test`
+                 # fail outright on Linux.
+                 td="$(build_dir_for test)"
                  cmake_configure_build "${BS_ROOT}" "${td}"
                  run_ctest "${td}"
              else
