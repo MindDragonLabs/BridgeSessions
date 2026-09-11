@@ -26,11 +26,15 @@ add_compile_definitions(BS_VERSION="${BRIDGESESSIONS_VERSION}")
 # _WIN32_WINNT=0x0A00 alone yields 0x0A000000 and still leaves HPCON
 # undeclared. Nothing in the tree set either macro, so the build inherited the
 # toolchain default, which moves with the GCC version: the GCC 13 cross
-# compiler used for the release fails while GCC 16 happens to declare it. Pin
-# both so the Windows build cannot depend on the toolchain's default.
+# compiler used for the release fails while GCC 16 happens to declare it.
+#
+# Applied to our own targets only, never directory-wide. Raising the SDK target
+# for the bundled third-party C sources makes their <windows.h> reach
+# declarations whose winuser.h guards no longer line up, which breaks zstd.
+set(BS_WIN_CONPTY_DEFINES "")
 if(WIN32)
-    add_compile_definitions(_WIN32_WINNT=0x0A00 WINVER=0x0A00
-                            NTDDI_VERSION=0x0A000006)
+    set(BS_WIN_CONPTY_DEFINES
+        _WIN32_WINNT=0x0A00 WINVER=0x0A00 NTDDI_VERSION=0x0A000006)
 endif()
 
 set(CMAKE_CXX_STANDARD 23)
@@ -98,6 +102,7 @@ endif()
 if(NOT BS_ENABLE_DHT)
     target_compile_definitions(bridgesessions PRIVATE BS_NO_DHT)
 endif()
+target_compile_definitions(bridgesessions PRIVATE ${BS_WIN_CONPTY_DEFINES})
 # ── Strip build-machine paths from release binaries ─────────────
 # __FILE__ and assert messages embed the compile-time source path.
 # -ffile-prefix-map rewrites them so dist/ binaries don't leak /home/<user>
@@ -197,7 +202,8 @@ foreach(TEST_SRC ${TEST_SOURCES})
     endif()
     target_compile_definitions(${TEST_NAME} PRIVATE BS_TESTING BS_NO_NAT BS_NO_WEBRTC BS_NO_DHT
         BS_VERSION_FILE_PATH="${CMAKE_CURRENT_SOURCE_DIR}/VERSION"
-        BRIDGESESSIONS_MAIN_CPP_PATH="${CMAKE_CURRENT_SOURCE_DIR}/main.cpp")
+        BRIDGESESSIONS_MAIN_CPP_PATH="${CMAKE_CURRENT_SOURCE_DIR}/main.cpp"
+        ${BS_WIN_CONPTY_DEFINES})
     target_link_libraries(${TEST_NAME}
         ${BS_OPENSSL_SSL_TARGET} ${BS_OPENSSL_CRYPTO_TARGET}
         ${ZSTD_TARGET}
