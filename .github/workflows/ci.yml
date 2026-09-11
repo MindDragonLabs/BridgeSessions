@@ -86,8 +86,26 @@ jobs:
       - name: Install Python test dependencies
         run: python3 -m pip install --quiet pytest pytest-timeout
 
-      - name: Configure, build, and test
-        run: ./build.sh linux --distro native --out dist
+      # MeshController loads the node identity from ~/.bridgesessions when it is
+      # constructed, and the mesh-backed tests build one. A fresh runner has no
+      # identity, so those tests fail with
+      #   load key: /home/runner/.bridgesessions/id_ed25519.pem
+      # while passing on any developer box that already runs the daemon — a
+      # hidden dependency on machine state. Seed one with the project's own
+      # keygen. Both steps share one build directory so seeding does not cost a
+      # second dependency build.
+      - name: Configure and build
+        env:
+          BS_BUILD_SUBDIR: linux-x86_64
+        run: ./build.sh linux --distro native --out dist --no-tests
+
+      - name: Seed a node identity for the mesh tests
+        run: ./dist/bridgesessions-linux-x86_64 keygen
+
+      - name: Run the test suite
+        env:
+          BS_BUILD_SUBDIR: linux-x86_64
+        run: ./build.sh test
 
       - name: Artifact must load on a clean host
         run: |
@@ -157,8 +175,22 @@ jobs:
       - name: Install Python test dependencies
         run: python3 -m pip install --quiet pytest pytest-timeout
 
-      - name: Configure, build, and test
-        run: ./build.sh macos --out dist
+      # Same node-identity prerequisite as the Linux jobs: MeshController loads
+      # ~/.bridgesessions at construction and a fresh runner has no identity, so
+      # the mesh-backed tests fail with "load key". Seed one with keygen, reusing
+      # the same build directory the test run reconfigures.
+      - name: Configure and build
+        env:
+          BS_BUILD_SUBDIR: macos-arm64
+        run: ./build.sh macos --out dist --no-tests
+
+      - name: Seed a node identity for the mesh tests
+        run: ./dist/bridgesessions-macos-arm64 keygen
+
+      - name: Run the test suite
+        env:
+          BS_BUILD_SUBDIR: macos-arm64
+        run: ./build.sh test
 
       - name: Artifact must load on a clean host
         run: |
@@ -231,12 +263,15 @@ jobs:
           exe=dist/bridgesessions-windows-x86_64.exe
           test -f "$exe"
           echo "--- DLL imports ---"
-          x86_64-w64-mingw32-objdump -p "$exe" | grep 'DLL Name' | sort -u
-          bad=$(x86_64-w64-mingw32-objdump -p "$exe" | grep 'DLL Name' | \
-                grep -viE 'kernel32|user32|gdi32|advapi32|ws2_32|crypt32|shell32|ole32|oleaut32|api-ms-win|ucrtbase|msvcrt|winpthread|secur32|iphlpapi|bcrypt|ncrypt|setupapi|cfgmgr32|version|normaliz|dbghelp' | \
-                wc -l)
-          if [ "$bad" != "0" ]; then
-            echo "::error::$exe imports $bad non-OS DLL(s)"
+          imports=$(x86_64-w64-mingw32-objdump -p "$exe" | grep 'DLL Name' | sort -u)
+          echo "$imports"
+          # 'grep -v' exits 1 when it excludes nothing, and with pipefail that
+          # aborts the step even though every import is allowed. Capture the
+          # filtered list instead of counting it.
+          bad=$(printf '%s\n' "$imports" | grep -viE 'kernel32|user32|gdi32|advapi32|ws2_32|crypt32|shell32|ole32|oleaut32|api-ms-win|ucrtbase|msvcrt|winpthread|secur32|iphlpapi|bcrypt|ncrypt|setupapi|cfgmgr32|version|normaliz|dbghelp' || true)
+          if [ -n "$bad" ]; then
+            echo "::error::$exe imports non-OS DLL(s):"
+            echo "$bad"
             exit 1
           fi
           echo "--- size ---"
