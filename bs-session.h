@@ -547,6 +547,35 @@ void Session::release_exited_runtime() {
 }
 
 #ifdef _WIN32
+// Run `taskkill …` with no visible console. std::system() routes through
+// cmd.exe, which allocates a fresh console window when the daemon is running
+// in an interactive desktop session (the CUA host) — every session teardown
+// flashed a console on screen. CreateProcessW with CREATE_NO_WINDOW keeps the
+// same taskkill semantics with no window ever appearing.
+[[nodiscard]] static DWORD win_taskkill_tree(DWORD pid) {
+    std::wstring line = L"taskkill /F /T /PID " + std::to_wstring(pid) +
+                        L" >nul 2>&1";
+    std::vector<wchar_t> mutable_cmd(line.begin(), line.end());
+    mutable_cmd.push_back(L'\0');
+
+    STARTUPINFOW si{};
+    si.cb = sizeof(si);
+    si.dwFlags = STARTF_USESHOWWINDOW;
+    si.wShowWindow = SW_HIDE;
+    PROCESS_INFORMATION pi{};
+    const DWORD flags = CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP;
+    if (!CreateProcessW(nullptr, mutable_cmd.data(), nullptr, nullptr, FALSE,
+                        flags, nullptr, nullptr, &si, &pi)) {
+        return GetLastError();
+    }
+    WaitForSingleObject(pi.hProcess, 15000);
+    DWORD code = 0;
+    GetExitCodeProcess(pi.hProcess, &code);
+    CloseHandle(pi.hThread);
+    CloseHandle(pi.hProcess);
+    return code;
+}
+
 // A3: kill the whole child process tree by PID, independent of Job Object
 // topology.
 //
@@ -571,12 +600,11 @@ void Session::kill_tree() {
     // 2. Deterministic taskkill /T fallback — reaches grandchildren regardless
     //    of job ownership. taskkill is always on PATH on Windows and blocks
     //    until the tree is gone. /PID is an integer, no shell-injection surface.
+    //    Spawned windowless so teardown never flashes a console on the desktop.
     if (child_pid) {
         const DWORD pid = GetProcessId(child_pid);
         if (pid != 0) {
-            std::string cmd = "taskkill /F /T /PID " + std::to_string(pid) +
-                              " >nul 2>&1";
-            (void)std::system(cmd.c_str());
+            (void)win_taskkill_tree(pid);
         }
     }
 }
