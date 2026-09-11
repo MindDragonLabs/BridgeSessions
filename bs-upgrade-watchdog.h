@@ -105,7 +105,14 @@ inline void arm_upgrade_watchdog(const std::string& bin_path,
     script += "eval " + q(start_cmd) + " >> " + q(log) + " 2>&1; ";
 
     // Detached launcher: survives the upgrade process and the daemon restart.
-    std::string cmd = "setsid sh -c " + q(script) + " </dev/null >/dev/null 2>&1 &";
+    // The interpreter MUST match the probe selected above. /dev/tcp is a bash
+    // construct; dash (Debian/Ubuntu /bin/sh) cannot execute it and fails the
+    // probe on every round no matter what the port is really doing, which
+    // rolls back a HEALTHY upgrade. Only the curl probe is POSIX-safe, so use
+    // sh there and bash whenever the /dev/tcp probe was emitted.
+    const char* const launcher = have_bash ? "bash" : "sh";
+    std::string cmd = "setsid " + std::string(launcher) + " -c " + q(script) +
+                      " </dev/null >/dev/null 2>&1 &";
     std::system(cmd.c_str());
 #elif defined(_WIN32)
     // Windows watchdog (2026-09-08): generate a .cmd helper and launch it

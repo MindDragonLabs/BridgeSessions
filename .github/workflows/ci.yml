@@ -53,6 +53,25 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             ninja-build libssl-dev zlib1g-dev python3-pip python3-venv
+          # Ubuntu 22.04 ships GCC 11, whose libstdc++ has no <expected>
+          # (C++23). Install gcc-12 where the distro offers it — the same
+          # fallback the container bootstrap uses — or the native build
+          # cannot compile at all.
+          if apt-cache show g++-12 >/dev/null 2>&1; then
+            sudo apt-get install -y --no-install-recommends g++-12 gcc-12
+            echo "CC=gcc-12" >> "$GITHUB_ENV"
+            echo "CXX=g++-12" >> "$GITHUB_ENV"
+          fi
+
+      # A venv keeps pytest off the distro Python: Ubuntu 24.04 and macOS mark
+      # their system Python externally managed (PEP 668), so `pip install
+      # --user` hard-fails there. CMake resolves python3 from PATH and only
+      # registers the Python tests when that interpreter can import pytest,
+      # so the venv has to be on PATH before the configure step.
+      - name: Create Python venv
+        run: |
+          python3 -m venv "$RUNNER_TEMP/venv"
+          echo "$RUNNER_TEMP/venv/bin" >> "$GITHUB_PATH"
 
       - name: Ensure CMake >= 3.25
         run: |
@@ -60,13 +79,12 @@ jobs:
           have=$(cmake --version | head -1 | awk '{print $3}')
           if [ "$(printf '%s\n%s\n' "$need" "$have" | sort -V | head -1)" != "$need" ]; then
             echo "cmake $have is too old; installing 3.28.3"
-            python3 -m pip install --user --quiet cmake==3.28.3
-            echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+            python3 -m pip install --quiet cmake==3.28.3
           fi
           cmake --version | head -1
 
       - name: Install Python test dependencies
-        run: python3 -m pip install --user --quiet pytest pytest-timeout
+        run: python3 -m pip install --quiet pytest pytest-timeout
 
       - name: Configure, build, and test
         run: ./build.sh linux --distro native --out dist
@@ -117,18 +135,27 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # macOS runners ship an externally managed Python (PEP 668), so
+      # `pip install --user` fails outright. A venv first on PATH keeps both
+      # cmake and pytest off the system interpreter; CMake resolves python3
+      # from PATH and only registers the Python tests when that interpreter
+      # can import pytest.
+      - name: Create Python venv
+        run: |
+          python3 -m venv "$RUNNER_TEMP/venv"
+          echo "$RUNNER_TEMP/venv/bin" >> "$GITHUB_PATH"
+
       - name: Ensure CMake >= 3.25
         run: |
           need=3.25
           have=$(cmake --version | head -1 | awk '{print $3}')
           if [ "$(printf '%s\n%s\n' "$need" "$have" | sort -V | head -1)" != "$need" ]; then
-            python3 -m pip install --user --quiet cmake==3.28.3
-            echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+            python3 -m pip install --quiet cmake==3.28.3
           fi
           cmake --version | head -1
 
       - name: Install Python test dependencies
-        run: python3 -m pip install --user --quiet pytest pytest-timeout
+        run: python3 -m pip install --quiet pytest pytest-timeout
 
       - name: Configure, build, and test
         run: ./build.sh macos --out dist

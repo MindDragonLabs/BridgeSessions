@@ -75,6 +75,14 @@ std::string build_script(const std::string& bin, const std::string& oldb,
     return script;
 }
 
+// The product launches the helper with the interpreter that matches the probe
+// it selected (bash for the /dev/tcp probe, sh for curl). The test must do the
+// same: running a /dev/tcp probe under dash fails on every round, so the test
+// would assert against a probe the shell cannot execute.
+std::string shell_for(const bool have_bash) {
+    return have_bash ? "bash" : "sh";
+}
+
 } // namespace
 
 TEST_CASE("upgrade watchdog restores old binary when new daemon never binds", "[watchdog]") {
@@ -91,12 +99,16 @@ TEST_CASE("upgrade watchdog restores old binary when new daemon never binds", "[
     // probe the product would arm on this host (dash containers exercise
     // the curl path; bash hosts exercise /dev/tcp).
     const bool have_bash = std::system("command -v bash >/dev/null 2>&1") == 0;
+    const std::string shell = shell_for(have_bash);
+    auto run = [&](const std::string& s) {
+        return std::system(("timeout 60 " + shell + " -c " + shell_quote(s)).c_str());
+    };
     std::string script = build_script(bin, oldb, "touch " + marker, log, dead_port, have_bash);
 
     SECTION("rollback fires when port stays dead and old binary exists") {
         { std::ofstream(bin) << "new-binary"; }
         { std::ofstream(oldb) << "old-binary"; }
-        std::system(("timeout 60 sh -c " + shell_quote(script)).c_str());
+        run(script);
         std::ifstream in(bin);
         std::string content((std::istreambuf_iterator<char>(in)),
                              std::istreambuf_iterator<char>());
@@ -110,7 +122,7 @@ TEST_CASE("upgrade watchdog restores old binary when new daemon never binds", "[
     SECTION("no old binary: log + start only, installed bin untouched") {
         std::remove(oldb.c_str());
         { std::ofstream(bin) << "whatever"; }
-        std::system(("timeout 60 sh -c " + shell_quote(script)).c_str());
+        run(script);
         std::ifstream in(bin);
         std::string content((std::istreambuf_iterator<char>(in)),
                              std::istreambuf_iterator<char>());
@@ -148,7 +160,7 @@ TEST_CASE("upgrade watchdog restores old binary when new daemon never binds", "[
         const std::string live_port = std::to_string(ntohs(got.sin_port));
         REQUIRE(::listen(listener, 1) == 0);
         std::string ok_script = build_script(bin, oldb, "touch " + fresh_marker, log, live_port, have_bash);
-        int rc = std::system(("timeout 60 sh -c " + shell_quote(ok_script)).c_str());
+        int rc = run(ok_script);
         ::close(listener);
         REQUIRE(rc == 0);
         REQUIRE_FALSE(std::filesystem::exists(fresh_marker)); // start command never ran
