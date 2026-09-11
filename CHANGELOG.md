@@ -2,6 +2,49 @@
 
 Notable user-visible changes. Git history contains implementation-level detail.
 
+## 26.09.11-r2
+
+### Fixed
+
+- **A successful upgrade could be silently rolled back on Debian/Ubuntu peers.**
+  The upgrade watchdog picks its liveness probe from the host's capabilities — a
+  bash `/dev/tcp` probe when bash exists, otherwise curl — but it always launched
+  the helper with `setsid sh -c`. `/bin/sh` is dash on Debian and Ubuntu, and dash
+  cannot run `/dev/tcp`, so the probe reported failure on every round no matter
+  what the port was really doing. About 80s after an upgrade the watchdog
+  concluded the new daemon had never bound and restored the OLD binary over the
+  new one, then restarted it. The launcher now uses the interpreter that matches
+  the probe it emitted. Reproduced against a live listener under both shells: the
+  old pairing rolls a healthy daemon back, the new one does not.
+
+- **`./build.sh test` could not run on Linux.** The `test` target used `local` at
+  the top level of the script body, which bash rejects with "local: can only be
+  used in a function", so the documented target failed immediately. It appeared
+  to work only on macOS, which routes to `build_macos` instead.
+
+### Changed
+
+- **Windows builds pin the Windows SDK target.** ConPTY (`HPCON`,
+  `CreatePseudoConsole`, `ResizePseudoConsole`) is gated on
+  `NTDDI_VERSION >= 0x0A000006` and nothing in the tree set it, so the build
+  inherited a toolchain default that moves with the GCC version: the GCC 13 cross
+  compiler used for releases failed to compile while GCC 16 happened to declare
+  it. `_WIN32_WINNT`, `WINVER` and `NTDDI_VERSION` are now pinned on our own
+  targets — not directory-wide, because raising the SDK target for the bundled
+  third-party C sources desynchronises `winuser.h` guards and breaks zstd.
+
+### CI
+
+- **All four required checks pass for the first time.** Ubuntu 22.04 needed
+  GCC 12 to compile `<expected>`; macOS and Ubuntu 24.04 mark their Python
+  externally managed so `pip install --user` fails outright; the mingw capability
+  gate rejected a capable GCC 13 because Ubuntu's `-posix` wrapper answers
+  `-dumpversion` with `13-posix`; the Windows import check aborted on its own
+  success (`grep -v` exits 1 when it excludes nothing, under `set -o pipefail`);
+  and the mesh-backed tests build a `MeshController`, which loads a node identity
+  from `~/.bridgesessions` that exists on every developer box but not on a fresh
+  runner. The test jobs now seed one with `keygen`.
+
 ## 26.09.11-r1
 
 ### Fixed
