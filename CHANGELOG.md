@@ -2,6 +2,20 @@
 
 Notable user-visible changes. Git history contains implementation-level detail.
 
+## 26.09.11-r1
+
+### Fixed
+
+- **The Windows daemon flashed a console window on every session teardown.**
+  `Session::kill_tree()` killed the process tree with
+  `std::system("taskkill /F /T /PID …")`. `std::system` spawns through
+  `cmd.exe`, which allocates a fresh console; when the daemon runs in an
+  interactive desktop session (the CUA host) that console appeared on the
+  user's screen every time a session ended. Teardown now runs `taskkill` via
+  `CreateProcessW` flagged `CREATE_NO_WINDOW` (and `CREATE_NEW_PROCESS_GROUP`),
+  keeping the same `/F /T` tree semantics with no visible window. Windows-only;
+  the POSIX path is unchanged.
+
 ## 26.09.10-r2
 
 ### Fixed

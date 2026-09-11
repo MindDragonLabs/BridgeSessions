@@ -553,19 +553,41 @@ void Session::release_exited_runtime() {
 // flashed a console on screen. CreateProcessW with CREATE_NO_WINDOW keeps the
 // same taskkill semantics with no window ever appearing.
 [[nodiscard]] static DWORD win_taskkill_tree(DWORD pid) {
-    std::wstring line = L"taskkill /F /T /PID " + std::to_wstring(pid) +
-                        L" >nul 2>&1";
+    // No shell here: the old std::system() call let cmd.exe consume the
+    // ">nul 2>&1" redirection. CreateProcessW does not, so passing it in the
+    // command line would hand taskkill two bogus arguments and the kill would
+    // fail. Route the child's std handles to NUL instead.
+    std::wstring line = L"taskkill /F /T /PID " + std::to_wstring(pid);
     std::vector<wchar_t> mutable_cmd(line.begin(), line.end());
     mutable_cmd.push_back(L'\0');
+
+    SECURITY_ATTRIBUTES sa{};
+    sa.nLength = sizeof(sa);
+    sa.bInheritHandle = TRUE;
+    HANDLE nul = CreateFileW(L"NUL", GENERIC_READ | GENERIC_WRITE,
+                             FILE_SHARE_READ | FILE_SHARE_WRITE, &sa,
+                             OPEN_EXISTING, 0, nullptr);
 
     STARTUPINFOW si{};
     si.cb = sizeof(si);
     si.dwFlags = STARTF_USESHOWWINDOW;
     si.wShowWindow = SW_HIDE;
+    if (nul != INVALID_HANDLE_VALUE) {
+        si.dwFlags |= STARTF_USESTDHANDLES;
+        si.hStdInput = nul;
+        si.hStdOutput = nul;
+        si.hStdError = nul;
+    }
+
     PROCESS_INFORMATION pi{};
     const DWORD flags = CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP;
-    if (!CreateProcessW(nullptr, mutable_cmd.data(), nullptr, nullptr, FALSE,
-                        flags, nullptr, nullptr, &si, &pi)) {
+    const BOOL ok = CreateProcessW(nullptr, mutable_cmd.data(), nullptr,
+                                   nullptr, nul != INVALID_HANDLE_VALUE, flags,
+                                   nullptr, nullptr, &si, &pi);
+    if (nul != INVALID_HANDLE_VALUE) {
+        CloseHandle(nul);
+    }
+    if (!ok) {
         return GetLastError();
     }
     WaitForSingleObject(pi.hProcess, 15000);
