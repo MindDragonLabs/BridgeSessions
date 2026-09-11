@@ -126,8 +126,15 @@ if [[ ! -f "$PREFIX/lib/libssl.a" ]]; then
 fi
 # build-windows-mingw.sh links ssl/crypto from $PREFIX/lib64 — match the
 # local prefix layout regardless of where openssl installed them.
-if [[ -f "$PREFIX/lib/libssl.a" && ! -e "$PREFIX/lib64" ]]; then
-  ln -s "$PREFIX/lib" "$PREFIX/lib64"
+if [[ -f "$PREFIX/lib/libssl.a" ]]; then
+  # Test -L as well as -e. A symlink made by an earlier run against a different
+  # mount root (the prefix is written inside a container as /work/... but read
+  # on the host as /home/...) is dangling, so -e reports false while the name is
+  # still taken and a bare `ln -s` fails, taking the whole prefix build down.
+  # Create the link relative so it resolves from wherever the prefix is mounted.
+  if [[ ! -e "$PREFIX/lib64" && ! -L "$PREFIX/lib64" ]]; then
+    ln -s lib "$PREFIX/lib64"
+  fi
 fi
 
 # ---- fmt 12.2.0 (static) ----------------------------------------------------
