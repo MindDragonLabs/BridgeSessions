@@ -4,7 +4,7 @@ name: Release
 # be clean; scripts/github-release.sh enforces both, and this workflow re-checks
 # so a bad tag fails fast instead of publishing half an artifact set.
 #
-#   git tag v26.09.10-r2 && git push origin v26.09.10-r2
+#   git tag v26.09.11-r1 && git push origin v26.09.11-r1
 
 on:
   push:

@@ -11,7 +11,7 @@ set -euo pipefail
 # On Windows (PowerShell):
 #   irm https://raw.githubusercontent.com/MindDragonLabs/BridgeSessions/main/scripts/install.ps1 | iex
 
-TAG="${BRIDGESESSIONS_TAG:-26.09.10-r2}"
+TAG="${BRIDGESESSIONS_TAG:-26.09.11-r1}"
 BASE="https://github.com/MindDragonLabs/BridgeSessions/releases/download/v${TAG}"
 INSTALL_DIR="${HOME}/.local/bin"
 VERSION_FILE="${INSTALL_DIR}/.bridgesessions-version"

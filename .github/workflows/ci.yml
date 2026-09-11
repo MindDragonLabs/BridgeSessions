@@ -53,6 +53,25 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             ninja-build libssl-dev zlib1g-dev python3-pip python3-venv
+          # Ubuntu 22.04 ships GCC 11, whose libstdc++ has no <expected>
+          # (C++23). Install gcc-12 where the distro offers it — the same
+          # fallback the container bootstrap uses — or the native build
+          # cannot compile at all.
+          if apt-cache show g++-12 >/dev/null 2>&1; then
+            sudo apt-get install -y --no-install-recommends g++-12 gcc-12
+            echo "CC=gcc-12" >> "$GITHUB_ENV"
+            echo "CXX=g++-12" >> "$GITHUB_ENV"
+          fi
+
+      # A venv keeps pytest off the distro Python: Ubuntu 24.04 and macOS mark
+      # their system Python externally managed (PEP 668), so `pip install
+      # --user` hard-fails there. CMake resolves python3 from PATH and only
+      # registers the Python tests when that interpreter can import pytest,
+      # so the venv has to be on PATH before the configure step.
+      - name: Create Python venv
+        run: |
+          python3 -m venv "$RUNNER_TEMP/venv"
+          echo "$RUNNER_TEMP/venv/bin" >> "$GITHUB_PATH"
 
       - name: Ensure CMake >= 3.25
         run: |
@@ -60,16 +79,33 @@ jobs:
           have=$(cmake --version | head -1 | awk '{print $3}')
           if [ "$(printf '%s\n%s\n' "$need" "$have" | sort -V | head -1)" != "$need" ]; then
             echo "cmake $have is too old; installing 3.28.3"
-            python3 -m pip install --user --quiet cmake==3.28.3
-            echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+            python3 -m pip install --quiet cmake==3.28.3
           fi
           cmake --version | head -1
 
       - name: Install Python test dependencies
-        run: python3 -m pip install --user --quiet pytest pytest-timeout
+        run: python3 -m pip install --quiet pytest pytest-timeout
 
-      - name: Configure, build, and test
-        run: ./build.sh linux --distro native --out dist
+      # MeshController loads the node identity from ~/.bridgesessions when it is
+      # constructed, and the mesh-backed tests build one. A fresh runner has no
+      # identity, so those tests fail with
+      #   load key: /home/runner/.bridgesessions/id_ed25519.pem
+      # while passing on any developer box that already runs the daemon — a
+      # hidden dependency on machine state. Seed one with the project's own
+      # keygen. Both steps share one build directory so seeding does not cost a
+      # second dependency build.
+      - name: Configure and build
+        env:
+          BS_BUILD_SUBDIR: linux-x86_64
+        run: ./build.sh linux --distro native --out dist --no-tests
+
+      - name: Seed a node identity for the mesh tests
+        run: ./dist/bridgesessions-linux-x86_64 keygen
+
+      - name: Run the test suite
+        env:
+          BS_BUILD_SUBDIR: linux-x86_64
+        run: ./build.sh test
 
       - name: Artifact must load on a clean host
         run: |
@@ -117,21 +153,44 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # macOS runners ship an externally managed Python (PEP 668), so
+      # `pip install --user` fails outright. A venv first on PATH keeps both
+      # cmake and pytest off the system interpreter; CMake resolves python3
+      # from PATH and only registers the Python tests when that interpreter
+      # can import pytest.
+      - name: Create Python venv
+        run: |
+          python3 -m venv "$RUNNER_TEMP/venv"
+          echo "$RUNNER_TEMP/venv/bin" >> "$GITHUB_PATH"
+
       - name: Ensure CMake >= 3.25
         run: |
           need=3.25
           have=$(cmake --version | head -1 | awk '{print $3}')
           if [ "$(printf '%s\n%s\n' "$need" "$have" | sort -V | head -1)" != "$need" ]; then
-            python3 -m pip install --user --quiet cmake==3.28.3
-            echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+            python3 -m pip install --quiet cmake==3.28.3
           fi
           cmake --version | head -1
 
       - name: Install Python test dependencies
-        run: python3 -m pip install --user --quiet pytest pytest-timeout
+        run: python3 -m pip install --quiet pytest pytest-timeout
 
-      - name: Configure, build, and test
-        run: ./build.sh macos --out dist
+      # Same node-identity prerequisite as the Linux jobs: MeshController loads
+      # ~/.bridgesessions at construction and a fresh runner has no identity, so
+      # the mesh-backed tests fail with "load key". Seed one with keygen, reusing
+      # the same build directory the test run reconfigures.
+      - name: Configure and build
+        env:
+          BS_BUILD_SUBDIR: macos-arm64
+        run: ./build.sh macos --out dist --no-tests
+
+      - name: Seed a node identity for the mesh tests
+        run: ./dist/bridgesessions-macos-arm64 keygen
+
+      - name: Run the test suite
+        env:
+          BS_BUILD_SUBDIR: macos-arm64
+        run: ./build.sh test
 
       - name: Artifact must load on a clean host
         run: |
@@ -204,12 +263,15 @@ jobs:
           exe=dist/bridgesessions-windows-x86_64.exe
           test -f "$exe"
           echo "--- DLL imports ---"
-          x86_64-w64-mingw32-objdump -p "$exe" | grep 'DLL Name' | sort -u
-          bad=$(x86_64-w64-mingw32-objdump -p "$exe" | grep 'DLL Name' | \
-                grep -viE 'kernel32|user32|gdi32|advapi32|ws2_32|crypt32|shell32|ole32|oleaut32|api-ms-win|ucrtbase|msvcrt|winpthread|secur32|iphlpapi|bcrypt|ncrypt|setupapi|cfgmgr32|version|normaliz|dbghelp' | \
-                wc -l)
-          if [ "$bad" != "0" ]; then
-            echo "::error::$exe imports $bad non-OS DLL(s)"
+          imports=$(x86_64-w64-mingw32-objdump -p "$exe" | grep 'DLL Name' | sort -u)
+          echo "$imports"
+          # 'grep -v' exits 1 when it excludes nothing, and with pipefail that
+          # aborts the step even though every import is allowed. Capture the
+          # filtered list instead of counting it.
+          bad=$(printf '%s\n' "$imports" | grep -viE 'kernel32|user32|gdi32|advapi32|ws2_32|crypt32|shell32|ole32|oleaut32|api-ms-win|ucrtbase|msvcrt|winpthread|secur32|iphlpapi|bcrypt|ncrypt|setupapi|cfgmgr32|version|normaliz|dbghelp' || true)
+          if [ -n "$bad" ]; then
+            echo "::error::$exe imports non-OS DLL(s):"
+            echo "$bad"
             exit 1
           fi
           echo "--- size ---"

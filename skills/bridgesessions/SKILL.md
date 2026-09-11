@@ -3,7 +3,7 @@ name: bridgesessions
 description: Use when operating or developing BridgeSessions mesh peers.
 license: BUSL-1.1
 metadata:
-  version: "26.09.10-r1"
+  version: "26.09.11-r1"
   product: BridgeSessions
   forge: "github.com/MindDragonLabs/BridgeSessions"
 ---
@@ -196,3 +196,14 @@ git diff --stat v$V^{commit} origin/main      # tag vs main, authoritative
 | daemon restart cuts command | control path depended on daemon | use systemd/launchd/Task Scheduler independently |
 
 Two identical non-progressing failures: stop retrying and diagnose a different layer.
+
+## Windows: never spawn a console from the daemon
+
+The daemon runs in the interactive desktop session (it hosts the CUA overlay),
+so any subprocess it creates with a normal console gets a visible window on the
+user's screen. `std::system("taskkill /F /T /PID …")` in `Session::kill_tree()`
+flashed a console on every session teardown; replaced with `CreateProcessW`
+flagged `CREATE_NO_WINDOW`. Rule: every Windows subprocess spawn in daemon-side
+code (`bs-pty.h`, `bs-session.h`, `bs-cua-dispatch.h`) must pass
+`CREATE_NO_WINDOW` (or use the oneshot/ConPTY paths that already do).
+`bs-cua-helper.h`'s `win_detach_cua_helper()` is the reference pattern.

@@ -132,3 +132,6 @@ tools/bridgepanel/TODO.md
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# ── Local operational state (fleet ledger, e2e results) ──────────────────────
+/state/

@@ -547,6 +547,57 @@ void Session::release_exited_runtime() {
 }
 
 #ifdef _WIN32
+// Run `taskkill …` with no visible console. std::system() routes through
+// cmd.exe, which allocates a fresh console window when the daemon is running
+// in an interactive desktop session (the CUA host) — every session teardown
+// flashed a console on screen. CreateProcessW with CREATE_NO_WINDOW keeps the
+// same taskkill semantics with no window ever appearing.
+[[nodiscard]] static DWORD win_taskkill_tree(DWORD pid) {
+    // No shell here: the old std::system() call let cmd.exe consume the
+    // ">nul 2>&1" redirection. CreateProcessW does not, so passing it in the
+    // command line would hand taskkill two bogus arguments and the kill would
+    // fail. Route the child's std handles to NUL instead.
+    std::wstring line = L"taskkill /F /T /PID " + std::to_wstring(pid);
+    std::vector<wchar_t> mutable_cmd(line.begin(), line.end());
+    mutable_cmd.push_back(L'\0');
+
+    SECURITY_ATTRIBUTES sa{};
+    sa.nLength = sizeof(sa);
+    sa.bInheritHandle = TRUE;
+    HANDLE nul = CreateFileW(L"NUL", GENERIC_READ | GENERIC_WRITE,
+                             FILE_SHARE_READ | FILE_SHARE_WRITE, &sa,
+                             OPEN_EXISTING, 0, nullptr);
+
+    STARTUPINFOW si{};
+    si.cb = sizeof(si);
+    si.dwFlags = STARTF_USESHOWWINDOW;
+    si.wShowWindow = SW_HIDE;
+    if (nul != INVALID_HANDLE_VALUE) {
+        si.dwFlags |= STARTF_USESTDHANDLES;
+        si.hStdInput = nul;
+        si.hStdOutput = nul;
+        si.hStdError = nul;
+    }
+
+    PROCESS_INFORMATION pi{};
+    const DWORD flags = CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP;
+    const BOOL ok = CreateProcessW(nullptr, mutable_cmd.data(), nullptr,
+                                   nullptr, nul != INVALID_HANDLE_VALUE, flags,
+                                   nullptr, nullptr, &si, &pi);
+    if (nul != INVALID_HANDLE_VALUE) {
+        CloseHandle(nul);
+    }
+    if (!ok) {
+        return GetLastError();
+    }
+    WaitForSingleObject(pi.hProcess, 15000);
+    DWORD code = 0;
+    GetExitCodeProcess(pi.hProcess, &code);
+    CloseHandle(pi.hThread);
+    CloseHandle(pi.hProcess);
+    return code;
+}
+
 // A3: kill the whole child process tree by PID, independent of Job Object
 // topology.
 //
@@ -571,12 +622,11 @@ void Session::kill_tree() {
     // 2. Deterministic taskkill /T fallback — reaches grandchildren regardless
     //    of job ownership. taskkill is always on PATH on Windows and blocks
     //    until the tree is gone. /PID is an integer, no shell-injection surface.
+    //    Spawned windowless so teardown never flashes a console on the desktop.
     if (child_pid) {
         const DWORD pid = GetProcessId(child_pid);
         if (pid != 0) {
-            std::string cmd = "taskkill /F /T /PID " + std::to_string(pid) +
-                              " >nul 2>&1";
-            (void)std::system(cmd.c_str());
+            (void)win_taskkill_tree(pid);
         }
     }
 }

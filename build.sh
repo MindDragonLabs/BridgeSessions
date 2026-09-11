@@ -47,12 +47,17 @@ readonly BS_WIN_DISTRO="ubuntu:24.04"
 readonly BS_MINGW_MIN_GCC=13
 
 # True when $1 (a mingw g++) is at least BS_MINGW_MIN_GCC. 0 = usable, 1 = not.
+# Ubuntu ships -posix/-win32 mingw wrappers whose -dumpversion is NOT purely
+# numeric: it answers "13-posix". Demanding the whole string match ^[0-9]+$
+# rejected a perfectly capable GCC 13 and failed the cross build, so take the
+# leading integer instead.
 mingw_is_cxx23_capable() {
     local cc="${1:-x86_64-w64-mingw32-g++}"
     have "${cc}" || return 1
-    local major
-    major="$("${cc}" -dumpversion 2>/dev/null | cut -d. -f1)"
-    [[ "${major}" =~ ^[0-9]+$ ]] || return 1
+    local ver major
+    ver="$("${cc}" -dumpversion 2>/dev/null)"
+    [[ "${ver}" =~ ^([0-9]+) ]] || return 1
+    major="${BASH_REMATCH[1]}"
     [[ "${major}" -ge "${BS_MINGW_MIN_GCC}" ]]
 }
 
@@ -714,7 +719,10 @@ case "${TARGET}" in
     all)     build_all ;;
     test)    DO_TESTS="yes"
              if [[ "${HOST_KIND}" == "linux" ]]; then
-                 local td; td="$(build_dir_for test)"
+                 # No `local` here: this is the script body, not a function, and
+                 # bash rejects `local` outside one — which made `./build.sh test`
+                 # fail outright on Linux.
+                 td="$(build_dir_for test)"
                  cmake_configure_build "${BS_ROOT}" "${td}"
                  run_ctest "${td}"
              else
