@@ -20,6 +20,16 @@ endif()
 project(bridgesessions VERSION ${BRIDGESESSIONS_NUMERIC_VERSION} LANGUAGES C CXX)
 add_compile_definitions(BS_VERSION="${BRIDGESESSIONS_VERSION}")
 
+# ConPTY (HPCON, CreatePseudoConsole, ResizePseudoConsole) is a Windows 10 API
+# and mingw's headers only declare it when _WIN32_WINNT >= 0x0A00. mingw
+# defaults that target to an older Windows and the default moves with the GCC
+# version: the GCC 13 cross compiler used for the release leaves HPCON
+# undeclared, GCC 16 declares it. Pin it so the Windows build cannot depend on
+# whichever toolchain default happens to be in play.
+if(WIN32)
+    add_compile_definitions(_WIN32_WINNT=0x0A00 WINVER=0x0A00)
+endif()
+
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -193,6 +203,15 @@ foreach(TEST_SRC ${TEST_SOURCES})
         spdlog::spdlog
         Catch2::Catch2
     )
+    # When OpenSSL is built from source it is a custom target that produces the
+    # headers and the archive, and the interface libraries carrying its include
+    # dir only name a path. Without this edge a parallel build starts compiling
+    # the tests before OpenSSL has installed, and every test fails with
+    # "openssl/evp.h: No such file or directory". Dependencies.cmake says the
+    # caller must wire this in; the main binary already does.
+    if(BS_OPENSSL_BUILD_TARGET)
+        add_dependencies(${TEST_NAME} ${BS_OPENSSL_BUILD_TARGET})
+    endif()
     if(WIN32)
         target_link_libraries(${TEST_NAME} ws2_32.lib)
     endif()
