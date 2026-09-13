@@ -607,7 +607,7 @@ After=network.target
 # User-local shared libs (libspdlog/libfmt) live under ~/.local/lib — required when
 # the unit is started without a login shell LD_LIBRARY_PATH.
 Environment=LD_LIBRARY_PATH=\${HOME}/.local/lib:\${HOME}/.local/lib64:/usr/local/lib
-WorkingDirectory=\${HOME}
+WorkingDirectory=${HOME}
 ExecStart=${BIN_ABS} --config ${CONFIG_PATH}
 Restart=always
 RestartSec=5
