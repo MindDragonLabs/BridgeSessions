@@ -396,6 +396,22 @@ MPEOF
       rm -rf "${APP_BUNDLE}"
       cp -R "${REPO_APP}" /Applications/
 
+      # Stable local signing: re-sign the .app with the per-machine identity
+      # (kept in ~/.bridgesessions/signing/). Without this, every upgrade
+      # replaces the ad-hoc signature (new cdhash) and macOS TCC treats the
+      # binary as a NEW app — Screen Recording / Accessibility must be
+      # re-granted every time. The stable identity anchors the Designated
+      # Requirement on the certificate leaf, so permissions survive upgrades.
+      # Developer-ID-signed bundles are skipped (already stable).
+      SIGN_SCRIPT="$(cd "$(dirname "$0")" && pwd)/sign-local-stable.sh"
+      if [ -x "${SIGN_SCRIPT}" ]; then
+        if "${SIGN_SCRIPT}" "${APP_BUNDLE}" >/dev/null 2>&1; then
+          echo "→ Stable local signing identity applied (TCC permissions survive upgrades)"
+        else
+          echo "→ WARNING: stable signing failed — TCC may re-prompt after this upgrade" >&2
+        fi
+      fi
+
       # Symlink for CLI compatibility (~/.local/bin/bridgesessions → .app binary)
       ln -sf "${APP_BIN}" "${BIN_ABS}"
 
@@ -517,6 +533,18 @@ EOF
       # that have no Developer ID cert. Just copy the signed binary as-is.
       # TCC tracks the TeamIdentifier (QL5MD8FKPL) from the embedded signature.
       echo "→ .app bundle created (preserving signed binary)"
+      # Stable local signing — same rationale as the /Applications branch:
+      # anchor the DR on a per-machine certificate leaf so TCC permissions
+      # survive upgrades instead of re-prompting on every new cdhash.
+      SIGN_SCRIPT="$(cd "$(dirname "$0")" && pwd)/sign-local-stable.sh"
+      if [ -x "${SIGN_SCRIPT}" ]; then
+        if "${SIGN_SCRIPT}" "${LOCAL_APP}" >/dev/null 2>&1; then
+          echo "→ Stable local signing identity applied (TCC permissions survive upgrades)"
+        else
+          echo "→ WARNING: stable signing failed — TCC may re-prompt after this upgrade" >&2
+        fi
+      fi
+
       # Point CLI symlink at the .app binary
       ln -sf "${LOCAL_APP}/Contents/MacOS/bridgesessions" "${BIN_ABS}"
       APP_BIN="${LOCAL_APP}/Contents/MacOS/bridgesessions"
