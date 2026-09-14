@@ -72,7 +72,21 @@ jobs:
           python3 -m venv "$RUNNER_TEMP/venv"
           echo "$RUNNER_TEMP/venv/bin" >> "$GITHUB_PATH"
       - run: python3 -m pip install --quiet pytest pytest-timeout
-      - run: ./build.sh linux --out dist
+      # Same order as ci.yml: build without tests, seed a node identity, then
+      # run the suite. The mesh-backed tests (Ctrl-C delivery, cua signal)
+      # construct a MeshController, which loads ~/.bridgesessions identity —
+      # a fresh runner has none, and those tests fail deterministically
+      # without it. --repeat until-pass cannot save a deterministic miss.
+      - name: Configure and build
+        env:
+          BS_BUILD_SUBDIR: linux-x86_64
+        run: ./build.sh linux --distro native --out dist --no-tests
+      - name: Seed a node identity for the mesh tests
+        run: ./dist/bridgesessions-linux-x86_64 keygen
+      - name: Run the test suite
+        env:
+          BS_BUILD_SUBDIR: linux-x86_64
+        run: ./build.sh test
       - run: |
           bin=dist/bridgesessions-linux-x86_64
           ldd "$bin" | grep 'not found' && exit 1 || true
