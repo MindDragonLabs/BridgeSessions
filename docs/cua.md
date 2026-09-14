@@ -39,6 +39,8 @@ bs capture-video <peer> --duration 10 -o capture.mp4
 
 The image format defaults to PNG. JPEG accepts `--quality` from 1 to 100. Video is encoded on the peer with the platform's native pipeline (ScreenCaptureKit on macOS, Media Foundation on Windows, an external tool on Linux) and returned as a single MP4.
 
+Windows peers always capture as BMP on the helper side (GDI path); the CLI transcodes a `.png` output to a real PNG automatically. `--format 2` (JPEG) is honored on macOS only.
+
 ## Architecture
 
 ```text

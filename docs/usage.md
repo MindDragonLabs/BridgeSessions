@@ -17,9 +17,12 @@ bs shell <peer>
 bs shell <peer> --name agent
 bs shell <peer> --cmd 'uname -a'
 bs sessions <peer>
+bs sessions <peer> --kill-tty
 ```
 
 Named sessions survive disconnect. The daemon owns the PTY or ConPTY. `Ctrl-D` detaches. Reuse `--name` to reattach.
+
+Reap what you leave behind: `bs sessions <peer> --kill <name>` kills one session, `--kill-tty` reaps every stale `tty-*` interactive shell, `--kill-all` clears all live sessions on the peer. In the interactive sessions-manager screen, `d` kills the highlighted session. Session names carry a creation timestamp (`tty-YYYYMMDD-HHMMSS-PID-COUNTER`), so a stale shell's age is readable straight from the list. Local-only variant (against this node's daemon): `bs sessions --kill-tty`.
 
 Use one stacked shell or `run-script` for dependent work. Separate one-shot commands do not share state.
 

@@ -2,7 +2,7 @@
 
 Notable user-visible changes. Git history contains implementation-level detail.
 
-## Unreleased
+## 26.09.14-r1
 
 ### Fixed
 
@@ -13,6 +13,40 @@ Notable user-visible changes. Git history contains implementation-level detail.
   now detects a BMP frame headed for a `.png` output and transcodes it into a
   real PNG (dependency-free encoder: PNG stored-deflate blocks with hand-rolled
   CRC-32/Adler-32). `--output shot.bmp` and stdout piping keep raw bytes.
+  Also fixes a latent parse bug caught by the new round-trip tests: the BMP
+  parser read `biPlanes`/`biBitCount` as 32-bit fields when they are 16-bit
+  WORDs at offsets 26/28, which rejected every real helper frame.
+
+- **A symlinked destination could launder a hidden-directory send past the
+  hidden-path policy.** `file send --dest` checks that a `~/…` destination
+  stays out of hidden directories (`.local`, `.ssh`, …), but the check ran on
+  the canonicalized path, where symlinks dissolve the hidden component away
+  (e.g. a `~/.local/bin` that is a symlink to elsewhere). The policy is now
+  enforced on the lexical path before canonicalization, so a symlinked
+  `.local` is rejected the same as a real one.
+
+- **The systemd unit shipped a literal `${HOME}` in `WorkingDirectory`.**
+  systemd does not expand shell variables there; units installed for a
+  non-root user failed to start with `Failed to start: path …${HOME}… is not
+  absolute`. `install.sh` now expands it to the installing user's home at
+  install time.
+
+- **macOS upgrades could lose TCC permissions (screen recording, …).**
+  Every re-install re-signed the binary with a fresh ad-hoc signature, which
+  resets TCC's binding to the code signature. Upgrades now reuse the
+  machine's stable local signing identity (`sign-local-stable.sh`) when the
+  Developer ID is unavailable, so TCC keeps recognizing the binary across
+  upgrades.
+
+### Added
+
+- **`bs sessions` can now kill and reap sessions.** `--kill <name>` kills one,
+  `--kill-tty` reaps every stale `tty-*` interactive shell, `--kill-all`
+  clears all live sessions on a peer; locally the verbs go through daemon
+  IPC. The interactive sessions-manager screen gains a `d` hotkey that kills
+  the highlighted session. Ephemeral session names now carry a timestamp —
+  `tty-YYYYMMDD-HHMMSS-PID-COUNTER` — so a stale shell's age is readable
+  straight from the sessions list.
 
 ## 26.09.11-r2
 
@@ -105,7 +139,7 @@ Notable user-visible changes. Git history contains implementation-level detail.
 - Command reference is generated from the binary's own `--help` into
   [`docs/cli.md`](docs/cli.md), so it cannot drift.
 
-## Unreleased
+## 26.09.13-r1
 
 ### Added
 
