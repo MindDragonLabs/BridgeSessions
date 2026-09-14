@@ -292,6 +292,58 @@ TEST_CASE("unnamed quick-connect always starts a new tty session",
     REQUIRE(is_ephemeral_session_name("cmd-1-2"));
 }
 
+TEST_CASE("ephemeral session names carry a UTC datetime segment",
+          "[shell][quick-connect][naming]") {
+    // Format: tty-YYYYMMDD-HHMMSS-pid-seq (26.09.13). The date must parse as
+    // a real calendar date so operators can date stale sessions by eye.
+    auto name = resolve_quick_connect_session_name("");
+    REQUIRE(name.rfind("tty-", 0) == 0);
+    auto body = name.substr(4);                    // YYYYMMDD-HHMMSS-pid-seq
+    auto dash = body.find('-');
+    REQUIRE(dash == 8);
+    auto date = body.substr(0, dash);
+    auto time = body.substr(dash + 1, 6);
+    REQUIRE(date.size() == 8);
+    REQUIRE(time.size() == 6);
+    REQUIRE(date.find_first_not_of("0123456789") == std::string::npos);
+    REQUIRE(time.find_first_not_of("0123456789") == std::string::npos);
+    int mon  = std::stoi(date.substr(4, 2));
+    int day  = std::stoi(date.substr(6, 2));
+    int hour = std::stoi(time.substr(0, 2));
+    int min  = std::stoi(time.substr(2, 2));
+    int sec  = std::stoi(time.substr(4, 2));
+    REQUIRE(mon >= 1);  REQUIRE(mon <= 12);
+    REQUIRE(day >= 1);  REQUIRE(day <= 31);
+    REQUIRE(hour <= 23); REQUIRE(min <= 59); REQUIRE(sec <= 59);
+    // format_utc_datetime_compact sanity: 15 chars, digits + the one dash.
+    auto dt = format_utc_datetime_compact();
+    REQUIRE(dt.size() == 15);
+    REQUIRE(dt[8] == '-');
+    REQUIRE(dt.find_first_not_of("0123456789-") == std::string::npos);
+}
+
+TEST_CASE("SessionRegistry::kill reports existence honestly",
+          "[shell][kill]") {
+    auto cfg = make_shell_test_config("kill-node");
+    MeshController mc(cfg);
+    // Kill on an empty registry: miss, not crash, not silent success.
+    REQUIRE_FALSE(mc.sessions().kill("tty-nope-19700101-000000-0"));
+#ifdef _WIN32
+    const std::string cmd = "cmd.exe /c ping -n 30 127.0.0.1 >nul";
+#else
+    const std::string cmd = "sleep 30";
+#endif
+    auto* s = mc.sessions().attach(
+        "tty-killtest-19700101-000000-0",
+        ResolvedSessionCommand{cmd, SessionCommandSource::ClientOverride},
+        80, 24, "xterm-256color");
+    REQUIRE(s != nullptr);
+    REQUIRE(mc.sessions().kill("tty-killtest-19700101-000000-0"));
+    REQUIRE(mc.sessions().get("tty-killtest-19700101-000000-0") == nullptr);
+    // Second kill of the same name: honest miss (already gone).
+    REQUIRE_FALSE(mc.sessions().kill("tty-killtest-19700101-000000-0"));
+}
+
 TEST_CASE("ClientOverride force-respawns live default session",
           "[shell][oneshot][attach]") {
     auto cfg = make_shell_test_config("oneshot-node");

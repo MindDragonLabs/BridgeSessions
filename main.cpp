@@ -976,10 +976,20 @@ int bridgesessions_main(int argc, char** argv) {
     std::string sessions_peer;
     bool sessions_all = false;
     bool sessions_json = false;
+    std::string sessions_kill;          // named session to kill
+    bool sessions_kill_tty = false;     // kill all tty-* sessions
+    bool sessions_kill_all = false;     // kill every live session
     auto* sessions_cmd_app = app.add_subcommand("sessions", "List sessions");
     sessions_cmd_app->add_option("peer", sessions_peer, "Peer name (omit for local)");
     sessions_cmd_app->add_flag("--all", sessions_all, "All peers");
     sessions_cmd_app->add_flag("--json", sessions_json, "Output as JSON");
+    sessions_cmd_app->add_option("--kill", sessions_kill,
+        "Kill the named session on PEER (omit the name to pick interactively)")
+        ->expected(0, 1);
+    sessions_cmd_app->add_flag("--kill-tty", sessions_kill_tty,
+        "Kill every tty-* session on PEER (the stale interactive shells)");
+    sessions_cmd_app->add_flag("--kill-all", sessions_kill_all,
+        "Kill every live session on PEER (detached shells keep running otherwise)");
 
     // Subcommand: keygen
     auto* keygen_cmd_app = app.add_subcommand("keygen", "Generate ed25519 keypair");
@@ -1356,7 +1366,15 @@ int bridgesessions_main(int argc, char** argv) {
             "Examples:\n"
             "  bs sessions                   Local sessions\n"
             "  bs sessions dev               Sessions on peer 'dev'\n"
-            "  bs sessions --json            Machine-readable output");
+            "  bs sessions --json            Machine-readable output\n"
+            "  bs sessions dev --kill        Pick a session on dev to kill\n"
+            "  bs sessions dev --kill tty-20260913-181553-0\n"
+            "  bs sessions dev --kill-tty    Reap every stale tty-* shell\n"
+            "  bs sessions dev --kill-all    Kill every live session on dev\n"
+            "  bs sessions --kill-tty        Same, on this node (needs daemon)\n"
+            "\n"
+            "Ephemeral sessions are named tty-YYYYMMDD-HHMMSS-id (UTC), so an\n"
+            "old interactive shell is instantly datable from its name.");
     }
     {
         keygen_cmd_app->description(
@@ -1863,6 +1881,125 @@ int bridgesessions_main(int argc, char** argv) {
         return cmd_connect_selector(config_path, home_dir, connect_peer, connect_harness);
     }
     if (sessions_cmd_app->parsed()) {
+        const bool any_kill = sessions_kill_tty || sessions_kill_all
+                              || sessions_cmd_app->count("--kill") > 0;
+        if (any_kill && sessions_peer.empty()) {
+            // Local node: kill via daemon IPC (KILL <name>) when a name is
+            // given; --kill-tty/--kill-all iterate the local SESSIONS list.
+            std::string ipc;
+            if (!sessions_kill.empty()) {
+                ipc = daemon_simple_ipc("KILL " + sessions_kill, 3000, home_dir);
+                if (!ipc.empty() && ipc.rfind("OK ", 0) == 0) {
+                    std::cout << ipc;
+                    return 0;
+                }
+                if (!ipc.empty() && ipc.rfind("ERROR", 0) == 0) {
+                    std::cerr << ipc;
+                    return 1;
+                }
+                // Daemon not answering — fall through to direct config load.
+            } else {
+                std::string list = daemon_simple_ipc("SESSIONS", 3000, home_dir);
+                if (!list.empty() && list.rfind("ERROR", 0) != 0) {
+                    const std::string prefix = sessions_kill_all ? "" : "tty-";
+                    int killed = 0, missed = 0;
+                    std::istringstream ls(list);
+                    std::string row;
+                    while (std::getline(ls, row)) {
+                        // Rows: "SCOPE  NAME  STATE  PID  PEER  UP  BYTES  EXIT"
+                        // (2+ space columns). Header, dashes and the trailing
+                        // count line don't match; "recent" scope is already dead.
+                        if (row.rfind("live", 0) != 0) continue;
+                        std::vector<std::string> cols;
+                        std::string col;
+                        for (char c : row) {
+                            if (c == ' ') {
+                                if (!col.empty()) { cols.push_back(col); col.clear(); }
+                            } else col += c;
+                        }
+                        if (!col.empty()) cols.push_back(col);
+                        if (cols.size() < 2) continue;
+                        const std::string& name = cols[1];
+                        if (!prefix.empty() && name.rfind(prefix, 0) != 0) continue;
+                        std::string r = daemon_simple_ipc("KILL " + name, 3000, home_dir);
+                        if (r.rfind("OK ", 0) == 0) ++killed; else ++missed;
+                    }
+                    std::cout << "killed " << killed << " session(s) locally";
+                    if (missed) std::cout << " (" << missed << " missed)";
+                    std::cout << "\n";
+                    return missed ? 1 : 0;
+                }
+            }
+            // No daemon / no answer: load config and act on this node directly.
+            bs::mesh::MeshConfig cfg = bs::mesh::load_config(config_path);
+            bs::mesh::MeshController mc(cfg, home_dir);
+            if (sessions_kill.empty() && (sessions_kill_tty || sessions_kill_all)) {
+                const std::string prefix = sessions_kill_all ? "" : "tty-";
+                int killed = 0, total = 0;
+                for (const auto& info : mc.sessions().list()) {
+                    if (!prefix.empty() && info.name.rfind(prefix, 0) != 0) continue;
+                    ++total;
+                    if (mc.sessions().kill(info.name)) ++killed;
+                }
+                std::cout << "killed " << killed << "/" << total << " session(s) locally\n";
+                return killed == total ? 0 : 1;
+            }
+            std::cerr << "--kill needs a peer or a running daemon: "
+                         "bs sessions <peer> --kill [name] | bs sessions --kill <name>\n";
+            return 2;
+        }
+        if (any_kill) {
+            bs::mesh::MeshConfig cfg = bs::mesh::load_config(config_path);
+            bs::mesh::bootstrap_identity(home_dir);
+            bs::mesh::MeshController mc(cfg, home_dir);
+            if (sessions_kill_all) {
+                auto [killed, missed] = mc.kill_peer_sessions(sessions_peer);
+                std::cout << "killed " << killed << " session(s) on " << sessions_peer;
+                if (missed) std::cout << " (" << missed << " missed)";
+                std::cout << "\n";
+                return missed ? 1 : 0;
+            }
+            if (sessions_kill_tty) {
+                auto [killed, missed] = mc.kill_peer_sessions(sessions_peer, "tty-");
+                std::cout << "killed " << killed << " tty session(s) on " << sessions_peer;
+                if (missed) std::cout << " (" << missed << " missed)";
+                std::cout << "\n";
+                return missed ? 1 : 0;
+            }
+            // --kill [name]: pick interactively when no name given.
+            std::string target = sessions_kill;
+            if (target.empty()) {
+                auto listed = mc.fetch_peer_sessions(sessions_peer);
+                if (!listed || listed->sessions.empty()) {
+                    std::cerr << "No live sessions on " << sessions_peer << "\n";
+                    return 1;
+                }
+                std::vector<std::string> rows;
+                for (auto& si : listed->sessions) {
+                    if (si.state == "died") continue;
+                    rows.push_back(si.name + "  [" + si.state + " · up "
+                                   + std::to_string(si.uptime_seconds) + "s]");
+                }
+                if (rows.empty()) { std::cerr << "No live sessions\n"; return 0; }
+                int choice = connect_menu_pick(
+                    sessions_peer + " — kill which session? (q cancels)", rows);
+                if (choice <= 0) { std::cerr << "Cancelled\n"; return 0; }
+                size_t idx = static_cast<size_t>(choice - 1);
+                if (idx >= rows.size()) { std::cerr << "Cancelled\n"; return 0; }
+                // Row format: "<name>  [state · up Ns]" — name is everything
+                // before the two-space separator we appended above.
+                const auto& row = rows[idx];
+                auto sep = row.find("  [");
+                target = (sep == std::string::npos) ? row : row.substr(0, sep);
+            }
+            if (mc.kill_peer_session(sessions_peer, target)) {
+                std::cout << "killed " << target << " on " << sessions_peer << "\n";
+                return 0;
+            }
+            std::cerr << "no session '" << target << "' on " << sessions_peer
+                      << " (or peer is older than 26.09.13)\n";
+            return 1;
+        }
         if (sessions_peer.empty()) {
             std::string ipc = daemon_simple_ipc("SESSIONS", 3000, home_dir);
             if (!ipc.empty() && ipc.rfind("ERROR", 0) != 0) {

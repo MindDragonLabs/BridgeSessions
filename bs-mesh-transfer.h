@@ -2526,6 +2526,21 @@ public:
         // SignalMsg — send signal to child process
         if (std::holds_alternative<SignalMsg>(msg)) {
             auto& sig = std::get<SignalMsg>(msg);
+            // 26.09.13: named kill — "kill the session called X" without being
+            // attached to it. `process` doubles as the session name for Kill
+            // (no wire-format change; empty keeps the legacy attached-path
+            // semantics). Use case: `bs sessions <peer> --kill <name>` and the
+            // sessions-manager picker reaping old tty-* shells.
+            if (sig.signal == SignalMsg::SignalType::Kill && !sig.process.empty()
+                && !conn.attached_session) {
+                const bool existed = sessions_.kill(sig.process);
+                log_event(existed ? "session_kill_by_name" : "session_kill_miss",
+                          sig.process + " from " + conn.peer_name);
+                std::string ack = existed ? "OK killed " : "ERROR no session ";
+                ack += sig.process; ack += "\n";
+                (void)enqueue_frame(conn, ExitCodeMsg{existed ? 0 : 1}, CONTROL_STREAM_ID);
+                return;
+            }
             // 2.0.8: spectators are read-only — process control (SIGINT/kill/
             // Restart with client-supplied command) is a write capability.
             if (conn.spectator) {
