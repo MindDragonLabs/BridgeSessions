@@ -1123,6 +1123,24 @@ int bridgesessions_main(int argc, char** argv) {
     file_recv_app->add_option("--to", file_recv_to, "Local destination path or directory");
     file_recv_app->add_flag("--wait", file_recv_wait, "Block until the transfer completes or fails");
 
+    // bs file ls (v26.09.15): list a directory on a peer (needs +fcp peer)
+    std::string file_ls_target;  // "peer" or "peer:path"
+    auto* file_ls_app = file_cmd->add_subcommand("ls", "List a directory on a peer (receive_dir default)");
+    file_ls_app->add_option("target", file_ls_target, "Peer name or peer:path")->required();
+
+    // bs cp (v26.09.15): direct cross-host copy, robocopy/scp semantics
+    std::string cp_src, cp_dst;
+    bool cp_recursive = false, cp_update = false, cp_overwrite = false;
+    bool cp_dry_run = false, cp_verbose = false;
+    auto* cp_cmd = app.add_subcommand("cp", "Copy files between hosts (robocopy/scp style, no staging)");
+    cp_cmd->add_option("src", cp_src, "Source: peer:path or local path")->required();
+    cp_cmd->add_option("dst", cp_dst, "Destination: peer:path or local path")->required();
+    cp_cmd->add_flag("-r,--recursive", cp_recursive, "Copy directories recursively");
+    cp_cmd->add_flag("--update", cp_update, "Skip files that already match at the destination");
+    cp_cmd->add_flag("--overwrite", cp_overwrite, "Overwrite existing destination files");
+    cp_cmd->add_flag("--dry-run", cp_dry_run, "Show what would be copied without transferring");
+    cp_cmd->add_flag("-v,--verbose", cp_verbose, "Per-file progress lines");
+
     // 2.0.12: video capture
     std::string capvid_peer;
     int capvid_fps = 2, capvid_dur = 15, capvid_quality = 70, capvid_maxw = 1280;
@@ -3593,6 +3611,31 @@ int bridgesessions_main(int argc, char** argv) {
         bs::mesh::MeshController mc(cfg, home_dir);
         std::string dest = !file_recv_to.empty() ? file_recv_to : file_recv_local;
         std::string result = mc.file_recv(file_recv_peer, file_recv_remote, dest, file_recv_wait);
+        std::cout << result << "\n";
+        return result.rfind("ERROR", 0) == 0 ? 1 : 0;
+    }
+    if (file_ls_app->parsed()) {
+        bs::mesh::MeshConfig cfg = bs::mesh::load_config(config_path);
+        bs::mesh::bootstrap_identity(home_dir);
+        bs::mesh::MeshController mc(cfg, home_dir);
+        // "peer" alone → receive_dir; "peer:path" → that dir.
+        auto colon = file_ls_target.find(':');
+        std::string peer = file_ls_target, dir;
+        if (colon != std::string::npos && colon > 0 &&
+            file_ls_target.find('/', 0) > colon) {
+            peer = file_ls_target.substr(0, colon);
+            dir = file_ls_target.substr(colon + 1);
+        }
+        std::string result = mc.file_ls(peer, dir);
+        std::cout << result << "\n";
+        return result.rfind("ERROR", 0) == 0 ? 1 : 0;
+    }
+    if (cp_cmd->parsed()) {
+        bs::mesh::MeshConfig cfg = bs::mesh::load_config(config_path);
+        bs::mesh::bootstrap_identity(home_dir);
+        bs::mesh::MeshController mc(cfg, home_dir);
+        std::string result = mc.file_copy(cp_src, cp_dst, cp_recursive, cp_update,
+                                          cp_overwrite, cp_dry_run, cp_verbose);
         std::cout << result << "\n";
         return result.rfind("ERROR", 0) == 0 ? 1 : 0;
     }

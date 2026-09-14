@@ -970,6 +970,8 @@ struct LongOperationTask {
     std::string peer_name;
     std::string path1;  // local path / remote path / vfolder name
     std::string path2;  // local dest / local path
+    // v26.09.15 RemoteFileRequest mode: 0=classic 1=direct get 2=direct list.
+    uint8_t mode8 = 0;
     SSL* ssl = nullptr;
     SOCKET sock_fd = INVALID_SOCKET;
     std::shared_ptr<std::atomic<bool>> exec_busy;

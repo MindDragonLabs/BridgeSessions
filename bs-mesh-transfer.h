@@ -75,7 +75,52 @@
         // scp-style dest: optional absolute/relative path from FileMeta.dest_path.
         // Empty → classic receive_dir/basename behavior.
         std::string out_path;
-        if (!m.dest_path.empty()) {
+        if (m.direct != 0) {
+            // ── bs cp direct write (v26.09.15, +fcp) ──────────────────
+            // dest_path is the exact final file path resolved by the sending
+            // CLI. Skip all legacy confinement; enforce copy_scope instead.
+            if (config_.copy_scope == "receive_dir") {
+                std::string rp = expand_home(m.dest_path);
+                if (!path_is_inside_directory(rp, recv_dir)) {
+                    log_event("file_recv_rejected",
+                              m.dest_path + " reason=copy_scope_receive_dir");
+                    (void)enqueue_file_ack(c, FileAckMsg{0, 0, true,
+                        "refused dest outside receive_dir (file.copy_scope)"});
+                    return;
+                }
+                out_path = rp;
+            } else {
+                out_path = expand_home(m.dest_path);
+            }
+            if (is_sensitive_mesh_path(out_path) && !config_.allow_sensitive_paths) {
+                std::string err = "refused sensitive dest path";
+                log_event("file_recv_rejected", "reason=sensitive_dest");
+                (void)enqueue_file_ack(c, FileAckMsg{0, 0, true, err});
+                return;
+            }
+            std::error_code pec;
+            auto parent = fs::path(out_path).parent_path();
+            if (!parent.empty()) fs::create_directories(parent, pec);
+            if (pec) {
+                std::string err = "cannot create dest parent directory";
+                log_event("file_recv_failed", out_path + " reason=" + pec.message());
+                (void)enqueue_file_ack(c, FileAckMsg{0, 0, true, err});
+                return;
+            }
+            // Fail-loud collision policy (never silent .1/.2 suffixing).
+            // direct=2 (--overwrite) is the only overwrite path.
+            if (m.direct == 1) {
+                std::error_code xec;
+                if (fs::exists(out_path, xec) && !xec) {
+                    log_event("file_recv_rejected",
+                              out_path + " reason=dest_exists");
+                    (void)enqueue_file_ack(c, FileAckMsg{0, 0, true,
+                        "dest exists (use --overwrite)"});
+                    return;
+                }
+            }
+            log_event("file_recv_direct", m.filename + " -> " + out_path);
+        } else if (!m.dest_path.empty()) {
             auto resolved = resolve_file_send_dest(
                 m.dest_path, recv_dir, config_.dest_allow_home);
             if (!resolved) {
@@ -86,7 +131,9 @@
             }
             out_path = *resolved;
             // If dest is a directory (or ends with separator), append basename.
-            if (!out_path.empty() &&
+            // (Legacy scp-style behavior; bs cp direct mode passes an exact
+            // final file path from the CLI, so skip the append there.)
+            if (m.direct == 0 && !out_path.empty() &&
                 (out_path.back() == '/' || out_path.back() == '\\' ||
                  (fs::exists(out_path) && fs::is_directory(out_path)))) {
                 out_path = (fs::path(out_path) / *safe_name).string();
@@ -176,6 +223,8 @@
         state.expected_size = m.filesize;
         state.total_chunks = m.total_chunks;
         state.chunk_raw_size = chunk_raw;
+        state.src_mtime_unix = m.src_mtime_unix;
+        state.direct = (m.direct != 0);
         if (resume) {
             state.received_bytes = resume_bytes;
             state.received_chunks = resume_chunks;
@@ -298,6 +347,18 @@
                     log_event("file_recv_rename_failed",
                               fs::path(part_path).filename().string() + " reason=" + ec.message());
                     fs::remove(part_path, ec);
+                } else if (state.src_mtime_unix != 0) {
+                    // bs cp: restore source mtime on the destination so
+                    // statement/audit document timestamps survive the hop.
+                    std::error_code tec;
+                    auto tt = std::chrono::system_clock::from_time_t(
+                        static_cast<time_t>(state.src_mtime_unix));
+                    auto ft = std::chrono::time_point_cast<fs::file_time_type::duration>(
+                        tt - std::chrono::system_clock::now() + fs::file_time_type::clock::now());
+                    fs::last_write_time(final_path, ft, tec);
+                    if (tec) log_event("file_recv_mtime_restore_failed",
+                                       fs::path(final_path).filename().string() +
+                                       " reason=" + tec.message());
                 }
             }
             const bool complete_ok = final_error.empty();
@@ -312,7 +373,9 @@
             state.active = false;
             state.hasher.reset();
             const std::string final_msg = complete_ok
-                ? ("path=" + relative_receive_path(final_path, state.recv_dir))
+                ? (state.direct
+                       ? std::string("dest_abs=") + final_path
+                       : "path=" + relative_receive_path(final_path, state.recv_dir))
                 : final_error;
             (void)enqueue_file_ack(
                 c, FileAckMsg{m.chunk_index, m.total_chunks, !complete_ok, final_msg});
@@ -329,7 +392,8 @@
     std::string direct_connect_file_send(const std::string& peer_name,
                                          const std::string& local_path,
                                          bool wait_for_completion = true,
-                                         const std::string& dest_path = {}) {
+                                         const std::string& dest_path = {},
+                                         uint8_t direct = 0) {
         std::string addr = find_peer_addr(peer_name);
         if (addr.empty()) return "ERROR peer not found: " + peer_name;
         std::string expected_pubkey = trusted_peer_pubkey(config_, peer_name);
@@ -373,7 +437,7 @@
             uint32_t resume_hint = start_chunk;
             std::string result = file_send_wait_on_transport(
                 sc.ssl.get(), sc.sfd, local_path, {}, {}, nullptr, peer_name,
-                sc.hello.version, start_chunk, &resume_hint, dest_path);
+                sc.hello.version, start_chunk, &resume_hint, dest_path, direct);
             if (result.rfind("ERROR", 0) != 0) return result;  // success
 
             last_err = result;
@@ -394,7 +458,8 @@
     // Direct TLS file recv (no daemon required) — sends FileRequestMsg, receives file
     std::string direct_connect_file_recv(const std::string& peer_name,
                                          const std::string& remote_path,
-                                         const std::string& local_dest) {
+                                         const std::string& local_dest,
+                                         uint8_t request_mode = 0) {
         std::string addr = find_peer_addr(peer_name);
         if (addr.empty()) return "ERROR peer not found: " + peer_name;
         std::string expected_pubkey = trusted_peer_pubkey(config_, peer_name);
@@ -411,7 +476,8 @@
         } guard{&sc.ssl, &sc.sfd};
         // Use file_recv_wait_on_transport: sends request, receives meta + chunks, writes file
         return file_recv_wait_on_transport(
-            sc.ssl.get(), sc.sfd, remote_path, local_dest, receive_dir_, {}, {});
+            sc.ssl.get(), sc.sfd, remote_path, local_dest, receive_dir_, {}, {},
+            request_mode);
     }
 
     // v2.0.6: transport-agnostic file send-wait. Runs on the event loop or a
@@ -428,7 +494,8 @@
             std::string_view peer_version = {},
             uint32_t start_chunk = 0,
             uint32_t* resume_out = nullptr,
-            const std::string& dest_path = {}) {
+            const std::string& dest_path = {},
+            uint8_t direct = 0) {
         if (!socket_selectable(sock_fd)) return "ERROR socket exceeds select limit";
         // v2.0.12c: temporarily set blocking mode for the duration of the transfer.
         // Mesh sockets are non-blocking; SSL_write_ex on non-blocking sockets
@@ -510,6 +577,18 @@
             meta.checksum = checksum; meta.total_chunks = total_chunks;
             meta.chunk_size = static_cast<uint32_t>(chunk_raw);
             meta.dest_path = dest_path;
+            meta.direct = direct;
+            if (direct != 0) {
+                std::error_code mec;
+                auto tt = fs::last_write_time(local_path, mec);
+                if (!mec) {
+                    auto sys = std::chrono::time_point_cast<std::chrono::seconds>(
+                        tt - fs::file_time_type::clock::now() + std::chrono::system_clock::now());
+                    meta.src_mtime_unix = static_cast<uint64_t>(
+                        std::chrono::duration_cast<std::chrono::seconds>(
+                            sys.time_since_epoch()).count());
+                }
+            }
             write_frame(ssl, meta, CONTROL_STREAM_ID, allow_large);
         } catch (const std::exception& e) {
             return "ERROR send meta: " + std::string(e.what());
@@ -532,6 +611,11 @@
             if (ack.error) return;
             if (ack.error_msg.rfind("path=", 0) == 0 && ack.error_msg.size() > 5)
                 remote_path_confirmed = ack.error_msg.substr(5);
+            // v26.09.15: direct-mode acks carry the absolute destination
+            // (dest_abs=…) so the CLI can report exactly where the file
+            // landed without a second round trip.
+            if (ack.error_msg.rfind("dest_abs=", 0) == 0 && ack.error_msg.size() > 9)
+                remote_path_confirmed = ack.error_msg.substr(9);
         };
 
         auto wait_ack = [&](uint32_t expected_next) -> std::string {
@@ -677,6 +761,15 @@
         log_event("file_send_wait_complete", filename + " " + std::to_string(filesize) + " bytes");
         std::string ok = "OK sent " + filename + " " + std::to_string(filesize)
                        + " bytes sha256:" + checksum;
+        if (direct != 0) {
+            // bs cp: peer confirmed the absolute final path (dest_abs=…), or
+            // it is a legacy peer that silently staged the file — call that
+            // out loudly instead of guessing.
+            ok += remote_path_confirmed.empty()
+                ? " WARNING dest not confirmed by peer (peer lacks +fcp; upgrade to 26.09.15)"
+                : " dest_abs=" + remote_path_confirmed;
+            return ok;
+        }
         if (!dest_path.empty()) {
             if (remote_path_confirmed.empty()) {
                 // Peer never echoed path= — almost always an older build that
@@ -696,12 +789,17 @@
 
     // v2.0.6: transport-agnostic remote file request fulfillment. Peer asked us
     // to send <path>; this runs on a worker thread with exclusive SSL access.
+    // mode (v26.09.15, +fcp): 0 = classic receive_dir-confined get,
+    // 1 = direct get (any path; `~`/absolute honored; still subject to
+    // sensitive-path refusal + file.copy_scope), 2 = direct directory list
+    // (FileAck carries a JSON array; no chunks follow).
     std::string file_request_on_transport(
             SSL* ssl, SOCKET sock_fd, const std::string& path,
             const std::function<bool()>& is_cancelled = {},
             const std::function<void(const std::string&)>& on_progress = {},
             TransferTelemetryRing* telemetry_ring = nullptr,
-            const std::string& peer_name = {}) {
+            const std::string& peer_name = {},
+            uint8_t mode = 0) {
         if (!socket_selectable(sock_fd)) return "ERROR socket exceeds select limit";
         // v2.0.12c: temporarily set blocking mode for the duration of the transfer.
         // Mesh sockets are non-blocking; SSL_write_ex on non-blocking sockets
@@ -733,9 +831,125 @@
             else std::cerr << line << "\n";
         };
 
-        // Resolve relative paths against receive_dir_ without double-nesting
+        // Resolve relative paths against receive_dir without double-nesting
         // client-supplied `.bridgesessions/received/` / `received/` prefixes.
         std::string resolved_path = resolve_file_request_path(path, receive_dir_);
+        namespace fs = std::filesystem;
+
+        // ── mode 2: direct directory listing (bs file ls / glob expansion) ──
+        if (mode == 2) {
+            const bool scoped = (config_.copy_scope == "receive_dir");
+            std::string list_dir = expand_home(path);
+            if (list_dir.empty()) list_dir = ".";
+            if (!fs::path(list_dir).is_absolute()) {
+                // Relative listing resolves under receive_dir (classic) or CWD
+                // semantics make no sense for a daemon — anchor at home.
+                list_dir = scoped ? fs::path(receive_dir_).string()
+                                  : expand_home("~");
+            }
+            std::error_code lec;
+            if (!fs::exists(list_dir, lec) || !fs::is_directory(list_dir, lec)) {
+                try {
+                    write_frame(ssl, FileAckMsg{0, 0, true, "not a directory"}, CONTROL_STREAM_ID);
+                } catch (...) {}
+                return "ERROR not a directory";
+            }
+            if (scoped && !path_is_inside_directory(list_dir, receive_dir_)) {
+                try {
+                    write_frame(ssl, FileAckMsg{0, 0, true,
+                        "refused path outside receive_dir (file.copy_scope)"}, CONTROL_STREAM_ID);
+                } catch (...) {}
+                return "ERROR refused path outside receive_dir (file.copy_scope)";
+            }
+            if (is_sensitive_mesh_path(list_dir) && !config_.allow_sensitive_paths) {
+                try {
+                    write_frame(ssl, FileAckMsg{0, 0, true, "refused sensitive path"}, CONTROL_STREAM_ID);
+                } catch (...) {}
+                return "ERROR refused sensitive path";
+            }
+            std::string json = "[";
+            bool first = true;
+            std::error_code it_ec;
+            for (fs::directory_iterator it(list_dir, it_ec), end; it != end && !it_ec; it.increment(it_ec)) {
+                std::error_code sec;
+                const auto name = it->path().filename().string();
+                if (name.empty() || name == "." || name == "..") continue;
+                std::string type = it->is_directory(sec) ? "dir" : "file";
+                uint64_t size = 0;
+                if (type == "file") size = static_cast<uint64_t>(it->file_size(sec));
+                int64_t mtime = 0;
+                {
+                    auto tt = it->last_write_time(sec);
+                    if (!sec) {
+                        auto sys = std::chrono::time_point_cast<std::chrono::seconds>(
+                            tt - fs::file_time_type::clock::now() + std::chrono::system_clock::now());
+                        mtime = std::chrono::duration_cast<std::chrono::seconds>(
+                            sys.time_since_epoch()).count();
+                    }
+                }
+                // Minimal JSON string escaping.
+                std::string esc;
+                esc.reserve(name.size() + 8);
+                for (char ch : name) {
+                    if (ch == '"' || ch == '\\') { esc += '\\'; esc += ch; }
+                    else if (static_cast<unsigned char>(ch) < 0x20) {
+                        char buf[8];
+                        std::snprintf(buf, sizeof(buf), "\\u%04x", ch);
+                        esc += buf;
+                    } else esc += ch;
+                }
+                json += first ? "" : ",";
+                first = false;
+                json += "{\"name\":\"" + esc + "\",\"size\":" + std::to_string(size) +
+                        ",\"mtime\":" + std::to_string(mtime) + ",\"type\":\"" + type + "\"}";
+            }
+            json += "]";
+            // error=false carries the listing in error_msg (JSON array).
+            try {
+                write_frame(ssl, FileAckMsg{0, 0, false, json}, CONTROL_STREAM_ID, json.size() > 65535);
+            } catch (const std::exception& e) {
+                return "ERROR send listing: " + std::string(e.what());
+            }
+            log_event("file_list_sent", list_dir + " entries for " + peer_name);
+            return "OK listed " + list_dir;
+        }
+
+        // ── mode 1: direct get — any path, no receive_dir confinement ──
+        if (mode == 1) {
+            if (config_.copy_scope == "receive_dir") {
+                std::string rp = expand_home(path);
+                if (!path_is_inside_directory(rp, receive_dir_)) {
+                    log_event("file_request_error", "refused path outside receive_dir (file.copy_scope)");
+                    try {
+                        write_frame(ssl, FileAckMsg{0, 0, true,
+                            "refused path outside receive_dir (file.copy_scope)"}, CONTROL_STREAM_ID);
+                    } catch (...) {}
+                    return "ERROR refused path outside receive_dir (file.copy_scope)";
+                }
+                resolved_path = rp;
+            } else {
+                resolved_path = expand_home(path);
+            }
+            // Sensitive-mesh secrets stay off-limits in every mode.
+            if (!resolved_path.empty() && is_sensitive_mesh_path(resolved_path) &&
+                !config_.allow_sensitive_paths) {
+                log_event("file_request_error", "refused sensitive path");
+                try {
+                    write_frame(ssl, FileAckMsg{0, 0, true, "refused sensitive path"}, CONTROL_STREAM_ID);
+                } catch (...) {}
+                return "ERROR refused sensitive path";
+            }
+            // Relative paths in direct mode are an error — bs cp always sends
+            // absolute or ~-rooted paths; anything else is a caller bug.
+            if (!fs::path(resolved_path).is_absolute()) {
+                try {
+                    write_frame(ssl, FileAckMsg{0, 0, true,
+                        "direct get requires an absolute path"}, CONTROL_STREAM_ID);
+                } catch (...) {}
+                return "ERROR direct get requires an absolute path";
+            }
+            log_event("file_direct_request", resolved_path + " from " + peer_name);
+        } else {
         // A remote peer may serve only files contained by receive_dir_. The
         // canonical component-wise helper handles prefix collisions
         // (`received-evil`) and symlinks that point outside the directory.
@@ -757,6 +971,7 @@
             } catch (...) {}
             return "ERROR refused sensitive path";
         }
+        } // end classic-mode (mode 0) confinement checks
         if (resolved_path.empty() || !fs::exists(resolved_path) || fs::is_directory(resolved_path)) {
             // Do not return local absolute paths or receive_dir_ to the remote.
             log_event("file_request_error", "not found: " + fs::path(path).filename().string());
@@ -797,6 +1012,19 @@
             meta.filename = filename; meta.filesize = filesize;
             meta.checksum = checksum; meta.total_chunks = total_chunks;
             meta.chunk_size = static_cast<uint32_t>(chunk_raw);
+            // v26.09.15: propagate source mtime so the receiving side can
+            // restore it on the destination (bs cp preserves timestamps).
+            {
+                std::error_code mec;
+                auto tt = fs::last_write_time(resolved_path, mec);
+                if (!mec) {
+                    auto sys = std::chrono::time_point_cast<std::chrono::seconds>(
+                        tt - fs::file_time_type::clock::now() + std::chrono::system_clock::now());
+                    meta.src_mtime_unix = static_cast<uint64_t>(
+                        std::chrono::duration_cast<std::chrono::seconds>(
+                            sys.time_since_epoch()).count());
+                }
+            }
             write_frame(ssl, meta, CONTROL_STREAM_ID, allow_large);
         } catch (const std::exception& e) {
             return "ERROR send meta: " + std::string(e.what());
@@ -999,7 +1227,7 @@
             auto is_cancelled = [&]() { return task.cancelled && task.cancelled->load(); };
             std::string result = file_request_on_transport(
                 task.ssl, task.sock_fd, task.path1, is_cancelled, progress_to_ipc,
-                &transfer_telemetry_, task.peer_name);
+                &transfer_telemetry_, task.peer_name, task.mode8);
             if (task.ipc_fd != INVALID_SOCKET) {
                 result += "\n";
                 // Token-authenticated 127.0.0.1 IPC. receive_dir/HOME in the
@@ -1081,6 +1309,7 @@
         task.type = LongOperationTask::Type::RemoteFileRequest;
         task.peer_name = c.peer_name;
         task.path1 = m.path;
+        task.mode8 = m.mode;  // v26.09.15: 0=classic 1=direct get 2=direct list
         task.ssl = c.ssl.get();
         task.sock_fd = c.sock_fd;
         task.exec_busy = c.exec_busy;
@@ -1136,7 +1365,8 @@
             SSL* ssl, SOCKET sock_fd, const std::string& remote_path,
             const std::string& local_dest, const std::string& receive_dir,
             const std::function<bool()>& is_cancelled = {},
-            const std::function<void(const std::string&)>& on_progress = {}) {
+            const std::function<void(const std::string&)>& on_progress = {},
+            uint8_t request_mode = 0) {
         if (!socket_selectable(sock_fd)) return "ERROR socket exceeds select limit";
         namespace fs = std::filesystem;
         auto emit = [&](const std::string& line) {
@@ -1147,6 +1377,7 @@
         try {
             FileRequestMsg req;
             req.path = remote_path;
+            req.mode = request_mode;
             write_frame(ssl, req, CONTROL_STREAM_ID);
         } catch (const std::exception& e) {
             return "ERROR send request: " + std::string(e.what());
@@ -1300,8 +1531,23 @@
         fs::rename(part_path, dest, ec);
         if (ec) return "ERROR rename failed: " + ec.message();
         partial_guard.committed = true;
+        // bs cp pull: restore source mtime on the local destination.
+        if (request_mode != 0 && meta->src_mtime_unix != 0) {
+            std::error_code tec;
+            auto tt = std::chrono::system_clock::from_time_t(
+                static_cast<time_t>(meta->src_mtime_unix));
+            auto ft = std::chrono::time_point_cast<fs::file_time_type::duration>(
+                tt - std::chrono::system_clock::now() + fs::file_time_type::clock::now());
+            fs::last_write_time(dest, ft, tec);  // best-effort; errors ignored
+        }
 
         log_event("file_recv_wait_complete", meta->filename + " -> " + dest.string());
+        if (request_mode != 0) {
+            // Machine-parsable for agents: DONE <bytes> <sha256> <final-abs-path>.
+            std::error_code aec;
+            auto abs = fs::absolute(dest, aec);
+            return "DONE " + std::to_string(bytes_recv) + " " + actual + " " + abs.string();
+        }
         return "OK received " + dest.string() + " " + std::to_string(bytes_recv) + " bytes sha256:" + actual;
     }
 

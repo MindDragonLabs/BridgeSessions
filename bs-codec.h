@@ -499,10 +499,22 @@ struct FileMetaMsg {
     // 0 = peer omitted field → use kTransferChunkRawSizeDefault.
     // Enables mixed-fleet negotiation without compile-time lockstep.
     uint32_t chunk_size = 0;
-    // Optional trailing field (v26.08.12+): remote destination path for
+    // Optional scp-style dest_path (v26.08.12+): remote destination path for
     // scp-style file send. Empty = default receive_dir/basename behavior.
     // Relative paths are under receive_dir; absolute/~ are constrained.
     std::string dest_path;
+    // Optional trailing (v26.09.15+, +fcp peers). Chained after dest_path —
+    // each field is present only when everything before it was serialized:
+    //   src_mtime_unix: source file mtime (Unix seconds, UTC); the receiver
+    //     restores it on the destination after the atomic rename (bs cp
+    //     preserves timestamps for audit/statement document trails).
+    //   direct: 0 = legacy staged receive (receive_dir semantics), 1 = bs cp
+    //     direct write at the literal dest path (fail-loud collisions, no
+    //     suffixing), 2 = direct + overwrite existing dest.
+    // When mtime or direct is set, dest_path is ALWAYS serialized (possibly
+    // as an empty string) so decode offsets stay unambiguous.
+    uint64_t src_mtime_unix = 0;
+    uint8_t direct = 0;
     bool operator==(const FileMetaMsg&) const = default;
 };
 
@@ -523,6 +535,13 @@ struct FileAckMsg {
 
 struct FileRequestMsg {
     std::string path;            // file path on the remote peer
+    // Optional trailing byte (v26.09.15+, peers with +fcp only):
+    //   0 = classic receive_dir-confined get (default, legacy wire compat)
+    //   1 = direct get — serve the absolute/~-expanded path as-is (bs cp)
+    //   2 = direct list — path is a directory; reply FileAck.msg carries a
+    //       JSON array of {name,size,mtime,type} entries (bs file ls / globs)
+    // Legacy peers stop reading after `path` and ignore the trailing byte.
+    uint8_t mode = 0;
     bool operator==(const FileRequestMsg&) const = default;
 };
 
@@ -630,6 +649,10 @@ inline constexpr std::string_view kCapFrm2 = "frm2"; // u32 frame length support
 // receive the frame, and enrollments from peers not advertising it are
 // rejected at the trust boundary (26.09.09).
 inline constexpr std::string_view kCapEnroll = "enroll";
+// +fcp: peer understands the bs cp file-copy extensions — FileRequest.mode
+// (direct get / direct list) and FileMeta trailing src_mtime_unix/direct
+// fields (v26.09.15). Peers without +fcp only ever see legacy frames.
+inline constexpr std::string_view kCapFcp = "fcp";
 
 enum FrameFlags : uint8_t {
     FLAG_COMPRESSED      = 0x01,
@@ -657,7 +680,7 @@ enum FrameFlags : uint8_t {
 
 [[nodiscard]] inline std::string version_string_with_local_caps() {
     return std::string(kBridgeSessionsVersion) + "+" + std::string(kCapFrm2) +
-           "+" + std::string(kCapEnroll);
+           "+" + std::string(kCapEnroll) + "+" + std::string(kCapFcp);
 }
 
 // Strip capability tags: "26.08.12-beta3+frm2" → "26.08.12-beta3"
@@ -944,6 +967,15 @@ void serialize_msg(Serializer& s, const FileMetaMsg& m) {
     s.u32be(m.chunk_size);
     // Optional scp-style dest (new peers only; old peers ignore trailing).
     if (!m.dest_path.empty()) s.str_prefixed_u16(m.dest_path);
+    // bs cp extensions (v26.09.15+, +fcp peers). When either is set we always
+    // emit dest_path (possibly empty) so the decoder's field offsets are
+    // unambiguous — a +fcp sender never sends mtime/direct without dest_path.
+    if (m.src_mtime_unix != 0 || m.direct != 0) {
+        if (m.dest_path.empty()) s.str_prefixed_u16(std::string{});
+        s.u32be(static_cast<uint32_t>(m.src_mtime_unix >> 32));
+        s.u32be(static_cast<uint32_t>(m.src_mtime_unix & 0xFFFFFFFF));
+        s.u8(m.direct);
+    }
 }
 void serialize_msg(Serializer& s, const FileChunkMsg& m) {
     s.u32be(m.chunk_index);
@@ -955,6 +987,9 @@ void serialize_msg(Serializer& s, const FileChunkMsg& m) {
 }
 void serialize_msg(Serializer& s, const FileRequestMsg& m) {
     s.str_prefixed_u16(m.path);
+    // Optional direct/list mode (v26.09.15+). Only serialized when set so
+    // legacy peers see the exact legacy byte stream.
+    if (m.mode != 0) s.u8(m.mode);
 }
 void serialize_msg(Serializer& s, const FileAckMsg& m) {
     s.u32be(m.chunk_index);
@@ -1802,6 +1837,16 @@ Message decode(std::span<const uint8_t> raw) {
         m.chunk_size = d.ok(4) ? d.u32be() : 0u;
         // Optional scp-style dest_path (v26.08.12+). Absent → empty.
         m.dest_path = d.ok(2) ? d.str_prefixed_u16() : std::string{};
+        // bs cp extensions (v26.09.15+): src_mtime_unix (u64be) + direct (u8).
+        // Present only when both prior trailing fields were serialized; the
+        // sender guarantees dest_path is emitted (possibly empty) whenever
+        // mtime/direct are set, so offsets here are unambiguous.
+        if (d.ok(9)) {
+            uint64_t mhi = d.u32be();
+            uint64_t mlo = d.u32be();
+            m.src_mtime_unix = (mhi << 32) | mlo;
+            m.direct = d.u8();
+        }
         return m;
     }
     case 0x1D: {
@@ -1825,6 +1870,8 @@ Message decode(std::span<const uint8_t> raw) {
     case 0x1F: {
         FileRequestMsg m;
         m.path = d.str_prefixed_u16();
+        // Optional direct/list mode byte (v26.09.15+). Absent → 0 (classic).
+        m.mode = d.ok(1) ? d.u8() : 0u;
         return m;
     }
     // ── 2.0.8-alpha3 decode cases ──
