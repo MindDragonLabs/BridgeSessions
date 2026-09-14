@@ -605,6 +605,28 @@ inline bool stdin_is_terminal() {
 // One-shot --cmd shells must not collide on the shared "default" session name.
 // Hermes/agents always use -n default (CLI default); unique names isolate each
 // invocation even before server-side force-respawn.
+//
+// Name format (26.09.13): <prefix><YYYYMMDD-HHMMSS>-<id> where id is a short
+// per-process monotonic counter — e.g. tty-20260913-181553-0. The datetime
+// prefix makes stale sessions instantly datable from `bs sessions` output and
+// the sessions-manager picker, so operators can see which ttys are old enough
+// to reap. Uniqueness is pid + steady-clock + counter (same as before); the
+// wall clock is presentation only and never has to be unique.
+[[nodiscard]] inline std::string format_utc_datetime_compact() {
+    std::time_t now = std::time(nullptr);
+    std::tm tm{};
+#ifdef _WIN32
+    gmtime_s(&tm, &now);
+#else
+    gmtime_r(&now, &tm);
+#endif
+    char buf[32];
+    std::snprintf(buf, sizeof(buf), "%04d%02d%02d-%02d%02d%02d",
+                  tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
+                  tm.tm_hour, tm.tm_min, tm.tm_sec);
+    return buf;
+}
+
 [[nodiscard]] inline std::string make_ephemeral_session_name(std::string_view prefix) {
     static std::atomic<uint32_t> seq{0};
     const auto now = std::chrono::steady_clock::now().time_since_epoch().count();
@@ -613,8 +635,8 @@ inline bool stdin_is_terminal() {
 #else
     const unsigned pid = static_cast<unsigned>(::getpid());
 #endif
-    return std::string(prefix) + std::to_string(pid) + "-"
-        + std::to_string(now & 0xffffff) + "-"
+    return std::string(prefix) + format_utc_datetime_compact() + "-"
+        + std::to_string(pid & 0xffff) + "-"
         + std::to_string(seq.fetch_add(1, std::memory_order_relaxed));
 }
 

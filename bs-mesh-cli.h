@@ -528,6 +528,21 @@ public:
             else if (line == "SESSIONS") {
                 response = sessions_.summary() + "\n";
             }
+            // KILL <name> — kill a session on THIS node by name (26.09.13).
+            // Local twin of the remote SignalMsg named-kill; lets
+            // `bs sessions --kill <name>` work without naming a peer.
+            else if (line.rfind("KILL ", 0) == 0) {
+                std::string target = line.substr(5);
+                while (!target.empty() && (target.back() == '\n' || target.back() == '\r'))
+                    target.pop_back();
+                if (target.empty()) {
+                    response = "ERROR usage: KILL <name>\n";
+                } else if (sessions_.kill(target)) {
+                    response = "OK killed " + target + "\n";
+                } else {
+                    response = "ERROR no session " + target + "\n";
+                }
+            }
             // ── JSON API (26.09.09) — stable machine contract for the
             // desktop/mobile clients. Same token auth as every other verb.
             else if (line == "API_SESSIONS") {
@@ -3185,6 +3200,61 @@ public:
         }
         for (auto& si : listed->sessions)
             std::cout << si.name << "  " << si.state << "  uptime=" << si.uptime_seconds << "s\n";
+    }
+
+    // ── CLI: kill_peer_session ─────────────────────────────────
+    // Kill a named session on a remote peer over a one-shot direct TLS
+    // connection (26.09.13). Server side: SignalMsg{Kill, process=<name>}
+    // handler in bs-mesh-transfer.h. Peers older than 26.09.13 ignore the
+    // frame (SignalMsg with no attach was a no-op) — callers treat a timeout
+    // as "peer too old or unreachable", never as a confirmed kill.
+    bool kill_peer_session(const std::string& peer_name, const std::string& session_name) {
+        std::string addr = find_peer_addr(peer_name);
+        if (addr.empty()) { std::cerr << "Peer not found: " << peer_name << "\n"; return false; }
+        auto sc = connect_and_hello(addr, trusted_peer_pubkey(config_, peer_name));
+        if (!sc.ssl || sc.sfd == INVALID_SOCKET) {
+            std::cerr << "Unreachable: " << peer_name << "\n";
+            return false;
+        }
+        bool ok = false;
+        try {
+            SignalMsg kill;
+            kill.signal = SignalMsg::SignalType::Kill;
+            kill.process = session_name;   // doubles as target session name
+            write_frame(sc.ssl.get(), kill, 0);
+            // Wait for the ExitCodeMsg ack (0 = killed, 1 = no such session).
+            fd_set read_fds; FD_ZERO(&read_fds); FD_SET(sc.sfd, &read_fds);
+            timeval tv{5, 0};
+#ifdef _WIN32
+            int ready = select(0, &read_fds, nullptr, nullptr, &tv);
+#else
+            int ready = select((int)sc.sfd + 1, &read_fds, nullptr, nullptr, &tv);
+#endif
+            if (ready > 0) {
+                Message resp = read_frame(sc.ssl.get());
+                if (auto* ec = std::get_if<ExitCodeMsg>(&resp)) ok = (ec->code == 0);
+            }
+        } catch (...) {
+        }
+        CLOSESOCK(sc.sfd);
+        return ok;
+    }
+
+    // Kill every live session on a peer (or a prefix-filtered subset).
+    // Returns {killed, missed}. `filter` empty = all live sessions.
+    std::pair<int, int> kill_peer_sessions(const std::string& peer_name,
+                                           const std::string& filter = {},
+                                           bool include_died = false) {
+        auto listed = fetch_peer_sessions(peer_name);
+        if (!listed) { std::cerr << "Timeout\n"; return {0, 0}; }
+        int killed = 0, missed = 0;
+        for (auto& si : listed->sessions) {
+            if (!include_died && si.state == "died") continue;
+            if (!filter.empty() && si.name.rfind(filter, 0) != 0) continue;
+            if (kill_peer_session(peer_name, si.name)) ++killed;
+            else ++missed;
+        }
+        return {killed, missed};
     }
 
     // ── CLI: health_check ─────────────────────────────────────

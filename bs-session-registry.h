@@ -715,7 +715,10 @@ public:
     }
 
     // ── Kill ────────────────────────────────────────────────────
-    void kill(const std::string& name) {
+    // Returns true when a session with that name existed (and was killed).
+    // 26.09.13: named-kill callers (`bs sessions <peer> --kill`) need the
+    // miss case distinguishable from the kill for honest CLI feedback.
+    bool kill(const std::string& name) {
         std::unique_lock lock(mutex_);
         auto it = sessions_.find(name);
         if (it != sessions_.end()) {
@@ -739,7 +742,9 @@ public:
             if (on_session_erased_) on_session_erased_(killed_name);
             sessions_.erase(it);
             log_event("session_kill", killed_name);
+            return true;
         }
+        return false;
     }
 
     // ── Reap dead children ──────────────────────────────────────

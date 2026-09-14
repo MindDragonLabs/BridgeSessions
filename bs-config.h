@@ -1051,23 +1051,29 @@ struct OutboundPeerVerifyResult {
     const std::string receive_root = expand_home(receive_dir);
     if (!receive_root.empty() && path_is_inside_directory(candidate, receive_root))
         return candidate;
+    const auto hidden_component = [](const fs::path& rel) {
+        for (const auto& component : rel) {
+            const std::string part = component.string();
+            if (part.size() > 1 && part[0] == '.') return true;
+        }
+        return false;
+    };
     for (size_t root_index = 1; root_index < roots.size(); ++root_index) {
         const auto& root = roots[root_index];
         if (root.empty()) continue;
         if (!path_is_inside_directory(candidate, root)) continue;
+        // Hidden-dir policy must hold on the LEXICAL (requested) path as well:
+        // a dest like ~/.local/bin/bs that symlinks into a visible location
+        // would otherwise canonicalize clean and allow overwriting installed
+        // binaries through a hidden-dir launcher path.
+        const fs::path lexical_rel = fs::path(candidate).lexically_normal()
+            .lexically_relative(fs::path(root).lexically_normal());
+        if (hidden_component(lexical_rel)) continue;
         std::error_code ec;
         auto rel = std::filesystem::weakly_canonical(candidate, ec).lexically_relative(
             std::filesystem::weakly_canonical(root, ec));
         if (ec || rel.empty()) return std::nullopt;
-        bool hidden_component = false;
-        for (const auto& component : rel) {
-            const std::string part = component.string();
-            if (part.size() > 1 && part[0] == '.') {
-                hidden_component = true;
-                break;
-            }
-        }
-        if (!hidden_component) return candidate;
+        if (!hidden_component(rel)) return candidate;
     }
     return std::nullopt;
 }

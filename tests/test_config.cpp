@@ -581,6 +581,38 @@ TEST_CASE("resolve_file_send_dest supports scp-style paths", "[config][file][sec
     REQUIRE_FALSE(resolve_file_send_dest("/etc/passwd", recv, true).has_value());
 }
 
+TEST_CASE("resolve_file_send_dest rejects hidden-path symlink laundering",
+          "[config][file][security]") {
+    // A dest under a hidden dir (e.g. ~/.local/bin/launcher) that SYMLINKS to
+    // a visible location must stay rejected: canonicalizing first would strip
+    // the hidden component and allow overwriting installed binaries through a
+    // hidden launcher path. Policy applies to the lexical (requested) path.
+    const std::string recv = expand_home("~/.bridgesessions/received");
+    // Use a VISIBLE dir under $HOME (the allow-home root) — NOT
+    // fs::temp_directory_path(): on macOS that is /var/folders/..., which is
+    // inside neither ~ nor /tmp after canonicalization.
+    auto tmp = fs::path(expand_home("~")) / ("bs_launder_test_" + std::to_string(
+        std::chrono::steady_clock::now().time_since_epoch().count()));
+    fs::create_directories(tmp / "visible");
+    fs::create_directories(tmp / ".hidden");
+    std::ofstream(tmp / "visible" / "target.txt") << "x";
+    fs::create_symlink(tmp / "visible" / "target.txt", tmp / ".hidden" / "link.txt");
+
+    // Hidden lexical path, symlinked to visible file → still rejected.
+    REQUIRE_FALSE(resolve_file_send_dest(
+        (tmp / ".hidden" / "link.txt").string(), recv, true).has_value());
+    // The same file by its visible path is fine.
+    REQUIRE(resolve_file_send_dest(
+        (tmp / "visible" / "target.txt").string(), recv, true).has_value());
+    // Non-symlinked hidden file with allow_home_tmp=true → rejected (hidden).
+    std::ofstream(tmp / ".hidden" / "plain.txt") << "x";
+    REQUIRE_FALSE(resolve_file_send_dest(
+        (tmp / ".hidden" / "plain.txt").string(), recv, true).has_value());
+
+    std::error_code ec;
+    fs::remove_all(tmp, ec);
+}
+
 TEST_CASE("sensitive mesh paths are denied by default", "[config][file][security]") {
     REQUIRE(is_sensitive_mesh_path("~/.bridgesessions/id_ed25519.pem"));
     REQUIRE(is_sensitive_mesh_path("~/.bridgesessions/authorized_keys"));
