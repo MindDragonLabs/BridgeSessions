@@ -2,6 +2,7 @@
 // Extracted from bridgesessions.cpp (R3 structural refactor, 2026-07-23)
 #include "bs-protocol.h"
 #include "bs-cua-helper.h"
+#include "bs-image-encode.h"  // BMP→PNG transcode for cua capture output
 #include "bs-sync-pair.h"
 #include "bs-logging.h"
 
@@ -3656,10 +3657,26 @@ int bridgesessions_main(int argc, char** argv) {
             };
             const char* kind = sniff_kind(resp.data, resp.format);
             if (!cua_output.empty()) {
+                // If the user asked for a .png but the peer sent BMP (the
+                // Windows helper's GDI path), transcode instead of writing
+                // BMP bytes under a .png name.
+                std::vector<uint8_t> out_data = resp.data;
+                if (std::string(kind) == "bmp") {
+                    std::string o = cua_output;
+                    std::transform(o.begin(), o.end(), o.begin(),
+                                   [](unsigned char ch) {
+                                       return static_cast<char>(
+                                           std::tolower(ch));
+                                   });
+                    if (o.size() >= 4 && o.compare(o.size() - 4, 4, ".png") == 0) {
+                        std::vector<uint8_t> png = bs::mesh::bmp_to_png(resp.data);
+                        if (!png.empty()) { out_data = std::move(png); kind = "png"; }
+                    }
+                }
                 std::ofstream f(cua_output, std::ios::binary);
-                f.write(reinterpret_cast<const char*>(resp.data.data()),
-                        static_cast<std::streamsize>(resp.data.size()));
-                std::cout << "Saved " << resp.data.size() << " bytes (" << kind
+                f.write(reinterpret_cast<const char*>(out_data.data()),
+                        static_cast<std::streamsize>(out_data.size()));
+                std::cout << "Saved " << out_data.size() << " bytes (" << kind
                           << ") to " << cua_output << "\n";
             } else {
                 // Binary to stdout for piping
