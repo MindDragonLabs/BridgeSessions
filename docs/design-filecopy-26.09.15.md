@@ -38,26 +38,45 @@ path out**.
 ### CLI
 
 ```
-bs cp [-r] [--update] [--flat] [--dry-run] [-v] <src> <dst>
+bs cp [-r] [--update] [--overwrite] [--flat] [--dry-run] [-v] <src> <dst>
+bs file ls <peer>:<dir>
 ```
 
 - Either side may be `peer:path` (scp convention). Exactly one remote side, or
   both (relay); local→local is rejected (`use cp`).
   - `bs cp macbook:~/Heimdall/stmt.pdf ./stmt.pdf`        (pull)
   - `bs cp ./report.md fecv3:/srv/reports/report.md`      (push)
-  - `bs cp macbook:/a.pdf fecv3:/ingest/a.pdf`            (relay via local node)
+  - `bs cp 'macbook:~/Heimdall/*.pdf' ~/heimdall-ingest/raw/`  (glob, quoted)
   - `bs cp -r macbook:~/Heimdall ./Heimdall`              (tree)
 - Bare peer name resolves as today; no path guessing — a `peer:` prefix with
   empty path is an error.
+- `--wait` is implied: `cp` is synchronous, always (agents must not add it).
 
 ### Semantics (robocopy-ish)
 
 - File→file, file→dir (basename appended), dir→dir with `-r`.
+- **Globs expand on the host that owns the path** (daemon-side for remote
+  operands, CLI-side for local). Quote remote globs so the local shell does
+  not eat them — documented in usage.md next to the example.
+- **Collisions fail loud by default**: dest exists → `ERROR dest exists (use
+  --overwrite)` + nonzero exit. Never a silent `.1`/`.2` suffix. `--overwrite`
+  replaces via the same atomic `.part` → rename path. (The `.1/.2` suffix trap
+  in the legacy receive dir is what pushed agents back to scp.)
 - `--update`: skip when destination exists with same size + mtime (±2s).
 - Always SHA-256 verify at completion; `.part` + `.part.bsmeta` during transfer
   for reconnect/resume, atomic rename at the end.
-- Summary line: `OK copied=N skipped=M bytes=B sha256=<hex>` — one line per
-  file for `-v`.
+- **mtime is preserved** on the destination (daemon sets it after rename) —
+  required for statement/audit document trails.
+- Machine-parsable output for agents — one line per file plus summary:
+  - `DONE <bytes> <sha256> <final-absolute-path>` per file
+  - `OK copied=N skipped=M bytes=B` summary; nonzero exit on any failure.
+  This kills the verify-by-second-round-trip pattern (`ls -la` + byte-compare).
+- Path acceptance is **symmetric**: `~`-relative and absolute both work on
+  both ends, including `/tmp`. The old asymmetry (`/tmp` fine as source,
+  rejected as dest) was learned-by-trial pain; `bs cp` does not inherit it.
+  Dest writes follow the literal typed path (normal fs symlink resolution at
+  write time); the audit log records both lexical and canonical final path.
+  The r1 hidden-dir lexical rule stays on legacy `file send/recv` only.
 
 ### Wire
 
@@ -97,17 +116,34 @@ capability class; it makes an existing capability honest and auditable:
 
 - `bs file send` `OK` line gains absolute `dest_abs=` when the peer is new
   enough, killing the "where did it land" guesswork.
-- `bs file list <peer>` (new, cheap): lists receive_dir contents so the old
-  mailbox flow is debuggable.
+- `bs file ls <peer>:<dir>` (new, cheap): daemon-side directory listing
+  (size, mtime, type) so listing stops requiring `bs shell -x 'ls -la'`
+  one-shots. Defaults to the receive dir; any directory works on new peers.
 - Docs: usage.md leads with `bs cp`; send/recv documented as legacy/staging.
+
+### Consumer feedback incorporated (Heimdall IR bot, 2026-09-14)
+
+Its four "biggest wins" are all in: direct dest, no staging (1); fail-loud
+collisions, no `.1/.2` suffix (4); `DONE <bytes> <sha256> <final-path>` line
+so agents verify without a second round trip (5); `bs file ls` (8).
+Also incorporated: glob support (2), `/tmp`-as-dest symmetry (3),
+`--overwrite` semantics, mtime preservation (7), and implied `--wait`.
+Third-party relay (`fecv3:path -> macbook:path` without bytes through the
+caller) is deferred — the mesh protocol routes via the requesting node today;
+true source→dest streaming is a protocol-level change for a later release.
+The bot's staging+mv workaround and its scp-everywhere drift are the direct
+evidence for this whole design.
 
 ## Test plan
 
 - Unit: path-pair parsing (`peer:path`, `~/`, both-remote rejection of weird
-  combos), update-skip logic, relay chunk accounting.
+  combos), update-skip logic, glob expansion, relay chunk accounting.
 - Integration (existing harness): pull from non-receive path; push to absolute
   non-receive path; tree copy with `--update` re-run skipping 100%; direct
-  write creates parent dirs; old-peer error string; `file.copy_scope
-  = receive_dir` refusal.
+  write creates parent dirs; collision → exit≠0 + exact error; `--overwrite`
+  round trip; mtime preserved ±2s; `DONE <bytes> <sha256> <path>` line
+  format; old-peer error string; `file.copy_scope = receive_dir` refusal;
+  `bs file ls` on receive dir and arbitrary dir.
 - E2E: macmini↔macbook real transfer incl. a `~/Documents` pull (the IR flow),
-  SHA round-trip, no leftover staging copy on the destination.
+  glob pull `macbook:~/Heimdall/*.pdf` → `~/heimdall-ingest/raw/`, SHA
+  round-trip, mtime round-trip, no leftover staging copy on the destination.
