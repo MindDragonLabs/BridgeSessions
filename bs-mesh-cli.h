@@ -3517,42 +3517,43 @@ public:
         return true;
     }
 
-    // Minimatch-style glob: '*' any run (no path sep), '?' one char (no sep),
+    // Recursive glob: '*' any run (no path sep), '?' one char (no sep),
     // '**' any run including separators. Case-sensitive, like the shells.
+    // Depth is bounded by pattern length × string length in the worst case;
+    // patterns come from user CLI args, never from the network.
     static bool glob_match(std::string_view pat, std::string_view str) {
-        size_t p = 0, s = 0, star_p = std::string_view::npos, star_s = 0;
-        bool star_is_globstar = false;
-        while (s < str.size()) {
-            if (p < pat.size() && (pat[p] == '?' || pat[p] == str[s])) {
-                if (pat[p] == '?') {
-                    if (str[s] == '/') return false;  // ? does not cross '/'
+        if (pat.empty()) return str.empty();
+        if (pat.substr(0, 2) == "**") {
+            std::string_view rest = pat.substr(2);
+            if (!rest.empty() && rest.front() == '/') {
+                // "**/" — matches zero directories or any prefix at a '/'.
+                if (glob_match(rest.substr(1), str)) return true;
+                for (size_t i = 0; i < str.size(); ++i) {
+                    if (str[i] == '/' && glob_match(rest.substr(1), str.substr(i + 1)))
+                        return true;
+                    if (glob_match(rest, str.substr(i))) return true;
                 }
-                ++p; ++s;
-            } else if (p + 1 < pat.size() && pat[p] == '*' && pat[p + 1] == '*') {
-                star_p = p; star_s = s; star_is_globstar = true;
-                p += 2;
-                if (p < pat.size() && pat[p] == '/') ++p;  // "**/" matches ""
-            } else if (p < pat.size() && pat[p] == '*') {
-                star_p = p; star_s = s; star_is_globstar = false;
-                ++p;
-            } else if (star_p != std::string_view::npos) {
-                // Backtrack: advance the star's match by one char.
-                if (!star_is_globstar && str[star_s] == '/') return false;
-                p = star_p + (star_is_globstar ? 2 : 1);
-                if (star_is_globstar && p < pat.size() && pat[p] == '/') ++p;
-                ++star_s; s = star_s;
-                if (!star_is_globstar) p = star_p + 1;
-                if (star_is_globstar) { p = star_p + 2; if (p < pat.size() && pat[p] == '/') ++p; }
-            } else {
                 return false;
             }
-        }
-        while (p < pat.size()) {
-            if (pat[p] == '*') { ++p; continue; }
-            if (p + 1 < pat.size() && pat[p] == '*' && pat[p + 1] == '*') { p += 2; continue; }
+            for (size_t i = 0; i <= str.size(); ++i) {
+                if (glob_match(rest, str.substr(i))) return true;
+            }
             return false;
         }
-        return true;
+        char pc = pat.front();
+        if (pc == '*') {
+            for (size_t i = 0; i <= str.size(); ++i) {
+                if (glob_match(pat.substr(1), str.substr(i))) return true;
+                if (i < str.size() && str[i] == '/') break;  // * stops at '/'
+            }
+            return false;
+        }
+        if (pc == '?') {
+            if (str.empty() || str.front() == '/') return false;
+            return glob_match(pat.substr(1), str.substr(1));
+        }
+        if (str.empty() || str.front() != pc) return false;
+        return glob_match(pat.substr(1), str.substr(1));
     }
 
     // One direct-copy transfer (single file). src/dst resolved already.
