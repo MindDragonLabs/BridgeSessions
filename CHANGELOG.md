@@ -2,6 +2,18 @@
 
 Notable user-visible changes. Git history contains implementation-level detail.
 
+## Unreleased
+
+### Fixed
+
+- **`bs cua capture --output shot.png` wrote BMP bytes under a `.png` name on
+  Windows peers.** The Windows CUA helper captures with GDI into a hand-rolled
+  24-bpp BMP (GDI+ `Save()` access-violates on recent Win11 builds), and the CLI
+  saved the frame as-is — so the file extension lied about its contents. The CLI
+  now detects a BMP frame headed for a `.png` output and transcodes it into a
+  real PNG (dependency-free encoder: PNG stored-deflate blocks with hand-rolled
+  CRC-32/Adler-32). `--output shot.bmp` and stdout piping keep raw bytes.
+
 ## 26.09.11-r2
 
 ### Fixed
