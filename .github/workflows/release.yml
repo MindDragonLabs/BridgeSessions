@@ -51,8 +51,27 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
-      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ninja-build libssl-dev zlib1g-dev python3-pip
-      - run: python3 -m pip install --user --quiet pytest pytest-timeout
+      - name: Install build dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ninja-build libssl-dev zlib1g-dev python3-pip python3-venv
+          # Ubuntu 22.04 ships GCC 11, whose libstdc++ has no <expected>
+          # (C++23) — the release binary cannot even compile. Install gcc-12
+          # where the distro offers it, same fallback as ci.yml.
+          if apt-cache show g++-12 >/dev/null 2>&1; then
+            sudo apt-get install -y --no-install-recommends g++-12 gcc-12
+            echo "CC=gcc-12" >> "$GITHUB_ENV"
+            echo "CXX=g++-12" >> "$GITHUB_ENV"
+          fi
+      # venv keeps pytest off the distro Python (PEP 668 makes `pip install
+      # --user` hard-fail). Must be on PATH before the configure step.
+      - name: Create Python venv
+        run: |
+          python3 -m venv "$RUNNER_TEMP/venv"
+          echo "$RUNNER_TEMP/venv/bin" >> "$GITHUB_PATH"
+      - run: python3 -m pip install --quiet pytest pytest-timeout
       - run: ./build.sh linux --out dist
       - run: |
           bin=dist/bridgesessions-linux-x86_64
@@ -70,7 +89,13 @@ jobs:
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
-      - run: python3 -m pip install --user --quiet pytest pytest-timeout
+      # macOS runners ship an externally managed Python (PEP 668) — pip
+      # --user fails outright. venv first on PATH, same as ci.yml.
+      - name: Create Python venv
+        run: |
+          python3 -m venv "$RUNNER_TEMP/venv"
+          echo "$RUNNER_TEMP/venv/bin" >> "$GITHUB_PATH"
+      - run: python3 -m pip install --quiet pytest pytest-timeout
       - run: ./build.sh macos --out dist
       - run: |
           bin=dist/bridgesessions-macos-arm64
