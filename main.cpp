@@ -1136,7 +1136,7 @@ int bridgesessions_main(int argc, char** argv) {
     cp_cmd->add_option("src", cp_src, "Source: peer:path or local path")->required();
     cp_cmd->add_option("dst", cp_dst, "Destination: peer:path or local path")->required();
     cp_cmd->add_flag("-r,--recursive", cp_recursive, "Copy directories recursively");
-    cp_cmd->add_flag("--update", cp_update, "Skip files that already match at the destination");
+    cp_cmd->add_flag("--update", cp_update, "Skip matching size/mtime (within 2s); replace changed files");
     cp_cmd->add_flag("--overwrite", cp_overwrite, "Overwrite existing destination files");
     cp_cmd->add_flag("--dry-run", cp_dry_run, "Show what would be copied without transferring");
     cp_cmd->add_flag("-v,--verbose", cp_verbose, "Per-file progress lines");

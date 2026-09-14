@@ -3633,6 +3633,206 @@ public:
         return "ERROR both operands are local — use plain cp";
     }
 
+    struct CopyMetadata {
+        std::optional<uint64_t> size;
+        std::optional<int64_t> mtime;
+    };
+
+    static bool copy_update_skip(const CopyMetadata& src, const CopyMetadata& dst,
+                                 bool update, bool overwrite) {
+        if (!update || overwrite || !src.size || !src.mtime || !dst.size || !dst.mtime ||
+            *src.size != *dst.size) return false;
+        // Unsigned subtraction avoids overflow even at the signed time limits.
+        uint64_t delta = *src.mtime >= *dst.mtime
+            ? uint64_t(*src.mtime) - uint64_t(*dst.mtime)
+            : uint64_t(*dst.mtime) - uint64_t(*src.mtime);
+        return delta <= 2;
+    }
+
+    static CopyMetadata copy_local_metadata(const std::string& path) {
+#ifdef _WIN32
+        struct _stat64 st{};
+        if (::_stat64(path.c_str(), &st) != 0 || (st.st_mode & _S_IFMT) != _S_IFREG)
+#else
+        struct stat st{};
+        if (::stat(path.c_str(), &st) != 0 || !S_ISREG(st.st_mode))
+#endif
+            return {};
+        return {static_cast<uint64_t>(st.st_size), static_cast<int64_t>(st.st_mtime)};
+    }
+
+    struct CopyListingEntry {
+        std::string name;
+        std::string type;
+        CopyMetadata metadata;
+    };
+
+    // Extend the old name-only extraction to include type and optional metadata.
+    // The existing JSON library also handles escaped quotes/control characters.
+    static bool parse_copy_listing(const std::string& text,
+                                   std::vector<CopyListingEntry>& entries) {
+        entries.clear();
+        auto json = nlohmann::json::parse(text, nullptr, false);
+        if (!json.is_array()) return false;
+        for (const auto& item : json) {
+            if (!item.is_object() || !item.contains("name") || !item["name"].is_string() ||
+                !item.contains("type") || !item["type"].is_string()) return false;
+            CopyListingEntry entry{item["name"].get<std::string>(),
+                                   item["type"].get<std::string>(), {}};
+            // A listing entry is one path component, never a traversal path.
+            if (entry.name.empty() || entry.name == "." || entry.name == ".." ||
+                entry.name.find_first_of("/\\") != std::string::npos ||
+                entry.name.find('\0') != std::string::npos ||
+                (entry.type != "file" && entry.type != "dir")) return false;
+            if (item.contains("size") && item["size"].is_number_unsigned()) {
+                auto size = item["size"].get<uint64_t>();
+                // file_size(error_code) reports failure as uintmax_t(-1).
+                if (size != UINT64_MAX) entry.metadata.size = size;
+            }
+            if (item.contains("mtime") && item["mtime"].is_number_integer() &&
+                (!item["mtime"].is_number_unsigned() ||
+                 item["mtime"].get<uint64_t>() <= uint64_t(INT64_MAX))) {
+                auto mtime = item["mtime"].get<int64_t>();
+                // file_ls uses zero when last_write_time is unavailable.
+                if (mtime != 0) entry.metadata.mtime = mtime;
+            }
+            if (entry.type != "file") entry.metadata = {};
+            entries.push_back(std::move(entry));
+        }
+        return true;
+    }
+
+    struct CopyFile {
+        CopyOperand source;
+        // Empty for a single file; otherwise relative to the destination tree.
+        std::string relative_path;
+        CopyMetadata metadata;
+    };
+    using CopyList = std::function<std::string(const std::string&)>;
+
+    static std::string copy_remote_path(std::string path) {
+        std::replace(path.begin(), path.end(), '\\', '/');
+        return path;
+    }
+    static bool copy_drive_path(const std::string& path) {
+        return path.size() >= 3 && std::isalpha(static_cast<unsigned char>(path[0])) &&
+               path[1] == ':' && path[2] == '/';
+    }
+    static bool copy_remote_rooted(const std::string& path) {
+        return !path.empty() && (path.front() == '/' || path == "~" ||
+               path.rfind("~/", 0) == 0 || copy_drive_path(path));
+    }
+    static std::string copy_parent(const std::filesystem::path& path) {
+        auto parent = path.parent_path().generic_string();
+        // On a POSIX client, filesystem::path does not recognize C:/ as a root.
+        if (parent.size() == 2 && copy_drive_path(path.generic_string())) parent += '/';
+        return parent.empty() ? "." : parent;
+    }
+
+    // Listing is injected so tree expansion can be tested without a connection.
+    static bool expand_copy_sources(const CopyOperand& src, bool recursive,
+                                    const CopyList& list, std::vector<CopyFile>& files,
+                                    std::string& err) {
+        namespace fs = std::filesystem;
+        std::error_code ec;
+        auto read_dir = [&](const std::string& path, std::vector<CopyListingEntry>& entries) {
+            std::string result = list(path);
+            if (result.rfind("ERROR", 0) == 0) { err = result; return false; }
+            if (!parse_copy_listing(result, entries)) {
+                err = "ERROR invalid directory listing: " + path;
+                return false;
+            }
+            return true;
+        };
+        std::function<bool(const CopyOperand&, const std::string&, unsigned)> remote_tree;
+        remote_tree = [&](const CopyOperand& dir, const std::string& relative, unsigned depth) {
+            if (depth > 16) { err = "ERROR recursion depth exceeds 16: " + dir.path; return false; }
+            std::vector<CopyListingEntry> entries;
+            if (!read_dir(dir.path, entries)) return false;
+            for (const auto& entry : entries) {
+                CopyOperand child{true, dir.peer, (fs::path(dir.path) / entry.name).generic_string()};
+                std::string rel = (fs::path(relative) / entry.name).generic_string();
+                if (entry.type == "dir") {
+                    if (!remote_tree(child, rel, depth + 1)) return false;
+                } else files.push_back({child, rel, entry.metadata});
+            }
+            return true;
+        };
+        auto expand = [&](const CopyOperand& source, bool is_dir,
+                          const std::string& relative, const CopyMetadata& metadata) {
+            if (!is_dir) { files.push_back({source, relative, metadata}); return true; }
+            if (!recursive) { err = "ERROR " + source.path + " is a directory (use -r)"; return false; }
+            if (source.remote) return remote_tree(source, relative, 0);
+            for (fs::recursive_directory_iterator it(source.path, ec), end; it != end && !ec;
+                 it.increment(ec)) {
+                bool regular = it->is_regular_file(ec);
+                if (ec) break;
+                if (!regular) continue;
+                // Lexical mapping preserves symlink names; do not canonicalize
+                // a file symlink outside the tree into a ../ destination.
+                auto rel = it->path().lexically_relative(fs::path(source.path));
+                files.push_back({{false, "", it->path().string()},
+                    (fs::path(relative) / rel).generic_string(), copy_local_metadata(it->path().string())});
+            }
+            if (ec) { err = "ERROR reading " + source.path + ": " + ec.message(); return false; }
+            return true;
+        };
+
+        fs::path path(src.remote ? copy_remote_path(src.path) : src.path);
+        while (path.has_relative_path() && path.filename().empty() &&
+               !(copy_drive_path(path.generic_string()) && path.generic_string().size() == 3))
+            path = path.parent_path();
+        CopyOperand root{src.remote, src.peer, path.generic_string()};
+        bool glob = src.path.find_first_of("*?") != std::string::npos;
+        fs::path parent = copy_parent(path);
+        if (src.remote) {
+            // Direct get already requires an absolute or home-rooted path.
+            // Relative file_ls paths cannot identify subdirectories reliably.
+            if (!copy_remote_rooted(root.path)) {
+                err = "ERROR remote source requires an absolute or ~/ path";
+                return false;
+            }
+            std::vector<CopyListingEntry> entries;
+            bool listed = read_dir(parent.generic_string(), entries);
+            bool matched = false;
+            if (listed) for (const auto& entry : entries) {
+                if (glob ? glob_match(path.filename().string(), entry.name)
+                         : entry.name == path.filename().string()) {
+                    matched = true;
+                    CopyOperand source{true, src.peer, (parent / entry.name).generic_string()};
+                    if (!expand(source, entry.type == "dir", glob ? entry.name : "", entry.metadata))
+                        return false;
+                }
+            }
+            if (glob) {
+                if (!listed) return false;
+                if (!matched) { err = "ERROR no matches for " + src.path; return false; }
+            } else if (!matched) {
+                // Root directories and parents outside copy_scope cannot be
+                // identified via their parent. Probe the source itself.
+                bool is_dir = read_dir(root.path, entries);
+                if (!expand(root, is_dir, "", {})) return false;
+            }
+        } else if (glob) {
+            bool matched = false;
+            for (fs::directory_iterator it(parent, ec), end; it != end && !ec; it.increment(ec)) {
+                if (!glob_match(path.filename().string(), it->path().filename().string())) continue;
+                matched = true;
+                bool is_dir = it->is_directory(ec);
+                if (ec) break;
+                if (!expand({false, "", it->path().string()}, is_dir, it->path().filename().string(),
+                            copy_local_metadata(it->path().string()))) return false;
+            }
+            if (ec) { err = "ERROR reading " + parent.string() + ": " + ec.message(); return false; }
+            if (!matched) { err = "ERROR no matches for " + src.path; return false; }
+        } else {
+            bool is_dir = fs::is_directory(path, ec);
+            if (!expand(root, is_dir, "", copy_local_metadata(root.path))) return false;
+        }
+        err.clear();
+        return true;
+    }
+
     // Top-level bs cp driver: parses operands, expands globs, applies
     // --update/--overwrite/-r, prints DONE per file + summary, returns
     // "OK copied=N skipped=M bytes=B" or the first ERROR.
@@ -3648,107 +3848,51 @@ public:
             return "ERROR dst: " + err;
         if (!src.remote && !dst.remote)
             return "ERROR both operands are local — use plain cp";
-        std::error_code ec;
+        if (dst.remote) dst.path = copy_remote_path(dst.path);
+        std::vector<CopyFile> sources;
+        if (!expand_copy_sources(src, recursive,
+                [&](const std::string& dir) { return file_ls(src.peer, dir); }, sources, err))
+            return err;
 
-        // ── Glob source (remote or local) ─────────────────────────
-        auto has_glob = [](const std::string& p) {
-            return p.find('*') != std::string::npos || p.find('?') != std::string::npos;
+        // Cache each destination parent listing for this invocation. Missing or
+        // malformed metadata must never turn into an update skip.
+        std::map<std::string, std::vector<CopyListingEntry>> dest_listings;
+        auto remote_entry = [&](const std::string& name) -> CopyListingEntry {
+            fs::path path(name);
+            while (path.has_relative_path() && path.filename().empty()) path = path.parent_path();
+            // file_ls anchors relative requests at the remote home/receive_dir,
+            // so those listings cannot safely describe a direct-copy target.
+            if (!copy_remote_rooted(name)) return {};
+            std::string parent = copy_parent(path);
+            auto [it, inserted] = dest_listings.try_emplace(parent);
+            if (inserted && !parse_copy_listing(file_ls(dst.peer, parent), it->second))
+                it->second.clear();
+            for (const auto& entry : it->second)
+                if (entry.name == path.filename().string()) return entry;
+            return {};
         };
-        std::vector<CopyOperand> sources;
-        if (has_glob(src.path)) {
-            if (src.remote) {
-                // Expand on the owning host: list parent dir, filter by pattern.
-                auto slash = src.path.find_last_of('/');
-                std::string dir = (slash == std::string::npos) ? "."
-                    : src.path.substr(0, slash) == "" ? "/"
-                    : src.path.substr(0, slash);
-                std::string pat = (slash == std::string::npos) ? src.path
-                    : src.path.substr(slash + 1);
-                std::string listing = file_ls(src.peer, dir);
-                if (listing.rfind("ERROR", 0) == 0) return listing;
-                // Minimal JSON array parse: pull "name" values.
-                size_t pos = 0;
-                while ((pos = listing.find("\"name\":\"", pos)) != std::string::npos) {
-                    size_t start = pos + 8;
-                    size_t end = listing.find('"', start);
-                    if (end == std::string::npos) break;
-                    std::string name = listing.substr(start, end - start);
-                    // Unescape \" and \\ minimally.
-                    std::string un;
-                    for (size_t i = 0; i < name.size(); ++i) {
-                        if (name[i] == '\\' && i + 1 < name.size()) { un += name[++i]; }
-                        else un += name[i];
-                    }
-                    pos = end + 1;
-                    if (glob_match(pat, un)) {
-                        CopyOperand op;
-                        op.remote = true;
-                        op.peer = src.peer;
-                        op.path = (dir == "." ? "" : dir + "/") + un;
-                        sources.push_back(op);
-                    }
-                }
-                if (sources.empty())
-                    return "ERROR no matches for " + src_text;
-            } else {
-                // Local glob: iterate parent dir.
-                fs::path p(src.path);
-                fs::path parent = p.parent_path().empty() ? fs::path(".") : p.parent_path();
-                std::string pat = p.filename().string();
-                for (fs::directory_iterator it(parent, ec), end; it != end && !ec;
-                     it.increment(ec)) {
-                    if (glob_match(pat, it->path().filename().string())) {
-                        CopyOperand op;
-                        op.remote = false;
-                        op.path = it->path().string();
-                        sources.push_back(op);
-                    }
-                }
-                if (sources.empty()) return "ERROR no matches for " + src_text;
-            }
-        } else {
-            sources.push_back(src);
+        bool dest_dir = dst.path.back() == '/' || dst.path.back() == '\\';
+        if (!dest_dir) {
+            std::error_code ec;
+            dest_dir = dst.remote ? (dst.path == "~" || remote_entry(dst.path).type == "dir")
+                                 : fs::is_directory(fs::path(dst.path), ec);
         }
-
         uint64_t total_bytes = 0;
         size_t copied = 0, skipped = 0, failed = 0;
-
-        auto dest_for = [&](const CopyOperand& s) -> std::string {
-            // file→file when dst has no trailing sep and is not an existing
-            // dir; file→dir appends basename (robocopy/scp convention).
-            std::string base = fs::path(s.path).filename().string();
+        for (const auto& file : sources) {
+            const auto& s = file.source;
             std::string d = dst.path;
-            if (!d.empty() && (d.back() == '/' || d.back() == '\\'))
-                return d + base;
-            if (!dst.remote) {
-                std::error_code xec;
-                if (fs::is_directory(fs::path(d), xec) && !xec) return d + "/" + base;
-            }
-            return d;
-        };
-
-        for (auto& s : sources) {
-            std::string d = sources.size() > 1 ? dest_for(s) : dst.path;
-            if (sources.size() > 1 && !dst.remote) {
-                std::error_code xec;
-                if (fs::is_directory(fs::path(dst.path), xec) || !dst.path.empty() &&
-                    (dst.path.back() == '/' || dst.path.back() == '\\'))
-                    d = dest_for(s);
-                else
-                    return "ERROR multiple sources need a directory destination";
-            }
-            // --update: skip same size + mtime (±2s). Only cheap for
-            // local-vs-remote pairs we can stat both sides of.
-            if (update) {
-                // (remote stat round trip deferred; local dest check only)
-                if (!dst.remote) {
-                    std::error_code xec;
-                    fs::path ld(d);
-                    if (fs::exists(ld, xec) && !xec) {
-                        // Same-size heuristic with source size from listing
-                        // metadata when available; else always copy.
-                        // (kept conservative: no skip without size match)
-                    }
+            if (!file.relative_path.empty())
+                d = (fs::path(d) / file.relative_path).generic_string();
+            else if (dest_dir)
+                d = (fs::path(d) / fs::path(s.path).filename()).generic_string();
+            if (update && !overwrite) {
+                CopyMetadata dest_metadata = dst.remote ? remote_entry(d).metadata
+                                                        : copy_local_metadata(d);
+                if (copy_update_skip(file.metadata, dest_metadata, update, overwrite)) {
+                    if (verbose) std::cout << "SKIP " << s.path << " -> " << d << "\n";
+                    ++skipped;
+                    continue;
                 }
             }
             if (dry_run) {
@@ -3756,22 +3900,10 @@ public:
                 ++skipped;
                 continue;
             }
-            CopyOperand dop;
-            std::string result;
-            if (!dst.remote) {
-                dop.remote = false; dop.path = d;
-                result = copy_single(s, dop, overwrite, verbose);
-            } else {
-                // For single-file remote dest, use dst as-is; multiple sources
-                // going remote need dir semantics too.
-                dop.remote = true; dop.peer = dst.peer;
-                dop.path = (sources.size() > 1)
-                    ? (dst.path.back() == '/' || dst.path.back() == '\\'
-                           ? dst.path + fs::path(s.path).filename().string()
-                           : dst.path)
-                    : dst.path;
-                result = copy_single(s, dop, overwrite, verbose);
-            }
+            CopyOperand dop{dst.remote, dst.peer, d};
+            // Update refreshes changed files through the existing overwrite
+            // mechanism; default copies retain the fail-loud collision policy.
+            std::string result = copy_single(s, dop, overwrite || update, verbose);
             if (result.rfind("ERROR", 0) == 0) {
                 ++failed;
                 std::cout << result << "\n";
