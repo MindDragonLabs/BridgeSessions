@@ -3473,6 +3473,518 @@ public:
         return "ERROR no daemon running and direct TLS file recv failed";
     }
 
+    // ── CLI: file_copy (bs cp, v26.09.15) ─────────────────────
+    // robocopy/scp-style direct copy. Exactly one remote operand (or two —
+    // relay via this node). Direct TLS always: a dedicated connection keeps
+    // the transfer independent of daemon routing, and lets us read the
+    // remote peer's advertised capabilities (+fcp gate) from its Hello.
+    struct CopyOperand {
+        bool remote = false;
+        std::string peer;
+        std::string path;       // raw path text after peer: split
+    };
+
+    // "macbook:~/x.pdf" → {remote=true, macbook, ~/x.pdf}; plain path stays
+    // local. A bare "peer:" with empty path is a caller error.
+    static bool parse_copy_operand(const std::string& text, CopyOperand& out,
+                                   std::string& err) {
+        namespace fs = std::filesystem;
+        // Windows drive letters ("C:\\x") must not be parsed as peer prefix.
+        // A prefix is a peer only when it has no slash/backslash and no colon
+        // beyond the first (peer names are simple identifiers).
+        auto colon = text.find(':');
+        if (colon != std::string::npos && colon > 0) {
+            std::string head = text.substr(0, colon);
+            bool looks_like_drive =
+                head.size() == 1 && (head == "C" || head == "c");
+            bool head_has_sep = head.find('/') != std::string::npos ||
+                                head.find('\\') != std::string::npos;
+            if (!looks_like_drive && !head_has_sep) {
+                if (colon + 1 >= text.size()) {
+                    err = "empty path after peer '" + head + ":'";
+                    return false;
+                }
+                out.remote = true;
+                out.peer = head;
+                out.path = text.substr(colon + 1);
+                return true;
+            }
+        }
+        out.remote = false;
+        out.peer.clear();
+        out.path = text;
+        if (out.path.empty()) { err = "empty path"; return false; }
+        return true;
+    }
+
+    // Recursive glob: '*' any run (no path sep), '?' one char (no sep),
+    // '**' any run including separators. Case-sensitive, like the shells.
+    // Depth is bounded by pattern length × string length in the worst case;
+    // patterns come from user CLI args, never from the network.
+    static bool glob_match(std::string_view pat, std::string_view str) {
+        if (pat.empty()) return str.empty();
+        if (pat.substr(0, 2) == "**") {
+            std::string_view rest = pat.substr(2);
+            if (!rest.empty() && rest.front() == '/') {
+                // "**/" — matches zero directories or any prefix at a '/'.
+                if (glob_match(rest.substr(1), str)) return true;
+                for (size_t i = 0; i < str.size(); ++i) {
+                    if (str[i] == '/' && glob_match(rest.substr(1), str.substr(i + 1)))
+                        return true;
+                    if (glob_match(rest, str.substr(i))) return true;
+                }
+                return false;
+            }
+            for (size_t i = 0; i <= str.size(); ++i) {
+                if (glob_match(rest, str.substr(i))) return true;
+            }
+            return false;
+        }
+        char pc = pat.front();
+        if (pc == '*') {
+            for (size_t i = 0; i <= str.size(); ++i) {
+                if (glob_match(pat.substr(1), str.substr(i))) return true;
+                if (i < str.size() && str[i] == '/') break;  // * stops at '/'
+            }
+            return false;
+        }
+        if (pc == '?') {
+            if (str.empty() || str.front() == '/') return false;
+            return glob_match(pat.substr(1), str.substr(1));
+        }
+        if (str.empty() || str.front() != pc) return false;
+        return glob_match(pat.substr(1), str.substr(1));
+    }
+
+    // One direct-copy transfer (single file). src/dst resolved already.
+    std::string copy_single(const CopyOperand& src, const CopyOperand& dst,
+                            bool overwrite, bool verbose) {
+        namespace fs = std::filesystem;
+        std::error_code ec;
+
+        // ── Remote source, local dest (pull) ─────────────────────
+        if (src.remote && !dst.remote) {
+            std::string addr = find_peer_addr(src.peer);
+            if (addr.empty()) return "ERROR peer not found: " + src.peer;
+            std::string expected_pubkey = trusted_peer_pubkey(config_, src.peer);
+            auto sc = connect_and_hello(addr, expected_pubkey);
+            if (!sc.ssl || sc.sfd == INVALID_SOCKET) {
+                std::string detail = sc.fail_detail.empty()
+                    ? connect_fail_string(sc.fail) : sc.fail_detail;
+                return "ERROR failed to connect to " + src.peer + ": " + detail;
+            }
+            if (!version_has_cap(sc.hello.version, kCapFcp)) {
+                return "ERROR peer " + src.peer + " lacks +fcp (upgrade to 26.09.15 for bs cp)";
+            }
+            // Fail-loud collision on the local dest.
+            fs::path local_dst(dst.path);
+            std::error_code xec;
+            if (fs::exists(local_dst, xec) && !xec && !overwrite) {
+                if (fs::is_directory(local_dst, xec))
+                    local_dst /= fs::path(src.path).filename();
+                if (fs::exists(local_dst, xec) && !xec && !overwrite)
+                    return "ERROR dest exists: " + local_dst.string() + " (use --overwrite)";
+            }
+            if (fs::is_directory(local_dst, xec))
+                local_dst /= fs::path(src.path).filename();
+            if (local_dst.has_parent_path())
+                fs::create_directories(local_dst.parent_path(), ec);
+            return direct_connect_file_recv(src.peer, src.path,
+                                            local_dst.string(), /*mode=*/1);
+        }
+
+        // ── Local source, remote dest (push) ─────────────────────
+        if (!src.remote && dst.remote) {
+            fs::path lp(src.path);
+            if (!fs::exists(lp, ec) || fs::is_directory(lp, ec))
+                return "ERROR file not found or is a directory: " + src.path;
+            std::string addr = find_peer_addr(dst.peer);
+            if (addr.empty()) return "ERROR peer not found: " + dst.peer;
+            std::string expected_pubkey = trusted_peer_pubkey(config_, dst.peer);
+            auto sc = connect_and_hello(addr, expected_pubkey);
+            if (!sc.ssl || sc.sfd == INVALID_SOCKET) {
+                std::string detail = sc.fail_detail.empty()
+                    ? connect_fail_string(sc.fail) : sc.fail_detail;
+                return "ERROR failed to connect to " + dst.peer + ": " + detail;
+            }
+            if (!version_has_cap(sc.hello.version, kCapFcp)) {
+                return "ERROR peer " + dst.peer + " lacks +fcp (upgrade to 26.09.15 for bs cp)";
+            }
+            return direct_connect_file_send(dst.peer, lp.string(),
+                                            /*wait=*/true, dst.path,
+                                            /*direct=*/overwrite ? 2 : 1);
+        }
+
+        // ── Remote source, remote dest (relay via this node) ─────
+        if (src.remote && dst.remote) {
+            fs::path tmp = fs::temp_directory_path(ec) /
+                ("bs-cp-relay-" + std::to_string(std::chrono::steady_clock::now()
+                    .time_since_epoch().count()));
+            std::string pull = copy_single(src, {false, "", tmp.string()}, true, verbose);
+            if (pull.rfind("DONE", 0) != 0 && pull.rfind("OK", 0) != 0)
+                return "ERROR relay pull failed: " + pull;
+            std::string push = copy_single({false, "", tmp.string()}, dst, overwrite, verbose);
+            std::error_code rec;
+            fs::remove(tmp, rec);
+            if (push.rfind("OK", 0) != 0) return "ERROR relay push failed: " + push;
+            return push;
+        }
+
+        return "ERROR both operands are local — use plain cp";
+    }
+
+    struct CopyMetadata {
+        std::optional<uint64_t> size;
+        std::optional<int64_t> mtime;
+    };
+
+    static bool copy_update_skip(const CopyMetadata& src, const CopyMetadata& dst,
+                                 bool update, bool overwrite) {
+        if (!update || overwrite || !src.size || !src.mtime || !dst.size || !dst.mtime ||
+            *src.size != *dst.size) return false;
+        // Unsigned subtraction avoids overflow even at the signed time limits.
+        uint64_t delta = *src.mtime >= *dst.mtime
+            ? uint64_t(*src.mtime) - uint64_t(*dst.mtime)
+            : uint64_t(*dst.mtime) - uint64_t(*src.mtime);
+        return delta <= 2;
+    }
+
+    static CopyMetadata copy_local_metadata(const std::string& path) {
+#ifdef _WIN32
+        struct _stat64 st{};
+        if (::_stat64(path.c_str(), &st) != 0 || (st.st_mode & _S_IFMT) != _S_IFREG)
+#else
+        struct stat st{};
+        if (::stat(path.c_str(), &st) != 0 || !S_ISREG(st.st_mode))
+#endif
+            return {};
+        return {static_cast<uint64_t>(st.st_size), static_cast<int64_t>(st.st_mtime)};
+    }
+
+    struct CopyListingEntry {
+        std::string name;
+        std::string type;
+        CopyMetadata metadata;
+    };
+
+    // Extend the old name-only extraction to include type and optional metadata.
+    // The existing JSON library also handles escaped quotes/control characters.
+    static bool parse_copy_listing(const std::string& text,
+                                   std::vector<CopyListingEntry>& entries) {
+        entries.clear();
+        auto json = nlohmann::json::parse(text, nullptr, false);
+        if (!json.is_array()) return false;
+        for (const auto& item : json) {
+            if (!item.is_object() || !item.contains("name") || !item["name"].is_string() ||
+                !item.contains("type") || !item["type"].is_string()) return false;
+            CopyListingEntry entry{item["name"].get<std::string>(),
+                                   item["type"].get<std::string>(), {}};
+            // A listing entry is one path component, never a traversal path.
+            if (entry.name.empty() || entry.name == "." || entry.name == ".." ||
+                entry.name.find_first_of("/\\") != std::string::npos ||
+                entry.name.find('\0') != std::string::npos ||
+                (entry.type != "file" && entry.type != "dir")) return false;
+            if (item.contains("size") && item["size"].is_number_unsigned()) {
+                auto size = item["size"].get<uint64_t>();
+                // file_size(error_code) reports failure as uintmax_t(-1).
+                if (size != UINT64_MAX) entry.metadata.size = size;
+            }
+            if (item.contains("mtime") && item["mtime"].is_number_integer() &&
+                (!item["mtime"].is_number_unsigned() ||
+                 item["mtime"].get<uint64_t>() <= uint64_t(INT64_MAX))) {
+                auto mtime = item["mtime"].get<int64_t>();
+                // file_ls uses zero when last_write_time is unavailable.
+                if (mtime != 0) entry.metadata.mtime = mtime;
+            }
+            if (entry.type != "file") entry.metadata = {};
+            entries.push_back(std::move(entry));
+        }
+        return true;
+    }
+
+    struct CopyFile {
+        CopyOperand source;
+        // Empty for a single file; otherwise relative to the destination tree.
+        std::string relative_path;
+        CopyMetadata metadata;
+    };
+    using CopyList = std::function<std::string(const std::string&)>;
+
+    static std::string copy_remote_path(std::string path) {
+        std::replace(path.begin(), path.end(), '\\', '/');
+        return path;
+    }
+    static bool copy_drive_path(const std::string& path) {
+        return path.size() >= 3 && std::isalpha(static_cast<unsigned char>(path[0])) &&
+               path[1] == ':' && path[2] == '/';
+    }
+    static bool copy_remote_rooted(const std::string& path) {
+        return !path.empty() && (path.front() == '/' || path == "~" ||
+               path.rfind("~/", 0) == 0 || copy_drive_path(path));
+    }
+    static std::string copy_parent(const std::filesystem::path& path) {
+        auto parent = path.parent_path().generic_string();
+        // On a POSIX client, filesystem::path does not recognize C:/ as a root.
+        if (parent.size() == 2 && copy_drive_path(path.generic_string())) parent += '/';
+        return parent.empty() ? "." : parent;
+    }
+
+    // Listing is injected so tree expansion can be tested without a connection.
+    static bool expand_copy_sources(const CopyOperand& src, bool recursive,
+                                    const CopyList& list, std::vector<CopyFile>& files,
+                                    std::string& err) {
+        namespace fs = std::filesystem;
+        std::error_code ec;
+        auto read_dir = [&](const std::string& path, std::vector<CopyListingEntry>& entries) {
+            std::string result = list(path);
+            if (result.rfind("ERROR", 0) == 0) { err = result; return false; }
+            if (!parse_copy_listing(result, entries)) {
+                err = "ERROR invalid directory listing: " + path;
+                return false;
+            }
+            return true;
+        };
+        std::function<bool(const CopyOperand&, const std::string&, unsigned)> remote_tree;
+        remote_tree = [&](const CopyOperand& dir, const std::string& relative, unsigned depth) {
+            if (depth > 16) { err = "ERROR recursion depth exceeds 16: " + dir.path; return false; }
+            std::vector<CopyListingEntry> entries;
+            if (!read_dir(dir.path, entries)) return false;
+            for (const auto& entry : entries) {
+                CopyOperand child{true, dir.peer, (fs::path(dir.path) / entry.name).generic_string()};
+                std::string rel = (fs::path(relative) / entry.name).generic_string();
+                if (entry.type == "dir") {
+                    if (!remote_tree(child, rel, depth + 1)) return false;
+                } else files.push_back({child, rel, entry.metadata});
+            }
+            return true;
+        };
+        auto expand = [&](const CopyOperand& source, bool is_dir,
+                          const std::string& relative, const CopyMetadata& metadata) {
+            if (!is_dir) { files.push_back({source, relative, metadata}); return true; }
+            if (!recursive) { err = "ERROR " + source.path + " is a directory (use -r)"; return false; }
+            if (source.remote) return remote_tree(source, relative, 0);
+            for (fs::recursive_directory_iterator it(source.path, ec), end; it != end && !ec;
+                 it.increment(ec)) {
+                bool regular = it->is_regular_file(ec);
+                if (ec) break;
+                if (!regular) continue;
+                // Lexical mapping preserves symlink names; do not canonicalize
+                // a file symlink outside the tree into a ../ destination.
+                auto rel = it->path().lexically_relative(fs::path(source.path));
+                files.push_back({{false, "", it->path().string()},
+                    (fs::path(relative) / rel).generic_string(), copy_local_metadata(it->path().string())});
+            }
+            if (ec) { err = "ERROR reading " + source.path + ": " + ec.message(); return false; }
+            return true;
+        };
+
+        fs::path path(src.remote ? copy_remote_path(src.path) : src.path);
+        while (path.has_relative_path() && path.filename().empty() &&
+               !(copy_drive_path(path.generic_string()) && path.generic_string().size() == 3))
+            path = path.parent_path();
+        CopyOperand root{src.remote, src.peer, path.generic_string()};
+        bool glob = src.path.find_first_of("*?") != std::string::npos;
+        fs::path parent = copy_parent(path);
+        if (src.remote) {
+            // Direct get already requires an absolute or home-rooted path.
+            // Relative file_ls paths cannot identify subdirectories reliably.
+            if (!copy_remote_rooted(root.path)) {
+                err = "ERROR remote source requires an absolute or ~/ path";
+                return false;
+            }
+            std::vector<CopyListingEntry> entries;
+            bool listed = read_dir(parent.generic_string(), entries);
+            bool matched = false;
+            if (listed) for (const auto& entry : entries) {
+                if (glob ? glob_match(path.filename().string(), entry.name)
+                         : entry.name == path.filename().string()) {
+                    matched = true;
+                    CopyOperand source{true, src.peer, (parent / entry.name).generic_string()};
+                    if (!expand(source, entry.type == "dir", glob ? entry.name : "", entry.metadata))
+                        return false;
+                }
+            }
+            if (glob) {
+                if (!listed) return false;
+                if (!matched) { err = "ERROR no matches for " + src.path; return false; }
+            } else if (!matched) {
+                // Root directories and parents outside copy_scope cannot be
+                // identified via their parent. Probe the source itself.
+                bool is_dir = read_dir(root.path, entries);
+                if (!expand(root, is_dir, "", {})) return false;
+            }
+        } else if (glob) {
+            bool matched = false;
+            for (fs::directory_iterator it(parent, ec), end; it != end && !ec; it.increment(ec)) {
+                if (!glob_match(path.filename().string(), it->path().filename().string())) continue;
+                matched = true;
+                bool is_dir = it->is_directory(ec);
+                if (ec) break;
+                if (!expand({false, "", it->path().string()}, is_dir, it->path().filename().string(),
+                            copy_local_metadata(it->path().string()))) return false;
+            }
+            if (ec) { err = "ERROR reading " + parent.string() + ": " + ec.message(); return false; }
+            if (!matched) { err = "ERROR no matches for " + src.path; return false; }
+        } else {
+            bool is_dir = fs::is_directory(path, ec);
+            if (!expand(root, is_dir, "", copy_local_metadata(root.path))) return false;
+        }
+        err.clear();
+        return true;
+    }
+
+    // Top-level bs cp driver: parses operands, expands globs, applies
+    // --update/--overwrite/-r, prints DONE per file + summary, returns
+    // "OK copied=N skipped=M bytes=B" or the first ERROR.
+    std::string file_copy(const std::string& src_text, const std::string& dst_text,
+                          bool recursive, bool update, bool overwrite,
+                          bool dry_run, bool verbose) {
+        namespace fs = std::filesystem;
+        CopyOperand src, dst;
+        std::string err;
+        if (!parse_copy_operand(src_text, src, err))
+            return "ERROR src: " + err;
+        if (!parse_copy_operand(dst_text, dst, err))
+            return "ERROR dst: " + err;
+        if (!src.remote && !dst.remote)
+            return "ERROR both operands are local — use plain cp";
+        if (dst.remote) dst.path = copy_remote_path(dst.path);
+        std::vector<CopyFile> sources;
+        if (!expand_copy_sources(src, recursive,
+                [&](const std::string& dir) { return file_ls(src.peer, dir); }, sources, err))
+            return err;
+
+        // Cache each destination parent listing for this invocation. Missing or
+        // malformed metadata must never turn into an update skip.
+        std::map<std::string, std::vector<CopyListingEntry>> dest_listings;
+        auto remote_entry = [&](const std::string& name) -> CopyListingEntry {
+            fs::path path(name);
+            while (path.has_relative_path() && path.filename().empty()) path = path.parent_path();
+            // file_ls anchors relative requests at the remote home/receive_dir,
+            // so those listings cannot safely describe a direct-copy target.
+            if (!copy_remote_rooted(name)) return {};
+            std::string parent = copy_parent(path);
+            auto [it, inserted] = dest_listings.try_emplace(parent);
+            if (inserted && !parse_copy_listing(file_ls(dst.peer, parent), it->second))
+                it->second.clear();
+            for (const auto& entry : it->second)
+                if (entry.name == path.filename().string()) return entry;
+            return {};
+        };
+        bool dest_dir = dst.path.back() == '/' || dst.path.back() == '\\';
+        if (!dest_dir) {
+            std::error_code ec;
+            dest_dir = dst.remote ? (dst.path == "~" || remote_entry(dst.path).type == "dir")
+                                 : fs::is_directory(fs::path(dst.path), ec);
+        }
+        uint64_t total_bytes = 0;
+        size_t copied = 0, skipped = 0, failed = 0;
+        for (const auto& file : sources) {
+            const auto& s = file.source;
+            std::string d = dst.path;
+            if (!file.relative_path.empty())
+                d = (fs::path(d) / file.relative_path).generic_string();
+            else if (dest_dir)
+                d = (fs::path(d) / fs::path(s.path).filename()).generic_string();
+            if (update && !overwrite) {
+                CopyMetadata dest_metadata = dst.remote ? remote_entry(d).metadata
+                                                        : copy_local_metadata(d);
+                if (copy_update_skip(file.metadata, dest_metadata, update, overwrite)) {
+                    if (verbose) std::cout << "SKIP " << s.path << " -> " << d << "\n";
+                    ++skipped;
+                    continue;
+                }
+            }
+            if (dry_run) {
+                std::cout << "would copy " << s.path << " -> " << d << "\n";
+                ++skipped;
+                continue;
+            }
+            CopyOperand dop{dst.remote, dst.peer, d};
+            // Update refreshes changed files through the existing overwrite
+            // mechanism; default copies retain the fail-loud collision policy.
+            std::string result = copy_single(s, dop, overwrite || update, verbose);
+            if (result.rfind("ERROR", 0) == 0) {
+                ++failed;
+                std::cout << result << "\n";
+                continue;
+            }
+            // Parse "DONE <bytes> <sha256> <path>" or "OK sent ...".
+            if (result.rfind("DONE ", 0) == 0) {
+                std::istringstream iss(result.substr(5));
+                uint64_t b = 0; std::string sha, path;
+                iss >> b >> sha >> path;
+                total_bytes += b;
+                std::cout << "DONE " << b << " " << sha << " " << path << "\n";
+            } else {
+                // OK sent ... dest_abs=... — extract bytes for the summary.
+                auto bp = result.find(" bytes");
+                if (bp != std::string::npos && bp >= 1) {
+                    size_t num_start = result.rfind(' ', bp);
+                    if (num_start != std::string::npos)
+                        total_bytes += std::strtoull(
+                            result.substr(num_start + 1, bp - num_start - 1).c_str(),
+                            nullptr, 10);
+                }
+                std::cout << result << "\n";
+            }
+            ++copied;
+        }
+        if (failed > 0)
+            return "ERROR " + std::to_string(failed) + " of " +
+                   std::to_string(sources.size()) + " transfers failed";
+        return "OK copied=" + std::to_string(copied) + " skipped=" +
+               std::to_string(skipped) + " bytes=" + std::to_string(total_bytes);
+    }
+
+    // Directory listing over the mesh (mode 2). Returns the JSON array or ERROR.
+    std::string file_ls(const std::string& peer_name, const std::string& dir) {
+        std::string addr = find_peer_addr(peer_name);
+        if (addr.empty()) return "ERROR peer not found: " + peer_name;
+        std::string expected_pubkey = trusted_peer_pubkey(config_, peer_name);
+        auto sc = connect_and_hello(addr, expected_pubkey);
+        if (!sc.ssl || sc.sfd == INVALID_SOCKET) {
+            std::string detail = sc.fail_detail.empty()
+                ? connect_fail_string(sc.fail) : sc.fail_detail;
+            return "ERROR failed to connect to " + peer_name + ": " + detail;
+        }
+        if (!version_has_cap(sc.hello.version, kCapFcp)) {
+            return "ERROR peer " + peer_name + " lacks +fcp (upgrade to 26.09.15 for bs file ls)";
+        }
+        // Reuse the recv transport, but stop at the FileAck carrying the JSON.
+        struct SslCloseGuard {
+            SslPtr* ssl; SOCKET* sfd;
+            ~SslCloseGuard() { if (*sfd != INVALID_SOCKET) { ssl_close(ssl->get(), *sfd); *sfd = INVALID_SOCKET; } }
+        } guard{&sc.ssl, &sc.sfd};
+        try {
+            FileRequestMsg req;
+            req.path = dir.empty() ? "." : dir;
+            req.mode = 2;
+            write_frame(sc.ssl.get(), req, CONTROL_STREAM_ID);
+            auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+            while (std::chrono::steady_clock::now() < deadline) {
+                if (SSL_pending(sc.ssl.get()) <= 0) {
+                    bs_pollfd pfd{sc.sfd, POLLIN, 0};
+                    if (bs_poll(&pfd, 1, 2000) <= 0) continue;
+                }
+                Message resp = read_frame(sc.ssl.get());
+                if (std::holds_alternative<FileAckMsg>(resp)) {
+                    auto& ack = std::get<FileAckMsg>(resp);
+                    if (ack.error) return "ERROR remote: " + ack.error_msg;
+                    return ack.error_msg;  // JSON array
+                }
+                if (std::holds_alternative<PingMsg>(resp)) {
+                    write_frame(sc.ssl.get(), PongMsg{}, CONTROL_STREAM_ID);
+                    continue;
+                }
+            }
+            return "ERROR timeout waiting for listing";
+        } catch (const std::exception& e) {
+            return "ERROR listing: " + std::string(e.what());
+        }
+    }
+
+
     // ── CLI: capture_video ────────────────────────────────────────
     // Use a dedicated direct TLS connection. The old daemon-IPC path only
     // checked for a peer connection and then captured on the local machine.

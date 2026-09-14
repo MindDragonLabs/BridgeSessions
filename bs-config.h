@@ -92,6 +92,12 @@ struct MeshConfig {
     bool allow_sensitive_paths = false;
     // scp --dest may target $HOME / temp. Default is receive_dir only.
     bool dest_allow_home = false;
+    // bs cp scope (v26.09.15). "anywhere" (default): direct copies may read
+    // any path and write any dest the daemon user can access — matches the
+    // shell capability an authorized pinned peer already has, minus
+    // sensitive-mesh secrets. "receive_dir": restores mailbox-only semantics
+    // for bs cp too (reads + writes confined to the receive dir).
+    std::string copy_scope = "anywhere";
     std::vector<PeerEntry> seeds;
     std::vector<PeerEntry> discovered;
     std::string authorized_keys_path = "~/.bridgesessions/authorized_keys";
@@ -347,6 +353,12 @@ void write_peer_line(std::ostream& os, const std::string& prefix, const PeerEntr
             std::string_view t = trim(val);
             cfg.dest_allow_home =
                 (t == "true" || t == "1" || t == "yes" || t == "on");
+        } else if (key_str == "file.copy_scope") {
+            std::string_view t = trim(val);
+            // Accept the two documented values; anything else keeps the safe
+            // default rather than guessing intent.
+            if (t == "anywhere" || t == "receive_dir")
+                cfg.copy_scope = std::string(t);
         }
         // ── transport.<key> (D15 WebRTC) ─────────────────────
         else if (key_str == "transport.webrtc_enabled") {
@@ -1780,6 +1792,7 @@ struct ResolvedSessionCommand {
     f << "transfer.allow_sensitive_paths "
       << (cfg.allow_sensitive_paths ? "true" : "false") << "\n";
     f << "file.dest_allow_home " << (cfg.dest_allow_home ? "true" : "false") << "\n";
+    f << "file.copy_scope " << cfg.copy_scope << "\n";
     f << "transport.webrtc_enabled " << (cfg.webrtc_enabled ? "true" : "false") << "\n";
     f << "dht.enabled " << (cfg.dht_enabled ? "true" : "false") << "\n";
     f << "upnp.enabled " << (cfg.upnp_enabled ? "true" : "false") << "\n";

@@ -2,6 +2,33 @@
 
 Notable user-visible changes. Git history contains implementation-level detail.
 
+## 26.09.15
+
+### Added
+
+- **`bs cp` copies files directly between hosts.** Use `peer:path` and local
+  paths to push or pull without receive-directory staging. Existing destinations
+  fail loud instead of gaining a `.1` suffix; `--overwrite` replaces them.
+  Copies preserve mtime in both directions and expand globs on the source host.
+  Remote-to-remote copies relay through the local node.
+
+- **Recursive and repeat copies.** `-r` / `--recursive` copies directory trees;
+  `--update` skips files with matching size and mtime (within 2 seconds) and
+  replaces changed files. `--dry-run` previews the copy; `-v` / `--verbose`
+  adds per-file progress.
+
+- **`bs file ls <peer>:<dir>` lists a peer directory as JSON**, with name,
+  size, mtime, and type for each entry.
+
+- **The `+fcp` capability gates direct copy and directory listing.** Request
+  modes and source-mtime/direct metadata use optional trailing wire fields;
+  legacy frames remain byte-identical and `file send` / `file recv` retain
+  their staging-based behavior.
+
+- **`file.copy_scope` controls direct-path access.** The default `anywhere`
+  mirrors the host access already available through `bs shell`; `receive_dir`
+  confines direct reads, writes, and directory listings to the configured inbox.
+
 ## 26.09.14-r1
 
 ### Fixed

@@ -23,6 +23,12 @@ public:
         uint32_t total_chunks = 0;
         uint32_t received_chunks = 0;
         size_t chunk_raw_size = kTransferChunkRawSizeDefault;
+        // v26.09.15: source mtime to restore on the destination after the
+        // atomic rename (bs cp preserves timestamps). 0 = leave as-is.
+        uint64_t src_mtime_unix = 0;
+        // v26.09.15: bs cp direct write — completion ack reports dest_abs=
+        // instead of the receive-dir-relative path=.
+        bool direct = false;
         std::ofstream file;
         // Fresh transfers hash incrementally as chunks arrive, avoiding an
         // O(file-size) verification pass on the single-threaded event loop.

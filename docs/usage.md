@@ -30,7 +30,51 @@ Resolve names with `bs peers list`. Do not guess. Ambiguous names return suggest
 
 `bs shell` to the local node name fails at once. The tool does not remap a digit suffix to a sibling name.
 
+## Copying files between hosts (`bs cp`)
+
+`bs cp <src> <dst>` writes directly to the destination without receive-directory
+staging. Use `peer:path` for a remote operand and a local path for the other;
+use absolute or `~/` paths on peers. With two remote operands, the copy relays
+through the local node. The command waits for completion automatically.
+
+```bash
+# Push matching reports into a directory on the server.
+bs cp './reports/*.pdf' server:/srv/reports/
+
+# Pull a file into a local directory.
+bs cp 'laptop:~/Documents/statement.pdf' ./statements/
+
+# Copy a directory tree; repeat to skip unchanged files and replace changed ones.
+bs cp --recursive --update ./reports/ server:/srv/reports/
+
+# Preview a remote glob without transferring files.
+bs cp --dry-run 'laptop:~/Documents/*.pdf' ./statements/
+
+# Relay a file between peers through this machine.
+bs cp server:/srv/reports/summary.pdf 'laptop:~/Documents/summary.pdf'
+
+# List a peer directory as JSON (name, size, mtime, type).
+bs file ls server:/srv/reports/
+```
+
+Quote globs so the local shell leaves them for `bs cp`; they expand on the host
+that owns the source path. A trailing `/` makes a destination a directory.
+Copies preserve file mtime in both directions and verify SHA-256 at completion.
+
+Existing destinations fail with an error by default; files never gain a silent
+`.1` suffix. Use `--overwrite` to replace them. `--update` skips files whose size
+and mtime match (within 2 seconds) and replaces changed files; it does not delete
+destination-only files. `--overwrite` takes precedence over update skipping.
+Use `-v` / `--verbose` for per-file progress. Pulls report
+`DONE <bytes> <sha256> <final-absolute-path>`; push acknowledgements include
+`dest_abs=`. The final summary is `OK copied=N skipped=M bytes=B`.
+
+Peers need the `+fcp` capability (26.09.15 or later). Direct access follows
+[`file.copy_scope`](configuration.md#files-and-inbox), defaulting to `anywhere`.
+
 ## Files
+
+`bs file send` / `bs file recv` remain the staging-based legacy verbs.
 
 ```bash
 bs file send <peer> <local> --wait

@@ -21,6 +21,7 @@ receive_retention_hours 24
 transfer.max_bytes 8589934592
 transfer.allow_sensitive_paths false
 file.dest_allow_home false
+file.copy_scope anywhere
 ```
 
 The addresses above are documentation-only. Use addresses that belong to your network.
@@ -44,6 +45,7 @@ The addresses above are documentation-only. Use addresses that belong to your ne
 | `transfer.max_bytes` | Per-file limit |
 | `transfer.allow_sensitive_paths` | Arbitrary path access. High risk. |
 | `file.dest_allow_home` | Allow `--dest` outside the receive dir (`~`, `/tmp`) |
+| `file.copy_scope` | Direct copy/list scope: `anywhere` (default) or `receive_dir` |
 
 ## Bind rules
 
@@ -59,8 +61,25 @@ The CLI talks to the local daemon on loopback port **19980**. The channel uses a
 
 ## Files and inbox
 
-`receive_dir` is the inbox. Bridge Panel lists that directory by default. Remote `bs file` serving stays inside this root unless you set `transfer.allow_sensitive_paths`. That flag removes a major safeguard.
+`receive_dir` is the inbox. Bridge Panel lists that directory by default. Legacy `bs file recv` serving stays inside this root unless you set `transfer.allow_sensitive_paths`. That flag removes a major safeguard.
 
-The inbox is a **staging area**. Every received file is also written to the caller's destination, so a copy left behind doubles the disk cost of that transfer. `receive_retention_hours` (default 24) expires it. Partial transfers (`.part`, `.part.bsmeta`) are never removed, so a slow transfer cannot be interrupted by housekeeping.
+`file.copy_scope` controls the paths a peer daemon accepts for `bs cp` and
+`bs file ls`:
+
+- `anywhere` (default): direct reads, writes, and listings may use paths outside
+  `receive_dir`, including absolute and `~/` paths. File permissions and the
+  existing sensitive-path checks still apply.
+- `receive_dir`: confines direct source reads, destination writes, and directory
+  listings to that daemon's configured `receive_dir`, including checks against
+  symlink escapes. Set it on each peer that should restrict direct file access.
+
+Direct copies write to the requested destination without inbox staging.
+`file.copy_scope` leaves the legacy `file send` / `file recv` staging rules
+unchanged. Security follows the existing shell trust model: an authorized pinned
+peer can already read and write files through `bs shell` as the daemon's user.
+The default `anywhere` mirrors that access; `receive_dir` confines these file
+operations but does not restrict shell access.
+
+The inbox is a **staging area** for legacy transfers. A staged copy left behind after writing the caller's destination doubles the disk cost of that transfer. `receive_retention_hours` (default 24) expires it. Partial transfers (`.part`, `.part.bsmeta`) are never removed, so a slow transfer cannot be interrupted by housekeeping.
 
 See [`config.example`](https://github.com/MindDragonLabs/BridgeSessions/blob/main/config.example).
