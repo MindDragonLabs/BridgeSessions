@@ -604,7 +604,7 @@ public:
                          extra.str(), c.peer_pubkey);
                 }
                 auto seed_emit = [&](const PeerEntry& p) {
-                    if (p.name.empty() || has_conn_for_addr(p.addr)) return;
+                    if (p.name.empty() || has_conn_for_seed(p)) return;
                     std::ostringstream extra;
                     extra << "\"dial_health\":\"" << seed_dial_health(p.addr, now) << "\"";
                     emit(p.name, p.addr, "offline", extra.str(), p.pubkey_hex);
@@ -692,12 +692,12 @@ public:
                 // B2: configured seeds/discovered peers with no live conn — surface
                 // dial health so operators can see backoff/cooldown without logs.
                 for (const auto& s : config_.seeds) {
-                    if (s.name.empty() || has_conn_for_addr(s.addr)) continue;
+                    if (s.name.empty() || has_conn_for_seed(s)) continue;
                     out << s.name << " " << s.addr
                         << " state=offline dial_health=" << seed_dial_health(s.addr, now) << "\n";
                 }
                 for (const auto& d : config_.discovered) {
-                    if (d.name.empty() || has_conn_for_addr(d.addr)) continue;
+                    if (d.name.empty() || has_conn_for_seed(d)) continue;
                     out << d.name << " " << d.addr
                         << " state=offline dial_health=" << seed_dial_health(d.addr, now) << "\n";
                 }
@@ -3918,9 +3918,11 @@ public:
                 std::cout << "DONE " << b << " " << sha << " " << path << "\n";
             } else {
                 // OK sent ... dest_abs=... — extract bytes for the summary.
+                // "<N> bytes" — search left of the token, not its own leading
+                // space (rfind(' ', bp) matched that space and always parsed 0).
                 auto bp = result.find(" bytes");
                 if (bp != std::string::npos && bp >= 1) {
-                    size_t num_start = result.rfind(' ', bp);
+                    size_t num_start = result.rfind(' ', bp - 1);
                     if (num_start != std::string::npos)
                         total_bytes += std::strtoull(
                             result.substr(num_start + 1, bp - num_start - 1).c_str(),
@@ -3962,7 +3964,17 @@ public:
             req.mode = 2;
             write_frame(sc.ssl.get(), req, CONTROL_STREAM_ID);
             auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
-            while (std::chrono::steady_clock::now() < deadline) {
+            // v26.09.16 chunked listings (#34): a large directory cannot fit
+            // one FileAck (error_msg is u16-prefixed). New servers stream the
+            // JSON array as slices: chunk_index sequences them and
+            // next_requested=1 means "more follows". Concatenating payloads
+            // in order rebuilds the array; a sequence gap or premature end
+            // is an error, never a silent truncation. Legacy servers still
+            // send one chunk-0/more-0 frame.
+            std::string json;
+            uint32_t expect_seq = 0;
+            bool complete = false;
+            while (!complete && std::chrono::steady_clock::now() < deadline) {
                 if (SSL_pending(sc.ssl.get()) <= 0) {
                     bs_pollfd pfd{sc.sfd, POLLIN, 0};
                     if (bs_poll(&pfd, 1, 2000) <= 0) continue;
@@ -3971,14 +3983,23 @@ public:
                 if (std::holds_alternative<FileAckMsg>(resp)) {
                     auto& ack = std::get<FileAckMsg>(resp);
                     if (ack.error) return "ERROR remote: " + ack.error_msg;
-                    return ack.error_msg;  // JSON array
-                }
-                if (std::holds_alternative<PingMsg>(resp)) {
+                    if (ack.chunk_index != expect_seq)
+                        return "ERROR listing: dropped or out-of-order chunk "
+                               "(" + std::to_string(ack.chunk_index) +
+                               " != " + std::to_string(expect_seq) + ")";
+                    if (ack.error_msg.size() > MAX_FRAME_PAYLOAD_U16)
+                        return "ERROR listing: chunk exceeds codec cap";
+                    json += ack.error_msg;
+                    ++expect_seq;
+                    if (ack.next_requested == 0) complete = true;
+                } else if (std::holds_alternative<PingMsg>(resp)) {
                     write_frame(sc.ssl.get(), PongMsg{}, CONTROL_STREAM_ID);
-                    continue;
                 }
             }
-            return "ERROR timeout waiting for listing";
+            if (!complete)
+                return "ERROR timeout waiting for listing"
+                       " (incomplete after " + std::to_string(expect_seq) + " chunks)";
+            return json;
         } catch (const std::exception& e) {
             return "ERROR listing: " + std::string(e.what());
         }

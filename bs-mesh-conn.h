@@ -610,6 +610,17 @@ private:
         return false;
     }
 
+    // Seed/discovered entries must also be matched by pubkey: an inbound
+    // connection records the peer's EPHEMERAL source port as peer_addr,
+    // which never matches the seed's listen addr. Without the pubkey match
+    // the PEERS/FLEET listings report an actually-connected peer as
+    // "offline" (stale-label bug, 26.09.15 rollout).
+    bool has_conn_for_seed(const PeerEntry& p) const {
+        if (has_conn_for_addr(p.addr)) return true;
+        if (!p.pubkey_hex.empty() && has_conn_for_pubkey(p.pubkey_hex)) return true;
+        return false;
+    }
+
     static std::string ascii_lower(std::string s) {
         for (char& ch : s) {
             if (ch >= 'A' && ch <= 'Z') ch = static_cast<char>(ch + 32);

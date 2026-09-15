@@ -364,3 +364,68 @@ TEST_CASE("cp: remote Windows trees use the remote path syntax", "[cp][recursive
     CHECK(files[0].source.path == "C:/src/file.txt");
     CHECK(files[0].relative_path == "file.txt");
 }
+
+// ── v26.09.16: chunked listings (#34) + push summary bytes (#35) ──
+
+TEST_CASE("fcp: chunked listing frames round-trip with seq + more flags", "[fcp][codec][chunk]") {
+    FileAckMsg chunk;
+    chunk.chunk_index = 1;
+    chunk.next_requested = 1;
+    chunk.error = false;
+    chunk.error_msg = R"({"name":"a.pdf","size":1,"mtime":2,"type":"file"})";
+    auto decoded = decode(encode(Message{chunk}, 0));
+    REQUIRE(std::holds_alternative<FileAckMsg>(decoded));
+    auto& m = std::get<FileAckMsg>(decoded);
+    CHECK(m.chunk_index == 1);
+    CHECK(m.next_requested == 1);
+    CHECK_FALSE(m.error);
+    CHECK(m.error_msg == chunk.error_msg);
+}
+
+TEST_CASE("fcp: legacy single-frame listing decodes as chunk 0 no-more", "[fcp][codec][chunk]") {
+    FileAckMsg legacy;
+    legacy.error = false;
+    legacy.error_msg = "[{\"name\":\"x\",\"type\":\"dir\"}]";
+    auto decoded = decode(encode(Message{legacy}, 0));
+    auto& m = std::get<FileAckMsg>(decoded);
+    CHECK(m.chunk_index == 0);
+    CHECK(m.next_requested == 0);
+    CHECK(m.error_msg.front() == '[');
+}
+
+TEST_CASE("fcp: chunk frame near the u16 cap still encodes", "[fcp][codec][chunk]") {
+    // 60000-byte payload must encode (the old code threw "prefixed string
+    // exceeds 65535 bytes" for listings over the cap).
+    std::string big(60000, 'x');
+    FileAckMsg chunk;
+    chunk.error = false;
+    chunk.error_msg = big;
+    auto bytes = encode(Message{chunk}, 0);
+    CHECK(bytes.size() > 60000);
+    auto decoded = decode(bytes);
+    auto& m = std::get<FileAckMsg>(decoded);
+    CHECK(m.error_msg.size() == 60000);
+}
+
+TEST_CASE("cp: concatenated chunk payloads rebuild the listing JSON", "[cp][chunk]") {
+    std::string c0 = R"([{"name":"a","type":"file"},)";
+    std::string c1 = R"({"name":"b","type":"file"}])";
+    std::vector<MeshController::CopyListingEntry> entries;
+    REQUIRE(MeshController::parse_copy_listing(c0 + c1.substr(1), entries));
+    REQUIRE(entries.size() == 2);
+    CHECK(entries[0].name == "a");
+    CHECK(entries[1].name == "b");
+}
+
+TEST_CASE("cp: push summary parses bytes from OK-sent line", "[cp][summary]") {
+    // Regression for #35: "OK sent f.txt 11 bytes ..." must count 11 bytes,
+    // not 0. The old rfind(' ', bp) matched the space of " bytes" itself.
+    const std::string line = "OK sent f.txt 11 bytes sha256:deadbeef dest_abs=/tmp/x";
+    auto bp = line.find(" bytes");
+    REQUIRE(bp != std::string::npos);
+    size_t num_start = line.rfind(' ', bp - 1);
+    REQUIRE(num_start != std::string::npos);
+    uint64_t parsed = std::strtoull(
+        line.substr(num_start + 1, bp - num_start - 1).c_str(), nullptr, 10);
+    CHECK(parsed == 11);
+}
