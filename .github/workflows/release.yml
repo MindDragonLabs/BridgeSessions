@@ -165,13 +165,15 @@ jobs:
             -o "dist/bridgesessions-${v}-source.tar.gz" HEAD
           git archive --format=zip --prefix="bridgesessions-${v}/" \
             -o "dist/bridgesessions-${v}-source.zip" HEAD
-      - name: SBOM
-        run: bash scripts/release-checksums.sh --sbom dist/SBOM-binaries.json || true
-      - name: Checksums
-        run: |
-          cd dist
-          sha256sum ./* | sed 's#\./##' | sort -k2 > SHA256SUMS
-          cat SHA256SUMS
+      - name: Checksums and SBOM
+        # release-checksums.sh validates every artifact's embedded version,
+        # writes SHA256SUMS (artifacts + SBOM hash; never itself), and the
+        # CycloneDX SBOM, then re-verifies with sha256sum -c. The old inline
+        # "Checksums" step overwrote this file with `sha256sum ./* > SHA256SUMS`,
+        # which truncated SHA256SUMS before reading it (self-line hashed empty)
+        # and included no post-write verification. No || true — a bad artifact
+        # set must fail the publish, not ship.
+        run: bash scripts/release-checksums.sh --sbom dist/SBOM-binaries.json
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
