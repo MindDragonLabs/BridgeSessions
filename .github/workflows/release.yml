@@ -178,7 +178,17 @@ jobs:
         run: |
           set -euo pipefail
           tag="${{ needs.guard.outputs.tag }}"
-          gh release create "$tag" dist/* \
-            --repo "$GITHUB_REPOSITORY" \
-            --title "BridgeSessions ${{ needs.guard.outputs.version }}" \
-            --generate-notes
+          # Idempotent publish: if the release already exists (e.g. it was
+          # created manually first, or the workflow is re-run), upload-or-
+          # replace assets instead of failing on the duplicate tag.
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "release $tag already exists — uploading assets with --clobber"
+            gh release upload "$tag" dist/* \
+              --repo "$GITHUB_REPOSITORY" \
+              --clobber
+          else
+            gh release create "$tag" dist/* \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "BridgeSessions ${{ needs.guard.outputs.version }}" \
+              --generate-notes
+          fi

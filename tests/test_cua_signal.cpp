@@ -68,22 +68,29 @@ TEST_CASE("Interactive Ctrl-C delivers SIGINT to child, session survives",
     MeshController mc(cfg);
 
     std::string sentinel = "/tmp/bs_cua_sigint_" + std::to_string(getpid()) + ".sent";
+    std::string ready    = "/tmp/bs_cua_sigint_" + std::to_string(getpid()) + ".ready";
     std::remove(sentinel.c_str());
+    std::remove(ready.c_str());
     // Child installs a SIGINT trap that writes a sentinel file, then keeps running.
-    std::string cmd = "bash -lc 'trap \"touch " + sentinel + "\" INT; sleep 30'";
+    // It first writes a `ready` file so the test never sends Ctrl-C before the
+    // trap is installed — a fixed 300ms sleep raced bash startup under CI load
+    // (bash died instead of trapping). Also use `bash -c`, not `bash -lc`,
+    // to skip login-profile loading entirely.
+    std::string cmd = "bash -c 'trap \"touch " + sentinel + "\" INT; touch " + ready + "; sleep 30'";
 
     auto* s = mc.sessions().attach("cua-sigint", cmd, 80, 24, "xterm-256color");
     REQUIRE(s != nullptr);
     REQUIRE(s->is_valid());
     REQUIRE(s->child_pid > 0);
 
-    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+    // Wait until the child signals readiness (trap installed) — no fixed sleep.
+    REQUIRE(wait_for_file(ready, 10000));
 
     // Forward the literal Ctrl-C byte the way the interactive loop would.
     REQUIRE(mc.write_pty_input(*s, "\x03", 1));
 
     // The child must have received SIGINT (sentinel written).
-    REQUIRE(wait_for_file(sentinel, 3000));
+    REQUIRE(wait_for_file(sentinel, 10000));
 
     // Session must still be alive (not Died) and child still running.
     REQUIRE(s->state != SessionState::Died);
