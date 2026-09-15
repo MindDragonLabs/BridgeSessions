@@ -116,17 +116,23 @@ TEST_CASE("Detach signal is delivered to child on last-peer detach",
     // sleep + wait keeps the shell in a builtin so a TERM trap runs.
     std::string sentinel = "/tmp/bs_cua_term_" + std::to_string(getpid()) + ".sent";
     std::remove(sentinel.c_str());
-    std::string cmd = "trap 'touch " + sentinel + "' TERM; sleep 300 & wait";
+    // Ready file proves the trap is INSTALLED before we detach+signal.
+    // A fixed sleep raced the shell startup on slow/loaded machines.
+    std::string ready = "/tmp/bs_cua_term_" + std::to_string(getpid()) + ".ready";
+    std::remove(ready.c_str());
+    std::string cmd = "trap 'touch " + sentinel + "' TERM; touch " + ready +
+                      "; sleep 300 & wait";
 
     auto* s = mc.sessions().attach("cua-detach", cmd, 80, 24, "xterm-256color");
     REQUIRE(s != nullptr);
     REQUIRE(s->is_valid());
     REQUIRE(s->child_pid > 0);
 
+    // Wait for the shell to install the trap — no fixed sleep.
+    REQUIRE(wait_for_file(ready, 10000));
+
     // Simulate the attaching peer requesting TERM on detach.
     s->detach_signal = "TERM";
-
-    std::this_thread::sleep_for(std::chrono::milliseconds(300));
 
     // Last peer detaches (empty peer_pubkey clears all attached peers).
     mc.sessions().detach("cua-detach", "");

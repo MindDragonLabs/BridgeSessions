@@ -3918,9 +3918,10 @@ public:
                 std::cout << "DONE " << b << " " << sha << " " << path << "\n";
             } else {
                 // OK sent ... dest_abs=... — extract bytes for the summary.
-                // "<N> bytes" — search left of the token, not its own leading
-                // space (rfind(' ', bp) matched that space and always parsed 0).
-                auto bp = result.find(" bytes");
+                // Format: "OK sent <filename> <N> bytes sha256:..." (dest_abs=
+                // may follow). Anchor on the " bytes sha256:" pair — a
+                // filename like "100 bytes.txt" breaks a bare " bytes" match.
+                auto bp = result.find(" bytes sha256:");
                 if (bp != std::string::npos && bp >= 1) {
                     size_t num_start = result.rfind(' ', bp - 1);
                     if (num_start != std::string::npos)
@@ -3974,6 +3975,10 @@ public:
             std::string json;
             uint32_t expect_seq = 0;
             bool complete = false;
+            // Cap reassembled listing size: a directory with ~100k entries
+            // still fits, but a compromised peer cannot stream chunks forever
+            // and grow client memory without bound.
+            constexpr size_t kMaxListingBytes = 8u * 1024 * 1024;
             while (!complete && std::chrono::steady_clock::now() < deadline) {
                 if (SSL_pending(sc.ssl.get()) <= 0) {
                     bs_pollfd pfd{sc.sfd, POLLIN, 0};
@@ -3989,6 +3994,10 @@ public:
                                " != " + std::to_string(expect_seq) + ")";
                     if (ack.error_msg.size() > MAX_FRAME_PAYLOAD_U16)
                         return "ERROR listing: chunk exceeds codec cap";
+                    if (json.size() + ack.error_msg.size() > kMaxListingBytes)
+                        return "ERROR listing: exceeds " +
+                               std::to_string(kMaxListingBytes / (1024 * 1024)) +
+                               " MiB budget";
                     json += ack.error_msg;
                     ++expect_seq;
                     if (ack.next_requested == 0) complete = true;
