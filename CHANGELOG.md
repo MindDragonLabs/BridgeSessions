@@ -2,6 +2,21 @@
 
 Notable user-visible changes. Git history contains implementation-level detail.
 
+## 26.09.15-r1
+
+### Fixed
+
+- `bs file ls` no longer dies with a raw SSL error on large directories: listings
+  now stream as sequence-numbered `FileAck` chunks reassembled by the client
+  (#34), with an 8 MiB reassembly budget and out-of-order/truncation errors.
+- `bs cp` push summary reports the true byte total — the ` bytes sha256:` anchor
+  no longer trips on filenames containing the word "bytes" (#35).
+- Peer labels in `peers list` no longer stick at `offline` when a peer's inbound
+  connection uses an ephemeral source port; seed matching now also accepts the
+  peer's pinned pubkey.
+- Release re-publishes purge assets that are not part of the current build, so
+  SHA256SUMS/SBOM always cover exactly the published set.
+
 ## 26.09.15
 
 ### Added
