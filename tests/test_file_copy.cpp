@@ -395,23 +395,28 @@ TEST_CASE("fcp: legacy single-frame listing decodes as chunk 0 no-more", "[fcp][
 
 TEST_CASE("fcp: chunk frame near the u16 cap still encodes", "[fcp][codec][chunk]") {
     // 60000-byte payload must encode (the old code threw "prefixed string
-    // exceeds 65535 bytes" for listings over the cap).
+    // exceeds 65535 bytes" for listings over the cap). The frame codec may
+    // zstd-compress the payload, so do NOT assert on the wire size — only
+    // that the round-trip survives and preserves the full payload.
     std::string big(60000, 'x');
     FileAckMsg chunk;
     chunk.error = false;
     chunk.error_msg = big;
     auto bytes = encode(Message{chunk}, 0);
-    CHECK(bytes.size() > 60000);
+    CHECK_FALSE(bytes.empty());
     auto decoded = decode(bytes);
     auto& m = std::get<FileAckMsg>(decoded);
     CHECK(m.error_msg.size() == 60000);
 }
 
 TEST_CASE("cp: concatenated chunk payloads rebuild the listing JSON", "[cp][chunk]") {
-    std::string c0 = R"([{"name":"a","type":"file"},)";
-    std::string c1 = R"({"name":"b","type":"file"}])";
+    // The server frames the array as: first frame "[...entries", middle
+    // frames ",...entries", last frame "...,entries]". Concatenating the raw
+    // error_msg payloads in order rebuilds the JSON array.
+    std::string c0 = R"([{"name":"a","type":"file"})";
+    std::string c1 = R"(,{"name":"b","type":"file"}])";
     std::vector<MeshController::CopyListingEntry> entries;
-    REQUIRE(MeshController::parse_copy_listing(c0 + c1.substr(1), entries));
+    REQUIRE(MeshController::parse_copy_listing(c0 + c1, entries));
     REQUIRE(entries.size() == 2);
     CHECK(entries[0].name == "a");
     CHECK(entries[1].name == "b");
