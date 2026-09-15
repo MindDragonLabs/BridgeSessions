@@ -867,8 +867,8 @@
                 } catch (...) {}
                 return "ERROR refused sensitive path";
             }
-            std::string json = "[";
-            bool first = true;
+            std::string json;
+            std::vector<std::string> entries;
             std::error_code it_ec;
             for (fs::directory_iterator it(list_dir, it_ec), end; it != end && !it_ec; it.increment(it_ec)) {
                 std::error_code sec;
@@ -898,15 +898,46 @@
                         esc += buf;
                     } else esc += ch;
                 }
-                json += first ? "" : ",";
-                first = false;
-                json += "{\"name\":\"" + esc + "\",\"size\":" + std::to_string(size) +
-                        ",\"mtime\":" + std::to_string(mtime) + ",\"type\":\"" + type + "\"}";
+                entries.push_back("{\"name\":\"" + esc + "\",\"size\":" + std::to_string(size) +
+                        ",\"mtime\":" + std::to_string(mtime) + ",\"type\":\"" + type + "\"}");
             }
-            json += "]";
             // error=false carries the listing in error_msg (JSON array).
+            // Large listings do not fit one FileAck: error_msg is u16-prefixed
+            // (65535B hard codec cap) regardless of the +frm2 frame size, and
+            // a throw inside the worker surfaces as a misleading SSL read
+            // error on the client (#34). Pack entries into chunk frames
+            // instead: chunk_index sequences the slices and next_requested=1
+            // marks "more follows". Concatenating the frames' payloads in
+            // order reproduces the JSON array exactly; entry boundaries are
+            // cut on packed sizes, never by scanning for ",{" (a filename may
+            // contain that literal). Legacy servers still reply with one
+            // chunk-0/more-0 frame, which the client accepts unchanged.
             try {
-                write_frame(ssl, FileAckMsg{0, 0, false, json}, CONTROL_STREAM_ID, json.size() > 65535);
+                const size_t kChunkMax = 60000;
+                std::vector<std::string> parts;
+                std::string cur;
+                for (const auto& e : entries) {
+                    if (!cur.empty() && cur.size() + e.size() + 1 > kChunkMax) {
+                        parts.push_back(cur);
+                        cur.clear();
+                    }
+                    if (!cur.empty()) cur += ",";
+                    cur += e;
+                }
+                parts.push_back(cur); // final part (possibly empty dir)
+                uint32_t seq = 0;
+                for (size_t i = 0; i < parts.size(); ++i) {
+                    const bool more = (i + 1) < parts.size();
+                    std::string frame_json;
+                    frame_json.reserve(parts[i].size() + 4);
+                    if (i == 0) frame_json += "[";
+                    else frame_json += ",";
+                    frame_json += parts[i];
+                    if (!more) frame_json += "]";
+                    write_frame(ssl, FileAckMsg{seq, more ? 1u : 0u, false, frame_json},
+                                CONTROL_STREAM_ID);
+                    ++seq;
+                }
             } catch (const std::exception& e) {
                 return "ERROR send listing: " + std::string(e.what());
             }

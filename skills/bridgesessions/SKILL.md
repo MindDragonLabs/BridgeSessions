@@ -78,6 +78,9 @@ caller's own destination, so a leftover copy doubles the disk cost. Files older 
 `receive_retention_hours` (default 24, `0` disables) are removed by an hourly sweep.
 `.part` / `.part.bsmeta` files are never removed.
 
+The local **source** path in `file send` is resolved by the local daemon against its own
+cwd, not the invoking shell's — pass absolute local paths.
+
 ## Computer use
 
 ```bash
@@ -114,6 +117,9 @@ bs shell windows-peer --cmd 'powershell -NoProfile -Command "Get-Process | ForEa
 ```
 
 Prefer a `.ps1` file with `run-script` for multiline logic.
+
+Inside the PowerShell command, put `$env:...` paths in double quotes — PowerShell single
+quotes do not expand environment variables.
 
 ## Develop
 
@@ -183,6 +189,17 @@ gh api repos/$R/releases/tags/v$V --jq '.assets[] | "\(.name) \(.digest)"'
 git diff --stat v$V^{commit} origin/main      # tag vs main, authoritative
 ```
 
+## Fleet binary roll (manual upgrade of a peer)
+
+Sequence: **resolve install path → stage + verify SHA → pre-kill watchdogs → detached swap → service-manager restart → evidence gate**. Read the install path from the host (`systemctl cat` ExecStart on Linux; launchd plist on macOS; scheduled-task `Actions.Execute` on Windows) — a stale binary often sits next to the real one, and Windows install dirs differ per host (`%USERPROFILE%\bridgesessions\` on avirserver*/nunn-shadow-1, `%LOCALAPPDATA%\bridgesessions\` on shadow-ph2lmg3f).
+
+- Stage with `bs file send <peer> /absolute/local/path --dest 15/ --wait`; read back size + SHA-256 on the peer. The swap script must abort on missing file / hash mismatch **without stopping the daemon**. Old daemons may drop `--dest` subdirs at the receive root — read the `OK` line's `dest=`.
+- **Pre-kill upgrade watchdogs** (`pkill -f watchdog` or equivalent) before stopping the daemon. A stale watchdog from a failed `auto_upgrade` outlives its daemon, probes during the swap's unbound window (old stopped, new not yet bound), and silently reverts the binary — daemon cycles start→stop seconds apart, ends on the old version. Check `journalctl -u <unit>` before blaming the new binary.
+- Run the swap **detached from the `bs` transport** — stopping the daemon drops the carrying shell mid-run by design. Double-fork/`nohup` on systemd, WMI one-shot `.ps1` on Windows. The script: stop service → backup → install new binary → `--version` (new, BEFORE start) → start → assert active + **new pid owns the mesh port** (`ss -ltnp` / `netstat -ano`).
+- Windows scheduled tasks: `schtasks /End` kills the task's processes but the AtStartup trigger does not re-fire on /End — re-arm with `schtasks /Run`, and expect elevated orphan daemons to survive; a reboot is the proven clear. `$env:` paths need double quotes inside the `.ps1` (single quotes do not expand).
+- macOS: swap the app-bundle binary → `scripts/sign-local-stable.sh` (TCC persistence; ad-hoc signing loses Screen Recording/Accessibility every upgrade) → `launchctl kickstart -k`.
+- Evidence gate: new `--version` + SHA read-back on the peer, new pid on the port, then `bs health <peer>` from the operator. A `peers list` offline label can stay stale after that peer's daemon restarted — a live health check outranks the label.
+
 ## Common failure patterns
 
 | Symptom | Likely cause | Action |
@@ -194,6 +211,8 @@ git diff --stat v$V^{commit} origin/main      # tag vs main, authoritative
 | CUA auth error | duplicate/stale helper token | stop duplicate helpers; restart one helper + daemon |
 | macOS capture/input denied | TCC permissions | grant to signed install, restart helper |
 | daemon restart cuts command | control path depended on daemon | use systemd/launchd/Task Scheduler independently |
+| `peers list` says offline but `health`/shell work | peer-table label is stale after that daemon restarted | trust a live `bs health <peer>` over the label |
+| swapped binary silently reverts to the old version | stale upgrade-watchdog loop rolls back during the unbound swap window | pre-kill watchdog processes before the swap (see Fleet binary roll) |
 
 Two identical non-progressing failures: stop retrying and diagnose a different layer.
 

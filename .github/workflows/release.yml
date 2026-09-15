@@ -178,7 +178,29 @@ jobs:
         run: |
           set -euo pipefail
           tag="${{ needs.guard.outputs.tag }}"
-          gh release create "$tag" dist/* \
-            --repo "$GITHUB_REPOSITORY" \
-            --title "BridgeSessions ${{ needs.guard.outputs.version }}" \
-            --generate-notes
+          # Idempotent publish: if the release already exists (e.g. it was
+          # created manually first, or the workflow is re-run), upload-or-
+          # replace assets instead of failing on the duplicate tag.
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "release $tag already exists — removing stale assets, then uploading"
+            # Drop assets not in this run's dist/ so SHA256SUMS/SBOM always
+            # cover exactly the published set (no orphaned old artifacts).
+            comm -23 \
+              <(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets \
+                --jq '.[].name' | sort) \
+              <(cd dist && printf '%s\n' ./* | sed 's#^\./##' | sort) \
+              | while IFS= read -r stale; do
+                  [ -n "$stale" ] || continue
+                  echo "deleting stale asset: $stale"
+                  gh release delete-asset "$tag" "$stale" \
+                    --repo "$GITHUB_REPOSITORY" --yes || true
+                done
+            gh release upload "$tag" dist/* \
+              --repo "$GITHUB_REPOSITORY" \
+              --clobber
+          else
+            gh release create "$tag" dist/* \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "BridgeSessions ${{ needs.guard.outputs.version }}" \
+              --generate-notes
+          fi
