@@ -232,6 +232,11 @@ public:
     // 26.09.16 (audit F3): expose the mirrored pinned-seed raw key count for
     // regression tests (test_seed_pin_trust.cpp).
     size_t test_pinned_seed_key_count() const { return pinned_seed_keys_.size(); }
+    // True when the pubkey is trusted via seed pin or authorized_keys (wraps
+    // the reload + cached check for tests).
+    bool test_is_trusted_pubkey(const std::string& pubkey_hex) {
+        return is_trusted_pubkey(pubkey_hex);
+    }
     // True if pubkey is present in the authorized_keys file on disk.
     bool test_authorized_on_disk(const std::string& pubkey_hex) const {
         std::ifstream f(config_.authorized_keys_path);

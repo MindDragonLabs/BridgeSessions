@@ -134,7 +134,7 @@ TEST_CASE("rebuild_pinned_seed_keys mirrors valid seed pins and skips junk",
     MeshController controller(cfg, home.string());
 
     // The pinned key must be trusted via the cached check (seed pin)…
-    REQUIRE(controller.is_trusted_pubkey(peer_pk));
+    REQUIRE(controller.test_is_trusted_pubkey(peer_pk));
     // …and the raw mirror built for the TLS accept callback has exactly the
     // one valid entry.
     REQUIRE(controller.test_pinned_seed_key_count() == 1);
