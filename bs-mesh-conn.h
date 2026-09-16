@@ -262,6 +262,12 @@ private:
     // ── Bootstrap enrollment dedupe (flood bound) ─────────────────
     std::unordered_set<std::string> enroll_seen_;
     std::mutex enroll_seen_mutex_;
+    // 26.09.16 (audit F1): recent enrollments to replay to peers that connect
+    // AFTER the one-shot broadcast. Bounded (kMaxPendingEnrolls); entries are
+    // idempotent on the receiver (apply_directory_enroll dedupes) and expire
+    // naturally via the 24h freshness bound on issued_at.
+    std::deque<DirectoryEnrollMsg> pending_enrolls_;
+    static constexpr size_t kMaxPendingEnrolls = 64;
     // ── BridgePanel v3 mesh plane ────────────────────────────────
     // Pre-rendered JSON arrays of session summaries per peer, populated by
     // session gossip (ServerInfoMsg trailing field). Empty until gossip lands.
@@ -273,6 +279,9 @@ private:
     // declaring these first means they are destroyed AFTER tls_listen_/tls_connect_,
     // guaranteeing the SSL_CTX never references freed callback storage.
     AuthorizedKeys authorized_keys_;
+    // 26.09.16 (audit F3): raw pinned seed keys mirrored from config_.seeds
+    // for the TLS accept callback. Rebuilt by rebuild_pinned_seed_keys().
+    std::vector<std::vector<uint8_t>> pinned_seed_keys_;
     std::function<bool(const std::string&)> tofu_cb_;
     SslCtxPtr tls_listen_;
     SslCtxPtr tls_connect_;
@@ -1059,7 +1068,22 @@ private:
         // Reload the policy flags alongside the seeds so the pin is live.
         config_.auto_upgrade = fresh.auto_upgrade;
         config_.auto_upgrade_cooldown_secs = fresh.auto_upgrade_cooldown_secs;
+        // 26.09.16 (audit F3): keep the inbound-accept seed-pin set in sync.
+        rebuild_pinned_seed_keys();
         log_event("config_reload", config_file_path_);
+    }
+
+    // 26.09.16 (audit F3): decode pinned seed pubkeys into raw keys for the
+    // TLS accept callback (server_cert_verify_cb). Called at daemon start and
+    // on every config hot-reload.
+    void rebuild_pinned_seed_keys() {
+        pinned_seed_keys_.clear();
+        pinned_seed_keys_.reserve(config_.seeds.size());
+        for (const auto& s : config_.seeds) {
+            if (s.pubkey_hex.size() != 64) continue;
+            auto raw = hex_decode(s.pubkey_hex);
+            if (raw.size() == 32) pinned_seed_keys_.push_back(std::move(raw));
+        }
     }
 
     void maybe_reload_config_seeds() {
@@ -1234,6 +1258,20 @@ private:
         log_event(ph.server_side ? "mesh_peer_connected" : "mesh_peer_connected_outbound",
                   hello.node_name + " addr=" + (ph.server_side ? "inbound" : ph.expected_addr) +
                   " pubkey=" + ph.peer_pk.substr(0, 16) + "...");
+
+        // 26.09.16 (audit F1): replay recent enrollments to this peer. The
+        // original broadcast only reached conns alive at that moment; a peer
+        // that was disconnected/restarting never received the frame and would
+        // reject the newly-enrolled member's key forever. Idempotent on the
+        // receiver; issuer signature still verified; freshness still bounded.
+        // Capability gate: never send +enroll frames to a peer that does not
+        // advertise the capability (protocol.md backward-compatibility rule).
+        if (version_has_cap(hello.version, kCapEnroll)) {
+            for (const auto& e : pending_enrolls_) {
+                if (e.pubkey_hex == ph.peer_pk) continue;  // not to the member itself
+                (void)enqueue_frame(conns_.back(), e, CONTROL_STREAM_ID);
+            }
+        }
 
         maybe_schedule_auto_upgrade(hello.node_name, hello.version);
 
@@ -1756,6 +1794,16 @@ private:
             log_event("mesh_peer_connected_outbound", hello.node_name + " addr=" + addr
                       + " pubkey=" + peer_pk.substr(0, 16) + "..."
                       + " subject=" + subj_out);  // R1.4
+
+            // 26.09.16 (audit F1): replay recent enrollments to this peer —
+            // it may have missed the one-shot broadcast while disconnected.
+            // Capability gate: +enroll peers only (protocol.md compat rule).
+            if (version_has_cap(hello.version, kCapEnroll)) {
+                for (const auto& e : pending_enrolls_) {
+                    if (e.pubkey_hex == peer_pk) continue;
+                    (void)enqueue_frame(conns_.back(), e, CONTROL_STREAM_ID);
+                }
+            }
 
 #ifndef BS_NO_WEBRTC
             // D15: After TCP connection, try WebRTC upgrade

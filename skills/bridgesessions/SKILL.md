@@ -3,7 +3,7 @@ name: bridgesessions
 description: Use when operating or developing BridgeSessions mesh peers.
 license: BUSL-1.1
 metadata:
-  version: "26.09.15"
+  version: "26.09.16"
   product: BridgeSessions
   forge: "github.com/MindDragonLabs/BridgeSessions"
 ---
@@ -108,6 +108,22 @@ bs join <seed-address>:19949 <single-use-token> --start
 
 Only explicitly pinned seeds can issue accepted mesh-wide enrollments. `bs enroll` is an administrative out-of-band vouching path, not the normal install flow.
 
+### Join propagation gap (observed 2026-09-16, dave-pc)
+
+A join writes the new node's pubkey to the **token issuer's** `authorized_keys` only — but the joiner receives the full mesh directory and will dial **other seeds** when the issuer is unreachable or in cooldown. Those seeds reject it (`tls_verify_server result=reject`, a ~1/s reconnect loop that reads like an attack) and gossip cannot carry the key to a node that rejects the connection. Fix on each seed: append `pubkey <hex>` to `~/.bridgesessions/authorized_keys` (hot-reloaded, no restart — proven) plus `bs peers add <name> <addr>:19949 --pubkey <hex>` if you also want it as a dial target. `peers add` alone does **not** authorize TLS; an `authorized_keys` entry alone does not create a dial target. Direction matters both ways.
+
+Audit of the full incident: `~/bridgesessions/.audits/AUDIT-26-09-16-windows.md`.
+
+### Windows manual join (bypassing install.ps1)
+
+Manual extract-and-join leaves **no boot persistence**: closing the PowerShell window kills the daemon, the issuer logs `mesh_pong_timeout` and cools down, and the joiner starts hammering other seeds (see above). After a manual join, always register the logon task (no admin needed):
+
+```powershell
+$a=New-ScheduledTaskAction -Execute "$env:LOCALAPPDATA\bridgesessions\bridgesessions.exe" -Argument "--daemon --config `\"$env:USERPROFILE\.bridgesessions\config`\"";$t=New-ScheduledTaskTrigger -AtLogOn;Register-ScheduledTask -TaskName "BridgeSessions" -Action $a -Trigger $t -Force
+```
+
+A Windows peer with the daemon down and no SSH has **no remote recovery path** (`bs shell`/`bs file` die with the daemon; `file recv` refuses paths outside receive_dir by design) — the boot task is the only remote lifeline. To rename a peer, patch `node.name` in place; do not regenerate the whole config file, and leave a backup before overwriting.
+
 ## PowerShell quoting
 
 When invoking from a POSIX shell, single-quote the outer command so bash does not expand `$_`:
@@ -120,6 +136,12 @@ Prefer a `.ps1` file with `run-script` for multiline logic.
 
 Inside the PowerShell command, put `$env:...` paths in double quotes — PowerShell single
 quotes do not expand environment variables.
+
+Caveat (observed 2026-09-16, Windows 11 peer, daemon 26.09.15-r1): nested
+`powershell -NoProfile -Command "Get-Content $env:..."` through `bs shell --cmd`
+**hung until timeout**. Plain cmd.exe syntax worked immediately: `type "%USERPROFILE%\..."`,
+`copy /Y`, `start`, `echo`. If a nested PowerShell one-shot stalls, drop to cmd.exe syntax
+or push a `.ps1` and use `run-script`.
 
 ## Develop
 
@@ -138,7 +160,10 @@ Source of truth:
 - `bs-mesh-controller.h` + `bs-mesh-{support,conn,transfer,cli,ui}.h` — mesh event loop,
 - `bs-session.h` — session lifetime,
 - `bs-session-worker.h` — optional worker,
-- `bs-cua-helper.h` / `macos-capture.mm` — desktop support.
+- `bs-cua-helper.h` / `macos-capture.mm` — desktop support,
+- `BSMenubar/` — macOS menubar companion app: bundle identity keys (name, version, icon,
+  `LSUIElement`), Xcode toolchain pin + explicit `-target`, signing, launch, and
+  verification recipe — see `references/macos-app-bundle.md` in this skill.
 
 Generated artifacts are ignored and published through GitHub Releases. Release gate: [`docs/RELEASE-PROVENANCE.md`](../../docs/RELEASE-PROVENANCE.md).
 
@@ -146,6 +171,9 @@ Generated artifacts are ignored and published through GitHub Releases. Release g
 
 Version policy: the base stays for the whole release day; intraday fixes take an `-rN`
 suffix (`26.09.10` → `26.09.10-r1` → `26.09.10-r2`). Do not bump the base for a same-day fix.
+VERSION in the repo can lead the published tags: a bump without a release cut means the
+next release inherits it — confirm against `gh api repos/$R/releases` before assuming
+`VERSION == latest tag`.
 
 Every platform is built by `./build.sh` (`linux`, `macos`, `windows`, `all`, `package`,
 `test`, `deps`, `clean`). It is the only builder; do not hand-roll a cmake invocation.
@@ -181,6 +209,14 @@ Publish gate: `scripts/github-release.sh` refuses a dirty tree, a local tag that
 HEAD, or an origin tag that is not HEAD. Publish **before** amending the release commit —
 an amend after the push desyncs the tag and blocks the gate.
 
+**Checksum manifests:** generate once, in one step, from the final artifact set. Never
+write the manifest into the directory it hashes — `sha256sum * > SHA256SUMS` truncates
+SHA256SUMS before `sha256sum` reads it, leaving the empty-file SHA of itself — and never
+let a redundant second workflow step regenerate it with a narrower glob; that is how a
+platform's line goes missing. Verify downloads against the **full** manifest: an
+inverted grep (`grep -v windows`) masks a genuinely missing line. Checksum/SBOM steps
+must fail the job — `|| true` turns a broken manifest into a silently shipped release.
+
 Handy evidence commands:
 
 ```bash
@@ -213,6 +249,12 @@ Sequence: **resolve install path → stage + verify SHA → pre-kill watchdogs �
 | daemon restart cuts command | control path depended on daemon | use systemd/launchd/Task Scheduler independently |
 | `peers list` says offline but `health`/shell work | peer-table label is stale after that daemon restarted | trust a live `bs health <peer>` over the label |
 | swapped binary silently reverts to the old version | stale upgrade-watchdog loop rolls back during the unbound swap window | pre-kill watchdog processes before the swap (see Fleet binary roll) |
+| macOS app shows an invented name/version or a Dock icon it should not have | `.app` is a bare executable with no Info.plist — LaunchServices invents identity and runs it Foreground | real bundle: CFBundleName/ShortVersionString, CFBundleIconFile, LSUIElement (see `references/macos-app-bundle.md`) |
+| locally built macOS app compiles and signs but will not launch (LS error -10825) | no explicit `-target`, so the SDK stamped a minos above this macOS | rebuild with `-target arm64-apple-macos<floor>`; verify `otool -l \| grep -A3 LC_BUILD_VERSION` |
+| new joiner rejected in a ~1/s loop by a seed (`tls_verify_server result=reject`), user sees `tls_handshake_failed` | join registered the key only on the token issuer; this seed never saw it | append `pubkey <hex>` to that seed's `authorized_keys` (hot-reloaded), verify next handshake flips to `accept` |
+| `bs health <new-peer>` says `unknown peer` but the peer's key is in local `authorized_keys` | no local seed pin — auth and dial-targets are separate stores | `bs peers add <name> <addr>:19949 --pubkey <hex>` |
+| nested `powershell` one-shot on a Windows peer hangs | shell transport + powershell spawn interaction | use cmd.exe syntax (`type`, `copy`, `start`) or `run-script` with a `.ps1` |
+| Windows peer offline, no SSH, daemon dead | manual join left no boot task; daemon died with its console | hands-on start + `Register-ScheduledTask` (see Windows manual join) |
 
 Two identical non-progressing failures: stop retrying and diagnose a different layer.
 
