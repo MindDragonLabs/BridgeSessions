@@ -229,6 +229,9 @@ public:
     bool test_apply_enroll(const DirectoryEnrollMsg& e) {
         return apply_directory_enroll(e);
     }
+    // 26.09.16 (audit F3): expose the mirrored pinned-seed raw key count for
+    // regression tests (test_seed_pin_trust.cpp).
+    size_t test_pinned_seed_key_count() const { return pinned_seed_keys_.size(); }
     // True if pubkey is present in the authorized_keys file on disk.
     bool test_authorized_on_disk(const std::string& pubkey_hex) const {
         std::ifstream f(config_.authorized_keys_path);
