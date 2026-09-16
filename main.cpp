@@ -2268,6 +2268,15 @@ int bridgesessions_main(int argc, char** argv) {
             std::cout << "warning: mesh.require_seed_pins=true but no pubkey given; "
                          "this seed will be skipped on dial. Re-run with --pubkey "
                          "or add pubkey= to the config line." << std::endl;
+        // 26.09.16 (audit F3): a seed pin now also authorizes the peer inbound
+        // (see server_cert_verify_cb), so a manual `bs authorize` is no longer
+        // required for mutual peers-add pairs. Keep the pointer for the
+        // one-directional case: the OTHER side still needs to trust us via its
+        // own pin, an invite join, or `bs authorize <our-pubkey>`.
+        if (!peer_add_pubkey.empty())
+            std::cout << "note: this pin also authorizes " << peer_add_name
+                      << " inbound. The reverse direction needs the peer to pin/"
+                      << "authorize THIS node's pubkey." << std::endl;
         return 0;
     }
     if (peers_remove->parsed()) {
