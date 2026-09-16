@@ -15,7 +15,10 @@ name: CI
 on:
   push:
     branches: [main]
-    tags: ['v*']
+    # NOTE: tags are intentionally NOT built here. release.yml triggers on the
+    # same tags and already builds + tests all three platforms before
+    # publishing; running CI on tags too doubled the flake surface and put a
+    # misleading red X on release commits (seen on v26.09.15).
   pull_request:
     branches: [main]
   workflow_dispatch:

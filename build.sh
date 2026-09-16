@@ -275,8 +275,14 @@ run_ctest() {
     # fails all three attempts.
     local jobs="${JOBS}"
     if [[ "${jobs}" =~ ^[0-9]+$ ]] && [[ "${jobs}" -gt 8 ]]; then jobs=8; fi
+    # panel_typing_latency and the panel suite measure wall-clock latency and
+    # flake under ctest's parallel scheduling on loaded runners. Run the
+    # latency-sensitive panel tests serially in a second ctest invocation
+    # (until-pass retries already cover the rest of the suite).
     run ctest --test-dir "${build_dir}" --output-on-failure \
-        --parallel "${jobs}" --repeat until-pass:3
+        --parallel "${jobs}" --repeat until-pass:3 -E '^panel_'
+    run ctest --test-dir "${build_dir}" --output-on-failure \
+        --repeat until-pass:3 -R '^panel_'
 }
 
 # Stage one binary into OUT_DIR with a tidy, release-ready name.
