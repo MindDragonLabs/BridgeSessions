@@ -1377,9 +1377,7 @@ INDEX_HTML = r'''<!doctype html>
     }
     updateTools();
   });
-  $("#copyBtn").addEventListener("click", async () => {
-    try { await navigator.clipboard.writeText(curRaw); toast("Copied"); } catch (_) { toast("Copy failed", true); }
-  });
+  $("#copyBtn").addEventListener("click", () => copyText(curRaw));
   $("#downloadBtn").addEventListener("click", () => {
     if (!selName) return;
     const a = document.createElement("a");
@@ -1545,8 +1543,26 @@ INDEX_HTML = r'''<!doctype html>
   }
 
   async function copyText(t) {
-    try { await navigator.clipboard.writeText(t); toast("Copied"); }
-    catch (_) { toast("Copy failed", true); }
+    // Plain-HTTP panel: navigator.clipboard is undefined off secure contexts,
+    // so fall back to the deprecated-but-universal execCommand path.
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(t);
+        toast("Copied");
+        return;
+      }
+    } catch (_) { /* fall through */ }
+    const ta = document.createElement("textarea");
+    ta.value = t;
+    ta.style.position = "fixed"; ta.style.opacity = "0";
+    ta.style.top = "0"; ta.style.left = "0";
+    document.body.appendChild(ta);
+    ta.focus(); ta.select(); ta.setSelectionRange(0, t.length);
+    let ok = false;
+    try { ok = document.execCommand("copy"); } catch (_) { ok = false; }
+    document.body.removeChild(ta);
+    if (ok) toast("Copied");
+    else { toast("Press Cmd+C to copy", true); }
   }
 
   function renderInvites() {
@@ -1554,6 +1570,15 @@ INDEX_HTML = r'''<!doctype html>
     $("#invSeed").textContent = "seed " + seed + " · window " + invData.window_seconds + "s · ttl " + Math.round((invData.ttl_seconds || 7200) / 3600) + "h";
     const list = $("#invList");
     const invites = invData.invites || [];
+    // preserve which cards are expanded across re-renders (30s refresh):
+    // the innerHTML wipe below would otherwise collapse every open card
+    const openTokens = new Set(
+      $$("#invList .inv-cmds.open").map(el => {
+        const card = el.closest(".inv-card");
+        const tok = card ? (card.querySelector(".inv-token") || {}).textContent : "";
+        return tok || "";
+      })
+    );
     if (!invites.length) {
       list.innerHTML = '<div class="inv-empty">No invites yet. Mint one with “+ New invite”.</div>';
       return;
@@ -1583,7 +1608,7 @@ INDEX_HTML = r'''<!doctype html>
             '<button class="btn" data-copycmds="' + i + '">Copy all</button>' +
             '<button class="btn" data-page="' + i + '">Download join page</button>' +
           '</div>' +
-          '<div class="inv-cmds" id="invcmds-' + i + '">' + cmdHtml + '</div>' +
+          '<div class="inv-cmds' + (openTokens.has(rec.token) ? " open" : "") + '" id="invcmds-' + i + '">' + cmdHtml + '</div>' +
         '</div>'
       );
     }).join("");

@@ -289,13 +289,34 @@ def render_invite_page(record: dict) -> str:
       machine, then confirm the node appears in the mesh before discarding this page.</div>
   </div>
   <script>
-    document.querySelectorAll(".copy").forEach(function(b){{
-      b.addEventListener("click", function(){{
-        var txt = b.getAttribute("data-cmd");
-        navigator.clipboard.writeText(txt).then(function(){{
-          b.textContent = "Copied";
-          setTimeout(function(){{ b.textContent = "Copy"; }}, 1500);
-        }});
+    function copyText(txt, btn) {{
+      function done() {{
+        btn.textContent = "Copied";
+        setTimeout(function() {{ btn.textContent = "Copy"; }}, 1500);
+      }}
+      // navigator.clipboard needs a secure context; this page is served over
+      // plain HTTP or opened from disk, so use the execCommand fallback.
+      if (navigator.clipboard && window.isSecureContext) {{
+        navigator.clipboard.writeText(txt).then(done, function() {{ fallback(); }});
+        return;
+      }}
+      fallback();
+      function fallback() {{
+        var ta = document.createElement("textarea");
+        ta.value = txt;
+        ta.style.position = "fixed"; ta.style.opacity = "0";
+        document.body.appendChild(ta);
+        ta.focus(); ta.select(); ta.setSelectionRange(0, txt.length);
+        var ok = false;
+        try {{ ok = document.execCommand("copy"); }} catch (e) {{ ok = false; }}
+        document.body.removeChild(ta);
+        if (ok) done();
+        else {{ btn.textContent = "Cmd+C"; setTimeout(function() {{ btn.textContent = "Copy"; }}, 2500); }}
+      }}
+    }}
+    document.querySelectorAll(".copy").forEach(function(b) {{
+      b.addEventListener("click", function() {{
+        copyText(b.getAttribute("data-cmd"), b);
       }});
     }});
   </script>
