@@ -151,5 +151,86 @@ class TestRender(unittest.TestCase):
         self.assertIn(GOOD_TOKEN, cmds[1]["cmd"])
 
 
+class TestInvitesHttp(unittest.TestCase):
+    """HTTP surface: /api/invites requires a token even from trusted IPs,
+    and accepts both the Bearer header and the URL-token path form."""
+
+    @classmethod
+    def setUpClass(cls):
+        import threading
+        from http.client import HTTPConnection
+        from http.server import ThreadingHTTPServer
+
+        import bridgepanel as bp
+        from bridgepanel import invites as inv
+
+        cls.HTTPConnection = HTTPConnection
+        cls.bp = bp
+        cls.inv = inv
+
+        cls.tmp = tempfile.TemporaryDirectory()
+        cls._orig_data_home = inv.data_home
+        cls._orig_bs_ipc = inv.bs_ipc
+        cls._orig_ts = inv._tailscale_ip4
+        inv.data_home = lambda: Path(cls.tmp.name)
+        inv.bs_ipc = lambda verb, timeout=2: (GOOD_TOKEN + "\n")
+        inv._tailscale_ip4 = lambda: "100.99.0.7"
+
+        cls.token = "httptoken-123456789012345"
+        cls.server = ThreadingHTTPServer(("127.0.0.1", 0), bp.BridgePanelHandler)
+        cls.server.bridgepanel_token = cls.token
+        cls.server.trusted_ips = set()  # 127.0.0.1 is NOT trusted
+        cls.port = cls.server.server_address[1]
+        t = threading.Thread(target=cls.server.serve_forever, daemon=True)
+        t.start()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.server.shutdown()
+        cls.server.server_close()
+        cls.inv.data_home = cls._orig_data_home
+        cls.inv.bs_ipc = cls._orig_bs_ipc
+        cls.inv._tailscale_ip4 = cls._orig_ts
+        cls.tmp.cleanup()
+
+    def _req(self, method, path, body=None, token=None):
+        c = self.HTTPConnection("127.0.0.1", self.port, timeout=5)
+        headers = {}
+        if token:
+            headers["Authorization"] = "Bearer " + token
+        if body is not None:
+            headers["Content-Type"] = "application/json"
+        c.request(method, path, body=body, headers=headers)
+        r = c.getresponse()
+        data = r.read().decode()
+        c.close()
+        return r.status, data
+
+    def test_invites_requires_token_from_untrusted_ip(self):
+        status, _ = self._req("GET", "/api/invites")
+        self.assertEqual(status, 404)
+
+    def test_invites_header_token(self):
+        status, data = self._req("GET", "/api/invites", token=self.token)
+        self.assertEqual(status, 200)
+        self.assertTrue(json.loads(data)["ok"])
+
+    def test_invites_url_token_path(self):
+        status, data = self._req("GET", "/" + self.token + "/api/invites")
+        self.assertEqual(status, 200)
+        self.assertTrue(json.loads(data)["ok"])
+
+    def test_invites_mint_url_token_path(self):
+        status, data = self._req("POST", "/" + self.token + "/api/invites", "{}")
+        self.assertEqual(status, 200)
+        body = json.loads(data)
+        self.assertTrue(body["ok"])
+        self.assertEqual(body["invite"]["token"], GOOD_TOKEN)
+
+    def test_invites_wrong_url_token_404(self):
+        status, _ = self._req("GET", "/wrongtoken/api/invites")
+        self.assertEqual(status, 404)
+
+
 if __name__ == "__main__":
     unittest.main()

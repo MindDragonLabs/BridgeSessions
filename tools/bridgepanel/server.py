@@ -307,11 +307,24 @@ class BridgePanelHandler(BaseHTTPRequestHandler):
             and bool(bearer)
             and __import__("secrets").compare_digest(bearer, self.token)
         )
+
+        # URL-token form: http://host:port/<token>/… carries the token as the
+        # first path segment (this is the URL install.sh prints). Validate and
+        # strip it so the browser can authenticate writes without a custom
+        # Authorization header.
+        path = parsed.path
+        segments = path.split("/")
+        path_token = segments[1] if len(segments) > 1 else ""
+        if path_token and __import__("secrets").compare_digest(path_token, self.token):
+            has_bearer = True
+            rest = "/".join(segments[2:])
+            path = "/" + rest if rest else "/"
+
         if self.client_address[0] in trusted_ips and not require_token:
-            return parsed.path, parsed.query
+            return path, parsed.query
         if not has_bearer:
             return None
-        return parsed.path, parsed.query
+        return path, parsed.query
 
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
@@ -322,11 +335,10 @@ class BridgePanelHandler(BaseHTTPRequestHandler):
             return
 
         # Invite management is sensitive (reveals live tokens): always require
-        # the bearer token, even from trusted IPs.
-        if parsed.path == "/api/invites":
-            if not self.authorized_path(require_token=True):
-                self.reject(HTTPStatus.NOT_FOUND, "Not found")
-                return
+        # the bearer token, even from trusted IPs. Probe with require_token so
+        # the URL-token path form is accepted too.
+        invites_auth = self.authorized_path(require_token=True)
+        if invites_auth is not None and invites_auth[0] == "/api/invites":
             self.send_json(list_invites())
             return
 
