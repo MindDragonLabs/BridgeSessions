@@ -22,6 +22,7 @@ from .ops import mkdir_path, rename_path, trash_path
 from .consts import APP, MAX_UPLOAD, VERSION, max_file_upload
 from .files import (file_kind, markdown_to_html, resolve_file, safe_name,
                     safe_relpath, safe_session_name, safe_type, sessions_dir)
+from .invites import list_invites, mint_invite, render_invite_page, seed_info
 from .panel_html import FAVICON_SVG, INDEX_HTML
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -187,6 +188,36 @@ class BridgePanelHandler(BaseHTTPRequestHandler):
     def reject(self, status: int, message: str) -> None:
         self.send_bytes(message.encode("utf-8"), "text/plain; charset=utf-8", status)
 
+    def _drain_body(self) -> None:
+        """Consume an optional request body so keep-alive stays in sync.
+
+        POST endpoints that ignore the body must still read it, otherwise the
+        unread bytes are parsed as the next request line on a reused connection.
+        """
+        te = (self.headers.get("Transfer-Encoding") or "").lower()
+        if "chunked" in te:
+            self.close_connection = True
+            return
+        try:
+            length = int(self.headers.get("Content-Length", "0") or 0)
+        except ValueError:
+            self.close_connection = True
+            return
+        if length <= 0:
+            return
+        if length > MAX_UPLOAD:
+            self.close_connection = True
+            return
+        try:
+            remaining = length
+            while remaining > 0:
+                chunk = self.rfile.read(min(remaining, 65536))
+                if not chunk:
+                    break
+                remaining -= len(chunk)
+        except OSError:
+            self.close_connection = True
+
     def _origin_allowed(self) -> bool:
         origin = self.headers.get("Origin", "")
         if not origin:
@@ -288,6 +319,15 @@ class BridgePanelHandler(BaseHTTPRequestHandler):
         # Health check (no auth)
         if parsed.path == "/healthz":
             self.send_json({"ok": True, "service": APP, "version": VERSION})
+            return
+
+        # Invite management is sensitive (reveals live tokens): always require
+        # the bearer token, even from trusted IPs.
+        if parsed.path == "/api/invites":
+            if not self.authorized_path(require_token=True):
+                self.reject(HTTPStatus.NOT_FOUND, "Not found")
+                return
+            self.send_json(list_invites())
             return
 
         auth = self.authorized_path(require_token=False)
@@ -430,6 +470,43 @@ class BridgePanelHandler(BaseHTTPRequestHandler):
             self.reject(HTTPStatus.NOT_FOUND, "Not found")
             return
         path, _ = auth
+
+        if path == "/api/invites":
+            # Minting needs no body, but we must still consume it so the
+            # connection is clean for the next keep-alive request.
+            self._drain_body()
+            result = mint_invite()
+            self.send_json(result)
+            return
+
+        if path == "/api/invites/page":
+            try:
+                length = int(self.headers.get("Content-Length", "0") or 0)
+            except ValueError:
+                self.reject(HTTPStatus.BAD_REQUEST, "Invalid Content-Length")
+                return
+            if length < 0 or length > 65536:
+                self.reject(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, "Content too large")
+                return
+            try:
+                raw_body = self.rfile.read(length) if length else b"{}"
+                body = json.loads(raw_body)
+            except (ValueError, json.JSONDecodeError, OSError):
+                self.reject(HTTPStatus.BAD_REQUEST, "Invalid JSON")
+                return
+            token = str(body.get("token") or "").strip()
+            if not token:
+                self.reject(HTTPStatus.BAD_REQUEST, "token required")
+                return
+            seed = str(body.get("seed") or "") or seed_info().get("addr", "")
+            record = {
+                "token": token,
+                "seed": seed,
+                "window_seconds": int(body.get("window_seconds") or 300),
+                "expires_at": str(body.get("expires_at") or ""),
+            }
+            self.send_json({"ok": True, "page": render_invite_page(record)})
+            return
 
         if path == "/api/save":
             try:

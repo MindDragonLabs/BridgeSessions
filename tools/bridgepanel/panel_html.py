@@ -73,6 +73,30 @@ INDEX_HTML = r'''<!doctype html>
   .theme-toggle:hover { background: var(--surface2); color: var(--text); }
   .avatar { width: 28px; height: 28px; border-radius: 50%; background: var(--accent-soft); color: var(--accent); display: grid; place-items: center; font-weight: 600; font-size: 12px; }
 
+  .viewnav { display: flex; gap: 2px; padding: 3px; background: var(--surface2); border: 1px solid var(--border); border-radius: 9px; flex-shrink: 0; }
+  .vnav { border: none; background: transparent; color: var(--muted); font-size: 12.5px; padding: 4px 12px; border-radius: 6px; cursor: pointer; }
+  .vnav:hover { color: var(--text); }
+  .vnav.active { background: var(--accent); color: #fff; }
+
+  #invitesView { flex: 1; min-height: 0; overflow-y: auto; padding: 26px; background: var(--bg); }
+  .inv-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 20px; max-width: 980px; }
+  .inv-head h1 { font-size: 19px; letter-spacing: -0.01em; margin-bottom: 4px; }
+  .inv-sub { color: var(--muted); font-size: 12.5px; font-family: var(--mono); }
+  .inv-list { display: flex; flex-direction: column; gap: 12px; max-width: 980px; }
+  .inv-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; }
+  .inv-top { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+  .inv-token { font-family: var(--mono); font-size: 13px; color: var(--accent); word-break: break-all; flex: 1; min-width: 200px; }
+  .inv-meta { display: flex; gap: 18px; flex-wrap: wrap; font-size: 12px; color: var(--muted); margin-bottom: 12px; }
+  .inv-meta b { color: var(--text); font-weight: 600; }
+  .inv-meta .exp { color: var(--warn); }
+  .inv-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  .inv-cmds { display: none; margin-top: 12px; border-top: 1px solid var(--border); padding-top: 12px; }
+  .inv-cmds.open { display: block; }
+  .inv-cmd { margin-bottom: 12px; }
+  .inv-cmd .lbl { font-size: 11px; text-transform: uppercase; letter-spacing: .07em; color: var(--faint); margin-bottom: 5px; }
+  .inv-cmd pre { font-family: var(--mono); font-size: 12px; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; white-space: pre-wrap; word-break: break-all; position: relative; }
+  .inv-empty { color: var(--muted); font-size: 13px; padding: 30px 0; }
+
   .shell { flex: 1; display: grid; grid-template-columns: var(--w-hosts, 240px) 6px var(--w-files, 280px) 6px minmax(240px, 1fr); min-height: 0; }
   .splitter { width: 6px; cursor: col-resize; background: var(--border); }
   .splitter:hover, .splitter.dragging { background: var(--accent); }
@@ -233,6 +257,10 @@ INDEX_HTML = r'''<!doctype html>
 
 <header>
   <div class="brand"><span class="mark">B</span><span class="name">Bridge Panel</span><span class="sub">__BUILD_TAG__</span></div>
+  <nav class="viewnav" id="viewNav" aria-label="Panel view">
+    <button type="button" class="vnav active" data-view="files">Files</button>
+    <button type="button" class="vnav" data-view="invites">Invites</button>
+  </nav>
   <div class="search"><span class="icon">&#8962;</span><input id="search" placeholder="Filter hosts…" aria-label="Filter hosts"></div>
   <div class="hdr-right">
     <span class="summary" id="summary"></span>
@@ -303,6 +331,17 @@ INDEX_HTML = r'''<!doctype html>
     </div>
   </main>
 </div>
+
+<section id="invitesView" style="display:none">
+  <div class="inv-head">
+    <div>
+      <h1>Mesh invites</h1>
+      <div class="inv-sub" id="invSeed">loading…</div>
+    </div>
+    <button class="btn primary" id="invNewBtn">+ New invite</button>
+  </div>
+  <div class="inv-list" id="invList"><div class="inv-empty">No invites yet.</div></div>
+</section>
 
 <div class="toast" id="toast"></div>
 <div class="ctx" id="ctx" hidden>
@@ -1461,6 +1500,157 @@ INDEX_HTML = r'''<!doctype html>
   initPond();
   refreshHosts();
   setInterval(refreshHosts, 8000);
+
+  // ── Invites view ─────────────────────────────────────────────
+  let invData = {seed:{addr:""}, window_seconds:300, ttl_seconds:7200, invites:[]};
+  let invViewActive = false;
+
+  function showView(name) {
+    const files = $("#shell");
+    const inv = $("#invitesView");
+    invViewActive = name === "invites";
+    if (invViewActive) {
+      files.style.display = "none";
+      inv.style.display = "";
+      loadInvites();
+    } else {
+      inv.style.display = "none";
+      files.style.display = "";
+    }
+    $$(".vnav").forEach(b => b.classList.toggle("active", b.dataset.view === name));
+  }
+
+  function invCommands(rec) {
+    const seed = rec.seed || "";
+    const t = rec.token || "";
+    return [
+      {lbl: "Linux / macOS (token file)", cmd: "bridgesessions join " + seed + " --token-file <path> --start"},
+      {lbl: "Linux / macOS (pipe token on stdin)", cmd: "printf '%s\\n' '" + t + "' | bridgesessions join " + seed + " - --start"},
+      {lbl: "Linux / macOS (curl install then join)", cmd: "curl -fsSL https://raw.githubusercontent.com/MindDragonLabs/BridgeSessions/main/scripts/install.sh | bash\nbridgesessions join " + seed + " --token-file <path> --start"},
+      {lbl: "Windows PowerShell", cmd: "irm https://raw.githubusercontent.com/MindDragonLabs/BridgeSessions/main/scripts/install.ps1 | iex\nbridgesessions join " + seed + " --token-file <path> --start"},
+    ];
+  }
+
+  function invAge(iso) {
+    if (!iso) return "—";
+    const ms = new Date(iso).getTime() - Date.now();
+    if (isNaN(ms)) return "—";
+    if (ms <= 0) return "expired";
+    const s = Math.floor(ms / 1000);
+    if (s < 60) return s + "s";
+    const m = Math.floor(s / 60);
+    if (m < 60) return m + "m " + (s % 60) + "s";
+    const h = Math.floor(m / 60);
+    return h + "h " + (m % 60) + "m";
+  }
+
+  async function copyText(t) {
+    try { await navigator.clipboard.writeText(t); toast("Copied"); }
+    catch (_) { toast("Copy failed", true); }
+  }
+
+  function renderInvites() {
+    const seed = (invData.seed && invData.seed.addr) || "unknown seed";
+    $("#invSeed").textContent = "seed " + seed + " · window " + invData.window_seconds + "s · ttl " + Math.round((invData.ttl_seconds || 7200) / 3600) + "h";
+    const list = $("#invList");
+    const invites = invData.invites || [];
+    if (!invites.length) {
+      list.innerHTML = '<div class="inv-empty">No invites yet. Mint one with “+ New invite”.</div>';
+      return;
+    }
+    list.innerHTML = invites.map(function(rec, i) {
+      const cmds = invCommands(rec);
+      const cmdHtml = cmds.map(function(c) {
+        return '<div class="inv-cmd"><div class="lbl">' + esc(c.lbl) + '</div><pre>' + esc(c.cmd) + '</pre></div>';
+      }).join("");
+      return (
+        '<div class="inv-card">' +
+          '<div class="inv-top">' +
+            '<span class="inv-token">' + esc(rec.token || "") + '</span>' +
+            '<button class="btn ghost" data-copytok="' + i + '">Copy token</button>' +
+          '</div>' +
+          '<div class="inv-meta">' +
+            '<span>created <b>' + esc((rec.created_at || "").replace("T", " ").slice(0, 19)) + 'Z</b></span>' +
+            '<span class="exp">expires in <b>' + esc(invAge(rec.expires_at)) + '</b></span>' +
+            '<span>seed <b>' + esc(rec.seed || "") + '</b></span>' +
+          '</div>' +
+          '<div class="inv-actions">' +
+            '<button class="btn" data-toggle="' + i + '">Commands</button>' +
+            '<button class="btn" data-copycmds="' + i + '">Copy all</button>' +
+            '<button class="btn" data-page="' + i + '">Download join page</button>' +
+          '</div>' +
+          '<div class="inv-cmds" id="invcmds-' + i + '">' + cmdHtml + '</div>' +
+        '</div>'
+      );
+    }).join("");
+
+    list.querySelectorAll("[data-copytok]").forEach(function(b) {
+      b.addEventListener("click", () => copyText((invData.invites[+b.dataset.copytok] || {}).token || ""));
+    });
+    list.querySelectorAll("[data-copycmds]").forEach(function(b) {
+      b.addEventListener("click", () => {
+        const rec = invData.invites[+b.dataset.copycmds] || {};
+        copyText(invCommands(rec).map(c => c.cmd).join("\n\n"));
+      });
+    });
+    list.querySelectorAll("[data-toggle]").forEach(function(b) {
+      b.addEventListener("click", () => {
+        const el = $("#invcmds-" + b.dataset.toggle);
+        if (el) el.classList.toggle("open");
+      });
+    });
+    list.querySelectorAll("[data-page]").forEach(function(b) {
+      b.addEventListener("click", () => downloadPage(invData.invites[+b.dataset.page]));
+    });
+  }
+
+  async function loadInvites() {
+    try {
+      invData = await api("/api/invites");
+    } catch (e) {
+      invData = {seed:{addr:""}, window_seconds:300, ttl_seconds:7200, invites:[], error: true};
+    }
+    renderInvites();
+  }
+
+  async function mintInvite() {
+    const btn = $("#invNewBtn");
+    btn.disabled = true; btn.textContent = "Minting…";
+    try {
+      const d = await api("/api/invites", {method:"POST", headers:{"Content-Type":"application/json"}, body:"{}"});
+      if (!d.ok) throw new Error(d.error || "mint failed");
+      toast("Invite minted");
+      await loadInvites();
+    } catch (e) {
+      toast("Mint failed — is the daemon running?", true);
+    } finally {
+      btn.disabled = false; btn.textContent = "+ New invite";
+    }
+  }
+
+  async function downloadPage(rec) {
+    if (!rec || !rec.token) return;
+    try {
+      const d = await api("/api/invites/page", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({token: rec.token, seed: rec.seed, window_seconds: rec.window_seconds, expires_at: rec.expires_at}),
+      });
+      if (!d.ok || !d.page) throw new Error("page render failed");
+      const blob = new Blob([d.page], {type: "text/html"});
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "join-" + (rec.seed || "mesh").replace(/[^A-Za-z0-9._-]/g, "_") + ".html";
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+    } catch (e) {
+      toast("Download failed", true);
+    }
+  }
+
+  $$("#viewNav .vnav").forEach(b => b.addEventListener("click", () => showView(b.dataset.view)));
+  $("#invNewBtn").addEventListener("click", mintInvite);
+  setInterval(() => { if (invViewActive) renderInvites(); }, 30000);
 })();
 </script>
 </body>
