@@ -532,10 +532,16 @@ public:
                         const bool applied_locally = apply_directory_enroll(e);
                         broadcast_enroll(e);
                         remember_pending_enroll(e);  // replay to late peers
+                        // 26.09.16 (Greptile P1): a failed local apply must not
+                        // report success. When authorized_keys cannot be
+                        // written (permissions, read-only fs) the issuer stays
+                        // unauthorized while the CLI printed OK — the operator
+                        // believed the member was trusted. Fail loud instead.
                         response = applied_locally
                             ? "OK enrolled " + name + " " + addr + "\n"
-                            : "OK broadcast " + name + " " + addr +
-                              " (local apply skipped — already trusted)\n";
+                            : "ERROR local apply failed for " + name +
+                              " (see daemon log: enroll_rejected_* / enroll_auth_write_failed); "
+                              "broadcast to connected peers only\n";
                     }
                 }
             }

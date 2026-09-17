@@ -1925,6 +1925,13 @@
                         if (oc.exec_busy && oc.exec_busy->load()) continue;
                         (void)enqueue_frame(oc, e, CONTROL_STREAM_ID);
                     }
+                    // 26.09.16 (Greptile P1): a RELAYED enrollment must also
+                    // enter the replay queue — gated on the same first-relay
+                    // dedupe above so re-relayed copies don't queue twice.
+                    // Without this, only locally-issued enrollments were
+                    // remembered; a peer connecting to THIS node later (with
+                    // no direct link to the issuer) never learned the key.
+                    remember_pending_enroll(e);
                 }
             }
             }
