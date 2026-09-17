@@ -173,34 +173,38 @@ def list_invites() -> dict:
 
 
 def join_commands(record: dict) -> list[dict]:
-    """Human-ready join command set for a minted invite (mirrors main.cpp)."""
+    """Human-ready join command set for a minted invite.
+
+    Every command embeds the single-use token inline so the operator can
+    copy/paste one command to the new host with no separate token-file step.
+    The token is strict hex (``[0-9a-f]{32,128}``), so it is shell-safe to
+    interpolate inside single quotes on both sh and PowerShell.
+    """
     seed = record.get("seed", "")
     token = record.get("token", "")
     return [
         {
-            "label": "Linux / macOS (token file)",
-            "shell": "sh",
-            "cmd": f"bridgesessions join {seed} --token-file <path> --start",
-        },
-        {
-            "label": "Linux / macOS (pipe token on stdin)",
+            "label": "Linux / macOS (join only)",
             "shell": "sh",
             "cmd": f"printf '%s\\n' '{token}' | bridgesessions join {seed} - --start",
         },
         {
-            "label": "Linux / macOS (curl install then join)",
+            "label": "Linux / macOS (install + join)",
             "shell": "sh",
-            "cmd": (
-                f"curl -fsSL {INSTALL_SH} | bash\\n"
-                f"bridgesessions join {seed} --token-file <path> --start"
-            ),
+            "cmd": f"curl -fsSL {INSTALL_SH} | bash -s -- join {seed} {token} --start",
         },
         {
-            "label": "Windows PowerShell",
+            "label": "Windows PowerShell (join only)",
+            "shell": "powershell",
+            "cmd": f"'{token}' | bridgesessions join {seed} - --start",
+        },
+        {
+            "label": "Windows PowerShell (install + join)",
             "shell": "powershell",
             "cmd": (
-                f"irm {INSTALL_PS1} | iex\\n"
-                f"bridgesessions join {seed} --token-file <path> --start"
+                f"irm {INSTALL_PS1} | iex; "
+                f"'{token}' | & \"$env:LOCALAPPDATA\\bridgesessions\\bridgesessions.exe\" "
+                f"join {seed} - --start"
             ),
         },
     ]

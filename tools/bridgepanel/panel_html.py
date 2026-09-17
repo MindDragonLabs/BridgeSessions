@@ -1524,10 +1524,10 @@ INDEX_HTML = r'''<!doctype html>
     const seed = rec.seed || "";
     const t = rec.token || "";
     return [
-      {lbl: "Linux / macOS (token file)", cmd: "bridgesessions join " + seed + " --token-file <path> --start"},
-      {lbl: "Linux / macOS (pipe token on stdin)", cmd: "printf '%s\\n' '" + t + "' | bridgesessions join " + seed + " - --start"},
-      {lbl: "Linux / macOS (curl install then join)", cmd: "curl -fsSL https://raw.githubusercontent.com/MindDragonLabs/BridgeSessions/main/scripts/install.sh | bash\nbridgesessions join " + seed + " --token-file <path> --start"},
-      {lbl: "Windows PowerShell", cmd: "irm https://raw.githubusercontent.com/MindDragonLabs/BridgeSessions/main/scripts/install.ps1 | iex\nbridgesessions join " + seed + " --token-file <path> --start"},
+      {lbl: "Linux / macOS (join only)", cmd: "printf '%s\\n' '" + t + "' | bridgesessions join " + seed + " - --start"},
+      {lbl: "Linux / macOS (install + join)", cmd: "curl -fsSL https://raw.githubusercontent.com/MindDragonLabs/BridgeSessions/main/scripts/install.sh | bash -s -- join " + seed + " " + t + " --start"},
+      {lbl: "Windows PowerShell (join only)", cmd: "'" + t + "' | bridgesessions join " + seed + " - --start"},
+      {lbl: "Windows PowerShell (install + join)", cmd: "irm https://raw.githubusercontent.com/MindDragonLabs/BridgeSessions/main/scripts/install.ps1 | iex; '" + t + "' | & \"$env:LOCALAPPDATA\\bridgesessions\\bridgesessions.exe\" join " + seed + " - --start"},
     ];
   }
 
@@ -1560,8 +1560,12 @@ INDEX_HTML = r'''<!doctype html>
     }
     list.innerHTML = invites.map(function(rec, i) {
       const cmds = invCommands(rec);
-      const cmdHtml = cmds.map(function(c) {
-        return '<div class="inv-cmd"><div class="lbl">' + esc(c.lbl) + '</div><pre>' + esc(c.cmd) + '</pre></div>';
+      const cmdHtml = cmds.map(function(c, j) {
+        return '<div class="inv-cmd">' +
+          '<div class="lbl">' + esc(c.lbl) + '</div>' +
+          '<pre>' + esc(c.cmd) + '</pre>' +
+          '<button class="btn ghost" data-copyone="' + i + '-' + j + '">Copy</button>' +
+        '</div>';
       }).join("");
       return (
         '<div class="inv-card">' +
@@ -1591,6 +1595,14 @@ INDEX_HTML = r'''<!doctype html>
       b.addEventListener("click", () => {
         const rec = invData.invites[+b.dataset.copycmds] || {};
         copyText(invCommands(rec).map(c => c.cmd).join("\n\n"));
+      });
+    });
+    list.querySelectorAll("[data-copyone]").forEach(function(b) {
+      b.addEventListener("click", () => {
+        const [ii, jj] = b.dataset.copyone.split("-").map(Number);
+        const rec = invData.invites[ii] || {};
+        const c = invCommands(rec)[jj];
+        if (c) copyText(c.cmd);
       });
     });
     list.querySelectorAll("[data-toggle]").forEach(function(b) {

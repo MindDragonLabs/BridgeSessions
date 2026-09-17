@@ -147,8 +147,11 @@ class TestRender(unittest.TestCase):
         cmds = invites.join_commands(rec)
         self.assertEqual(len(cmds), 4)
         for c in cmds:
-            self.assertIn("bridgesessions join", c["cmd"])
-        self.assertIn(GOOD_TOKEN, cmds[1]["cmd"])
+            # every command embeds the token inline (one-click copy/paste)
+            self.assertIn(GOOD_TOKEN, c["cmd"])
+            # no placeholder left for the operator to fill in
+            self.assertNotIn("<path>", c["cmd"])
+            self.assertIn("join", c["cmd"])
 
 
 class TestInvitesHttp(unittest.TestCase):
