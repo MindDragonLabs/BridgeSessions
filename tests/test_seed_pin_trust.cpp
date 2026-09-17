@@ -130,7 +130,7 @@ TEST_CASE("relayed enrollment enters the replay queue (Greptile P1)",
     {
         std::ifstream pf(home / "id_ed25519.pub");
         std::getline(pf, our_pk);
-        while (!our_pk.empty() && (our_pk.back() == '\\r' || our_pk.back() == '\\n'))
+        while (!our_pk.empty() && (our_pk.back() == '\r' || our_pk.back() == '\n'))
             our_pk.pop_back();
     }
     REQUIRE_FALSE(our_pk.empty());
