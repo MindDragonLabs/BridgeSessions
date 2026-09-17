@@ -24,6 +24,7 @@ from .files import (file_kind, markdown_to_html, resolve_file, safe_name,
                     safe_relpath, safe_session_name, safe_type, sessions_dir)
 from .invites import list_invites, mint_invite, render_invite_page, seed_info
 from .panel_html import FAVICON_SVG, INDEX_HTML
+from . import auth as panel_auth
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 STATIC_FILES = {
@@ -307,6 +308,9 @@ class BridgePanelHandler(BaseHTTPRequestHandler):
             and bool(bearer)
             and __import__("secrets").compare_digest(bearer, self.token)
         )
+        # Logged-in browser session (HMAC cookie set by /api/login) authorizes
+        # every endpoint, including require_token ones.
+        has_session = panel_auth.session_cookie_valid(self.headers.get("Cookie", ""))
 
         # URL-token form: http://host:port/<token>/… carries the token as the
         # first path segment (this is the URL install.sh prints). Validate and
@@ -322,9 +326,9 @@ class BridgePanelHandler(BaseHTTPRequestHandler):
 
         if self.client_address[0] in trusted_ips and not require_token:
             return path, parsed.query
-        if not has_bearer:
-            return None
-        return path, parsed.query
+        if has_bearer or has_session:
+            return path, parsed.query
+        return None
 
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
@@ -333,6 +337,19 @@ class BridgePanelHandler(BaseHTTPRequestHandler):
         if parsed.path == "/healthz":
             self.send_json({"ok": True, "service": APP, "version": VERSION})
             return
+
+        # User/password login, when configured: an unauthenticated browser
+        # gets the sign-in page instead of the panel. API paths (/api/…, and
+        # the login endpoint itself) still 404 instead of leaking HTML, and
+        # curl clients see no behavior change.
+        if panel_auth.login_enabled() and not self.authorized_path(require_token=True):
+            if parsed.path == "/api/login":
+                self.reject(HTTPStatus.NOT_FOUND, "Not found")
+                return
+            if not parsed.path.startswith("/api/"):
+                self.send_bytes(panel_auth.LOGIN_HTML.encode("utf-8"),
+                                "text/html; charset=utf-8")
+                return
 
         # Invite management is sensitive (reveals live tokens): always require
         # the bearer token, even from trusted IPs. Probe with require_token so
@@ -477,6 +494,35 @@ class BridgePanelHandler(BaseHTTPRequestHandler):
             self.reject(HTTPStatus.NOT_FOUND, "Not found")
 
     def do_POST(self) -> None:
+        # Login is the only endpoint reachable without prior authorization.
+        parsed = urlparse(self.path)
+        if panel_auth.login_enabled() and parsed.path == "/api/login":
+            try:
+                length = int(self.headers.get("Content-Length", "0") or 0)
+                raw = self.rfile.read(length) if length else b""
+                body = json.loads(raw)
+            except (ValueError, json.JSONDecodeError, OSError):
+                self.reject(HTTPStatus.BAD_REQUEST, "Invalid JSON")
+                return
+            user = str(body.get("user") or "")
+            password = str(body.get("pass") or "")
+            if not panel_auth.verify_password(user, password):
+                self.reject(HTTPStatus.FORBIDDEN, "Invalid credentials")
+                return
+            cookie = panel_auth.new_session()
+            payload = b'{"ok": true}'
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header(
+                "Set-Cookie",
+                f"{panel_auth.COOKIE}={cookie}; Path=/; HttpOnly; SameSite=Lax",
+            )
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+            return
+
         auth = self.authorized_path(require_token=True)
         if not auth:
             self.reject(HTTPStatus.NOT_FOUND, "Not found")
