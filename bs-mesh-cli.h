@@ -53,8 +53,11 @@ public:
         listen_cfg.cert_file = cert_path;
         listen_cfg.key_file = key_path;
         listen_cfg.authorized_keys_file = resolve_under_app_home(config_.authorized_keys_path, app_home);
+        // 26.09.16 (audit F3): pinned seed pubkeys authorize inbound TLS too.
+        // Hex-decode once here; rebuilt on daemon restart / config reload.
+        rebuild_pinned_seed_keys();
         tls_listen_ = create_node_tls(listen_cfg, TlsMode::Listen, &authorized_keys_, nullptr,
-                                      &allow_join_connections_);
+                                      &allow_join_connections_, &pinned_seed_keys_);
 
         NodeTlsConfig connect_cfg;
         connect_cfg.cert_file = cert_path;
@@ -520,8 +523,19 @@ public:
                     if (e.signature.empty()) {
                         response = "ERROR could not sign enrollment\n";
                     } else {
+                        // 26.09.16 (audit F1): apply locally BEFORE broadcasting.
+                        // The issuer itself is a mesh member — without this the
+                        // enrolling node never trusted its own enrollment (the
+                        // devin-mac incident: `bs enroll` returned OK but the
+                        // local daemon kept rejecting the peer's shells).
+                        // apply_directory_enroll is idempotent for known keys.
+                        const bool applied_locally = apply_directory_enroll(e);
                         broadcast_enroll(e);
-                        response = "OK enrolled " + name + " " + addr + "\n";
+                        remember_pending_enroll(e);  // replay to late peers
+                        response = applied_locally
+                            ? "OK enrolled " + name + " " + addr + "\n"
+                            : "OK broadcast " + name + " " + addr +
+                              " (local apply skipped — already trusted)\n";
                     }
                 }
             }

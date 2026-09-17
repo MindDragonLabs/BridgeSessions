@@ -412,6 +412,15 @@ inline std::string verify_bytes_hex(const std::vector<uint8_t>& b) {
 struct ServerVerifyContext {
     AuthorizedKeys* auth = nullptr;
     std::atomic<bool>* allow_join_connections = nullptr;
+    // 26.09.16 (audit F3): operator-pinned SEED pubkeys from the mesh config.
+    // The config seed pin is an explicit operator trust statement — a peer the
+    // operator added with `bs peers add --pubkey` — exactly like an
+    // authorized_keys line. Before this, mutual `peers add` peers were refused
+    // inbound (tls_verify_server reject) because only authorized_keys was
+    // consulted: the pin authorized the DIAL direction but not ACCEPT, so two
+    // freshly-pinned peers could never connect. Raw 32-byte keys, hex-decoded
+    // once at SSL_CTX setup, re-read on config reload.
+    const std::vector<std::vector<uint8_t>>* pinned_seed_keys = nullptr;
 };
 
 int expected_peer_pubkey_index();
@@ -433,6 +442,19 @@ int server_cert_verify_cb(X509_STORE_CTX* ctx, void* arg) {
         log_event("tls_verify_server", pk_hex.substr(0, 12) + " result=accept");  // R1.1
         X509_STORE_CTX_set_error(ctx, X509_V_OK);
         return 1;
+    }
+    // 26.09.16 (audit F3): a pinned SEED pubkey is operator trust, equivalent
+    // to an authorized_keys entry. Honor it for inbound acceptance so mutual
+    // `peers add --pubkey` pairs connect without a manual authorize step.
+    if (verify->pinned_seed_keys) {
+        for (const auto& pinned : *verify->pinned_seed_keys) {
+            if (pinned == raw) {
+                log_event("tls_verify_server",
+                          pk_hex.substr(0, 12) + " result=accept (seed pin)");
+                X509_STORE_CTX_set_error(ctx, X509_V_OK);
+                return 1;
+            }
+        }
     }
     // Join window open: accept unknown peers so they can present an invite token.
     // The JoinRequest handler validates the token; without a valid token the
@@ -640,7 +662,8 @@ void bootstrap_identity(const std::string& home_dir) {
 SslCtxPtr create_node_tls(const NodeTlsConfig& cfg, TlsMode mode,
                           AuthorizedKeys* auth_storage = nullptr,
                           std::function<bool(const std::string&)>* tofu_storage = nullptr,
-                          std::atomic<bool>* allow_join_connections = nullptr) {
+                          std::atomic<bool>* allow_join_connections = nullptr,
+                          const std::vector<std::vector<uint8_t>>* pinned_seed_keys = nullptr) {
     SslCtxPtr ctx;
 
     if (mode == TlsMode::Listen) {
@@ -695,6 +718,7 @@ SslCtxPtr create_node_tls(const NodeTlsConfig& cfg, TlsMode mode,
         auto verify = std::make_unique<ServerVerifyContext>();
         verify->auth = auth;
         verify->allow_join_connections = allow_join_connections;
+        verify->pinned_seed_keys = pinned_seed_keys;  // 26.09.16 audit F3
         const int verify_index = server_verify_context_index();
         if (verify_index < 0 || SSL_CTX_set_ex_data(ctx.get(), verify_index, verify.get()) != 1)
             throw std::runtime_error("attach server verify callback storage failed");

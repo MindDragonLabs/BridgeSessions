@@ -2312,8 +2312,12 @@ public:
             if (!e.signature.empty()) {
                 // Apply locally (already authorized via the join path, but this
                 // also seeds it as discovered) and gossip to all peers.
+                // 26.09.16 (audit F1): keep a copy for late-joining peers —
+                // broadcast_enroll only reaches CURRENTLY-connected conns, so
+                // peers that reconnect later never saw the one-shot frame.
                 apply_directory_enroll(e);
                 broadcast_enroll(e);
+                remember_pending_enroll(e);
                 log_event("join_auto_enrolled", reply.node_name + " " + jr.listen_addr);
             }
         }
@@ -2363,6 +2367,15 @@ public:
                 issuer_is_seed = true;
                 break;
             }
+        }
+        // 26.09.16 (audit F1): a node always trusts enrollments IT signed.
+        // The join host vouches for the joiner but does not pin itself in its
+        // own seed list — the strict issuer_is_seed check below rejected the
+        // host's own enrollment of the new member ("devin-mac incident"),
+        // leaving the issuer the ONLY node that never applied the trust it
+        // just vouched for. Our own key is the trust root for our signature.
+        if (!issuer_is_seed && e.issuer_pubkey == our_pubkey_) {
+            issuer_is_seed = true;
         }
         if (!issuer_is_seed) {
             log_event("enroll_rejected_issuer_not_seed", e.name);
@@ -2496,6 +2509,16 @@ public:
             if (!version_has_cap(c.remote_version, kCapEnroll)) continue;
             (void)enqueue_frame(c, e, CONTROL_STREAM_ID);
         }
+    }
+
+    // 26.09.16 (audit F1): remember recent enrollments so peers connecting
+    // after the one-shot broadcast still receive them (replayed in the
+    // mesh_peer_connected paths). Bounded; receiver-side apply is idempotent
+    // and still verifies the issuer signature + freshness.
+    void remember_pending_enroll(const DirectoryEnrollMsg& e) {
+        pending_enrolls_.push_back(e);
+        while (pending_enrolls_.size() > kMaxPendingEnrolls)
+            pending_enrolls_.pop_front();
     }
 
     static constexpr auto kInviteTtl = std::chrono::hours(2);
