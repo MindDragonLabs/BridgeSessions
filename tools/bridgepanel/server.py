@@ -5,6 +5,7 @@ import base64
 import hashlib
 import html as _html
 import json
+import re
 import sys
 import time
 from http import HTTPStatus
@@ -22,7 +23,8 @@ from .ops import mkdir_path, rename_path, trash_path
 from .consts import APP, MAX_UPLOAD, VERSION, max_file_upload
 from .files import (file_kind, markdown_to_html, resolve_file, safe_name,
                     safe_relpath, safe_session_name, safe_type, sessions_dir)
-from .invites import list_invites, mint_invite, render_invite_page, seed_info
+from .invites import (TOKEN_PATTERN, list_invites, mint_invite,
+                     render_invite_page, seed_info)
 from .panel_html import FAVICON_SVG, INDEX_HTML
 from . import auth as panel_auth
 
@@ -538,29 +540,42 @@ class BridgePanelHandler(BaseHTTPRequestHandler):
             return
 
         if path == "/api/invites/page":
+            # Validate the body while we can still drain it cleanly: a handler
+            # that rejects without reading Content-Length bytes leaves the
+            # connection desynced for the next keep-alive request.
             try:
                 length = int(self.headers.get("Content-Length", "0") or 0)
             except ValueError:
+                self._drain_body()
                 self.reject(HTTPStatus.BAD_REQUEST, "Invalid Content-Length")
                 return
             if length < 0 or length > 65536:
+                self._drain_body()
                 self.reject(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, "Content too large")
                 return
             try:
                 raw_body = self.rfile.read(length) if length else b"{}"
                 body = json.loads(raw_body)
             except (ValueError, json.JSONDecodeError, OSError):
+                self._drain_body()
                 self.reject(HTTPStatus.BAD_REQUEST, "Invalid JSON")
                 return
             token = str(body.get("token") or "").strip()
-            if not token:
-                self.reject(HTTPStatus.BAD_REQUEST, "token required")
+            # Same strict hex format mint_invite enforces: reject garbage
+            # early so the shareable page stays well-formed.
+            if not re.fullmatch(TOKEN_PATTERN, token):
+                self.reject(HTTPStatus.BAD_REQUEST, "invalid token format")
                 return
             seed = str(body.get("seed") or "") or seed_info().get("addr", "")
+            try:
+                window = int(body.get("window_seconds") or 300)
+            except (TypeError, ValueError):
+                self.reject(HTTPStatus.BAD_REQUEST, "window_seconds must be an integer")
+                return
             record = {
                 "token": token,
                 "seed": seed,
-                "window_seconds": int(body.get("window_seconds") or 300),
+                "window_seconds": window,
                 "expires_at": str(body.get("expires_at") or ""),
             }
             self.send_json({"ok": True, "page": render_invite_page(record)})

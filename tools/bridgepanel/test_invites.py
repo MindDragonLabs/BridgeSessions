@@ -234,6 +234,106 @@ class TestInvitesHttp(unittest.TestCase):
         status, _ = self._req("GET", "/wrongtoken/api/invites")
         self.assertEqual(status, 404)
 
+    def test_invites_page_requires_auth(self):
+        status, _ = self._req(
+            "POST", "/api/invites/page",
+            json.dumps({"token": GOOD_TOKEN, "seed": "10.0.0.5:19949"}),
+        )
+        self.assertEqual(status, 404)
+
+    def test_invites_page_renders_with_auth(self):
+        status, data = self._req(
+            "POST", "/api/invites/page",
+            json.dumps({"token": GOOD_TOKEN, "seed": "10.0.0.5:19949"}),
+            token=self.token,
+        )
+        self.assertEqual(status, 200)
+        body = json.loads(data)
+        self.assertTrue(body["ok"])
+        # the rendered page embeds the token inline in copy/paste commands
+        self.assertIn(GOOD_TOKEN, body["page"])
+        # and no placeholder survives anywhere in the page
+        self.assertNotIn("<path>", body["page"])
+
+    def test_invites_page_rejects_bad_window(self):
+        status, data = self._req(
+            "POST", "/api/invites/page",
+            json.dumps({"token": GOOD_TOKEN, "window_seconds": "abc"}),
+            token=self.token,
+        )
+        self.assertEqual(status, 400)
+        self.assertIn("window_seconds", data)  # reject() replies text/plain
+
+    def test_invites_page_rejects_malformed_token(self):
+        # must fail validation BEFORE rendering — never mint a page for garbage
+        status, data = self._req(
+            "POST", "/api/invites/page",
+            json.dumps({"token": "zz-not-hex-!!", "seed": "10.0.0.5:19949"}),
+            token=self.token,
+        )
+        self.assertEqual(status, 400)
+        self.assertIn("token format", data)  # reject() replies text/plain
+
+    def test_invites_denied_from_trusted_ip_without_token(self):
+        # trusted_ips is normally empty in this class; allow 127.0.0.1 and
+        # prove the invite endpoints STILL require the bearer/URL token.
+        self.server.trusted_ips = {"127.0.0.1"}
+        try:
+            status, _ = self._req("GET", "/api/invites")
+            self.assertEqual(status, 404)
+            status, _ = self._req(
+                "POST", "/api/invites/page",
+                json.dumps({"token": GOOD_TOKEN}),
+            )
+            self.assertEqual(status, 404)
+        finally:
+            self.server.trusted_ips = set()
+
+
+class TestJsCommandParity(unittest.TestCase):
+    """The panel's embedded JS (invCommands) must mirror join_commands().
+
+    Guards against the two generators drifting: extract invCommands from
+    INDEX_HTML, evaluate it in isolation, and compare its output shape
+    against the Python source of truth.
+    """
+
+    def test_js_invcommands_no_placeholder(self):
+        from bridgepanel.panel_html import INDEX_HTML
+        import re as _re
+        m = _re.search(r"function invCommands\(rec\) \{(.*?)\n  \}", INDEX_HTML, _re.S)
+        self.assertIsNotNone(m, "invCommands() not found in INDEX_HTML")
+        js = m.group(0)
+        # four command entries, none keeping a placeholder
+        self.assertEqual(js.count("{lbl:"), 4)
+        self.assertNotIn("--token-file", js)
+        self.assertNotIn("<path>", js)
+
+    def test_js_invcommands_match_python(self):
+        """Stronger parity check: run the JS through node and compare with
+        join_commands() output directly, when node is available."""
+        import shutil
+        node = shutil.which("node")
+        if not node:
+            self.skipTest("node not available")
+        from bridgepanel import invites as inv
+        from bridgepanel.panel_html import INDEX_HTML
+        import re as _re
+        import subprocess
+        m = _re.search(r"function invCommands\(rec\) \{(.*?)\n  \}", INDEX_HTML, _re.S)
+        js = m.group(0)
+        script = js + "\nconst rec = {seed: '10.0.0.5:19949', token: 'c'.repeat(64)};\n" \
+                      "console.log(JSON.stringify(invCommands(rec)));\n"
+        out = subprocess.run([node, "-e", script], capture_output=True, text=True, timeout=10)
+        self.assertEqual(out.returncode, 0, out.stderr)
+        js_cmds = json.loads(out.stdout)
+        self.assertEqual(len(js_cmds), 4)
+        py_cmds = inv.join_commands({"token": "c" * 64, "seed": "10.0.0.5:19949"})
+        for js_c, py_c in zip(js_cmds, py_cmds):
+            self.assertEqual(js_c["cmd"], py_c["cmd"],
+                             f"JS/Python drift: {js_c['lbl']!r} != {py_c['label']!r}")
+            self.assertEqual(js_c["lbl"], py_c["label"])
+
 
 if __name__ == "__main__":
     unittest.main()

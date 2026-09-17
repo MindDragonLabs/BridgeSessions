@@ -60,10 +60,9 @@ class TestAuthStore(unittest.TestCase):
         set_password(USER, PASS)
         raw = auth.auth_path().read_text()
         self.assertNotIn(PASS, raw)
-        self.assertNotIn(USER, raw.split("session_secret")[0][:0] or "")  # user IS stored, but hash must be hex
         d = json.loads(raw)
         self.assertNotEqual(d["hash"], PASS)
-        self.assertEqual(len(d["hash"]), 64)  # scrypt dklen=32 hex
+        self.assertEqual(len(d["hash"]), 64)  # pbkdf2_hmac dklen=32, hex-encoded
 
     def test_session_roundtrip(self):
         set_password(USER, PASS)

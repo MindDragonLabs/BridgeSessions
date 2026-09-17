@@ -24,6 +24,7 @@ from .consts import data_home, state_path  # noqa: F401  (state_path for parity)
 INVITE_TTL_SEC = 2 * 60 * 60          # matches kInviteTtl in bs-mesh-transfer.h
 JOIN_WINDOW_SEC_DEFAULT = 300         # matches mesh.join_window_max_secs default
 MAX_STORED = 50                       # cap the persisted invite ledger
+TOKEN_PATTERN = r"[0-9a-f]{32,128}"   # strict hex, same bound the daemon enforces
 CONFIG_DIR = Path.home() / ".bridgesessions"
 INSTALL_SH = (
     "https://raw.githubusercontent.com/MindDragonLabs/BridgeSessions/"
@@ -133,7 +134,7 @@ def mint_invite() -> dict:
     token = (bs_ipc("INVITE") or "").strip()
     if not token or token.startswith("ERROR"):
         return {"ok": False, "error": "daemon invite failed (daemon not running?)"}
-    if not re.fullmatch(r"[0-9a-f]{32,128}", token):
+    if not re.fullmatch(TOKEN_PATTERN, token):
         return {"ok": False, "error": "daemon returned a malformed invite token"}
 
     seed = seed_info()
