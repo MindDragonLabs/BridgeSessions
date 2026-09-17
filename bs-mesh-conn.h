@@ -229,6 +229,16 @@ public:
     bool test_apply_enroll(const DirectoryEnrollMsg& e) {
         return apply_directory_enroll(e);
     }
+    // 26.09.16 (Greptile P1 relay-replay): expose the replay queue so tests can
+    // prove RELAYED enrollments (not just locally-issued ones) enter it.
+    size_t test_pending_enroll_count() const { return pending_enrolls_.size(); }
+    bool test_pending_enroll_contains(const std::string& pubkey_hex) const {
+        return std::any_of(pending_enrolls_.begin(), pending_enrolls_.end(),
+            [&](const DirectoryEnrollMsg& e) { return e.pubkey_hex == pubkey_hex; });
+    }
+    void test_remember_pending_enroll(const DirectoryEnrollMsg& e) {
+        remember_pending_enroll(e);
+    }
     // 26.09.16 (audit F3): expose the mirrored pinned-seed raw key count for
     // regression tests (test_seed_pin_trust.cpp).
     size_t test_pinned_seed_key_count() const { return pinned_seed_keys_.size(); }
@@ -1259,6 +1269,10 @@ private:
           setsockopt(ph.sock_fd, SOL_SOCKET, SO_RCVBUF, (const char*)&sz, sizeof(sz)); }
 
         merge_peers(hello.known_peers);
+        // Capture the new connection's fd BEFORE the push: resolve_duplicates()
+        // below may drop THIS connection when an existing link to the same peer
+        // wins, in which case conns_.back() names a different peer.
+        const SOCKET new_conn_fd = c.sock_fd;
         conns_.push_back(std::move(c));
         resolve_duplicates();
         clear_accept_only_for(hello.node_name, ph.expected_addr, ph.peer_pk);
@@ -1275,9 +1289,18 @@ private:
         // Capability gate: never send +enroll frames to a peer that does not
         // advertise the capability (protocol.md backward-compatibility rule).
         if (version_has_cap(hello.version, kCapEnroll)) {
-            for (const auto& e : pending_enrolls_) {
-                if (e.pubkey_hex == ph.peer_pk) continue;  // not to the member itself
-                (void)enqueue_frame(conns_.back(), e, CONTROL_STREAM_ID);
+            // 26.09.16 (Greptile P1): target the replay by fd, not conns_.back().
+            // resolve_duplicates() above may have dropped the just-promoted
+            // connection when an existing link to the same peer wins — sending
+            // to conns_.back() would deliver another peer's enrollments (or
+            // drop these entirely when the vector is empty).
+            for (auto& oc : conns_) {
+                if (oc.sock_fd != new_conn_fd) continue;
+                for (const auto& e : pending_enrolls_) {
+                    if (e.pubkey_hex == ph.peer_pk) continue;  // not to the member itself
+                    (void)enqueue_frame(oc, e, CONTROL_STREAM_ID);
+                }
+                break;
             }
         }
 

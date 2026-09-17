@@ -114,6 +114,48 @@ TEST_CASE("foreign non-seed issuer is still rejected (self-apply is not a hole)"
     fs::remove_all(home);
 }
 
+TEST_CASE("relayed enrollment enters the replay queue (Greptile P1)",
+          "[bootstrap][enroll][f1][relay][replay]") {
+    const auto home = unique_temp_dir("relayreplay");
+
+    // A controller that will PLAY the relay: it has no seeds and no knowledge
+    // of the issuer, but applies a valid self-issued enrollment (the relay
+    // recipient path). remember_pending_enroll must then hold the entry so a
+    // later-connecting peer still receives it.
+    MeshConfig cfg;
+    cfg.authorized_keys_path = (home / "authorized_keys").string();
+    MeshController controller(cfg, home.string());
+
+    std::string our_pk;
+    {
+        std::ifstream pf(home / "id_ed25519.pub");
+        std::getline(pf, our_pk);
+        while (!our_pk.empty() && (our_pk.back() == '\\r' || our_pk.back() == '\\n'))
+            our_pk.pop_back();
+    }
+    REQUIRE_FALSE(our_pk.empty());
+
+    auto [member_cert, member_key] = generate_cert_key_pair("relay-member");
+    std::string member_pk = pubkey_hex_from_pem(member_key);
+    (void)member_cert;
+
+    DirectoryEnrollMsg e = controller.test_make_enroll("relay-member", member_pk,
+                                                       "100.10.10.10:19949");
+    REQUIRE(e.issuer_pubkey == our_pk);
+
+    // Empty before the relay.
+    REQUIRE(controller.test_pending_enroll_count() == 0);
+
+    // Apply (relay path) then remember — the production relay does exactly this.
+    REQUIRE(controller.test_apply_enroll(e));
+    controller.test_remember_pending_enroll(e);
+
+    REQUIRE(controller.test_pending_enroll_count() == 1);
+    REQUIRE(controller.test_pending_enroll_contains(member_pk));
+
+    fs::remove_all(home);
+}
+
 TEST_CASE("rebuild_pinned_seed_keys mirrors valid seed pins and skips junk",
           "[bootstrap][enroll][f3][pins]") {
     const auto home = unique_temp_dir("pins");
