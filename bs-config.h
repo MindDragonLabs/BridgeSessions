@@ -75,6 +75,12 @@ struct MeshConfig {
     // older Hello.version than this node (cooldown-limited). Peers that were
     // offline during a fleet upgrade catch up automatically when they return.
     bool auto_upgrade = true;
+    // Which node owns auto-upgrade dispatch. Empty = legacy behavior (any node
+    // with a newer binary upgrades stale peers). Set to a node name (e.g.
+    // "fecv3") so exactly one designated node dispatches; everyone else just
+    // logs. Prevents a fleet from hammering a stale peer with concurrent
+    // upgrade-restarts from every healthy node at once.
+    std::string auto_upgrade_origin;
     // Minimum seconds between auto-upgrade attempts for the same peer.
     int auto_upgrade_cooldown_secs = 3600;
     // When true (default), outbound seed/discovered dials require pubkey= pin and
@@ -331,6 +337,9 @@ void write_peer_line(std::ostream& os, const std::string& prefix, const PeerEntr
         } else if (key_str == "mesh.auto_upgrade_cooldown_secs") {
             auto v = parse_int(val);
             if (v.has_value() && *v >= 60) cfg.auto_upgrade_cooldown_secs = *v;
+        } else if (key_str == "mesh.auto_upgrade_origin") {
+            std::string_view t = trim(val);
+            if (!t.empty()) cfg.auto_upgrade_origin = std::string(t);
         } else if (key_str == "mesh.require_seed_pins") {
             std::string s(val);
             for (char& c : s) if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
@@ -1784,6 +1793,8 @@ struct ResolvedSessionCommand {
     f << "mesh.ping_interval_secs " << cfg.ping_interval_secs << "\n";
     f << "mesh.pong_timeout_secs " << cfg.pong_timeout_secs << "\n";
     f << "mesh.auto_upgrade " << (cfg.auto_upgrade ? "true" : "false") << "\n";
+    if (!cfg.auto_upgrade_origin.empty())
+        f << "mesh.auto_upgrade_origin " << cfg.auto_upgrade_origin << "\n";
     f << "mesh.auto_upgrade_cooldown_secs " << cfg.auto_upgrade_cooldown_secs << "\n";
     f << "mesh.require_seed_pins " << (cfg.require_seed_pins ? "true" : "false") << "\n";
     f << "mesh.discovered_ttl_secs " << cfg.discovered_ttl_secs << "\n";

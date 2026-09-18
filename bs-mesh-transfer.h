@@ -1300,8 +1300,16 @@
                           task.peer_name + " pin=false at execution time");
                 break;
             }
+            // 26.09.18 fix: the daemon runs from launchd/systemd with a minimal
+            // PATH (/usr/bin:/bin:...) that lacks ~/.local/bin — the bare
+            // "bridgesessions" below resolved to nothing, every auto-upgrade
+            // died with exit 127 (rc=32512) and retried hourly forever. Invoke
+            // this very binary by absolute path; the daemon and the CLI are the
+            // same executable.
+            const std::string self = current_exe_path();
+            const std::string cli = self.empty() ? std::string("bridgesessions") : self;
             const std::string cmd =
-                "bridgesessions shell " + task.peer_name +
+                "\"" + cli + "\" shell " + task.peer_name +
                 " --cmd 'bridgesessions upgrade' >/dev/null 2>&1";
             const int rc = std::system(cmd.c_str());
             log_event("auto_upgrade_complete",
