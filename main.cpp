@@ -889,8 +889,16 @@ int main(int argc, char** argv) {
 int bridgesessions_main(int argc, char** argv) {
 #ifdef _WIN32
     WSADATA wsa;
-    WSAStartup(MAKEWORD(2,2), &wsa);
+    WSAStartup(MAKEWORD(2, 2), &wsa);
+#else
+    // 2026-09-18: one-shot hosted sessions can die between the READY handshake
+    // and the first controller write (WMSG_RESIZE). A write to the just-closed
+    // worker socket raised SIGPIPE and could take the whole daemon down before
+    // the buffered OUTPUT/DIED frames were pumped. Writes must fail with EPIPE
+    // instead so the pump path records the real exit code.
+    ::signal(SIGPIPE, SIG_IGN);
 #endif
+
 
     // P3: seed PRNG from /dev/urandom (or random_device) — used by jitter, temp names
     {

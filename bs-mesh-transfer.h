@@ -2211,8 +2211,10 @@ public:
                 if (n > 0) { session.worker_tx.erase(0, static_cast<size_t>(n)); continue; }
                 if (n < 0 && errno == EINTR) continue;
                 if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) break;
+                // EPIPE: worker died after queueing reply frames. Do NOT mark
+                // worker_died — buffered RX frames must still be pumped for the
+                // real exit code (2026-09-18 Bug A sibling; see worker_queue_frame).
                 log_event("pty_input_drain_failed", session.name);
-                session.worker_died = true;
                 return false;
             }
             if (session.worker_tx.size() <= Session::kPtyInputLowWater)
@@ -3235,12 +3237,19 @@ public:
 #ifndef _WIN32
             if (s->hosted) {
                 // Worker-hosted: the socket carries framed protocol messages.
-                // SCROLLBACK frames are historical (adoption replay) — they go
-                // to the ring only, never fan out as fresh output.
+                // 2026-09-18 fix (Bug B): a fast-exit one-shot's output is only
+                // ever observed by the worker with no clients connected, so it
+                // arrives as WMSG_SCROLLBACK on the daemon's (first and only)
+                // connection. Routing it to the ring alone produced empty
+                // captures. Scrollback frames now also fan out as fresh output
+                // — for a newly-attached controller this data is by definition
+                // unseen. Genuine reattach replays are deduplicated by the
+                // client-side renderer (scrollback merge), not here.
                 auto pump = pump_hosted_session(*s);
                 if (!pump.scrollback.empty()) {
                     s->scrollback.write(std::string_view(pump.scrollback));
                     s->touch_output();
+                    pump.output.append(pump.scrollback);
                 }
                 buf = std::move(pump.output);
             } else

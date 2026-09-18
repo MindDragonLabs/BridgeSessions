@@ -782,8 +782,26 @@ public:
             int32_t exit_code = 0;
             // Hosted sessions: the child belongs to the worker — waitpid here
             // would hit ECHILD and false-positive as dead. Death arrives via
-            // the worker protocol in pty_output_poller().
-            if (s->child_pid > 0 && !s->hosted) {
+            // the worker protocol. pty_output_poller() parses it, but sessions
+            // outside its attention (Detached) — and programmatic/test attaches
+            // with include_attached=true — rely on this reaper to drain the
+            // worker socket (2026-09-18: fast-exit one-shots were never marked
+            // Died once queue-side EPIPE stopped double-marking death; the
+            // buffered DIED frame is authoritative). Attached sessions only
+            // reach here when include_attached=true — the daemon tick passes
+            // false so its poller keeps ownership of SessionDied fanout.
+            if (s->hosted) {
+                if (s->master_fd >= 0 && !s->worker_died) {
+                    (void)pump_hosted_session(*s);
+                }
+                if (s->worker_died) {
+                    died = true;
+                    s->state = SessionState::Died;
+                    exit_code = s->worker_exit_code;
+                    record_history_locked(*s, exit_code, "died");
+                    s->child_pid = -1;
+                }
+            } else if (s->child_pid > 0) {
                 int status = 0;
                 pid_t result = waitpid(s->child_pid, &status, WNOHANG);
                 if (result == s->child_pid) {

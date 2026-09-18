@@ -766,7 +766,11 @@ inline void worker_queue_frame(Session& s, worker::WorkerMsgType t,
         if (n > 0) { s.worker_tx.erase(0, static_cast<size_t>(n)); continue; }
         if (n < 0 && errno == EINTR) continue;
         if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) return;
-        s.worker_died = true;
+        // EPIPE and friends: the worker may have died AFTER queueing our
+        // death-agnostic reply frames (READY+SCROLLBACK+DIED burst for a
+        // fast-exit one-shot). Do NOT mark worker_died here — the read side
+        // still has buffered frames the pump must parse to recover the real
+        // exit code. The pump sets worker_died on EOF after draining.
         return;
     }
 }
