@@ -110,7 +110,7 @@ inline std::vector<std::string> session_picker_rows(const bs::mesh::SessionListM
     for (auto& si : list.sessions) {
         if (si.state == "died") continue;
         rows.push_back(si.name + "  [" + si.state
-                       + " · up " + std::to_string(si.uptime_seconds) + "s]");
+                       + " · up " + bs::mesh::human_duration(static_cast<uint64_t>(si.uptime_seconds)) + "]");
     }
     return rows;
 }

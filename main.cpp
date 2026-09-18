@@ -696,30 +696,43 @@ struct MenuTermGuard {
     }
 };
 
-// Interactive ↑/↓ + Enter selector with charm-style frame rendering.
-// Returns 1-based choice, 0 on cancel (Esc alone, q, Ctrl-C) or EOF.
-size_t arrow_menu_select(const std::vector<std::string>& rows,
-                         const std::string& title = {}) {
-    if (rows.empty()) return 0;
-    MenuTermGuard guard;
-    const size_t n = rows.size();
-    size_t sel = 0;
-    // Frame geometry: box lines + one footer line. Rows are padded/truncated
-    // to a fixed width by bs::tui::menu_frame so redraws never reflow.
+// Menu frame helpers (26.09.18): width + footer computed per draw so a
+// delete-shrunken row set repaints at the correct geometry.
+static size_t menu_frame_width(const std::vector<std::string>& rows) {
     size_t width = 0;
     for (auto& r : rows)
         width = std::max(width, bs::tui::tui_row_width(r));
-    width = std::clamp(width + 2, size_t{24}, size_t{72});
-    const size_t frame_lines = n + 4;  // top, title, separator, rows, bottom
-    const std::string footer =
-        bs::tui::menu_footer("  ↑/↓ or j/k move · Enter select · q quit");
-    auto draw = [&](bool first) {
+    return std::clamp(width + 2, size_t{24}, size_t{72});
+}
+static std::string menu_frame_footer(bool has_delete) {
+    return bs::tui::menu_footer(has_delete
+        ? "  ↑/↓ or j/k move · Enter select · d delete · q quit"
+        : "  ↑/↓ or j/k move · Enter select · q quit");
+}
+
+// Interactive ↑/↓ + Enter selector with charm-style frame rendering.
+// Returns 1-based choice, 0 on cancel (Esc alone, q, Ctrl-C) or EOF.
+// on_delete (26.09.18, TODO item 3): when set, pressing d/D calls it with the
+// 1-based selection; returning true removes that row and keeps the menu open
+// (delete-then-repick flow for session management). Returning false leaves
+// the menu unchanged (delete failed — surface the error at the caller).
+size_t arrow_menu_select(const std::vector<std::string>& rows,
+                         const std::string& title = {},
+                         const std::function<bool(size_t)>& on_delete = {}) {
+    if (rows.empty()) return 0;
+    MenuTermGuard guard;
+    size_t n = rows.size();                       // mutable: deletes shrink it
+    size_t sel = 0;
+    std::vector<std::string> live = rows;         // the working copy
+    // Frame geometry: box lines + one footer line. Rows are padded/truncated
+    // to a fixed width by bs::tui::menu_frame so redraws never reflow.
+    auto draw = [&](bool first, const std::vector<std::string>& rs, size_t s) {
         // Raw mode is on (OPOST off): every newline must be \r\n or the cursor
         // keeps the previous line's column and the frame shreds diagonally.
         if (first)
             std::cout << bs::tui::menu_frame({title.empty() ? " " : title, true},
-                                             rows, sel, width) << "\r\n"
-                      << footer << std::flush;
+                                             rs, s, menu_frame_width(rs)) << "\r\n"
+                      << menu_frame_footer(on_delete != nullptr) << std::flush;
         else {
             // Rewind to the top of the frame and repaint it in place.
             // The \r matters: the previous frame ended on the footer with no
@@ -727,29 +740,43 @@ size_t arrow_menu_select(const std::vector<std::string>& rows,
             // Cursor-up alone preserves that column and frame 2 would print
             // mid-line, wrap, and trash the whole menu (observed in a real
             // PTY capture 2026-09-08).
-            std::cout << "\x1b[" << frame_lines << "A\r"
+            const size_t fl = rs.size() + 4;
+            std::cout << "\x1b[" << fl << "A\r"
                       << bs::tui::menu_frame({title.empty() ? " " : title, true},
-                                             rows, sel, width) << "\r\n"
-                      << footer << std::flush;
+                                             rs, s, menu_frame_width(rs)) << "\r\n"
+                      << menu_frame_footer(on_delete != nullptr) << std::flush;
         }
     };
-    draw(true);
+    draw(true, live, sel);
     for (;;) {
         int c = menu_read_byte();
         if (c < 0) return 0;                              // EOF
         if (c == 3 || c == 'q' || c == 'Q') return 0;     // Ctrl-C / q = cancel
         if (c == '\r' || c == '\n') return sel + 1;       // Enter
-        if (c == 'k' && sel > 0) { --sel; draw(false); continue; }
-        if (c == 'j' && sel + 1 < n) { ++sel; draw(false); continue; }
+        if ((c == 'd' || c == 'D') && on_delete) {
+            if (on_delete(sel + 1)) {
+                live.erase(live.begin() + static_cast<std::ptrdiff_t>(sel));
+                if (live.empty()) return 0;
+                if (sel >= live.size()) sel = live.size() - 1;
+                n = live.size();
+                // Full repaint from a clean slate: the frame shrank by one
+                // line, so an in-place rewind would leave a stale bottom row.
+                std::cout << "\x1b[" << (n + 5) << "B\r\x1b[J"; // park below, clear
+                draw(true, live, sel);
+            }
+            continue;
+        }
+        if (c == 'k' && sel > 0) { --sel; draw(false, live, sel); continue; }
+        if (c == 'j' && sel + 1 < n) { ++sel; draw(false, live, sel); continue; }
         if (c == 0x1b) {                                  // ESC: arrow or cancel
             int c2 = menu_read_byte_timeout(80);
             if (c2 == -2 || c2 == 0x1b) return 0;         // bare Esc = cancel
             if (c2 != '[' && c2 != 'O') continue;
             int c3 = menu_read_byte_timeout(80);
-            if (c3 == 'A' && sel > 0) { --sel; draw(false); }
-            else if (c3 == 'B' && sel + 1 < n) { ++sel; draw(false); }
-            else if (c3 == 'H') { sel = 0; draw(false); }
-            else if (c3 == 'F') { sel = n - 1; draw(false); }
+            if (c3 == 'A' && sel > 0) { --sel; draw(false, live, sel); }
+            else if (c3 == 'B' && sel + 1 < n) { ++sel; draw(false, live, sel); }
+            else if (c3 == 'H') { sel = 0; draw(false, live, sel); }
+            else if (c3 == 'F') { sel = n - 1; draw(false, live, sel); }
         }
     }
 }
@@ -1725,9 +1752,22 @@ int bridgesessions_main(int argc, char** argv) {
             auto listed = mc.fetch_peer_sessions(quick_peer);
             if (listed) {
                 if (bs::mesh::stdin_is_terminal() && stdout_is_terminal()) {
-                    int choice = connect_menu_pick(
+                    std::vector<std::string> s_live;
+                    for (auto& si : listed->sessions)
+                        if (si.state != "died") s_live.push_back(si.name);
+                    int choice = static_cast<int>(arrow_menu_select(
+                        bs::tui::session_picker_rows(*listed),
                         quick_peer + " — choose a session:",
-                        bs::tui::session_picker_rows(*listed));
+                        [&](size_t idx1) {
+                            if (idx1 < 2) return false;
+                            const size_t li = idx1 - 2;
+                            if (li >= s_live.size()) return false;
+                            const std::string victim = s_live[li];
+                            const bool ok = mc.kill_peer_session(quick_peer, victim);
+                            if (ok) std::cout << "\r\nkilled " << victim << "\r\n";
+                            else    std::cout << "\r\nfailed to kill " << victim << "\r\n";
+                            return ok;
+                        }));
                     if (choice > 0) {
                         std::string picked =
                             bs::tui::session_picker_choice(*listed,
@@ -1769,12 +1809,33 @@ int bridgesessions_main(int argc, char** argv) {
                                            choice_rows);
             if (choice == 1) {
                 if (listed && !listed->sessions.empty()) {
-                    int c = connect_menu_pick(
-                        quick_peer + " — choose a session:",
-                        bs::tui::session_picker_rows(*listed));
+                    // 26.09.18 (TODO item 3): d deletes the highlighted
+                    // session on the peer; menu stays open for the next pick.
+                    std::vector<std::string> live_names;
+                    for (auto& si : listed->sessions)
+                        if (si.state != "died") live_names.push_back(si.name);
+                    int c = 0;
+                    for (;;) {
+                        c = static_cast<int>(arrow_menu_select(
+                            bs::tui::session_picker_rows(*listed),
+                            quick_peer + " — choose a session:",
+                            [&](size_t idx1) {
+                                if (idx1 < 2) return false;   // "New session" row
+                                const size_t li = idx1 - 2;
+                                if (li >= live_names.size()) return false;
+                                const std::string victim = live_names[li];
+                                const bool ok = mc.kill_peer_session(quick_peer, victim);
+                                if (ok) std::cout << "\r\nkilled " << victim << "\r\n";
+                                else    std::cout << "\r\nfailed to kill " << victim << "\r\n";
+                                return ok;
+                            }));
+                        if (c <= 0) { c = 0; break; }
+                        break;
+                    }
                     if (c > 0) {
-                        std::string picked = bs::tui::session_picker_choice(
-                            *listed, static_cast<size_t>(c));
+                        std::string picked =
+                            bs::tui::session_picker_choice(*listed,
+                                static_cast<size_t>(c));
                         if (!picked.empty()) quick_session = picked;
                     }
                 } else {
