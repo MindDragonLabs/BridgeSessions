@@ -765,6 +765,27 @@ struct Frame {
     std::vector<uint8_t> data;
 };
 
+// ── Human-readable compact duration (26.09.18, TODO item 8) ──
+// "15000s" means nothing to a human; render 1d 2h 10m 15s instead.
+// Compact: two most significant non-zero units (1d 2h / 10m 15s / 45s).
+[[nodiscard]] inline std::string human_duration(uint64_t seconds) {
+    const uint64_t d = seconds / 86400;
+    const uint64_t h = (seconds % 86400) / 3600;
+    const uint64_t m = (seconds % 3600) / 60;
+    const uint64_t s = seconds % 60;
+    std::string out;
+    auto push = [&](uint64_t v, char unit) {
+        if (out.empty() && v == 0) return;           // skip leading zeros
+        if (out.size() >= 7) return;                 // cap at two units
+        if (!out.empty()) out += ' ';
+        out += std::to_string(v);
+        out += unit;
+    };
+    push(d, 'd'); push(h, 'h'); push(m, 'm'); push(s, 's');
+    if (out.empty()) out = "0s";
+    return out;
+}
+
 // ── Type mapping (variant index → MessageType byte) ──────────
 // Must match the variant ordering exactly. 41 alternatives = 41 entries.
 

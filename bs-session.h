@@ -338,6 +338,10 @@ struct Session {
     std::chrono::system_clock::time_point created_at_sys; // wall-clock for persistence
     std::chrono::steady_clock::time_point last_output_at;
     std::chrono::steady_clock::time_point last_attach_at;
+    // 26.09.18 (TODO item 7): when the session last entered a terminal state
+    // (Died/Exited/Killed). Zero while live. Drives the 48h finished-session
+    // auto-terminate so ended sessions cannot linger in the registry forever.
+    std::chrono::steady_clock::time_point finished_at{};
 
     bool auto_restart = false;
     int restart_failures = 0;

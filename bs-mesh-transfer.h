@@ -3179,9 +3179,9 @@ public:
             auto& sl = std::get<SessionListMsg>(msg);
             printf("=== Sessions ===\n");
             for (auto& si : sl.sessions) {
-                printf("  %s  [%s]  uptime=%llus\n",
+                printf("  %s  [%s]  up %s\n",
                        si.name.c_str(), si.state.c_str(),
-                       (unsigned long long)si.uptime_seconds);
+                       human_duration(static_cast<uint64_t>(si.uptime_seconds)).c_str());
             }
             fflush(stdout);
             return;

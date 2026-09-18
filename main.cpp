@@ -2005,7 +2005,7 @@ int bridgesessions_main(int argc, char** argv) {
                 for (auto& si : listed->sessions) {
                     if (si.state == "died") continue;
                     rows.push_back(si.name + "  [" + si.state + " · up "
-                                   + std::to_string(si.uptime_seconds) + "s]");
+                                   + bs::mesh::human_duration(static_cast<uint64_t>(si.uptime_seconds)) + "]");
                 }
                 if (rows.empty()) { std::cerr << "No live sessions\n"; return 0; }
                 int choice = connect_menu_pick(

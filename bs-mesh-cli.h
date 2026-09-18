@@ -3219,7 +3219,8 @@ public:
             return;
         }
         for (auto& si : listed->sessions)
-            std::cout << si.name << "  " << si.state << "  uptime=" << si.uptime_seconds << "s\n";
+            std::cout << si.name << "  " << si.state << "  up "
+                      << human_duration(static_cast<uint64_t>(si.uptime_seconds)) << "\n";
     }
 
     // ── CLI: kill_peer_session ─────────────────────────────────
@@ -4645,7 +4646,7 @@ public:
             std::cout << c.peer_name << " " << c.peer_addr << " "
                       << (c.is_outbound ? "outbound" : "inbound")  << " "
                       << "latency=" << latency << "ms "
-                      << "uptime=" << uptime << "s" << std::endl;
+                      << "up=" << human_duration(static_cast<uint64_t>(uptime)) << std::endl;
         }
     }
 

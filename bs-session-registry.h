@@ -917,9 +917,51 @@ public:
         }
     }
 
+    // 26.09.18 (TODO item 7): auto-terminate ENDED sessions after 48h.
+    // A session in a terminal state (Died/Exited/Killed) keeps its scrollback
+    // for resurrection/inspection, but after 48h it is erased entirely —
+    // registry entries from dead shells must not accumulate forever.
+    // finished_at is stamped lazily here (first pass after death) because the
+    // terminal transition happens at 17 call sites across registry/transfer.
+    void prune_finished_sessions(std::chrono::seconds max_age = std::chrono::hours(48)) {
+        std::unique_lock lock(mutex_);
+        const auto now = std::chrono::steady_clock::now();
+        size_t expired = 0;
+        for (auto it = sessions_.begin(); it != sessions_.end(); ) {
+            auto* s = it->second.get();
+            const bool terminal =
+                s->state == SessionState::Died ||
+                s->state == SessionState::Exited ||
+                s->state == SessionState::Killed;
+            if (!terminal) {
+                s->finished_at = std::chrono::steady_clock::time_point{};
+                ++it;
+                continue;
+            }
+            if (s->finished_at == std::chrono::steady_clock::time_point{}) {
+                s->finished_at = now;              // lazy stamp on first pass
+                ++it;
+                continue;
+            }
+            if (now - s->finished_at < max_age) { ++it; continue; }
+            log_event("session_prune_finished", s->name + " age_h=" +
+                      std::to_string(std::chrono::duration_cast<std::chrono::hours>(
+                          now - s->finished_at).count()));
+            record_history_locked(*s, -1, "finished_expired");
+            if (on_session_erased_) on_session_erased_(s->name);
+            it = sessions_.erase(it);
+            ++expired;
+        }
+        if (expired > 0) {
+            log_event("session_prune_finished_summary",
+                      "erased " + std::to_string(expired) + " ended sessions past 48h");
+        }
+    }
+
     // Drop finished agent/health/unnamed-tty sessions so they cannot pile up
     // as detached PTYs. Named sessions (bs <peer> <name>) are not pruned.
     void prune_ephemeral_sessions(std::chrono::seconds max_age = std::chrono::seconds(90)) {
+        prune_finished_sessions();
         auto is_ephemeral = [](const std::string& name) {
             return is_ephemeral_session_name(name);
         };
