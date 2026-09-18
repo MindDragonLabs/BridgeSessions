@@ -20,6 +20,12 @@ using namespace std::chrono_literals;
 namespace fs = std::filesystem;
 
 int main(int argc, char* argv[]) {
+#ifndef _WIN32
+    // Worker-exit tests write to sockets the worker may have just closed
+    // (linger window lapsing mid-pump). A raised SIGPIPE would kill the
+    // whole test binary — treat it as EPIPE instead.
+    ::signal(SIGPIPE, SIG_IGN);
+#endif
     return Catch::Session().run(argc, argv);
 }
 
@@ -200,6 +206,45 @@ TEST_CASE("session worker: forkpty fallback when worker exe is missing",
     REQUIRE(s->is_pollable());
 
     reg.kill("fb");
+    fs::remove_all(home);
+}
+
+// 26.09.18 regression: a one-shot command whose child exits before any
+// controller connects used to make the worker vanish instantly — the spawn
+// wait (systemd-run path has no waitpid evidence) burned its whole 12s
+// budget, then forkpty re-ran the command (13.5s one-shot latency,
+// 2026-09-18 fleet incident). The worker now lingers briefly: spawn must
+// connect fast, and the session must still deliver output + a real exit.
+TEST_CASE("session worker: one-shot fast-exit spawn does not stall",
+          "[session_worker][oneshot]") {
+    const std::string exe = worker_exe_from_env();
+    if (exe.empty()) {
+        WARN("BS_TEST_BS_BINARY not set — skipping session-worker tests");
+        SUCCEED("skipped: BS_TEST_BS_BINARY unset");
+        return;
+    }
+
+    const fs::path home = make_temp_home();
+    SessionRegistry reg;
+    reg.set_app_home(home.string());
+    reg.set_worker_exe(exe);
+
+    const auto t0 = std::chrono::steady_clock::now();
+    Session* s = reg.attach("quick", "/bin/sh -c 'echo FAST-EXIT-OK'",
+                            80, 24, "xterm-256color");
+    const auto spawn_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - t0).count();
+    REQUIRE(s != nullptr);
+    // Pre-fix this took ~12s (full budget) before the fallback. Healthy
+    // connect (linger keeps the socket up) is well under that.
+    REQUIRE(spawn_ms < 8000);
+
+    std::string captured;
+    REQUIRE(pump_until_contains(*s, "FAST-EXIT-OK", 5s, &captured));
+
+    const fs::path sock_dir = home / "run" / "bs-sessions";
+    reg.kill("quick");
+    REQUIRE(wait_socket_gone(sock_dir, 5s));
     fs::remove_all(home);
 }
 

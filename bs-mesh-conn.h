@@ -1086,6 +1086,7 @@ private:
         // Reload the policy flags alongside the seeds so the pin is live.
         config_.auto_upgrade = fresh.auto_upgrade;
         config_.auto_upgrade_cooldown_secs = fresh.auto_upgrade_cooldown_secs;
+        config_.auto_upgrade_origin = fresh.auto_upgrade_origin;
         // 26.09.16 (audit F3): keep the inbound-accept seed-pin set in sync.
         rebuild_pinned_seed_keys();
         log_event("config_reload", config_file_path_);
@@ -1315,6 +1316,16 @@ private:
     // so hosts that were offline during a fleet cut catch up when they return.
     void maybe_schedule_auto_upgrade(const std::string& peer, const std::string& remote_ver) {
         if (!config_.auto_upgrade) return;
+        // Designated upgrader: when mesh.auto_upgrade_origin names a node, only
+        // that node dispatches upgrades fleet-wide. Every other node (e.g. a
+        // user's laptop or macmini spoke) stays passive so a stale-advertising
+        // peer isn't restarted from N healthy nodes at once.
+        if (!config_.auto_upgrade_origin.empty() &&
+            config_.auto_upgrade_origin != config_.node_name) {
+            log_event("auto_upgrade_deferred_to_origin",
+                      peer + " origin=" + config_.auto_upgrade_origin);
+            return;
+        }
         if (peer.empty() || peer == config_.node_name) return;
         // The peer name comes from a remote Hello. Never interpolate an
         // unvalidated remote string into a shell command.

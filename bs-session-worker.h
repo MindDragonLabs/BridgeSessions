@@ -489,14 +489,36 @@ inline WorkerResult run_session_worker_posix(const WorkerConfig& cfg) {
 
     WorkerResult result{0, 0};
     bool child_died = false;
+    // 26.09.18 one-shot linger: a child that dies before ANY controller
+    // connected used to make the worker exit immediately — unlinking socket
+    // and pid file before the daemon's first connect attempt landed. The
+    // systemd-run spawn path then had no death evidence (pid file gone) and
+    // burned its whole 12s budget before the forkpty fallback re-ran the
+    // command (fleet-wide 13.5s one-shot latency, 2026-09-18). Linger for a
+    // late controller instead: it connects, gets READY + scrollback + DIED,
+    // and uses the REAL exit code — no re-execution.
+    bool controller_ever_connected = false;
+    std::chrono::steady_clock::time_point died_at{};
 
     // 4. Event loop
-    while (!child_died) {
+    while (true) {
         if (stop_requested) goto worker_shutdown;
+        if (child_died) {
+            // Linger only while no controller ever connected and the budget
+            // (kept well under the daemon's 12s spawn-wait) holds. Once a
+            // controller connects (DIED delivered) or the budget lapses,
+            // fall through to normal shutdown.
+            const bool lingering =
+                !controller_ever_connected &&
+                std::chrono::steady_clock::now() - died_at <
+                    std::chrono::seconds(4);
+            if (!lingering) break;
+        }
         std::vector<pollfd> poll_fds;
         poll_fds.push_back({listen_fd, POLLIN, 0});
-        poll_fds.push_back({master_fd, static_cast<short>(
-            POLLIN | (pending_pty_offset < pending_pty_input.size() ? POLLOUT : 0)), 0});
+        if (!child_died)
+            poll_fds.push_back({master_fd, static_cast<short>(
+                POLLIN | (pending_pty_offset < pending_pty_input.size() ? POLLOUT : 0)), 0});
         for (const auto& c : clients) {
             if (c.fd >= 0) {
                 poll_fds.push_back({c.fd, static_cast<short>(
@@ -521,6 +543,7 @@ inline WorkerResult run_session_worker_posix(const WorkerConfig& cfg) {
         if (poll_events(listen_fd) & POLLIN) {
             int cfd = ::accept(listen_fd, nullptr, nullptr);
             if (cfd >= 0) {
+                controller_ever_connected = true;
                 const int cfl = ::fcntl(cfd, F_GETFL, 0);
                 if (cfl < 0 || ::fcntl(cfd, F_SETFL, cfl | O_NONBLOCK) < 0) {
                     ::close(cfd);
@@ -540,6 +563,16 @@ inline WorkerResult run_session_worker_posix(const WorkerConfig& cfg) {
                     auto sb = scrollback.read_last_lines(8192);
                     if (queued && !sb.empty())
                         queued = queue_to_client(wc, WMSG_SCROLLBACK, sb.data(), sb.size());
+                    // One-shot linger: if the child already died before this
+                    // controller connected, the DIED broadcast above found no
+                    // clients. Replay the exit status so the late controller
+                    // learns the real exit code instead of a bare EOF.
+                    if (queued && child_died) {
+                        uint8_t died_payload[8];
+                        write_u32be(died_payload, static_cast<uint32_t>(result.exit_code));
+                        write_u32be(died_payload + 4, static_cast<uint32_t>(result.signal_num));
+                        queued = queue_to_client(wc, WMSG_DIED, died_payload, 8);
+                    }
                     if (queued && flush_client(wc)) clients.push_back(std::move(wc));
                     else ::close(cfd);
                 }
@@ -674,6 +707,7 @@ inline WorkerResult run_session_worker_posix(const WorkerConfig& cfg) {
             pid_t wres = ::waitpid(child_pid, &status, WNOHANG);
             if (wres == child_pid) {
                 child_died = true;
+                died_at = std::chrono::steady_clock::now();
                 if (WIFEXITED(status)) {
                     result.exit_code = WEXITSTATUS(status);
                     result.signal_num = 0;
@@ -740,6 +774,22 @@ worker_shutdown:
     }
     session.child_pid = -1;
 
+    // Bounded final flush: a linger-connect queued READY/SCROLLBACK/DIED and
+    // may not have fully drained before the loop broke (controller connected
+    // while child already dead → break next iteration). Closing now would
+    // discard queued bytes — the controller would see a bare EOF and lose
+    // the one-shot's output and real exit code (2026-09-18 flake).
+    for (int pass = 0; pass < 50; ++pass) {   // ≤ ~500ms
+        bool all_drained = true;
+        for (auto& c : clients) {
+            if (c.fd < 0) continue;
+            if (!flush_client(c)) { ::close(c.fd); c.fd = -1; continue; }
+            if (c.tx_off < c.tx.size()) all_drained = false;
+        }
+        if (all_drained) break;
+        // Yield instead of hot-spinning (poll.h not guaranteed in this TU).
+        ::usleep(10 * 1000);
+    }
     for (auto& c : clients) {
         if (c.fd >= 0) ::close(c.fd);
     }
