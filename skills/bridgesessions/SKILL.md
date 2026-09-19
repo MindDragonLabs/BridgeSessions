@@ -164,6 +164,9 @@ Source of truth:
 - `BSMenubar/` — macOS menubar companion app: bundle identity keys (name, version, icon,
   `LSUIElement`), Xcode toolchain pin + explicit `-target`, signing, launch, and
   verification recipe — see `references/macos-app-bundle.md` in this skill.
+- `tools/bridgepanel/` — Python-stdlib web panel (server.py, panel_html.py, invites.py) run
+  on peers as the `bridgepanel.service` systemd **user** unit; token-auth model, in-process
+  test pattern, and peer deploy/verify recipe — see `references/bridgepanel.md` in this skill.
 
 Generated artifacts are ignored and published through GitHub Releases. Release gate: [`docs/RELEASE-PROVENANCE.md`](../../docs/RELEASE-PROVENANCE.md).
 
@@ -255,6 +258,13 @@ Sequence: **resolve install path → stage + verify SHA → pre-kill watchdogs �
 | `bs health <new-peer>` says `unknown peer` but the peer's key is in local `authorized_keys` | no local seed pin — auth and dial-targets are separate stores | `bs peers add <name> <addr>:19949 --pubkey <hex>` |
 | nested `powershell` one-shot on a Windows peer hangs | shell transport + powershell spawn interaction | use cmd.exe syntax (`type`, `copy`, `start`) or `run-script` with a `.ps1` |
 | Windows peer offline, no SSH, daemon dead | manual join left no boot task; daemon died with its console | hands-on start + `Register-ScheduledTask` (see Windows manual join) |
+| one-shot `bs shell --cmd` returns only some lines of a long compound command | shell-transport output handling, not the remote command | buffer each result into a file on the peer (`echo ... >> /tmp/v.txt`) and `cat` it in one final command; `tr -d '\r'` before parsing |
+| every one-shot `bs shell <linux-peer> --cmd` takes a flat ~13.5s | session worker for a fast-exiting child vanished (socket+pid unlinked) before the daemon's spawn-wait connected; systemd-run path has no waitpid death evidence → full 12s budget burned → forkpty fallback re-ran the command | fixed in `cc1643c` (worker lingers 4s for a late controller, replays READY+scrollback+DIED on accept, bounded final flush). Diagnose on the peer: `bs-mesh.log` shows `session_worker_spawn via=systemd-run` → 12s gap → `session_worker_spawn_fallback reason=worker socket never appeared` |
+| reconnecting to a remote TTY sprays escape garbage / arrows print `ESC O A` / Ctrl-C looks dead | stale private modes (mouse 1000-1016, DECCKM `?1`, bracketed paste) replayed in scrollback re-armed the LOCAL terminal | fixed in `29ba210`: `strip_mode_sequences()` filters mode-setters from replay server- AND client-side; `reattach_surface_reset` kills every private mode before clearing |
+| every interactive session is `tty-20260918-…` and unreadable in pickers | no harness title inheritance | `29ba210`: unnamed `bs <peer>` derives `tty-<title>` from BS_SESSION_TITLE / HERMES_SESSION_CHAT_NAME / CLAUDE_SESSION_NAME / CODEX_SESSION_TITLE / STY / TERM_PROGRAM (slugified, 32-char cap); timestamp fallback stays |
+| need per-peer latency view | PING/PONG RTT was internal only | `29ba210`: `bs fleet` RTT column; `--json` adds `rtt_ms` (our view) + `latency` (peer's reported table); ServerInfoMsg.latency_json gossips every node's RTT table each cycle |
+| `auto_upgrade_complete <peer> rc=32512` repeats hourly in `bs-mesh.log` | auto-upgrade dispatch ran bare `bridgesessions` via `std::system()`; daemon env (launchd/systemd minimal PATH) lacks `~/.local/bin` → exit 127 forever | fixed in `cc1643c` (dispatch uses the daemon's own absolute exe path). Also: peers whose daemon binary was swapped without restart advertise stale `Hello.version` strings, which is what triggers dispatch |
+| multiple healthy nodes restart the same stale peer concurrently | auto-upgrade had no designated dispatcher — every node with a newer binary shoots | `mesh.auto_upgrade_origin <node>` (e.g. `fecv3`): only that node dispatches; others log `auto_upgrade_deferred_to_origin`. Hot-reloaded; empty value = legacy any-node behavior |
 
 Two identical non-progressing failures: stop retrying and diagnose a different layer.
 
