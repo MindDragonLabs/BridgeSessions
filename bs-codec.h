@@ -293,6 +293,13 @@ struct ServerInfoMsg {
     // Optional trailing (v26.08.12+): compact host metrics JSON for `bs fleet`.
     // Keys: cpu, mem, disk (pct), load, os, arch, ncpu, mem_mb, disk_gb.
     std::string host_stats_json;
+    // Optional trailing (v26.09.18+, TODO item 2 mesh sync): reporter's
+    // measured RTT table as compact JSON: {"fecv3":12,"macbook":43}. Values
+    // are the PING/PONG round-trip this node last measured to each peer
+    // (Conn::pong_rtt_ms), so every node's gossip contributes its own vantage
+    // point. Empty = no data (old peers). Consumers treat it as
+    // "reporter says peer X is N ms from reporter".
+    std::string latency_json;
 };
 
 struct ScrollbackMsg {
@@ -933,6 +940,8 @@ void serialize_msg(Serializer& s, const ServerInfoMsg&   m) {
     s.str_prefixed_u16(m.sessions_summary_json);
     // Optional host metrics (new peers only; old peers stop after sessions).
     if (!m.host_stats_json.empty()) s.str_prefixed_u16(m.host_stats_json);
+    /* latency_json optional (v26.09.18+). */
+    if (!m.latency_json.empty()) s.str_prefixed_u16(m.latency_json);
 }
 void serialize_msg(Serializer& s, const ScrollbackMsg&   m) { s.u32be(m.total_lines); s.u32be(m.chunk_index); s.str(m.data); }
 void serialize_msg(Serializer& s, const SignalMsg&       m) { s.u8(static_cast<uint8_t>(m.signal)); s.str_prefixed_u16(m.process); }
@@ -1737,6 +1746,8 @@ Message decode(std::span<const uint8_t> raw) {
                 m.sessions_summary_json = d.ok(2) ? d.str_prefixed_u16() : std::string{};
                 /* host_stats_json optional (v26.08.12+). */
                 m.host_stats_json = d.ok(2) ? d.str_prefixed_u16() : std::string{};
+                /* latency_json optional (v26.09.18+). */
+                m.latency_json = d.ok(2) ? d.str_prefixed_u16() : std::string{};
                 return m;
             }
         }
@@ -1749,6 +1760,8 @@ Message decode(std::span<const uint8_t> raw) {
         m.sessions_summary_json = d.ok(2) ? d.str_prefixed_u16() : std::string{};
         /* host_stats_json optional (v26.08.12+). */
         m.host_stats_json = d.ok(2) ? d.str_prefixed_u16() : std::string{};
+        /* latency_json optional (v26.09.18+). */
+        m.latency_json = d.ok(2) ? d.str_prefixed_u16() : std::string{};
         return m;
     }
     case 0x0A: return PingMsg{};

@@ -857,6 +857,17 @@ public:
                         << (version_has_cap(c.remote_version, "api") ? "\"api\"" : "")
                         << "],";
                     out << "\"status\":\"" << (ok ? "healthy" : "no-pong") << "\",";
+                    // v26.09.18 (item 2): our measured RTT to this peer, plus
+                    // the peer's own reported RTT table (its vantage on the
+                    // rest of the mesh) so clients can build the full matrix.
+                    out << "\"rtt_ms\":" << c.pong_rtt_ms.count() << ",";
+                    {
+                        std::shared_lock lock(gossip_sessions_mutex_);
+                        const auto lit = gossip_latency_json_.find(c.peer_name);
+                        out << "\"latency\":"
+                            << (lit != gossip_latency_json_.end() ? lit->second : "{}")
+                            << ",";
+                    }
                     out << "\"uptime_s\":" << uptime;
                     emit_host_from_json(out, c.remote_host_stats_json);
                     out << "}";
@@ -3144,7 +3155,13 @@ public:
             if (std::holds_alternative<OutputMsg>(resp)) {
                 std::cout << std::get<OutputMsg>(resp).data << std::flush;
             } else if (std::holds_alternative<ScrollbackMsg>(resp)) {
-                std::cout << std::get<ScrollbackMsg>(resp).data << std::flush;
+                // 26.09.18 (TODO item 5): replayed scrollback is history, not
+                // state. The server filters mode-setting sequences, but a
+                // mixed fleet (old server) can still send them — filter again
+                // on the client so a stale TUI can never reconfigure THIS
+                // terminal. Colors/cursor/text pass through untouched.
+                std::cout << strip_mode_sequences(
+                    std::get<ScrollbackMsg>(resp).data) << std::flush;
             } else if (std::holds_alternative<SessionDiedMsg>(resp)) {
                 // Remote shell/PTY exited (e.g. user typed `exit`). Do not
                 // resurrect — that would ignore the user's intent to leave.

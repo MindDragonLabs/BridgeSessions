@@ -488,7 +488,17 @@ inline std::string reconnect_status_clear(uint16_t rows) {
 // clean slate instead of mashing a new frame over stale fragments — and a
 // plain (non-TUI) shell reattach still ends with a visible cursor.
 inline std::string reattach_surface_reset() {
-    return std::string("\x1b[0m\x1b[2J\x1b[H\x1b[?25h");
+    // 26.09.18 (TODO item 5): reset private modes BEFORE clearing the
+    // surface. Clearing alone left mouse tracking / bracketed paste /
+    // app-cursor keys (DECCKM) armed by whatever ran before the outage —
+    // every mouse move then sprayed escape garbage and arrow keys emitted
+    // ESC O sequences a plain shell prints raw. Kill every mode the
+    // reconnect cleanup sequence kills, then home+clear.
+    return std::string(
+        "\x1b[?9l"
+        "\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1004l"
+        "\x1b[?1005l\x1b[?1006l\x1b[?1015l\x1b[?1016l"
+        "\x1b[?2004l\x1b[?1l\x1b[0m\x1b[?25h\x1b[2J\x1b[H");
 }
 
 #ifdef _WIN32
@@ -649,10 +659,62 @@ inline bool stdin_is_terminal() {
     return make_ephemeral_session_name("tty-");
 }
 
-// Empty/omitted name → new tty-* session. An explicit name reattaches.
+// ── Harness session-title inheritance (26.09.18, TODO item 1) ──
+// When the CLI runs inside an agent/terminal harness (Hermes, Claude Code,
+// Codex, tmux, …) the harness usually exports a human name for the current
+// conversation. Session lists become unreadable when every interactive shell
+// is `tty-20260918-…-3`, so when a title is available we use it instead:
+// `tty-hermes` or, with a title, `tty-BridgeSessions`. Env sources, first
+// hit wins: BS_SESSION_TITLE (explicit override) → HERMES_SESSION_CHAT_NAME
+// → CLAUDE_SESSION_NAME → CODEX_SESSION_TITLE → STY (tmux session) →
+// TERM_PROGRAM (terminal app, last resort). Characters outside
+// [A-Za-z0-9._-] collapse to '-'; the result is trimmed and capped so a
+// whole paragraph title can't become a session name. Empty after sanitize
+// → fall through to the plain ephemeral scheme.
+[[nodiscard]] inline std::string sanitize_session_title(std::string_view raw) {
+    std::string out;
+    out.reserve(raw.size());
+    char prev = '\0';
+    for (char c : raw) {
+        const bool ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+                        || (c >= '0' && c <= '9') || c == '.' || c == '_'
+                        || c == '-';
+        if (ok) { out.push_back(c); prev = c; }
+        else if (prev != '-') { out.push_back('-'); prev = '-'; }
+    }
+    // trim leading/trailing '-', collapse done above
+    while (!out.empty() && (out.front() == '-' || out.front() == '.'))
+        out.erase(out.begin());
+    while (!out.empty() && (out.back() == '-' || out.back() == '.'))
+        out.pop_back();
+    if (out.size() > 32) out.resize(32);
+    return out;
+}
+
+[[nodiscard]] inline std::string harness_session_title() {
+    static const char* kSources[] = {
+        "BS_SESSION_TITLE", "HERMES_SESSION_CHAT_NAME", "CLAUDE_SESSION_NAME",
+        "CODEX_SESSION_TITLE", "STY", "TERM_PROGRAM",
+    };
+    for (const char* src : kSources) {
+        const char* v = std::getenv(src);
+        if (v && *v) {
+            std::string s = sanitize_session_title(v);
+            if (!s.empty()) return s;
+        }
+    }
+    return {};
+}
+
+// Empty/omitted name → new tty-* session (harness-title flavored when a
+// title is available). An explicit name reattaches.
 [[nodiscard]] inline std::string resolve_quick_connect_session_name(
         std::string_view requested) {
-    if (requested.empty()) return make_ephemeral_shell_session_name();
+    if (requested.empty()) {
+        const std::string title = harness_session_title();
+        if (!title.empty()) return "tty-" + title;
+        return make_ephemeral_shell_session_name();
+    }
     return std::string(requested);
 }
 

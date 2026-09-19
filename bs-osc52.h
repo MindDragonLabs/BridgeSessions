@@ -71,6 +71,68 @@ struct Osc52Result {
     return out;
 }
 
+// v26.09.18 (TODO item 5): strip ONLY terminal mode-setting sequences from
+// scrollback replayed to a reattaching client. Unlike strip_ansi_escapes
+// (which removes everything for plain-text capture), this preserves the
+// visual record — colors, cursor moves, text — but removes sequences that
+// would reconfigure the NEW client's terminal to match stale state:
+//   CSI ? 1000-1016 h/l   mouse tracking (all protocols — the garbage)
+//   CSI ? 2004 h/l        bracketed paste
+//   CSI ? 1049/47/1047    alt-screen switches (replay must stay on main screen)
+//   CSI ? 25 h/l          cursor visibility replay is meaningless
+//   CSI ? 6/7 h/l         origin / wraparound (DECOM/DECAWM)
+//   CSI ? 1 h/l           DECCKM app cursor keys — replaying this makes the
+//                         reattached terminal send ESC O A-style arrows that
+//                         a plain remote shell renders as escape garbage
+// Pure function; thread-safe; keeps every other byte including SGR colors.
+[[nodiscard]] inline std::string strip_mode_sequences(std::string_view input) {
+    std::string out;
+    out.reserve(input.size());
+    for (size_t i = 0; i < input.size(); ++i) {
+        unsigned char c = static_cast<unsigned char>(input[i]);
+        if (c == 0x1B && i + 2 < input.size() &&
+            input[i + 1] == '[' && input[i + 2] == '?') {
+            // Private-mode CSI: scan params to final byte
+            size_t j = i + 3;
+            size_t pstart = j;
+            while (j < input.size() && input[j] >= 0x30 && input[j] <= 0x3F) ++j; // params ; digits ? < = >
+            size_t pend = j;
+            while (j < input.size() && !(input[j] >= 0x40 && input[j] <= 0x7E)) ++j;
+            if (j < input.size() && (input[j] == 'h' || input[j] == 'l')) {
+                // Parse semicolon-separated numeric params
+                std::string_view params(input.data() + pstart, pend - pstart);
+                bool strip = false;
+                size_t pos = 0;
+                while (pos <= params.size()) {
+                    size_t semi = params.find(';', pos);
+                    std::string_view tok = params.substr(pos, semi == std::string_view::npos ? std::string_view::npos : semi - pos);
+                    int val = 0; bool num = !tok.empty();
+                    for (char ch : tok) {
+                        if (ch < '0' || ch > '9') { num = false; break; }
+                        val = val * 10 + (ch - '0');
+                    }
+                    if (num && (val == 1   || val == 6   || val == 7   ||
+                                val == 25  || val == 47  || val == 1000 ||
+                                val == 1002 || val == 1003 || val == 1004 ||
+                                val == 1005 || val == 1006 || val == 1015 ||
+                                val == 1016 || val == 1047 || val == 1049 ||
+                                val == 2004)) {
+                        strip = true; break;
+                    }
+                    if (semi == std::string_view::npos) break;
+                    pos = semi + 1;
+                }
+                if (strip) { i = j; continue; }
+            }
+            // not a stripped private mode — copy through verbatim
+            out.push_back(input[i]);
+            continue;
+        }
+        out.push_back(input[i]);
+    }
+    return out;
+}
+
 // ── Internal helpers ────────────────────────────────────────────
 
 namespace detail {

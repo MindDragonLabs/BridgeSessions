@@ -167,6 +167,39 @@ TEST_CASE("ExitCodeMsg and SessionDiedMsg semantics", "[shell]") {
     REQUIRE(e.code == 42);
 }
 
+TEST_CASE("strip_mode_sequences removes only mode-setters (26.09.18 item 5)", "[shell]") {
+    // Mouse tracking enable/disable must be stripped from scrollback replay.
+    std::string replay = "\033[?1000h\033[?1006htext here\033[?1000l";
+    std::string out = strip_mode_sequences(replay);
+    REQUIRE(out.find("text here") != std::string::npos);
+    REQUIRE(out.find("1000") == std::string::npos);
+    REQUIRE(out.find("1006") == std::string::npos);
+
+    SECTION("colors survive") {
+        std::string c = "\033[1;31mred\033[0m";
+        REQUIRE(strip_mode_sequences(c) == c);
+    }
+    SECTION("DECCKM (app cursor keys) stripped") {
+        REQUIRE(strip_mode_sequences("\033[?1h") == "");
+        REQUIRE(strip_mode_sequences("a\033[?1lb") == "ab");
+    }
+    SECTION("alt-screen and bracketed paste stripped") {
+        REQUIRE(strip_mode_sequences("x\033[?1049hy\033[?2004hz") == "xyz");
+    }
+    SECTION("non-private CSI untouched") {
+        std::string c = "\033[2J\033[H";
+        REQUIRE(strip_mode_sequences(c) == c);
+    }
+    SECTION("cursor moves preserved") {
+        std::string c = "a\033[10;20Hb";
+        REQUIRE(strip_mode_sequences(c) == c);
+    }
+    SECTION("plain text passthrough") {
+        REQUIRE(strip_mode_sequences("hello world") == "hello world");
+    }
+    SECTION("empty") { REQUIRE(strip_mode_sequences("").empty()); }
+}
+
 TEST_CASE("strip_ansi_escapes removes escape sequences", "[shell]") {
     std::string with_ansi = "\033[1;31mHello\033[0m World";
     std::string stripped = strip_ansi_escapes(with_ansi);

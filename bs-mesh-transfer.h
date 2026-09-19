@@ -1955,6 +1955,17 @@
                 else
                     log_event("gossip_host_stats_rejected_bad_json", c.peer_name);
             }
+            // v26.09.18 (item 2 mesh sync): reporter's measured RTT table.
+            // Same object-shape gate as host stats; stored keyed by reporter
+            // so `bs fleet`/MESH_TREE can render every vantage point.
+            if (!info.latency_json.empty()) {
+                if (host_stats_json_shape_ok(info.latency_json)) {
+                    std::unique_lock lock(gossip_sessions_mutex_);
+                    gossip_latency_json_[c.peer_name] = std::move(info.latency_json);
+                } else {
+                    log_event("gossip_latency_rejected_bad_json", c.peer_name);
+                }
+            }
             if (!info.sessions_summary_json.empty() && !c.peer_name.empty()) {
                 // 2.0.8 MoA fix: validate at the trust boundary. The payload is
                 // re-interpolated VERBATIM into MESH_TREE output — a malformed
@@ -2712,9 +2723,13 @@ public:
                 ack.cols = eff_c; ack.rows = eff_r;
                 (void)enqueue_frame(conn, ack, CONTROL_STREAM_ID);
 
-                // Send scrollback to reattaching peer
-                auto lines = s->scrollback.read_last_lines(
-                    static_cast<size_t>(config_.scrollback_lines));
+                // Send scrollback to reattaching peer. 26.09.18 (TODO item
+                // 5): replay is history, not state — strip mode-setting
+                // sequences (mouse tracking, bracketed paste, alt-screen,
+                // origin/wrap modes) so a stale remote TUI can't reconfigure
+                // the NEW client's terminal. Colors/cursor/text stay intact.
+                auto lines = strip_mode_sequences(s->scrollback.read_last_lines(
+                    static_cast<size_t>(config_.scrollback_lines)));
                 if (!lines.empty()) {
                     ScrollbackMsg sb;
                     sb.data = std::move(lines);
@@ -3923,10 +3938,18 @@ private:
                 const auto it = gossip_sessions_json_.find(c.peer_name);
                 if (it != gossip_sessions_json_.end()) peer_sessions = it->second;
             }
+            std::string peer_latency = "{}";
+            {
+                std::shared_lock lock(gossip_sessions_mutex_);
+                const auto lit = gossip_latency_json_.find(c.peer_name);
+                if (lit != gossip_latency_json_.end()) peer_latency = lit->second;
+            }
             out << "{\"name\":\"" << gossip_json_escape(c.peer_name) << "\","
                 << "\"addr\":\"" << gossip_json_escape(c.peer_addr) << "\","
                 << "\"healthy\":" << (ok ? "true" : "false") << ","
                 << "\"last_pong_s\":" << age << ","
+                << "\"rtt_ms\":" << c.pong_rtt_ms.count() << ","
+                << "\"latency\":" << peer_latency << ","
                 << "\"sessions\":" << peer_sessions << "}";
         }
         // B2: dial health for configured seeds that are not currently connected
@@ -3974,6 +3997,25 @@ private:
         info.load = hs.load1 >= 0 ? hs.load1 : 0.0;
         info.sessions_summary_json = build_sessions_summary_json();
         info.host_stats_json = host_stats_to_json(hs);
+
+        // v26.09.18 (item 2): our own measured RTT table — every mesh
+        // connection's last PING/PONG round-trip, keyed by peer name. Sent to
+        // all peers with the periodic ServerInfo so each node learns every
+        // other node's vantage point (true mesh latency awareness).
+        {
+            std::string lj = "{";
+            bool lfirst = true;
+            for (const auto& c : conns_) {
+                if (c.sock_fd == INVALID_SOCKET || c.peer_name.empty()) continue;
+                if (c.pong_rtt_ms.count() <= 0) continue;
+                if (!lfirst) lj += ",";
+                lfirst = false;
+                lj += "\"" + gossip_json_escape(c.peer_name) + "\":"
+                    + std::to_string(c.pong_rtt_ms.count());
+            }
+            lj += "}";
+            info.latency_json = (lfirst ? std::string{} : lj);
+        }
 
         for (auto& c : conns_) {
             if (c.sock_fd == INVALID_SOCKET) continue;

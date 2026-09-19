@@ -290,6 +290,9 @@ private:
     // Pre-rendered JSON arrays of session summaries per peer, populated by
     // session gossip (ServerInfoMsg trailing field). Empty until gossip lands.
     std::unordered_map<std::string, std::string> gossip_sessions_json_;
+    // v26.09.18 (item 2): per-reporter measured RTT tables received via
+    // ServerInfoMsg.latency_json — "reporter says peer X is N ms from me".
+    std::unordered_map<std::string, std::string> gossip_latency_json_;
     std::shared_mutex gossip_sessions_mutex_;
     // R8.3: own the TLS cert-verify callback contexts so they are freed with the
     // controller instead of leaking via `new`. MUST be declared BEFORE the
@@ -808,6 +811,7 @@ private:
         if (!c.peer_name.empty()) {
             std::unique_lock lock(gossip_sessions_mutex_);
             gossip_sessions_json_.erase(c.peer_name);
+            gossip_latency_json_.erase(c.peer_name);
         }
         if (c.sock_fd == INVALID_SOCKET) return true;
         ssl_close(c.ssl.get(), c.sock_fd);

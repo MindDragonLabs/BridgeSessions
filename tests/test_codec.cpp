@@ -130,6 +130,20 @@ TEST_CASE("Round-trip: ServerInfoMsg", "[codec][roundtrip]") {
     REQUIRE(m2.hostname == m.hostname);
     REQUIRE(m2.version == m.version);
     REQUIRE(m2.load == m.load);
+    // v26.09.18 (item 2): trailing latency_json must survive, and its
+    // absence must parse as empty (legacy-peer compat).
+    REQUIRE(m2.latency_json.empty());
+    ServerInfoMsg m3;
+    m3.hostname = "h";
+    m3.version = "v";
+    m3.load = 0.0;
+    m3.sessions_summary_json = "[]";
+    m3.host_stats_json = "{\"cpu\":1}";
+    m3.latency_json = "{\"fecv3\":12,\"macbook\":43}";
+    auto m4 = roundtrip(m3);
+    REQUIRE(m4.sessions_summary_json == m3.sessions_summary_json);
+    REQUIRE(m4.host_stats_json == m3.host_stats_json);
+    REQUIRE(m4.latency_json == m3.latency_json);
 }
 
 TEST_CASE("Round-trip: ScrollbackMsg", "[codec][roundtrip]") {

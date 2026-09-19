@@ -2865,6 +2865,7 @@ int bridgesessions_main(int argc, char** argv) {
             };
             struct Row {
                 std::string name, addr, ver, status, up, cpu, mem, disk, load, os, cua;
+                std::string rtt = "-";
                 bool metrics = false;
             };
             std::vector<Row> rows;
@@ -2881,6 +2882,14 @@ int bridgesessions_main(int argc, char** argv) {
                 if (val.value("flapping", false))
                     r.status += " [flapping]";
                 r.up = fmt_uptime(val, r.status);
+                // v26.09.18 (item 2): measured RTT (self view). Peer-reported
+                // matrix stays in --json output (too wide for the table).
+                if (val.contains("rtt_ms") && val["rtt_ms"].is_number()) {
+                    long ms = val["rtt_ms"].get<long>();
+                    if (ms > 0)
+                        r.rtt = ms >= 1000 ? std::to_string(ms / 1000) + "s"
+                                           : std::to_string(ms) + "ms";
+                }
                 r.metrics = val.value("metrics", false) ||
                             (val.contains("os") && !val.value("os", std::string{}).empty());
                 r.cpu = r.metrics ? fmt_pct(val, "cpu_pct") : "-";
@@ -2906,13 +2915,15 @@ int bridgesessions_main(int argc, char** argv) {
                       });
             // Fixed-width aligned table (no markdown pipes).
             size_t w_name = 4, w_addr = 7, w_ver = 7, w_st = 6, w_up = 2,
-                   w_cpu = 3, w_mem = 3, w_disk = 4, w_load = 4, w_os = 2, w_cua = 3;
+                   w_cpu = 3, w_mem = 3, w_disk = 4, w_load = 4, w_os = 2, w_cua = 3,
+                   w_rtt = 3;
             for (const auto& r : rows) {
                 w_name = std::max(w_name, r.name.size());
                 w_addr = std::max(w_addr, r.addr.size());
                 w_ver = std::max(w_ver, r.ver.size());
                 w_st = std::max(w_st, r.status.size());
                 w_up = std::max(w_up, r.up.size());
+                w_rtt = std::max(w_rtt, r.rtt.size());
                 w_cpu = std::max(w_cpu, r.cpu.size());
                 w_mem = std::max(w_mem, r.mem.size());
                 w_disk = std::max(w_disk, r.disk.size());
@@ -2930,17 +2941,19 @@ int bridgesessions_main(int argc, char** argv) {
             };
             std::cout << pad("NAME", w_name) << "  " << pad("ADDRESS", w_addr) << "  "
                       << pad("VERSION", w_ver) << "  " << pad("STATUS", w_st) << "  "
-                      << rpad("UP", w_up) << "  " << rpad("CPU", w_cpu) << "  "
+                      << rpad("UP", w_up) << "  " << rpad("RTT", w_rtt) << "  "
+                      << rpad("CPU", w_cpu) << "  "
                       << rpad("MEM", w_mem) << "  " << rpad("DISK", w_disk) << "  "
                       << rpad("LOAD", w_load) << "  " << pad("OS", w_os) << "  "
                       << pad("CUA", w_cua) << "\n";
-            size_t total = w_name + w_addr + w_ver + w_st + w_up + w_cpu + w_mem +
-                           w_disk + w_load + w_os + w_cua + 2 * 10;
+            size_t total = w_name + w_addr + w_ver + w_st + w_up + w_rtt + w_cpu + w_mem +
+                           w_disk + w_load + w_os + w_cua + 2 * 11;
             std::cout << std::string(total, '-') << "\n";
             for (const auto& r : rows) {
                 std::cout << pad(r.name, w_name) << "  " << pad(r.addr, w_addr) << "  "
                           << pad(r.ver, w_ver) << "  " << pad(r.status, w_st) << "  "
-                          << rpad(r.up, w_up) << "  " << rpad(r.cpu, w_cpu) << "  "
+                          << rpad(r.up, w_up) << "  " << rpad(r.rtt, w_rtt) << "  "
+                          << rpad(r.cpu, w_cpu) << "  "
                           << rpad(r.mem, w_mem) << "  " << rpad(r.disk, w_disk) << "  "
                           << rpad(r.load, w_load) << "  " << pad(r.os, w_os) << "  "
                           << pad(r.cua, w_cua) << "\n";
