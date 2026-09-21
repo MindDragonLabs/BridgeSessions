@@ -561,6 +561,8 @@ std::vector<ConnectHarness> default_harness_table() {
         {"grok",        "grok"},
         {"copilot",     "copilot"},
         {"cursor",      "cursor"},
+        {"kimi",        "kimi"},
+        {"devin",       "devin"},
         {"shell",       ""},
     };
 }

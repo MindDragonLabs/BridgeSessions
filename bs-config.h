@@ -109,7 +109,7 @@ struct MeshConfig {
     std::string authorized_keys_path = "~/.bridgesessions/authorized_keys";
     std::string persistence_path = "~/.bridgesessions/sessions.json";
     int scrollback_lines = 2000;
-    int idle_timeout_hours = 168;
+    int idle_timeout_hours = 48;
     std::string default_shell;
     std::string terminal = "xterm-256color";
     std::string render_hint = "auto";  // "auto", "markdown", "raw"

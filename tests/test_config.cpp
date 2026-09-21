@@ -59,7 +59,7 @@ TEST_CASE("load_config fills defaults for missing keys", "[config]") {
     REQUIRE(cfg.ping_interval_secs == 5);
     REQUIRE(cfg.pong_timeout_secs == 30);
     REQUIRE(cfg.scrollback_lines == 2000);
-    REQUIRE(cfg.idle_timeout_hours == 168);
+    REQUIRE(cfg.idle_timeout_hours == 48);
     REQUIRE(cfg.terminal == "xterm-256color");
 #ifdef _WIN32
     REQUIRE((cfg.default_shell == "pwsh.exe -NoLogo" ||
