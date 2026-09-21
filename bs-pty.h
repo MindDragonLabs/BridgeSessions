@@ -840,3 +840,14 @@ inline HostedPump pump_hosted_session(Session& s) {
 }
 #endif // !_WIN32
 
+#ifdef _WIN32
+// Windows equivalent of current_exe_path() — used by auto-upgrade to find
+// the running binary's absolute path (same executable = daemon + CLI).
+[[nodiscard]] inline std::string current_exe_path() {
+    char buf[MAX_PATH]{};
+    DWORD n = GetModuleFileNameA(nullptr, buf, MAX_PATH);
+    if (n == 0 || n >= MAX_PATH) return {};
+    return std::string(buf, n);
+}
+#endif
+
