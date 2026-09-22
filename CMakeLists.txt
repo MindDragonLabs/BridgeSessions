@@ -182,7 +182,10 @@ add_test(NAME cli_list_flag
 
 # ── Tests ──────────────────────────────────────────────────────
 if(BUILD_TESTING)
-file(GLOB TEST_SOURCES "tests/*.cpp")
+# Keep the generated test project in sync when a new test source is added.
+# Without CONFIGURE_DEPENDS, an existing build can expose stale *_NOT_BUILT
+# CTest entries until the developer manually re-runs CMake.
+file(GLOB TEST_SOURCES CONFIGURE_DEPENDS "tests/*.cpp")
 include(Catch)
 foreach(TEST_SRC ${TEST_SOURCES})
     get_filename_component(TEST_NAME ${TEST_SRC} NAME_WE)

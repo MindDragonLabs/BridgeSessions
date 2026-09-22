@@ -300,10 +300,13 @@ TEST_CASE("create_session with directory listing produces output", "[session]") 
 TEST_CASE("SIGPIPE is suppressed so transport writes can reconnect", "[session][reconnect]") {
     int fds[2]{};
     REQUIRE(::pipe(fds) == 0);
+    // Close the read end before forking so the child cannot race the parent
+    // and successfully write while a reader still exists. The assertion is
+    // specifically about EPIPE after the peer is gone.
+    ::close(fds[0]);
     pid_t pid = ::fork();
     REQUIRE(pid >= 0);
     if (pid == 0) {
-        ::close(fds[0]);
         std::signal(SIGPIPE, SIG_DFL);
         configure_sigpipe_handling();
         errno = 0;
@@ -311,7 +314,6 @@ TEST_CASE("SIGPIPE is suppressed so transport writes can reconnect", "[session][
         const ssize_t wrote = ::write(fds[1], &byte, 1);
         _exit(wrote == -1 && errno == EPIPE ? 0 : 2);
     }
-    ::close(fds[0]);
     ::close(fds[1]);
     int status = 0;
     REQUIRE(::waitpid(pid, &status, 0) == pid);

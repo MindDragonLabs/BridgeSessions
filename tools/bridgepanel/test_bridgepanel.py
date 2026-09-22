@@ -559,6 +559,7 @@ class TestHttpSurface(unittest.TestCase):
             conn.request(
                 "GET",
                 f"/api/stream?session=hermes&since=0&once=1",
+                headers={"Authorization": f"Bearer {self.token}"},
             )
             r = conn.getresponse()
             self.assertEqual(r.status, 200)
@@ -655,6 +656,7 @@ class TestHttpSurface(unittest.TestCase):
             conn.request(
                 "GET",
                 f"/api/remote-file?machine=peer&path=shot.png",
+                headers={"Authorization": f"Bearer {self.token}"},
             )
             r = conn.getresponse()
             self.assertEqual(r.status, 200)
@@ -716,6 +718,7 @@ class TestHttpSurface(unittest.TestCase):
             conn.request(
                 "GET",
                 f"/api/remote-file?machine=peer&path=note.md&download=1",
+                headers={"Authorization": f"Bearer {self.token}"},
             )
             r = conn.getresponse()
             self.assertEqual(r.status, 200)
@@ -1082,6 +1085,7 @@ class TestHttpSurface(unittest.TestCase):
             conn.request(
                 "GET",
                 f"/api/remote-file?machine=peer&path=shot.png&inline=1",
+                headers={"Authorization": f"Bearer {self.token}"},
             )
             r = conn.getresponse()
             body = r.read()
@@ -1094,7 +1098,10 @@ class TestHttpSurface(unittest.TestCase):
             conn.request(
                 "GET",
                 f"/api/remote-file?machine=peer&path=shot.png&inline=1",
-                headers={"If-None-Match": etag},
+                headers={
+                    "Authorization": f"Bearer {self.token}",
+                    "If-None-Match": etag,
+                },
             )
             r = conn.getresponse()
             r.read()
@@ -1107,7 +1114,11 @@ class TestHttpSurface(unittest.TestCase):
     def test_static_is_cacheable(self):
         conn = HTTPConnection("127.0.0.1", self.port, timeout=5)
         try:
-            conn.request("GET", f"/static/filepond.min.js")
+            conn.request(
+                "GET",
+                f"/static/filepond.min.js",
+                headers={"Authorization": f"Bearer {self.token}"},
+            )
             r = conn.getresponse()
             r.read()
             self.assertEqual(r.status, 200)

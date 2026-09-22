@@ -325,6 +325,20 @@ TEST_CASE("unnamed quick-connect always starts a new tty session",
     REQUIRE(is_ephemeral_session_name("cmd-1-2"));
 }
 
+TEST_CASE("new harness quick-connect sessions do not reuse profile names",
+          "[shell][quick-connect][harness]") {
+    // Harness selection chooses a command profile; each New action must still
+    // receive a unique terminal session name so it cannot reattach to the
+    // prior harness terminal.
+    auto first = resolve_quick_connect_session_name("");
+    auto second = resolve_quick_connect_session_name("");
+    REQUIRE(first.rfind("tty-", 0) == 0);
+    REQUIRE(second.rfind("tty-", 0) == 0);
+    REQUIRE(first != second);
+    REQUIRE(first != "hermes");
+    REQUIRE(second != "opencode");
+}
+
 TEST_CASE("ephemeral session names carry a UTC datetime segment",
           "[shell][quick-connect][naming]") {
     // Format: tty-YYYYMMDD-HHMMSS-pid-seq (26.09.13). The date must parse as

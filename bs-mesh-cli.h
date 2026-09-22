@@ -2739,7 +2739,10 @@ public:
                     }
                 }
                 // v2.0.1: after SessionDied, drain late OutputMsg frames briefly.
-                // Server may still push conhost-flushed text after death notice.
+                // Windows ConPTY can flush text after process exit. On POSIX,
+                // the PTY poller drains readable bytes and queues OutputMsg
+                // before SessionDiedMsg on this ordered TLS connection.
+#ifdef _WIN32
                 if (saw_session_end && !transport_error && sc.ssl && sc.sfd != INVALID_SOCKET) {
                     const auto drain_deadline =
                         std::chrono::steady_clock::now() + std::chrono::milliseconds(300);
@@ -2766,6 +2769,7 @@ public:
                         }
                     }
                 }
+#endif
                 if (transport_error) {
                     CLOSESOCK(sc.sfd);
                     sc.sfd = INVALID_SOCKET;

@@ -61,6 +61,20 @@ static void cleanup_temp_file(const std::string& path) {
     std::filesystem::remove(path + ".tmp", ec);
 }
 
+#ifndef _WIN32
+static bool wait_until_died(SessionRegistry& registry, Session* session,
+                            std::chrono::milliseconds timeout = 5s) {
+    const auto deadline = std::chrono::steady_clock::now() + timeout;
+    while (std::chrono::steady_clock::now() < deadline) {
+        registry.reap_dead();
+        if (session->state == SessionState::Died) return true;
+        std::this_thread::sleep_for(25ms);
+    }
+    registry.reap_dead();
+    return session->state == SessionState::Died;
+}
+#endif
+
 // ── Test 1: Create session via registry.attach ──────────────────
 
 TEST_CASE("SessionRegistry: create session via attach", "[session_registry]") {
@@ -132,9 +146,13 @@ TEST_CASE("SessionRegistry: detached child exit is reaped", "[session_registry][
     REQUIRE(s != nullptr);
     registry.detach("detached-dead", "peer-a");
     REQUIRE(s->state == SessionState::Detached);
+#ifndef _WIN32
+    REQUIRE(wait_until_died(registry, s));
+#else
     std::this_thread::sleep_for(500ms);
     registry.reap_dead();
     REQUIRE(s->state == SessionState::Died);
+#endif
     registry.kill("detached-dead");
 }
 
@@ -147,7 +165,6 @@ TEST_CASE("SessionRegistry: mesh reaper defers attached children to PTY poller",
     REQUIRE(s != nullptr);
     REQUIRE(s->state == SessionState::Attached);
 
-    std::this_thread::sleep_for(500ms);
     registry.reap_dead(false);
 
     // MeshController::pty_output_poller owns attached-child reaping because it
@@ -156,8 +173,12 @@ TEST_CASE("SessionRegistry: mesh reaper defers attached children to PTY poller",
     REQUIRE(s->state == SessionState::Attached);
     REQUIRE(s->is_pollable());
 
+#ifndef _WIN32
+    REQUIRE(wait_until_died(registry, s));
+#else
     registry.reap_dead();
     REQUIRE(s->state == SessionState::Died);
+#endif
     REQUIRE_FALSE(s->is_valid());
     registry.kill("attached-reaper-owner");
 }
@@ -170,9 +191,13 @@ TEST_CASE("SessionRegistry: transport detach after child exit preserves resurrec
     REQUIRE(s != nullptr);
     const auto first_generation = s->generation;
 
+#ifndef _WIN32
+    REQUIRE(wait_until_died(registry, s));
+#else
     std::this_thread::sleep_for(500ms);
     registry.reap_dead();
     REQUIRE(s->state == SessionState::Died);
+#endif
     // A dead child must not retain its PTY master until a future reattach.
     // Scrollback/session metadata preserve resurrection eligibility without
     // holding an OS descriptor open.

@@ -1864,7 +1864,12 @@ int bridgesessions_main(int argc, char** argv) {
                                   << " <command>` to the config.\n";
                         return 2;
                     }
-                    const std::string hsession = harness;  // reattach by name
+                    // The menu action is explicitly "New": a harness profile
+                    // selects the command, not the persistent session identity.
+                    // Reusing the stable profile name here made the second
+                    // "New" launch silently reattach to the first terminal.
+                    const std::string hsession =
+                        bs::mesh::resolve_quick_connect_session_name("");
                     return mc.shell_peer(quick_peer, hsession, hcmd, cols, rows,
                                          "xterm-256color", true, "",
                                          /*force_interactive=*/true);

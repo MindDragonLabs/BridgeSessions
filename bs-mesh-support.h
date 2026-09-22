@@ -659,18 +659,11 @@ inline bool stdin_is_terminal() {
     return make_ephemeral_session_name("tty-");
 }
 
-// ── Harness session-title inheritance (26.09.18, TODO item 1) ──
-// When the CLI runs inside an agent/terminal harness (Hermes, Claude Code,
-// Codex, tmux, …) the harness usually exports a human name for the current
-// conversation. Session lists become unreadable when every interactive shell
-// is `tty-20260918-…-3`, so when a title is available we use it instead:
-// `tty-hermes` or, with a title, `tty-BridgeSessions`. Env sources, first
-// hit wins: BS_SESSION_TITLE (explicit override) → HERMES_SESSION_CHAT_NAME
-// → CLAUDE_SESSION_NAME → CODEX_SESSION_TITLE → STY (tmux session) →
-// TERM_PROGRAM (terminal app, last resort). Characters outside
-// [A-Za-z0-9._-] collapse to '-'; the result is trimmed and capped so a
-// whole paragraph title can't become a session name. Empty after sanitize
-// → fall through to the plain ephemeral scheme.
+// ── Harness session-title helpers (26.09.18, TODO item 1) ──
+// Harnesses may export a human-readable conversation title. Keep the
+// sanitization helper available for display labels, but do not use the title
+// as the identity of a new session: titles are commonly stable across every
+// terminal opened from one conversation and therefore collide.
 [[nodiscard]] inline std::string sanitize_session_title(std::string_view raw) {
     std::string out;
     out.reserve(raw.size());
@@ -706,15 +699,12 @@ inline bool stdin_is_terminal() {
     return {};
 }
 
-// Empty/omitted name → new tty-* session (harness-title flavored when a
-// title is available). An explicit name reattaches.
+// Empty/omitted name → a unique tty-* session. An explicit name reattaches.
+// This must remain unique even when a harness exports the same title for every
+// launch; the title is presentation metadata, never session identity.
 [[nodiscard]] inline std::string resolve_quick_connect_session_name(
         std::string_view requested) {
-    if (requested.empty()) {
-        const std::string title = harness_session_title();
-        if (!title.empty()) return "tty-" + title;
-        return make_ephemeral_shell_session_name();
-    }
+    if (requested.empty()) return make_ephemeral_shell_session_name();
     return std::string(requested);
 }
 
@@ -1126,4 +1116,3 @@ private:
     bool shutdown_ = false;
     Handler handler_;
 };
-

@@ -135,3 +135,4 @@ desktop.ini
 
 # ── Local operational state (fleet ledger, e2e results) ──────────────────────
 /state/
+/artifacts/reliability/
