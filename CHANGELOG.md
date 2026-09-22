@@ -2,6 +2,24 @@
 
 Notable user-visible changes. Git history contains implementation-level detail.
 
+## 26.09.21-r1
+
+### Fixed
+
+- Version drift: every release artifact now carries the same version string as
+  `VERSION`. The Windows resource (`windows/version.rc`), the BSMenubar app
+  bundle, and the macOS signing template all read `26.09.21-r1`. `build.sh`
+  regenerates `windows/version.rc` from `VERSION` before every Windows build,
+  so a release that bumps `VERSION` cannot ship a binary stamped with the
+  previous one. `scripts/install.sh` and `scripts/install.ps1` default to this
+  tag so fresh installs match the published asset.
+
+- Release provenance: the CHANGELOG covers the 26.09.21 release day (one-shot
+  fixes, harness session names, mode-safe reattach, latency gossip, `d`-key
+  session delete, human-readable uptime, 48-hour finished-session prune, idle
+  default 48h, kimi + devin harness entries, harness E2E probe). 26.09.21 is
+  a tooling/hygiene roll-up; no protocol or wire changes.
+
 ## 26.09.15-r1
 
 ### Fixed
