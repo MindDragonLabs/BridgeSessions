@@ -263,8 +263,12 @@ TEST_CASE("P1 spectator: attach sets spectator flag; Keystroke is rejected (no P
     REQUIRE(s != nullptr);
     REQUIRE(s->attachments.at(c.attach_id).spectator == true);
 
-    // Send a Keystroke as spectator — must be rejected (no pending input queued).
+    // Send a Keystroke as spectator — POSIX exposes the PTY write queue for
+    // this white-box assertion. Windows has no queue member; its end-to-end
+    // ConPTY input/output contract is tested separately.
+#ifndef _WIN32
     s->pending_input.clear();
+#endif
     KeystrokeMsg ks;
     ks.data = "echo HACK\n";
     hi(mc, c, Message{ks});

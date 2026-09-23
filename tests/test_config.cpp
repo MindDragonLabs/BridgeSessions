@@ -284,6 +284,7 @@ TEST_CASE("load_config parses sessions settings", "[config]") {
         "sessions.terminal screen-256color\n"
         "sessions.persistence_path /var/sessions.json\n"
         "sessions.authorized_keys_path /etc/bs/authorized_keys\n"
+        "sessions.allow_forwarded_attaches true\n"
     );
 
     MeshConfig cfg = load_config(cfg_path);
@@ -294,7 +295,20 @@ TEST_CASE("load_config parses sessions settings", "[config]") {
     REQUIRE(cfg.terminal == "screen-256color");
     REQUIRE(cfg.persistence_path == "/var/sessions.json");
     REQUIRE(cfg.authorized_keys_path == "/etc/bs/authorized_keys");
+    REQUIRE(cfg.allow_forwarded_attaches);
 
+    fs::remove_all(fs::path(cfg_path).parent_path());
+}
+
+TEST_CASE("forwarded session attaches require explicit configuration",
+          "[config][sessions][security]") {
+    auto cfg_path = write_temp_config("node.name relay\n");
+    MeshConfig defaults = load_config(cfg_path);
+    REQUIRE_FALSE(defaults.allow_forwarded_attaches);
+    defaults.allow_forwarded_attaches = true;
+    REQUIRE(save_config(cfg_path, defaults));
+    MeshConfig reloaded = load_config(cfg_path);
+    REQUIRE(reloaded.allow_forwarded_attaches);
     fs::remove_all(fs::path(cfg_path).parent_path());
 }
 
@@ -621,6 +635,25 @@ TEST_CASE("sensitive mesh paths are denied by default", "[config][file][security
     REQUIRE(is_sensitive_mesh_path("secret.pem"));
     REQUIRE_FALSE(is_sensitive_mesh_path("~/.bridgesessions/received/notes.txt"));
     REQUIRE_FALSE(is_sensitive_mesh_path("~/.bridgesessions/received/config"));
+    namespace fs = std::filesystem;
+    const auto root = fs::temp_directory_path() / ("bs-sensitive-canonical-" +
+        std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    const auto private_dir = root / ".bridgesessions";
+    const auto received = private_dir / "received";
+    fs::create_directories(received);
+    std::ofstream(private_dir / "config") << "private";
+    REQUIRE(is_sensitive_mesh_path((received / ".." / "config").string()));
+    REQUIRE_FALSE(is_sensitive_mesh_path((received / "config").string()));
+#ifndef _WIN32
+    std::error_code link_ec;
+    fs::create_directory_symlink(private_dir, received / "alias", link_ec);
+    REQUIRE_FALSE(link_ec);
+    REQUIRE(is_sensitive_mesh_path((received / "alias" / "config").string()));
+    fs::create_symlink(private_dir / "config", received / "safe-name", link_ec);
+    REQUIRE_FALSE(link_ec);
+    REQUIRE(is_sensitive_mesh_path((received / "safe-name").string()));
+#endif
+    fs::remove_all(root);
     REQUIRE(bs_peer_name_shell_safe("linux-peer"));
     REQUIRE(bs_peer_name_shell_safe("win-host"));
     REQUIRE_FALSE(bs_peer_name_shell_safe("evil; reboot"));

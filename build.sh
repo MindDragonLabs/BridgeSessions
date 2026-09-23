@@ -339,8 +339,11 @@ build_in_container() {
     bootstrap="${bootstrap}
 ${bootstrap_extra}"
 
-    # Pass the caller's options through to the in-container invocation.
-    local inner_args="--build-type ${BUILD_TYPE} --jobs ${JOBS} --deps ${DEPS_MODE} --openssl ${OPENSSL_MODE} --out /work/dist"
+    # The inner build needs a staging directory for its standard interface;
+    # the host stages from the mounted build tree into the caller's OUT_DIR.
+    # Never hard-code /work/dist here: that silently overwrites this checkout's
+    # existing dist artifacts even when the caller passed --out elsewhere.
+    local inner_args="--build-type ${BUILD_TYPE} --jobs ${JOBS} --deps ${DEPS_MODE} --openssl ${OPENSSL_MODE} --out /tmp/bs-container-dist"
     [[ "${DO_TESTS}" == "yes" ]] && inner_args+=" --tests" || inner_args+=" --no-tests"
     [[ "${DO_STRIP}" == "no" ]] && inner_args+=" --no-strip"
     [[ "${VERBOSE}" == "yes" ]] && inner_args+=" --verbose"
@@ -359,10 +362,21 @@ ${bootstrap_extra}"
         # Keep the container's build tree separate from the host's, so a
         # container run can never overwrite (or be mistaken for) a native build,
         # and so the Linux and Windows containers never share a tree.
-        -e "BS_BUILD_SUBDIR=container-${inner_target}-${arch}"
+        -e "BS_BUILD_SUBDIR=${BS_BUILD_SUBDIR:-container-${inner_target}-${arch}}"
         -e "CONTAINER_INNER_TARGET=${inner_target}"
         -e "CONTAINER_INNER_ARGS=${inner_args}"
     )
+
+    # Linux container builds produce an artifact for the requested target
+    # architecture. Docker otherwise defaults to the image's amd64 platform
+    # on an arm64 Mac, yielding an x86_64 binary that would be mislabeled
+    # arm64 by the surrounding build. Keep Windows cross-builds on the default
+    # host/container platform: their output is explicitly x86_64 PE.
+    if [[ "${inner_target}" == "linux" ]]; then
+        local docker_arch="${arch}"
+        [[ "${docker_arch}" == "x86_64" ]] && docker_arch="amd64"
+        docker_args+=(--platform "linux/${docker_arch}")
+    fi
 
     if [[ "${PRINT_ONLY}" == "yes" ]]; then
         note "would run in ${image}: bootstrap, then ./build.sh ${inner_target} ${inner_args}"
@@ -374,7 +388,7 @@ ${bootstrap_extra}"
 
     docker_args+=("${image}" bash -lc "${bootstrap}
 set -euo pipefail
-trap 'chown -R \"\${BS_HOST_UID:-0}:\${BS_HOST_GID:-0}\" /work/build /work/dist 2>/dev/null || true' EXIT
+trap 'chown -R \"\${BS_HOST_UID:-0}:\${BS_HOST_GID:-0}\" /work/build 2>/dev/null || true' EXIT
 ./build.sh \"\${CONTAINER_INNER_TARGET}\" --in-container \${CONTAINER_INNER_ARGS}
 ")
 
@@ -412,9 +426,19 @@ if ! cmake --version 2>/dev/null | head -1 | awk '{print $3}' | \
       awk -F. '{ exit !($1 > 3 || ($1 == 3 && $2 >= 25)) }'; then
     echo "==> installing pinned CMake __CMAKE_VERSION__"
     tmp="$(mktemp -d)"
+    case "$(uname -m)" in
+        aarch64|arm64)
+            cmake_arch="linux-aarch64"
+            cmake_sha256="bbf023139f944cefe731d944f2864d8ea3ea0c4f9310b46ac72b3cb4e314b023"
+            ;;
+        *)
+            cmake_arch="linux-x86_64"
+            cmake_sha256="__CMAKE_SHA256__"
+            ;;
+    esac
     curl -fsSL -o "$tmp/cmake.tgz" \
-      "https://github.com/Kitware/CMake/releases/download/v__CMAKE_VERSION__/cmake-__CMAKE_VERSION__-linux-x86_64.tar.gz"
-    echo "__CMAKE_SHA256__  $tmp/cmake.tgz" | sha256sum -c - >/dev/null
+      "https://github.com/Kitware/CMake/releases/download/v__CMAKE_VERSION__/cmake-__CMAKE_VERSION__-${cmake_arch}.tar.gz"
+    echo "${cmake_sha256}  $tmp/cmake.tgz" | sha256sum -c - >/dev/null
     mkdir -p /opt/cmake
     tar xzf "$tmp/cmake.tgz" -C /opt/cmake --strip-components=1
     ln -sf /opt/cmake/bin/cmake /usr/local/bin/cmake
@@ -526,6 +550,7 @@ build_windows() {
         build_in_container "${DISTRO:-${BS_WIN_DISTRO}}" windows "${MINGW_BOOTSTRAP}"
         stage_artifact "$(build_dir_for "container-windows-$(suffix_for_arch "${ARCH}")")/bridgesessions.exe" \
                        "bridgesessions-windows-x86_64.exe"
+        stage_artifact "${BS_ROOT}/scripts/bs_tray.ps1" "bs_tray.ps1"
         if [[ "${PRINT_ONLY}" != "yes" ]] && have x86_64-w64-mingw32-objdump; then
             note "DLL imports (expect OS DLLs only):"
             x86_64-w64-mingw32-objdump -p "${OUT_DIR}/bridgesessions-windows-x86_64.exe" 2>/dev/null \
@@ -584,6 +609,7 @@ Or install a newer mingw-w64 on this host."
     log "build windows"
     run cmake --build "${build_dir}" --parallel "${JOBS}"
     stage_artifact "${build_dir}/bridgesessions.exe" "bridgesessions-windows-x86_64.exe"
+    stage_artifact "${BS_ROOT}/scripts/bs_tray.ps1" "bs_tray.ps1"
     if [[ "${PRINT_ONLY}" != "yes" ]] && have x86_64-w64-mingw32-objdump; then
         note "DLL imports (expect OS DLLs only):"
         x86_64-w64-mingw32-objdump -p "${OUT_DIR}/bridgesessions-windows-x86_64.exe" 2>/dev/null \

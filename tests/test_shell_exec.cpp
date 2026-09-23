@@ -165,6 +165,15 @@ TEST_CASE("ExitCodeMsg and SessionDiedMsg semantics", "[shell]") {
 
     e.code = 42;
     REQUIRE(e.code == 42);
+
+    // Attach failures reuse the backward-compatible terminal response so
+    // clients do not wait for a shell timeout or mistake silence for success.
+    d.exit_code = 127;
+    Message failure = d;
+    auto frame = encode(failure, CONTROL_STREAM_ID);
+    Message decoded = decode(frame);
+    REQUIRE(std::holds_alternative<SessionDiedMsg>(decoded));
+    REQUIRE(std::get<SessionDiedMsg>(decoded).exit_code == 127);
 }
 
 TEST_CASE("strip_mode_sequences removes only mode-setters (26.09.18 item 5)", "[shell]") {
@@ -308,6 +317,26 @@ TEST_CASE("ephemeral cmd session names are unique and non-default",
     REQUIRE(noninteractive_shell_timeout_sec() <= 7200);
 }
 
+TEST_CASE("unnamed shell launches are new; explicit names reattach",
+          "[shell][session-name]") {
+    const auto first_terminal = resolve_shell_session_name("", false, false, false);
+    const auto second_terminal = resolve_shell_session_name("", false, false, false);
+    REQUIRE(first_terminal.rfind("tty-", 0) == 0);
+    REQUIRE(second_terminal.rfind("tty-", 0) == 0);
+    REQUIRE(first_terminal != second_terminal);
+    REQUIRE(resolve_shell_session_name("default", true, false, false) == "default");
+    REQUIRE(resolve_shell_session_name("work", true, true, false) == "work");
+
+    const auto first_command = resolve_shell_session_name("", false, true, false);
+    const auto second_command = resolve_shell_session_name("", false, true, false);
+    REQUIRE(first_command.rfind("cmd-", 0) == 0);
+    REQUIRE(second_command.rfind("cmd-", 0) == 0);
+    REQUIRE(first_command != second_command);
+
+    const auto interactive_command = resolve_shell_session_name("", false, true, true);
+    REQUIRE(interactive_command.rfind("tty-", 0) == 0);
+}
+
 TEST_CASE("unnamed quick-connect always starts a new tty session",
           "[shell][quick-connect]") {
     REQUIRE(resolve_quick_connect_session_name("work") == "work");
@@ -431,6 +460,41 @@ TEST_CASE("ClientOverride force-respawns live default session",
         || s2->command.find("echo") != std::string::npos
         || s2->command.find("cmd.exe") != std::string::npos;
     REQUIRE(cmd_looks_like_override);
+}
+
+TEST_CASE("command-free reconnect preserves a live ClientOverride session",
+          "[shell][attach][reconnect]") {
+    auto cfg = make_shell_test_config("reconnect-node");
+    MeshController mc(cfg);
+#ifdef _WIN32
+    const std::string command = "cmd.exe /c ping -n 30 127.0.0.1 >nul";
+#else
+    const std::string command = "sleep 30";
+#endif
+    uint16_t cols = 0, rows = 0;
+    const uint32_t first_aid = mc.sessions().attach_connection(
+        "reconnect-override",
+        ResolvedSessionCommand{command, SessionCommandSource::ClientOverride},
+        80, 24, "xterm-256color", "", 0, false, cols, rows);
+    REQUIRE(first_aid != 0);
+    Session* original = mc.sessions().get("reconnect-override");
+    REQUIRE(original != nullptr);
+    const uint64_t generation = original->generation;
+    const auto child_pid = original->child_pid;
+
+    // The client must omit the creation command after the initial attach.
+    // An empty command resolves to the configured default and must reattach,
+    // not trigger ClientOverride's intentional replacement behavior.
+    const uint32_t reconnect_aid = mc.sessions().attach_connection(
+        "reconnect-override",
+        ResolvedSessionCommand{"", SessionCommandSource::ConfigDefault},
+        80, 24, "xterm-256color", "", 0, false, cols, rows);
+    REQUIRE(reconnect_aid != 0);
+    Session* reconnected = mc.sessions().get("reconnect-override");
+    REQUIRE(reconnected == original);
+    REQUIRE(reconnected->generation == generation);
+    REQUIRE(reconnected->child_pid == child_pid);
+    mc.sessions().kill("reconnect-override");
 }
 
 TEST_CASE("IPC protocol constants are correct", "[shell]") {

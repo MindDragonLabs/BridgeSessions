@@ -192,6 +192,11 @@ foreach(TEST_SRC ${TEST_SOURCES})
     if(WIN32 AND TEST_NAME STREQUAL "test_mesh_responsiveness")
         continue()
     endif()
+    if(WIN32 AND TEST_NAME STREQUAL "test_interactive_latency")
+        # This fixture probes POSIX stdin/select() and includes sys/socket.h;
+        # Windows transport latency is covered by the Windows E2E lane.
+        continue()
+    endif()
     if(APPLE AND TEST_NAME STREQUAL "test_upgrade_watchdog")
         # Watchdog contract tests are Linux-only (setsid + /dev/tcp probe);
         # a stub-main build discovers zero tests and breaks Catch test
@@ -225,7 +230,9 @@ foreach(TEST_SRC ${TEST_SOURCES})
         add_dependencies(${TEST_NAME} ${BS_OPENSSL_BUILD_TARGET})
     endif()
     if(WIN32)
-        target_link_libraries(${TEST_NAME} ws2_32.lib)
+        # OpenSSL's static Windows build uses the certificate store APIs from
+        # Crypt32 (the main executable links this explicitly as well).
+        target_link_libraries(${TEST_NAME} ws2_32.lib crypt32.lib)
     endif()
     if(APPLE)
         target_link_libraries(${TEST_NAME}
@@ -234,16 +241,22 @@ foreach(TEST_SRC ${TEST_SOURCES})
             "-framework Foundation"
             "-framework ApplicationServices")
     endif()
-    if(TEST_NAME STREQUAL "test_mesh" OR
-       TEST_NAME STREQUAL "test_mesh_responsiveness")
-        catch_discover_tests(${TEST_NAME}
-            PROPERTIES RESOURCE_LOCK bridgesessions_ipc)
-    elseif(TEST_NAME STREQUAL "test_session_worker")
-        catch_discover_tests(${TEST_NAME}
-            PROPERTIES ENVIRONMENT
-                "BS_TEST_BS_BINARY=$<TARGET_FILE:bridgesessions>")
-    else()
-        catch_discover_tests(${TEST_NAME})
+    # Catch's discovery executes the test binary at build time. A MinGW
+    # cross-build can compile/link Windows tests on macOS/Linux, but cannot run
+    # them unless a Windows emulator is configured; defer discovery to native
+    # Windows CI/runtime in that case.
+    if(NOT CMAKE_CROSSCOMPILING)
+        if(TEST_NAME STREQUAL "test_mesh" OR
+           TEST_NAME STREQUAL "test_mesh_responsiveness")
+            catch_discover_tests(${TEST_NAME}
+                PROPERTIES RESOURCE_LOCK bridgesessions_ipc)
+        elseif(TEST_NAME STREQUAL "test_session_worker")
+            catch_discover_tests(${TEST_NAME}
+                PROPERTIES ENVIRONMENT
+                    "BS_TEST_BS_BINARY=$<TARGET_FILE:bridgesessions>")
+        else()
+            catch_discover_tests(${TEST_NAME})
+        endif()
     endif()
 endforeach()
 

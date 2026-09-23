@@ -19,6 +19,7 @@ assets=(
   "$ASSET_DIR/bridgesessions-linux-x86_64"
   "$ASSET_DIR/bridgesessions-macos-arm64"
   "$ASSET_DIR/bridgesessions-windows-x86_64.exe"
+  "$ASSET_DIR/bs_tray.ps1"
   "$ASSET_DIR/bridgesessions-${VERSION}-source.tar.gz"
   "$ASSET_DIR/bridgesessions-${VERSION}-source.zip"
   "$ASSET_DIR/SHA256SUMS"

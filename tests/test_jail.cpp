@@ -16,10 +16,10 @@
 #include <string>
 #include <vector>
 #include <fcntl.h>
-#include <unistd.h>
 
 #ifdef _WIN32
 #include <windows.h>
+#include <io.h>
 #else
 #include <sys/wait.h>
 #include <unistd.h>
@@ -27,21 +27,37 @@
 
 using namespace bs::mesh;
 
+static void set_test_env(const char* name, const char* value) {
+#ifdef _WIN32
+    (void)_putenv_s(name, value);
+#else
+    (void)::setenv(name, value, 1);
+#endif
+}
+
+static void unset_test_env(const char* name) {
+#ifdef _WIN32
+    (void)_putenv_s(name, "");
+#else
+    (void)::unsetenv(name);
+#endif
+}
+
 TEST_CASE("jail is opt-in: unset/empty BS_JAIL means disabled", "[jail]") {
     // 26.09.06-r5: jail defaults OFF — PR_SET_NO_NEW_PRIVS broke sudo in
     // sessions and the confinement was heavier than intended (operator).
-    ::unsetenv("BS_JAIL");
-    ::unsetenv("BS_JAIL_RW");
+    unset_test_env("BS_JAIL");
+    unset_test_env("BS_JAIL_RW");
     auto p = jail_policy_from_env("/home/testuser", "/home/testuser/proj");
     REQUIRE_FALSE(p.enabled);
-    ::setenv("BS_JAIL", "", 1);
+    set_test_env("BS_JAIL", "");
     auto p2 = jail_policy_from_env("/home/testuser", "/home/testuser/proj");
     REQUIRE_FALSE(p2.enabled);
 }
 
 TEST_CASE("jail policy enables with BS_JAIL=1 and builds home/tmp roots", "[jail]") {
-    ::setenv("BS_JAIL", "1", 1);
-    ::unsetenv("BS_JAIL_RW");
+    set_test_env("BS_JAIL", "1");
+    unset_test_env("BS_JAIL_RW");
     auto p = jail_policy_from_env("/home/testuser", "/home/testuser/proj");
     REQUIRE(p.enabled);
     // $HOME and /tmp always present; daemon cwd included when not redundant.
@@ -57,15 +73,15 @@ TEST_CASE("jail policy enables with BS_JAIL=1 and builds home/tmp roots", "[jail
 }
 
 TEST_CASE("jail policy can be disabled with BS_JAIL=0", "[jail]") {
-    ::setenv("BS_JAIL", "0", 1);
+    set_test_env("BS_JAIL", "0");
     auto p = jail_policy_from_env("/home/testuser", "/");
     REQUIRE_FALSE(p.enabled);
-    ::setenv("BS_JAIL", "1", 1);
+    set_test_env("BS_JAIL", "1");
 }
 
 TEST_CASE("jail policy parses BS_JAIL_RW extra roots", "[jail]") {
-    ::setenv("BS_JAIL", "1", 1);
-    ::setenv("BS_JAIL_RW", "/srv/deploys:/var/www:~/notes", 1);
+    set_test_env("BS_JAIL", "1");
+    set_test_env("BS_JAIL_RW", "/srv/deploys:/var/www:~/notes");
     auto p = jail_policy_from_env("/home/testuser", "/");
     REQUIRE(p.enabled);
     bool has_srv = false, has_var = false, has_notes = false;
@@ -82,12 +98,12 @@ TEST_CASE("jail policy parses BS_JAIL_RW extra roots", "[jail]") {
     // ~-expanded, in insertion order.
     REQUIRE(p.writable_roots_env() ==
             "/home/testuser:/:/tmp:/srv/deploys:/var/www:/home/testuser/notes");
-    ::unsetenv("BS_JAIL_RW");
+    unset_test_env("BS_JAIL_RW");
 }
 
 TEST_CASE("jail policy skips missing roots and dedupes", "[jail]") {
-    ::setenv("BS_JAIL", "1", 1);
-    ::unsetenv("BS_JAIL_RW");
+    set_test_env("BS_JAIL", "1");
+    unset_test_env("BS_JAIL_RW");
     auto p = jail_policy_from_env("/home/testuser", "/home/testuser");
     REQUIRE(p.enabled);
     // cwd == home → single entry, not duplicated.
@@ -98,12 +114,12 @@ TEST_CASE("jail policy skips missing roots and dedupes", "[jail]") {
     // list and is skipped at enforcement open-time (apply_filesystem_jail
     // drops it when O_DIRECTORY open fails) — it can never silently broaden
     // the jail to a path nobody can resolve anyway.
-    ::setenv("BS_JAIL_RW", "/nonexistent-jail-path-xyz", 1);
+    set_test_env("BS_JAIL_RW", "/nonexistent-jail-path-xyz");
     auto p2 = jail_policy_from_env("/home/testuser", "/");
     bool found_missing = false;
     for (auto& r : p2.writable_roots) if (r == "/nonexistent-jail-path-xyz") found_missing = true;
     REQUIRE(found_missing);
-    ::unsetenv("BS_JAIL_RW");
+    unset_test_env("BS_JAIL_RW");
 }
 
 #if !defined(_WIN32) && !defined(__APPLE__)
@@ -116,8 +132,8 @@ TEST_CASE("landlock jail blocks writes outside roots, allows inside",
     namespace fs = std::filesystem;
     fs::path root = fs::temp_directory_path() / "bs-jail-test";
     fs::create_directories(root);
-    ::setenv("BS_JAIL", "1", 1);
-    ::setenv("BS_JAIL_RW", root.c_str(), 1);
+    set_test_env("BS_JAIL", "1");
+    set_test_env("BS_JAIL_RW", root.c_str());
 
     pid_t pid = ::fork();
     REQUIRE(pid >= 0);
@@ -161,6 +177,7 @@ TEST_CASE("landlock jail blocks writes outside roots, allows inside",
 }
 #endif
 
+#ifndef _WIN32
 TEST_CASE("jail permits writing /dev/null (2>/dev/null works in sessions)", "[jail][landlock]") {
     // 26.09.06-r2/r3 regression: Landlock jailed shells lost write access to
     // /dev/null, breaking every `2>/dev/null` redirect — including the
@@ -177,8 +194,8 @@ TEST_CASE("jail permits writing /dev/null (2>/dev/null works in sessions)", "[ja
     REQUIRE(::write(fd, probe, 1) == 1);
     ::close(fd);
 }
+#endif
 
 int main(int argc, char* argv[]) {
     return Catch::Session().run(argc, argv);
 }
-

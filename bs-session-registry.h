@@ -251,6 +251,33 @@ public:
                 record_history_locked(*s, -1, session_state_str(s->state));
                 // Drop stale attachments: their PTYs are being replaced.
                 s->attachments.clear();
+#ifndef _WIN32
+                // A hosted worker outlives its daemon. Reusing its socket here
+                // would adopt the old PTY and silently ignore the replacement
+                // command. Retire this session's worker before spawning its
+                // replacement; ordinary daemon recovery still adopts orphans.
+                if (force_respawn && s->hosted) {
+                    const std::string socket_path =
+                        worker::worker_socket_path(app_home_, name);
+                    if (s->master_fd >= 0)
+                        (void)worker::worker_send(s->master_fd,
+                                                  worker::WMSG_SHUTDOWN);
+                    terminate_worker_and_reap(s->worker_pid);
+                    bool stopped = false;
+                    for (int attempt = 0; attempt < 100; ++attempt) {
+                        if (!worker::ping_worker(socket_path)) {
+                            stopped = true;
+                            break;
+                        }
+                        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+                    }
+                    if (!stopped) {
+                        log_event("session_worker_replace_failed", name + " worker_still_alive");
+                        return 0;
+                    }
+                    s->release_exited_runtime();
+                }
+#endif
                 const std::string spawn_command = prepare_session_command(resolved);
                 auto session_result = spawn_session_runtime(name, spawn_command, cols, rows, term);
                 if (!session_result) return 0;
@@ -1190,4 +1217,3 @@ public:
         return s;
     }
 };
-

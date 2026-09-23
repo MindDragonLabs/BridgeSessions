@@ -979,7 +979,7 @@ int bridgesessions_main(int argc, char** argv) {
                  "List sessions on PEER (or local sessions when PEER is omitted) and exit");
 
     // Subcommand: shell
-    std::string shell_peer, shell_session = "default", shell_cmd;
+    std::string shell_peer, shell_session, shell_cmd;
     uint16_t shell_cols = 80, shell_rows = 24;
     bool shell_detach = false, shell_wait = false;
     bool shell_interactive = false;
@@ -988,7 +988,8 @@ int bridgesessions_main(int argc, char** argv) {
     std::string shell_signal_on_detach;
     auto* shell_cmd_app = app.add_subcommand("shell", "Open shell on a peer");
     shell_cmd_app->add_option("peer", shell_peer, "Peer name")->required();
-    shell_cmd_app->add_option("-n,--name", shell_session, "Session name");
+    auto* shell_session_opt = shell_cmd_app->add_option(
+        "-n,--name", shell_session, "Session name (reuse to reattach)");
     shell_cmd_app->add_flag("-s,--select", shell_select,
                             "Interactively pick a session to attach");
     shell_cmd_app->add_option("-x,--cmd", shell_cmd, "Command override");
@@ -1388,12 +1389,15 @@ int bridgesessions_main(int argc, char** argv) {
         shell_cmd_app->description(
             "Open an interactive shell (or run a command) on a peer.\n"
             "\n"
+            "Omitting -n/--name starts a uniquely named new session. Supply\n"
+            "the same explicit name later to reattach to that session.\n"
+            "\n"
             "Sessions live on the PEER's daemon: on transport loss the remote\n"
             "process keeps running and you can reattach later with the same\n"
             "-n/--name. Use -x to run a one-shot command instead of a shell.");
         shell_cmd_app->footer(
             "Examples:\n"
-            "  bs shell dev                          Interactive shell on peer 'dev'\n"
+            "  bs shell dev                          New unique interactive session\n"
             "  bs shell dev -n build                 Named session (reattach later)\n"
             "  bs shell dev -x 'docker ps'           Run a one-shot command\n"
             "  bs shell dev -x htop -i               Interactive TUI command (raw mode)\n"
@@ -1890,8 +1894,19 @@ int bridgesessions_main(int argc, char** argv) {
         bs::mesh::bootstrap_identity(home_dir);
         bs::mesh::MeshController mc(cfg, home_dir);
 
+        // An omitted --name means "new". Explicit names alone opt into
+        // persistent reattach semantics.
+        auto ensure_shell_session_name = [&]() {
+            if (shell_session.empty()) {
+                shell_session = bs::mesh::resolve_shell_session_name(
+                    shell_session, shell_session_opt->count() > 0,
+                    !shell_cmd.empty(), shell_interactive);
+            }
+        };
+
         // --detach: fire-and-forget (works with -x too)
         if (shell_detach) {
+            ensure_shell_session_name();
             return mc.shell_peer_detach(shell_peer, shell_session, shell_cmd,
                                         shell_cols, shell_rows, "xterm-256color");
         }
@@ -1903,6 +1918,7 @@ int bridgesessions_main(int argc, char** argv) {
         // Commands launched from a real terminal keep full PTY input/output. Piped or
         // automated commands use daemon IPC and capture a finite result.
         if (!shell_cmd.empty() && !bs::mesh::stdin_is_terminal()) {
+            ensure_shell_session_name();
             std::string output;
             int ec = mc.daemon_shell_via_ipc(shell_peer, shell_session, shell_cmd, &output);
             if (ec == -1) {
@@ -1931,6 +1947,7 @@ int bridgesessions_main(int argc, char** argv) {
                                         shell_cols, shell_rows, "xterm-256color");
         }
         if (shell_wait) {
+            ensure_shell_session_name();
             std::string output;
             int ec = mc.daemon_shell_via_ipc(shell_peer, shell_session, shell_cmd, &output);
             if (ec >= 0) { std::cout << output; return ec; }
@@ -1970,6 +1987,7 @@ int bridgesessions_main(int argc, char** argv) {
                           << "; using default session\n";
             }
         }
+        ensure_shell_session_name();
         return mc.shell_peer(shell_peer, shell_session, shell_cmd, shell_cols, shell_rows, "xterm-256color", shell_signal_forward, shell_signal_on_detach, shell_interactive);
     }
     if (connect_cmd_app->parsed()) {

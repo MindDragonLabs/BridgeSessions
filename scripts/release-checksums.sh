@@ -8,12 +8,12 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-DIST="$ROOT/dist"
+DIST="${BS_RELEASE_DIR:-$ROOT/dist}"
 VERSION="$(tr -d '\r\n' < "$ROOT/VERSION")"
 cd "$DIST"
 shopt -s nullglob
 
-candidates=(bridgesessions bridgesessions-*)
+candidates=(bridgesessions bridgesessions-* bs_tray.ps1)
 files=()
 for file in "${candidates[@]}"; do
   [[ -f "$file" ]] || continue
@@ -29,6 +29,10 @@ if [[ ${#files[@]} -eq 0 ]]; then
 fi
 
 for file in "${files[@]}"; do
+  # The PowerShell tray companion is data/code shipped with the binary release,
+  # but its source is intentionally not version-stamped. It is still covered
+  # by SHA256SUMS and the SBOM below.
+  [[ "$file" == "bs_tray.ps1" ]] && continue
   detected=""
   if [[ "$file" == *-source.tar.gz ]]; then
     detected=$(tar -xOzf "$file" "bridgesessions-${VERSION}/VERSION" 2>/dev/null \

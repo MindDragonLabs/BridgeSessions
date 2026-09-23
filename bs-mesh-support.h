@@ -659,6 +659,19 @@ inline bool stdin_is_terminal() {
     return make_ephemeral_session_name("tty-");
 }
 
+// `bs shell PEER` starts a new terminal unless --name is explicit. One-shot
+// commands use a separate ephemeral namespace so neither unnamed path can
+// accidentally reattach to a persistent `default` session.
+[[nodiscard]] inline std::string resolve_shell_session_name(
+        std::string_view requested, bool name_was_explicit,
+        bool has_command, bool force_interactive) {
+    if (name_was_explicit && !requested.empty())
+        return std::string(requested);
+    if (has_command && !force_interactive)
+        return make_ephemeral_cmd_session_name();
+    return make_ephemeral_shell_session_name();
+}
+
 // ── Harness session-title helpers (26.09.18, TODO item 1) ──
 // Harnesses may export a human-readable conversation title. Keep the
 // sanitization helper available for display labels, but do not use the title

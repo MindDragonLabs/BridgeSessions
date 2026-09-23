@@ -284,8 +284,20 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: bridgesessions-windows-x86_64
-          path: dist/bridgesessions-windows-x86_64.exe
+          path: |
+            dist/bridgesessions-windows-x86_64.exe
+            dist/bs_tray.ps1
           if-no-files-found: error
+
+  windows-installer-validation:
+    name: windows-installer-validation
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Parse installer and enforce safe upgrade ordering
+        shell: pwsh
+        run: ./tests/test_install_order.ps1
 
   # ── Secret scan ───────────────────────────────────────────────────────────
   # Required by the main-trunk-protection ruleset. Scans tracked files only.

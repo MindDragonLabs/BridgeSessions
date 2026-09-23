@@ -3,7 +3,7 @@ name: bridgesessions
 description: Use when operating or developing BridgeSessions mesh peers.
 license: BUSL-1.1
 metadata:
-  version: "26.09.21-r1"
+  version: "26.09.23-a2"
   product: BridgeSessions
   forge: "github.com/MindDragonLabs/BridgeSessions"
 ---
@@ -45,7 +45,8 @@ bs shell <peer> --cmd 'hostname && uptime'
 ```
 
 - `Ctrl-D` detaches an interactive session.
-- Reuse the same `--name` to reattach.
+- Omitting `--name` starts a new uniquely named session.
+- Reuse the same explicit `--name` to reattach.
 - One-shot calls do not share shell state.
 
 For complex work:

@@ -217,17 +217,6 @@ shell_probe_with_retry() {
   printf '%s\n' "$out"
 }
 
-shell_version_cmd() {
-  case "$1" in
-    windows)
-      echo 'if exist %LOCALAPPDATA%\bridgesessions\bridgesessions.exe (%LOCALAPPDATA%\bridgesessions\bridgesessions.exe --version) else if exist %USERPROFILE%\.local\bin\bridgesessions.exe (%USERPROFILE%\.local\bin\bridgesessions.exe --version) else (where bridgesessions 2>nul & bridgesessions --version 2>nul)'
-      ;;
-    *)
-      echo 'command -v bridgesessions >/dev/null && bridgesessions --version; command -v bs >/dev/null && bs --version; test -x "$HOME/.local/bin/bridgesessions" && "$HOME/.local/bin/bridgesessions" --version; true'
-      ;;
-  esac
-}
-
 shell_os_probe_cmd() {
   case "$1" in
     windows) echo 'echo OS=windows& hostname' ;;
@@ -283,19 +272,24 @@ test_peer() {
     record FAIL "$peer" shell_os_probe "${out//$'\n'/ }"
   fi
 
-  # remote binary version (best-effort path matrix)
-  out="$(shell_probe_with_retry "$peer" "$(shell_version_cmd "$os")")"
-  if [[ -n "$EXPECTED_VERSION" ]] && assert_contains "$out" "$EXPECTED_VERSION"; then
-    record PASS "$peer" remote_version "$EXPECTED_VERSION"
-  elif assert_contains "$out" "26." || assert_contains "$out" "2.0."; then
-    record PASS "$peer" remote_version "found version in output"
+  # Ask the connected daemon for its own version. Shelling out to a binary on
+  # Windows is unreliable when the daemon runs as SYSTEM: %LOCALAPPDATA% then
+  # points at systemprofile, not the installer's profile. Never accept an
+  # arbitrary version-looking string as a release pass.
+  out="$(run_to "$BS_BIN" fleet --json 2>&1 | python3 -c '
+import json, sys
+try:
+    peers = json.load(sys.stdin)
+    print(peers.get(sys.argv[1], {}).get("version", ""))
+except (json.JSONDecodeError, AttributeError):
+    print("")
+' "$peer" 2>/dev/null || true)"
+  if [[ -n "$EXPECTED_VERSION" && "$out" == "$EXPECTED_VERSION" ]]; then
+    record PASS "$peer" remote_version "$out"
+  elif [[ -n "$out" ]]; then
+    record FAIL "$peer" remote_version "expected $EXPECTED_VERSION, daemon reports $out"
   else
-    # Windows shell stdout for --version can be empty under some PE/session combos
-    if [[ "$os" == "windows" ]]; then
-      record SKIP "$peer" remote_version "no version on shell stdout (known Windows PE quirk); health/shell ok"
-    else
-      record FAIL "$peer" remote_version "missing expected version; out=${out//$'\n'/ }"
-    fi
+    record FAIL "$peer" remote_version "daemon version unavailable from fleet JSON"
   fi
 
   if [[ $QUICK -eq 1 ]]; then
@@ -360,6 +354,31 @@ PSEOF
       else
         record FAIL "$peer" run_script "${out//$'\n'/ }"
       fi
+
+      # Create two detached ConPTY sessions without --name. This exercises the
+      # actual CLI -> AttachMsg -> Windows session path and catches accidental
+      # reuse of the old shared `default` name. Always clean up only the two
+      # sessions whose names this test received in AttachAck.
+      local first_session="" second_session=""
+      out="$(run_to "$BS_BIN" shell "$peer" --cmd 'cmd.exe /Q' --detach 2>&1 || true)"
+      first_session="$(printf '%s\n' "$out" | sed -n 's/^Session \([A-Za-z0-9._-][A-Za-z0-9._-]*\) started on .*/\1/p' | head -1)"
+      if [[ -z "$first_session" ]]; then
+        record FAIL "$peer" new_terminal_first "no AttachAck: ${out//$'\n'/ }"
+      else
+        out="$(run_to "$BS_BIN" shell "$peer" --cmd 'cmd.exe /Q' --detach 2>&1 || true)"
+        second_session="$(printf '%s\n' "$out" | sed -n 's/^Session \([A-Za-z0-9._-][A-Za-z0-9._-]*\) started on .*/\1/p' | head -1)"
+        if [[ -z "$second_session" ]]; then
+          record FAIL "$peer" new_terminal_second "no AttachAck: ${out//$'\n'/ }"
+        elif [[ "$first_session" == "$second_session" ]]; then
+          record FAIL "$peer" new_terminal_isolation "second launch reused $first_session"
+        else
+          record PASS "$peer" new_terminal_isolation "$first_session != $second_session"
+        fi
+      fi
+      for session in "$first_session" "$second_session"; do
+        [[ -z "$session" ]] && continue
+        run_to "$BS_BIN" sessions "$peer" --kill "$session" >/dev/null 2>&1 || true
+      done
       ;;
     *)
       local shf="$WORKDIR/script-${peer}.sh"

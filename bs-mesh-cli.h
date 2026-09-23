@@ -2630,11 +2630,18 @@ public:
                           << std::get<OutputMsg>(resp).data << "\n";
                 return 255;
             }
-        } catch (...) {}
-        // If we didn't get AttachAck, the session might still have been created
-        std::cout << "Session sent to " << peer_name
-                  << ". Use 'bs sessions' to verify.\n";
-        return 0;
+        } catch (const std::exception& e) {
+            std::cerr << "Session attach to " << peer_name
+                      << " failed: " << e.what() << "\n";
+            return 255;
+        } catch (...) {
+            std::cerr << "Session attach to " << peer_name
+                      << " failed: no AttachAck received.\n";
+            return 255;
+        }
+        std::cerr << "Session attach to " << peer_name
+                  << " failed: unexpected response (expected AttachAck).\n";
+        return 255;
     }
 
     // ── CLI: shell_peer ────────────────────────────────────────
@@ -2878,6 +2885,10 @@ public:
 
         bool local_stop = false;
         bool announced_reconnect = false;
+        // The command is a creation/override request, not part of session
+        // identity. Replaying it on reconnect makes the registry force-respawn
+        // an otherwise-live ClientOverride session.
+        bool attach_request_sent = false;
         uint16_t badge_rows = 0;  // rows at last bottom-row draw (badge/notice)
         int reconnect_delay_ms = 100;
         int reconnect_attempt = 1;
@@ -2919,9 +2930,10 @@ public:
                 am.cols = last_cols;
                 am.rows = last_rows;
                 am.term = term;
-                am.command = cmd;
+                am.command = attach_request_sent ? std::string{} : cmd;
                 am.signal_on_detach = signal_on_detach;
                 write_frame(sc.ssl.get(), am, CONTROL_STREAM_ID);
+                attach_request_sent = true;
                 if (announced_reconnect) {
                     // Clear the reconnect badge from the row it was drawn on
                     // (resize-safe), reset the surface so the server's

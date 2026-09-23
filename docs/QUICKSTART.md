@@ -2,7 +2,7 @@
 
 This page takes you from a download to a working remote shell. Read [Security](https://github.com/MindDragonLabs/BridgeSessions/blob/main/SECURITY.md) first.
 
-Current release: **`26.09.21-r1`**.
+Current release: **`26.09.23-a2`**.
 
 ## 1. Install
 
@@ -25,7 +25,7 @@ bs --version
 bs doctor
 ```
 
-`bs --version` must print `26.09.21-r1`.
+`bs --version` must print `26.09.23-a2`.
 
 If the shell cannot find `bs`, add `~/.local/bin` (Linux/macOS) or `%LOCALAPPDATA%\bridgesessions` (Windows) to `PATH`.
 
@@ -59,7 +59,8 @@ bs shell <peer> --name agent
 bs shell <peer> --cmd 'uname -a'
 ```
 
-`Ctrl-D` detaches. The remote PTY stays. Reuse `--name` to reattach.
+Omitting `--name` starts a new uniquely named PTY. `Ctrl-D` detaches; reuse the
+same explicit `--name` to reattach.
 
 One `bs shell --cmd` is one new process. It does not keep the working directory from the last call. For several steps, use one stacked command or `bs run-script`.
 

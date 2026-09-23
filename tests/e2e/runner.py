@@ -383,7 +383,12 @@ def main() -> int:
     ap.add_argument(
         "--peer-win",
         default=os.environ.get("BS_E2E_PEER_WIN", ""),
-        help="Windows desktop peer (BS_E2E_PEER_WIN)",
+        help="Windows desktop peers, comma-separated (BS_E2E_PEER_WIN)",
+    )
+    ap.add_argument(
+        "--windows-only",
+        action="store_true",
+        help="In L3, run only the configured Windows desktop peers",
     )
     ap.add_argument(
         "--peer-mac",
@@ -393,11 +398,18 @@ def main() -> int:
     args = ap.parse_args()
     layers = [x.strip().upper() for x in args.layers.split(",") if x.strip()]
     peers = [x.strip() for x in args.peers.split(",") if x.strip()]
-    # Ensure Windows desktop peer is in the L2 matrix when L3 needs it
-    if args.peer_win and args.peer_win not in peers:
-        peers.append(args.peer_win)
+    windows_peers = [x.strip() for x in args.peer_win.split(",") if x.strip()]
+    # Ensure each Windows desktop peer is in the L2 mesh matrix when both
+    # layers are requested.
+    for peer in windows_peers:
+        if peer not in peers:
+            peers.append(peer)
     if "L2" in layers and not peers:
         print("error: set --peers or BS_E2E_PEERS", file=sys.stderr)
+        return 2
+    if "L3" in layers and args.windows_only and not windows_peers:
+        print("error: --windows-only requires --peer-win or BS_E2E_PEER_WIN",
+              file=sys.stderr)
         return 2
 
     bs = which_bs()
@@ -408,19 +420,37 @@ def main() -> int:
         run_l2(report, peers)
 
     if "L3" in layers:
-        if not args.skip_setup:
-            setup_windows_desktop(bs, args.peer_win, report)
-            setup_linux_kvm(bs, report)
-        else:
+        if args.skip_setup:
             rec(report, "SKIP", "setup", "skipped", "--skip-setup")
+        for peer in windows_peers:
+            if not args.skip_setup:
+                setup_windows_desktop(bs, peer, report)
+            test_windows_tray(bs, peer, report)
+            test_cua(bs, peer, "cua_windows", report)
+        if not windows_peers:
+            rec(report, "SKIP", "windows", "desktop_tests",
+                "set --peer-win or BS_E2E_PEER_WIN")
 
-        test_windows_tray(bs, args.peer_win, report)
-        test_cua(bs, args.peer_win, "cua_windows", report)
-        test_mac_desktop(bs, args.peer_mac, report)
-        # Linux desktop: KVM guest (mesh via host virbr0)
-        test_linux_desktop_via_linux_hop(bs, report)
-
-        test_linux_desktop_peer(bs, "bs-qa-ubuntu", report)
+        if not args.windows_only:
+            if not args.skip_setup:
+                setup_linux_kvm(bs, report)
+            if args.peer_mac:
+                test_mac_desktop(bs, args.peer_mac, report)
+            else:
+                rec(report, "SKIP", "macos", "desktop_tests",
+                    "set --peer-mac or BS_E2E_PEER_MAC")
+            # Linux desktop checks require an explicitly configured hop/peer.
+            if os.environ.get("BS_E2E_LINUX_HOST"):
+                test_linux_desktop_via_linux_hop(bs, report)
+            else:
+                rec(report, "SKIP", "linux", "kvm_desktop",
+                    "set BS_E2E_LINUX_HOST")
+            linux_peer = os.environ.get("BS_E2E_PEER_LINUX", "")
+            if linux_peer:
+                test_linux_desktop_peer(bs, linux_peer, report)
+            else:
+                rec(report, "SKIP", "linux", "desktop_peer",
+                    "set BS_E2E_PEER_LINUX")
 
     report.finished = ts()
     print(

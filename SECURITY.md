@@ -2,7 +2,7 @@
 
 ## Supported version
 
-`26.09.21-r1` is the current release line. The repository stamps the same version in `VERSION`, in the installer default tag, and in the binary itself. Upgrade older builds before reporting unless you are reproducing a regression that requires the older code.
+`26.09.23-a2` is the current release line. The repository stamps the same version in `VERSION`, in the installer default tag, and in the binary itself. Upgrade older builds before reporting unless you are reproducing a regression that requires the older code.
 
 The previous release lines include `26.08.31-release` and `26.08.27-r1`. Mixed lines on the same mesh still talk to each other through the protocol compatibility profile; mixed major protocol lines may not. The release pipeline enforces version negotiation at handshake time.
 
@@ -25,6 +25,12 @@ BridgeSessions is for operator-controlled peer meshes. It is not a hostile multi
 - Certificate key, Hello key, and configured pin must agree before the mesh promotes a transport to live.
 - Local daemon IPC is loopback-only and token-authenticated. The token is owner-readable only.
 - Compromise of an authorized key can compromise every host that trusts it. Treat peer authorization with the same care as root credentials.
+- Multi-hop session forwarding is disabled by default. Enabling
+  `sessions.allow_forwarded_attaches` on a relay delegates that relay's
+  destination access to peers authorized by the relay; the destination sees
+  the relay's authenticated key, not the original caller. Revoke a caller at
+  every relay that could forward its requests, and enable forwarding only on
+  nodes whose peer sets you intend to delegate.
 
 ## Join and transport
 
@@ -34,13 +40,20 @@ Mesh traffic uses mutual TLS over TCP `19949`. The current compatibility profile
 
 ## Files
 
-- Filenames and destinations are validated and canonicalized.
-- Remote serving is confined to `receive_dir`, including symlink resolution.
+- Filenames and destinations are validated and canonicalized, including
+  traversal and symlink aliases of sensitive files.
+- Classic file requests are confined to `receive_dir`. `bs cp` uses
+  `file.copy_scope`, whose default `anywhere` permits direct reads/writes at
+  paths accessible to the daemon account; set it to `receive_dir` for inbox-only
+  copies.
 - Received data uses `.part` plus SHA-256 before atomic publish.
 - Identity, token, config, and PEM paths are denied by default in listings.
 - Remote errors do not expose local absolute paths.
 
-`transfer.allow_sensitive_paths` deliberately removes major safeguards. Treat it as arbitrary file authority. The Bridge Panel uses the same confinement for its own listings and writes.
+`transfer.allow_sensitive_paths` deliberately permits sensitive mesh files and
+also disables classic `receive_dir` confinement. Treat it as arbitrary file
+authority. It is independent of `file.copy_scope`. The Bridge Panel uses its
+own confinement for listings and writes.
 
 ## CUA and Bridge Panel
 

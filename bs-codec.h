@@ -7,6 +7,7 @@
 #pragma once
 
 #include <optional>
+#include <filesystem>
 
 // ── Upgrade tag validation (shared with tests) ────────────────────
 // W4-P1 guard: only [A-Za-z0-9._-] allowed so a malicious --tag cannot
@@ -68,7 +69,24 @@ inline std::string transfer_path_basename(std::string_view path) {
 // Identity / trust-store / PEM files: refuse serve+overwrite unless opted in.
 inline bool is_sensitive_mesh_path(std::string_view path) {
     if (path.empty()) return false;
-    std::string base = transfer_path_basename(path);
+    namespace fs = std::filesystem;
+    std::string expanded(path);
+    if (expanded == "~" || expanded.rfind("~/", 0) == 0 ||
+        expanded.rfind("~\\", 0) == 0) {
+        const char* home = std::getenv("HOME");
+#ifdef _WIN32
+        if (!home || !*home) home = std::getenv("USERPROFILE");
+#endif
+        if (home && *home) expanded = std::string(home) + expanded.substr(1);
+    }
+    // weakly_canonical resolves existing symlinked parents and dot segments
+    // even when the final target does not exist yet (e.g. a new transfer).
+    // On resolution failure, deny rather than classify an ambiguous path safe.
+    std::error_code ec;
+    fs::path canonical = fs::weakly_canonical(fs::path(expanded), ec);
+    if (ec) return true;
+    canonical = canonical.lexically_normal();
+    std::string base = canonical.filename().string();
     for (char& c : base) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
     if (base == "authorized_keys" || base == "ipc-token" ||
         base == "cua-helper-token")
@@ -79,11 +97,24 @@ inline bool is_sensitive_mesh_path(std::string_view path) {
          base.compare(base.size() - 4, 4, ".key") == 0))
         return true;
     if (base == "config") {
-        std::string n(path);
-        for (char& c : n) if (c == '\\') c = '/';
-        for (char& c : n) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-        if (n.find("/received/") != std::string::npos) return false;
-        if (n.find(".bridgesessions/") != std::string::npos) return true;
+        bool in_bridgesessions = false;
+        bool received_root = false;
+        bool previous_is_bridgesessions = false;
+        for (const auto& part : canonical) {
+            std::string component = part.string();
+            for (char& c : component)
+                c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+            if (component == ".bridgesessions") {
+                in_bridgesessions = true;
+                received_root = false;
+                previous_is_bridgesessions = true;
+            } else {
+                if (in_bridgesessions && previous_is_bridgesessions && component == "received")
+                    received_root = true;
+                previous_is_bridgesessions = false;
+            }
+        }
+        if (in_bridgesessions && !received_root) return true;
     }
     return false;
 }
@@ -2030,4 +2061,3 @@ Message decode(std::span<const uint8_t> raw) {
 size_t max_encoded_size(const Message&) {
     return MAX_FRAME_SIZE;
 }
-

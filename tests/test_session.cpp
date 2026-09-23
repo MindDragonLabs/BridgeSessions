@@ -110,7 +110,13 @@ TEST_CASE("create_session applies requested PTY dimensions", "[session][pty-size
     REQUIRE(ws.ws_row == 43);
     terminate_session_child(*result);
 #else
-    SUCCEED("ConPTY dimensions are set by CreatePseudoConsole");
+    auto result = create_session("pty-size", "cmd.exe /Q", 132, 43,
+                                 "xterm-256color");
+    REQUIRE(result.has_value());
+    REQUIRE(result->hpcon != nullptr);
+    auto resized = resize_pty(reinterpret_cast<intptr_t>(result->hpcon), 100, 40);
+    REQUIRE(resized.has_value());
+    terminate_session_child(*result);
 #endif
 }
 

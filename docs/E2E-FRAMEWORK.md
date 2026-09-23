@@ -27,9 +27,25 @@ BS_E2E_PEERS="linux-peer,macos-peer,windows-peer" \
 # Orchestrated desktop lanes
 BS_E2E_PEERS="linux-peer,macos-peer,windows-peer" \
   python3 tests/e2e/runner.py --layers L2,L3 --json /tmp/bs-e2e.json
+
+# Windows-only desktop lane, against multiple already-connected peers
+python3 tests/e2e/runner.py --layers L2,L3 --windows-only \
+  --peer-win "avirserver2016,avirserver2020,shadow-pc"
 ```
 
 Pass live peer names through arguments or environment variables. Never hardcode a private fleet in the repository. The peer list is sanitized at the script boundary; the runner redacts operator paths, addresses, and hostnames from the JSON summary.
+
+`--peer-win` accepts a comma-separated list. `--windows-only` prevents the L3
+run from invoking unrelated macOS/Linux desktop checks; every Windows peer
+still needs to be healthy and authenticated in BridgeSessions before setup.
+
+For pre-release installation, copy the complete staged dist directory to the
+Windows host and run `install.ps1` with `BRIDGESESSIONS_DIST_DIR` set to that
+directory. The installer validates both the executable and tray script against
+the staged `SHA256SUMS`; it does not require publishing the candidate first.
+Run the installer from an independent Windows console or management channel,
+not through the BridgeSessions daemon being upgraded: the installer stops that
+daemon, which necessarily drops its own remote shell transport.
 
 ### `BS_E2E_PEERS`
 

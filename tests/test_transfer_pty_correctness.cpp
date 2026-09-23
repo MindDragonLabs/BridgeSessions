@@ -140,6 +140,50 @@ TEST_CASE("async file recv destination resets on meta rejection", "[transfer][as
     guard();
 }
 
+TEST_CASE("file receive rejects canonical sensitive destinations before creating parents",
+          "[transfer][security][sensitive_path]") {
+    auto tmp = fs::temp_directory_path() / ("bs-recv-sensitive-" + temp_suffix());
+    const auto private_dir = tmp / ".bridgesessions";
+    const auto received = private_dir / "received";
+    fs::create_directories(received);
+    const auto config_file = private_dir / "config";
+    { std::ofstream f(config_file); f << "keep-me"; }
+    auto cfg = test_cfg("recv-sensitive");
+    MeshController mc(cfg, tmp.string());
+    auto c = make_test_conn("peer-a", std::string(64, 'a'));
+
+    FileMetaMsg meta;
+    meta.filename = "payload.txt";
+    meta.filesize = 1;
+    meta.total_chunks = 1;
+    meta.checksum = sha256_hex("x");
+    meta.direct = 1;
+    meta.dest_path = (received / ".." / "config").string();
+    mc.inject_file_meta_for_test(c, meta);
+    REQUIRE_FALSE(mc.file_receive_for_test(c).active);
+    { std::ifstream f(config_file); std::string content; f >> content; REQUIRE(content == "keep-me"); }
+
+#ifndef _WIN32
+    std::error_code link_ec;
+    fs::create_directory_symlink(private_dir, received / "alias", link_ec);
+    REQUIRE_FALSE(link_ec);
+    meta.dest_path = (received / "alias" / "config").string();
+    mc.inject_file_meta_for_test(c, meta);
+    REQUIRE_FALSE(mc.file_receive_for_test(c).active);
+    { std::ifstream f(config_file); std::string content; f >> content; REQUIRE(content == "keep-me"); }
+    fs::create_symlink(config_file, received / "safe.txt.part", link_ec);
+    REQUIRE_FALSE(link_ec);
+    meta.dest_path = (received / "safe.txt").string();
+    mc.inject_file_meta_for_test(c, meta);
+    REQUIRE_FALSE(mc.file_receive_for_test(c).active);
+    { std::ifstream f(config_file); std::string content; f >> content; REQUIRE(content == "keep-me"); }
+#endif
+
+    mc.close_conn_for_test(c);
+    reset_logger_for_test();
+    fs::remove_all(tmp);
+}
+
 TEST_CASE("async file recv destination resets on connection close", "[transfer][async_recv]") {
     auto tmp = fs::temp_directory_path() / ("bs-recv-close-" + temp_suffix());
     fs::remove_all(tmp);

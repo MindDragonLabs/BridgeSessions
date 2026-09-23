@@ -104,6 +104,19 @@ void send_shell_line(Session& s, const std::string& line) {
 
 #ifndef _WIN32
 
+TEST_CASE("session worker socket names are collision-free",
+          "[session_worker][socket_path]") {
+    const fs::path home = make_temp_home();
+    const std::string colon = worker::worker_socket_path(home.string(), "build:1");
+    const std::string underscore = worker::worker_socket_path(home.string(), "build_1");
+    REQUIRE(colon != underscore);
+    REQUIRE(worker::worker_socket_path(home.string(), "ordinary-name_1") ==
+            home.string() + "/run/bs-sessions/ordinary-name_1.sock");
+    REQUIRE(worker::legacy_worker_socket_path(home.string(), "build:1") ==
+            worker::legacy_worker_socket_path(home.string(), "build_1"));
+    fs::remove_all(home);
+}
+
 TEST_CASE("session worker: spawn, IO, and clean kill", "[session_worker]") {
     const std::string exe = worker_exe_from_env();
     if (exe.empty()) {
@@ -189,6 +202,51 @@ TEST_CASE("session worker: survives daemon death and is re-adopted",
     reg.kill("persist");
     REQUIRE(wait_socket_gone(sock_dir, 5s));
 
+    fs::remove_all(home);
+}
+
+TEST_CASE("session worker: ClientOverride replacement does not adopt old worker",
+          "[session_worker][replacement]") {
+    const std::string exe = worker_exe_from_env();
+    if (exe.empty()) {
+        WARN("BS_TEST_BS_BINARY not set — skipping session-worker tests");
+        SUCCEED("skipped: BS_TEST_BS_BINARY unset");
+        return;
+    }
+
+    const fs::path home = make_temp_home();
+    SessionRegistry reg;
+    reg.set_app_home(home.string());
+    reg.set_worker_exe(exe);
+
+    Session* original = reg.attach("replace", "/bin/sh", 80, 24,
+                                   "xterm-256color");
+    REQUIRE(original != nullptr);
+    REQUIRE(original->hosted);
+    const uint64_t old_generation = original->generation;
+
+    uint16_t eff_cols = 0, eff_rows = 0;
+    const uint32_t aid = reg.attach_connection(
+        "replace",
+        ResolvedSessionCommand{
+            "/bin/sh -c 'echo REPLACEMENT-RAN; sleep 10'",
+            SessionCommandSource::ClientOverride},
+        80, 24, "xterm-256color", "", 0, false, eff_cols, eff_rows);
+    REQUIRE(aid != 0);
+
+    Session* replacement = reg.get("replace");
+    REQUIRE(replacement == original);
+    REQUIRE(replacement->hosted);
+    REQUIRE(replacement->generation > old_generation);
+    REQUIRE(replacement->command.find("REPLACEMENT-RAN") != std::string::npos);
+
+    std::string captured;
+    REQUIRE(pump_until_contains(*replacement, "REPLACEMENT-RAN", 5s,
+                                &captured));
+
+    const fs::path sock_dir = home / "run" / "bs-sessions";
+    reg.kill("replace");
+    REQUIRE(wait_socket_gone(sock_dir, 5s));
     fs::remove_all(home);
 }
 

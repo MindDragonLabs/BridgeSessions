@@ -255,15 +255,43 @@ inline std::string worker_socket_dir(const std::string& app_home) {
 
 // Full socket path for a named session
 inline std::string worker_socket_path(const std::string& app_home, const std::string& session_name) {
-    // Sanitize session name for filesystem use
+    // Keep the historical path for names that were already safe, but encode
+    // every byte of other names. The leading '!' cannot occur in an unchanged
+    // safe name, and encoding underscores too makes this representation
+    // injective (e.g. "build:1" cannot alias "build_1").
+    const auto safe_byte = [](unsigned char c) {
+        return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+               (c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.';
+    };
+    const bool already_safe = std::all_of(session_name.begin(), session_name.end(),
+        [&](unsigned char c) { return safe_byte(c); });
+    std::string safe;
+    if (already_safe) {
+        safe = session_name;
+    } else {
+        static constexpr char hex[] = "0123456789ABCDEF";
+        safe.reserve(1 + session_name.size() * 2);
+        safe.push_back('!');
+        for (unsigned char c : session_name) {
+            safe.push_back(hex[c >> 4]);
+            safe.push_back(hex[c & 0x0f]);
+        }
+    }
+    return worker_socket_dir(app_home) + "/" + safe + ".sock";
+}
+
+// Pre-injective socket mapping, retained only to adopt workers that were
+// started by an older daemon before an upgrade.
+inline std::string legacy_worker_socket_path(const std::string& app_home,
+                                             const std::string& session_name) {
     std::string safe;
     safe.reserve(session_name.size());
-    for (char c : session_name) {
-        if (std::isalnum(static_cast<unsigned char>(c)) || c == '-' || c == '_' || c == '.') {
-            safe += c;
-        } else {
+    for (unsigned char c : session_name) {
+        if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+            (c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.')
+            safe += static_cast<char>(c);
+        else
             safe += '_';
-        }
     }
     return worker_socket_dir(app_home) + "/" + safe + ".sock";
 }
@@ -1150,7 +1178,7 @@ inline std::vector<DiscoveredWorker> discover_workers(const std::string& app_hom
         if (name.size() < 6 || name.substr(name.size() - 5) != ".sock") continue;
 
         std::string full_path = entry.path().string();
-        std::string session_name = name.substr(0, name.size() - 5);
+        const std::string socket_stem = name.substr(0, name.size() - 5);
 
         enum class WorkerLiveness { Alive, Dead, Unknown };
         auto worker_liveness = [&]() {
@@ -1205,18 +1233,29 @@ inline std::vector<DiscoveredWorker> discover_workers(const std::string& app_hom
         for (int attempt = 0; attempt < 3 && !ready; ++attempt)
             ready = worker_recv(fd, msg, 2000) && msg.type == WMSG_READY;
         if (ready) {
-            if (msg.data.size() == session_name.size() + 4 &&
-                std::equal(session_name.begin(), session_name.end(),
-                           msg.data.begin())) {
-                child_pid = static_cast<pid_t>(
-                    read_u32be(msg.data.data() + msg.data.size() - 4));
+            // Current READY frames end in a 4-byte child pid; older workers
+            // sent only the name. In both cases the worker-reported name is
+            // authoritative, with legacy-path matching for upgrade adoption.
+            const bool has_child_pid = msg.data.size() >= 4;
+            const auto name_end = has_child_pid ? msg.data.end() - 4
+                                                : msg.data.end();
+            const std::string session_name(msg.data.begin(), name_end);
+            const bool path_matches =
+                worker_socket_path(app_home, session_name) == full_path ||
+                legacy_worker_socket_path(app_home, session_name) == full_path;
+            if (path_matches) {
+                if (has_child_pid)
+                    child_pid = static_cast<pid_t>(
+                        read_u32be(msg.data.data() + msg.data.size() - 4));
+                DiscoveredWorker dw;
+                dw.session_name = session_name;
+                dw.socket_path = full_path;
+                dw.fd = fd;
+                dw.child_pid = child_pid;
+                result.push_back(std::move(dw));
+            } else {
+                ::close(fd);
             }
-            DiscoveredWorker dw;
-            dw.session_name = session_name;
-            dw.socket_path = full_path;
-            dw.fd = fd;
-            dw.child_pid = child_pid;
-            result.push_back(std::move(dw));
         } else {
             ::close(fd);
             if (worker_liveness() == WorkerLiveness::Dead) {

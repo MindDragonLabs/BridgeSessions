@@ -92,34 +92,8 @@
             } else {
                 out_path = expand_home(m.dest_path);
             }
-            if (is_sensitive_mesh_path(out_path) && !config_.allow_sensitive_paths) {
-                std::string err = "refused sensitive dest path";
-                log_event("file_recv_rejected", "reason=sensitive_dest");
-                (void)enqueue_file_ack(c, FileAckMsg{0, 0, true, err});
-                return;
-            }
-            std::error_code pec;
-            auto parent = fs::path(out_path).parent_path();
-            if (!parent.empty()) fs::create_directories(parent, pec);
-            if (pec) {
-                std::string err = "cannot create dest parent directory";
-                log_event("file_recv_failed", out_path + " reason=" + pec.message());
-                (void)enqueue_file_ack(c, FileAckMsg{0, 0, true, err});
-                return;
-            }
             // Fail-loud collision policy (never silent .1/.2 suffixing).
             // direct=2 (--overwrite) is the only overwrite path.
-            if (m.direct == 1) {
-                std::error_code xec;
-                if (fs::exists(out_path, xec) && !xec) {
-                    log_event("file_recv_rejected",
-                              out_path + " reason=dest_exists");
-                    (void)enqueue_file_ack(c, FileAckMsg{0, 0, true,
-                        "dest exists (use --overwrite)"});
-                    return;
-                }
-            }
-            log_event("file_recv_direct", m.filename + " -> " + out_path);
         } else if (!m.dest_path.empty()) {
             auto resolved = resolve_file_send_dest(
                 m.dest_path, recv_dir, config_.dest_allow_home);
@@ -138,21 +112,6 @@
                  (fs::exists(out_path) && fs::is_directory(out_path)))) {
                 out_path = (fs::path(out_path) / *safe_name).string();
             }
-            std::error_code pec;
-            auto parent = fs::path(out_path).parent_path();
-            if (!parent.empty()) fs::create_directories(parent, pec);
-            if (pec) {
-                std::string err = "cannot create dest parent directory";
-                log_event("file_recv_failed", out_path + " reason=" + pec.message());
-                (void)enqueue_file_ack(c, FileAckMsg{0, 0, true, err});
-                return;
-            }
-            if (is_sensitive_mesh_path(out_path) && !config_.allow_sensitive_paths) {
-                std::string err = "refused sensitive dest path";
-                log_event("file_recv_rejected", "reason=sensitive_dest");
-                (void)enqueue_file_ack(c, FileAckMsg{0, 0, true, err});
-                return;
-            }
         } else {
             out_path = (fs::path(recv_dir) / *safe_name).string();
             if (!path_is_inside_directory(out_path, recv_dir)) {
@@ -167,6 +126,41 @@
         // after a Wi‑Fi drop mid-transfer).
         std::string part_path = out_path + ".part";
         std::string meta_path = out_path + ".part.bsmeta";
+        auto reject_sensitive_write = [&]() {
+            if (config_.allow_sensitive_paths) return false;
+            if (!is_sensitive_mesh_path(out_path) &&
+                !is_sensitive_mesh_path(part_path) &&
+                !is_sensitive_mesh_path(meta_path)) return false;
+            log_event("file_recv_rejected", "reason=sensitive_dest");
+            (void)enqueue_file_ack(c, FileAckMsg{0, 0, true,
+                "refused sensitive dest path"});
+            return true;
+        };
+        // Guard the final file and both transfer sidecars. In particular, a
+        // pre-existing .part/.bsmeta symlink must not redirect an otherwise
+        // safe-looking receive path into the identity/config directory.
+        if (reject_sensitive_write()) return;
+        auto create_dest_parent = [&]() {
+            std::error_code pec;
+            auto parent = fs::path(out_path).parent_path();
+            if (!parent.empty()) fs::create_directories(parent, pec);
+            if (!pec) return true;
+            log_event("file_recv_failed", out_path + " reason=" + pec.message());
+            (void)enqueue_file_ack(c, FileAckMsg{0, 0, true,
+                "cannot create dest parent directory"});
+            return false;
+        };
+        if (!create_dest_parent()) return;
+        if (m.direct == 1) {
+            std::error_code xec;
+            if (fs::exists(out_path, xec) && !xec) {
+                log_event("file_recv_rejected", out_path + " reason=dest_exists");
+                (void)enqueue_file_ack(c, FileAckMsg{0, 0, true,
+                    "dest exists (use --overwrite)"});
+                return;
+            }
+        }
+        if (m.direct != 0) log_event("file_recv_direct", m.filename + " -> " + out_path);
         bool resume = false;
         uint32_t resume_chunks = 0;
         uint64_t resume_bytes = 0;
@@ -214,6 +208,7 @@
             part_path = out_path + ".part";
             meta_path = out_path + ".part.bsmeta";
         }
+        if (reject_sensitive_write()) return;
 
         state = FileReceiveState{};
         state.filename = *safe_name;
@@ -1468,8 +1463,11 @@
         std::error_code ec;
         if (!dest_is_dir && fs::exists(dest, ec) && fs::is_directory(dest, ec)) dest_is_dir = true;
         if (dest_is_dir) dest /= *safe_name;
-        if (dest.has_parent_path()) fs::create_directories(dest.parent_path(), ec);
         std::string part_path = dest.string() + ".part";
+        if (!config_.allow_sensitive_paths &&
+            (is_sensitive_mesh_path(dest.string()) || is_sensitive_mesh_path(part_path)))
+            return "ERROR refused sensitive local destination";
+        if (dest.has_parent_path()) fs::create_directories(dest.parent_path(), ec);
 
         std::ofstream out(part_path, std::ios::binary | std::ios::trunc);
         if (!out) return "ERROR cannot open " + part_path;
@@ -2661,6 +2659,15 @@ public:
 
                 // Forward if we're not the target and TTL allows one more hop
                 if (!peer_name_eq(hop_target, config_.node_name) && ttl > 0) {
+                    if (!config_.allow_forwarded_attaches) {
+                        log_event("session_attach_forward_denied",
+                                  a.session_name + " -> " + hop_target
+                                      + " (sessions.allow_forwarded_attaches=false)");
+                        SessionDiedMsg denied;
+                        denied.exit_code = 126;
+                        (void)enqueue_frame(conn, denied, CONTROL_STREAM_ID);
+                        return;
+                    }
                     Conn* mesh = nullptr;
                     for (auto& mc : conns_) {
                         if (is_live_mesh_transport_for(mc, hop_target)) {
@@ -2679,6 +2686,9 @@ public:
                         }
                     } else {
                         log_event("session_attach_hop_unreachable", hop_target);
+                        SessionDiedMsg unreachable;
+                        unreachable.exit_code = 126;
+                        (void)enqueue_frame(conn, unreachable, CONTROL_STREAM_ID);
                     }
                     return;
                 }
@@ -2743,6 +2753,13 @@ public:
             } else {
                 log_event("session_attach_failed",
                           a.session_name + " from " + conn.peer_name);
+                // Do not leave the caller waiting for a timeout after a
+                // refused/failed attach. SessionDied is already understood by
+                // older clients and gives one-shots and --detach a terminal
+                // non-zero result without adding a wire message type.
+                SessionDiedMsg failure;
+                failure.exit_code = 127;
+                (void)enqueue_frame(conn, failure, CONTROL_STREAM_ID);
             }
             return;
         }
@@ -4206,4 +4223,3 @@ private:
         // direct session transports can coexist with the background mesh link.
         resolve_duplicates();
     }
-

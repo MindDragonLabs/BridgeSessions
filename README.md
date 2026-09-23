@@ -187,13 +187,14 @@ Full reference with every flag: [docs/cli.md](docs/cli.md). It is generated from
 bs peers list                     # known peers and their state
 bs health <peer>                  # TLS + identity + data-plane check
 bs fleet                          # live directory with CPU, memory, disk, load
-bs shell <peer>                   # attach, or start a session
+bs shell <peer>                   # start a new uniquely named session
 bs shell <peer> --name agent      # named session; reattach with the same name
 bs shell <peer> --cmd 'uname -a'  # one-shot command
 bs connect                        # pick a peer, then a launch harness
 ```
 
-`Ctrl-D` detaches. The remote session stays alive. Reuse the same `--name` to reattach.
+`Ctrl-D` detaches. The remote session stays alive. Unnamed launches always
+start new sessions; reuse the same explicit `--name` to reattach.
 
 Stack dependent work in one remote command, or use `bs run-script`. Separate `bs shell --cmd` calls do not share working directory or environment.
 

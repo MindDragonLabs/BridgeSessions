@@ -2,6 +2,107 @@
 
 Notable user-visible changes. Git history contains implementation-level detail.
 
+## 26.09.23-a2
+
+### Fixed
+
+- Interactive reconnects preserve the existing child process instead of
+  replacing a live command session.
+- Hosted POSIX command replacement stops the prior worker before spawning its
+  replacement rather than reattaching to the old worker.
+- Failed attach requests return a terminal, non-zero response. Detached shell
+  clients fail when no `AttachAck` arrives rather than reporting success.
+- Sensitive-path checks reject traversal aliases of BridgeSessions config and
+  trust files; copy-scope and sensitive-path controls remain separately
+  documented and enforced.
+- Windows upgrades stage and verify the replacement executable before stopping
+  the running daemon, avoiding unnecessary downtime on download/verification
+  failures.
+- Distinct session names no longer alias the same worker socket.
+- Multi-hop session forwarding is disabled by default; relays must opt in
+  explicitly because the destination authorizes the relay's identity.
+
+### Reliability and release process
+
+- Linux container builds now honor the caller's `--out` path without
+  overwriting an existing checkout `dist/` directory.
+- Added regression coverage for reconnect process identity, hosted worker
+  replacement, failed attach, path traversal, socket-name uniqueness, and
+  Windows installer verification ordering, with Windows-specific CI checks
+  where available.
+- Release metadata, installer defaults, and E2E expected-version checks are
+  aligned at `26.09.23-a2`.
+
+## 26.09.22-r1
+
+### Fixed
+
+- Harness-created **New sessions are uniquely identified**, so launching a
+  second session no longer reconnects to an existing session by mistake.
+- `bs shell PEER` now also starts a unique session when `--name` is omitted;
+  only an explicitly repeated `--name` reconnects. One-shot shell commands get
+  unique command-session names instead of sharing the `default` session.
+- The live Windows fleet matrix now launches two unnamed detached `cmd.exe`
+  ConPTY sessions, requires distinct AttachAck names, and cleans up those exact
+  sessions, covering the CLI-to-Windows-session path on a real Windows host.
+- POSIX shell one-shot commands avoid the unnecessary post-`SessionDied`
+  drain, reducing interactive command latency while retaining the drain for
+  Windows ConPTY, where it is needed. Repeated local stress runs measured
+  159–231 ms (100 commands across 20 runs; prior baseline was about 490 ms).
+- CTest now discovers newly added test sources on reconfigure; session
+  registry and SIGPIPE coverage is deterministic, and BridgePanel auth tests
+  exercise Bearer-token authentication.
+- Linux container builds now select matching Docker and pinned CMake
+  architectures, preventing an amd64 binary from being mislabeled arm64 on
+  Apple Silicon hosts and allowing native arm64 Linux output.
+- The Windows test suite cross-compiles without trying to execute PE binaries
+  on the build host. Windows test links include OpenSSL's required Crypt32
+  library, and POSIX-only test fixtures no longer block the Windows test build.
+- Windows release artifacts now include the tray companion script in the
+  checksum manifest. The one-line installer explicitly enables TLS 1.2 (needed
+  by older Server 2016 defaults) and fetches/verifies that script when
+  `PSScriptRoot` is unavailable. `BRIDGESESSIONS_DIST_DIR` supports verified
+  installation from a staged release directory for pre-publish QA. Installer
+  output is ASCII-safe for Windows PowerShell 5.1, whose UTF-8-without-BOM
+  parsing otherwise broke the streamed installer. It also refuses to upgrade
+  through its own BridgeSessions shell transport before terminating anything,
+  and supports a non-interactive install mode that skips the screen-permission
+  dialog.
+- The E2E runner accepts multiple Windows desktop peers and has a Windows-only
+  L3 lane, so each Windows target can be exercised without unrelated desktop
+  peers.
+- Windows reinstalls now compare the installed executable's SHA-256 with the
+  release manifest even when the version marker matches. A same-version binary
+  drift is repaired, and manifest resolution happens before stopping the
+  daemon so an unverifiable update cannot strand the peer.
+- Fleet E2E version checks now require an exact version reported by the peer
+  daemon. This avoids false passes from unrelated version strings and works
+  when Windows runs the daemon as SYSTEM. Version, daemon health, and two
+  independent unnamed sessions were verified on Shadow PC, avirserver2016,
+  and avirserver2020; the exact final Windows artifact hash and preserved
+  config were verified on both Avir hosts.
+- WinRM repair updated the avirserver2016 daemon task to the verified install
+  path while preserving its password-logon principal; its CUA helper task
+  action was corrected without changing its disabled state. Both Avir hosts
+  retained their existing configs and run the exact release binary.
+- The Windows installer now fails clearly rather than invoking the potentially
+  hanging `schtasks` fallback if an explicitly password-authenticated daemon
+  task update fails.
+- The reliability-loop runner now provisions pytest in an isolated `uv` run
+  when the active system Python does not have pytest installed, instead of
+  reporting immediate infrastructure failures for both Python lanes.
+
+### Reliability and release process
+
+- Added a repeatable reliability loop that builds once, runs independent core
+  and release lanes in parallel, serializes the latency-sensitive panel lane,
+  and retains per-lane logs and machine-readable evidence.
+- Documented scaling across independent instances by splitting atomic test
+  lanes. CPU, OS, and network diversity are useful; GPU hardware is not needed
+  for this build-and-test workload, so Vast.ai is not a natural fit.
+- Updated release metadata and E2E expected-version checks to `26.09.22-r1`.
+  This is a reliability/tooling roll-up; no protocol or wire changes.
+
 ## 26.09.21-r1
 
 ### Fixed

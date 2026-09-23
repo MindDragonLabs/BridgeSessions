@@ -112,6 +112,10 @@ struct MeshConfig {
     int idle_timeout_hours = 48;
     std::string default_shell;
     std::string terminal = "xterm-256color";
+    // Multi-hop session commands execute at the destination as the relay's
+    // authenticated identity. Require an explicit operator opt-in on each
+    // forwarding node; direct shell attaches are unaffected.
+    bool allow_forwarded_attaches = false;
     std::string render_hint = "auto";  // "auto", "markdown", "raw"
     std::unordered_map<std::string, std::string> session_commands;
 
@@ -432,6 +436,10 @@ void write_peer_line(std::ostream& os, const std::string& prefix, const PeerEntr
             cfg.persistence_path = std::string(val);
         } else if (key_str == "sessions.authorized_keys_path") {
             cfg.authorized_keys_path = std::string(val);
+        } else if (key_str == "sessions.allow_forwarded_attaches") {
+            std::string_view t = trim(val);
+            cfg.allow_forwarded_attaches =
+                (t == "true" || t == "1" || t == "yes" || t == "on");
         }
         // ── session.<name>.command ──────────────────────────────
         else if (key_str.rfind("session.", 0) == 0 &&
@@ -1836,6 +1844,8 @@ struct ResolvedSessionCommand {
     f << "sessions.idle_timeout_hours " << cfg.idle_timeout_hours << "\n";
     f << "sessions.default_shell " << cfg.default_shell << "\n";
     f << "sessions.terminal " << cfg.terminal << "\n";
+    f << "sessions.allow_forwarded_attaches "
+      << (cfg.allow_forwarded_attaches ? "true" : "false") << "\n";
     f << "sessions.persistence_path " << cfg.persistence_path << "\n";
     f << "sessions.authorized_keys_path " << cfg.authorized_keys_path << "\n";
     if (!cfg.session_commands.empty()) {
@@ -2141,4 +2151,3 @@ inline uint64_t mesh_events_since_json(uint64_t since_id, std::string& out_json)
     out_json += "]";
     return mesh_event_next_id() - 1;
 }
-

@@ -19,21 +19,37 @@
 #include <catch2/catch_session.hpp>
 #include "../bs-protocol.h"   // pulls in bs-upgrade-safety.h (bs::mesh::)
 
+static void set_test_session_env(const char* value) {
+#ifdef _WIN32
+    (void)_putenv_s("BS_SESSION", value);
+#else
+    (void)::setenv("BS_SESSION", value, 1);
+#endif
+}
+
+static void unset_test_session_env() {
+#ifdef _WIN32
+    (void)_putenv_s("BS_SESSION", "");
+#else
+    (void)::unsetenv("BS_SESSION");
+#endif
+}
+
 TEST_CASE("upgrade_in_mesh_session detects BS_SESSION=1", "[audit][upgrade][p2]") {
     // Clean slate
-    ::unsetenv("BS_SESSION");
+    unset_test_session_env();
     REQUIRE_FALSE(bs::mesh::upgrade_in_mesh_session());
 
-    ::setenv("BS_SESSION", "1", 1);
+    set_test_session_env("1");
     REQUIRE(bs::mesh::upgrade_in_mesh_session());
 
     // Anything non-empty counts as "in a mesh session" — even a malformed
     // value — because the daemon guarantees BS_SESSION is unset outside
     // hosted sessions. If it's set, we are inside one.
-    ::setenv("BS_SESSION", "anything", 1);
+    set_test_session_env("anything");
     REQUIRE(bs::mesh::upgrade_in_mesh_session());
 
-    ::unsetenv("BS_SESSION");
+    unset_test_session_env();
     REQUIRE_FALSE(bs::mesh::upgrade_in_mesh_session());
 }
 
@@ -44,9 +60,9 @@ TEST_CASE("upgrade refuses to run inside a mesh session", "[audit][upgrade][p2]"
     // the helper exists, returns the documented value, and prints a
     // recipe when invoked from a shell. The recipe name is operator-
     // facing and must remain stable.
-    ::setenv("BS_SESSION", "1", 1);
+    set_test_session_env("1");
     REQUIRE(bs::mesh::upgrade_in_mesh_session());
-    ::unsetenv("BS_SESSION");
+    unset_test_session_env();
 }
 
 int main(int argc, char* argv[]) {

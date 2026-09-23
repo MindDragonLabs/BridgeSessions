@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import concurrent.futures
 import datetime as dt
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -140,10 +141,19 @@ def main() -> int:
         ]
         serialized_lanes: list[tuple[str, list[str]]] = []
         if not args.no_python:
-            if shutil.which(sys.executable) is None:
-                raise SystemExit(f"python executable not found: {sys.executable}")
+            pytest_command = [sys.executable, "-m", "pytest"]
+            if importlib.util.find_spec("pytest") is None:
+                uv = shutil.which("uv")
+                if not uv:
+                    raise SystemExit(
+                        "pytest is unavailable in the active Python and uv is not installed"
+                    )
+                pytest_command = [
+                    uv, "run", "--with", "pytest", "--python", sys.executable,
+                    "python", "-m", "pytest",
+                ]
             parallel_lanes.append(("python-release", [
-                sys.executable, "-m", "pytest", "-q",
+                *pytest_command, "-q",
                 "tests/test_release.py", "tests/test_install_script.py",
                 "tests/test_regression_install.py",
             ]))
@@ -152,7 +162,7 @@ def main() -> int:
                 # identity state. Keep them out of the core wave so the
                 # coordinator does not manufacture false readiness failures.
                 serialized_lanes.append(("python-panel", [
-                    sys.executable, "-m", "pytest", "-q",
+                    *pytest_command, "-q",
                     "tools/bridgepanel", "tests/test_typing_latency.py",
                 ]))
 
