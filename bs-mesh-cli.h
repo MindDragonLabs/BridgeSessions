@@ -4014,7 +4014,7 @@ public:
                               << " unavailable (pre-26.09.23-a3 daemon?); staged via file recv\n";
                     const uint64_t b = fs::file_size(want, ec);
                     result = "DONE " + std::to_string(ec ? 0 : b) + " " +
-                             sha256_file_stream(want) + " " + want.string();
+                             sha256_file_stream(want.string()) + " " + want.string();
                 }
                 fs::remove_all(tmpdir, ec);
             }
