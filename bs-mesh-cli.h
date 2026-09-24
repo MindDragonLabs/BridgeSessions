@@ -3557,14 +3557,15 @@ public:
     static bool parse_copy_operand(const std::string& text, CopyOperand& out,
                                    std::string& err) {
         namespace fs = std::filesystem;
-        // Windows drive letters ("C:\\x") must not be parsed as peer prefix.
-        // A prefix is a peer only when it has no slash/backslash and no colon
-        // beyond the first (peer names are simple identifiers).
+        // Windows drive letters ("C:\x", "D:\x", …) must not be parsed as peer
+        // prefix. A prefix is a peer only when it has no slash/backslash and no
+        // colon beyond the first (peer names are simple identifiers). Any
+        // single-letter prefix is a drive: "D:\x" used to parse as peer "D".
         auto colon = text.find(':');
         if (colon != std::string::npos && colon > 0) {
             std::string head = text.substr(0, colon);
             bool looks_like_drive =
-                head.size() == 1 && (head == "C" || head == "c");
+                head.size() == 1 && std::isalpha(static_cast<unsigned char>(head[0]));
             bool head_has_sep = head.find('/') != std::string::npos ||
                                 head.find('\\') != std::string::npos;
             if (!looks_like_drive && !head_has_sep) {

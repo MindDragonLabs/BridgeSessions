@@ -168,6 +168,15 @@ TEST_CASE("cp: operand parsing", "[cp]") {
     CHECK_FALSE(op.remote);
     CHECK(op.path == "C:\\Users\\jeff\\a.txt");
 
+    // ANY single-letter prefix is a drive, not a peer: "D:\x" used to parse
+    // as peer "D" and got looked up as a mesh node.
+    REQUIRE(MeshController::parse_copy_operand("D:\\data\\x.bin", op, err));
+    CHECK_FALSE(op.remote);
+    CHECK(op.path == "D:\\data\\x.bin");
+    REQUIRE(MeshController::parse_copy_operand("z:/data/x.bin", op, err));
+    CHECK_FALSE(op.remote);
+    CHECK(op.path == "z:/data/x.bin");
+
     // Bare peer: is an error.
     CHECK_FALSE(MeshController::parse_copy_operand("macbook:", op, err));
     CHECK_FALSE(err.empty());
