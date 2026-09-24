@@ -287,7 +287,7 @@ except (json.JSONDecodeError, AttributeError):
     print("")
 ' "$peer" 2>/dev/null || true)"
   # Daemons advertise feature capabilities as build metadata (for example
-  # 26.09.23-a3+frm2+enroll). Accept that metadata only after an exact base
+  # 26.09.24-a1+frm2+enroll). Accept that metadata only after an exact base
   # version match; do not treat arbitrary version-looking command output as
   # proof that the expected daemon is running.
   if [[ -n "$EXPECTED_PEER_VERSION" && ( "$out" == "$EXPECTED_PEER_VERSION" || "$out" == "$EXPECTED_PEER_VERSION"+* ) ]]; then

@@ -2,6 +2,39 @@
 
 Notable user-visible changes. Git history contains implementation-level detail.
 
+## 26.09.24-a1
+
+### Fixed
+
+- Direct-push transfer dropped chunk frames to stale connection indices: `bs cp`
+  stalled 213–426s leaving a 0-byte `.part`, and `bs script push`/`run` crashed
+  (SIGSEGV) on 26.09.21 clients. Dispatch now resolves connections by fd
+  identity; zero-progress attempts fail fast with an actionable message; `cp`,
+  `edit` write-back and `vfolder sync` fall back to the acknowledged staged
+  path on pre-a3 daemons with an explicit landing-path NOTE.
+- `bs file recv` of subdirectory paths silently served stale receive-root files
+  (the long-misattributed "file send corrupts files" ghost). Subdir requests
+  now use the direct-get mode (`FileRequestMsg.mode=1`).
+- `bs cp` pull fallback no longer clobbers the caller's own source file
+  (unique-temp-dir receive).
+- `bs cp` treats any single-letter prefix as a Windows drive: `D:\x` no longer
+  parses as peer "D" (D4).
+- Windows in-band upgrade works again: the swap targets the actual running
+  binary (`current_exe_path`, D1) and the latest-release lookup uses `2>NUL`
+  on Windows (D2).
+- `bs edit` exits non-zero on failure (D6) and documents its receive_dir jail
+  (D7); `bs pane publish` explains a missing `bridgepanel` helper (D8).
+- Worker socket names are hash-bounded: long names / deep app_home no longer
+  overrun `sun_path` and silently lose hosted durability (D9).
+- Session-worker test harness: short temp base on every OS + `.pid` poll race
+  (the test-481 flake).
+
+### Changed
+
+- e2e harness semantics documented: local sources need absolute paths (the
+  daemon resolves against its own cwd), and recv reads the send's `dest=` line
+  (old daemons flatten `--dest` subdirs differently).
+
 ## 26.09.23-a3
 
 ### Fixed

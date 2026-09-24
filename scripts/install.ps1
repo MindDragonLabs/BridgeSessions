@@ -11,7 +11,7 @@ try {
 } catch {
     throw "TLS 1.2 is unavailable; update .NET Framework before installing BridgeSessions."
 }
-$TAG = if ($env:BRIDGESESSIONS_TAG) { $env:BRIDGESESSIONS_TAG } else { "26.09.23-a3" }
+$TAG = if ($env:BRIDGESESSIONS_TAG) { $env:BRIDGESESSIONS_TAG } else { "26.09.24-a1" }
 $BASE = "https://github.com/MindDragonLabs/BridgeSessions/releases/download/v$TAG"
 $STAGED_DIR = $env:BRIDGESESSIONS_DIST_DIR
 if ($STAGED_DIR -and -not (Test-Path -LiteralPath $STAGED_DIR -PathType Container)) {
