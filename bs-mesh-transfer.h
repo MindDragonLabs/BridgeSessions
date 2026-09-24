@@ -1452,10 +1452,13 @@
             // standard layout that receive_dir-relative dest= values use).
             if (request_mode == 0 &&
                 remote_path.find('/') != std::string::npos &&
-                remote_path.back() != '/' &&
-                remote_path.front() != '/' && remote_path.front() != '~') {
+                remote_path.back() != '/') {
+                // Direct get for ANY directory-carrying path: home/absolute
+                // paths are inherently outside the receive_dir jail, and
+                // relative subpaths must not be "cleaned" to a bare basename.
                 req.mode = 1;
-                req.path = "~/.bridgesessions/received/" + remote_path;
+                if (remote_path.front() != '/' && remote_path.front() != '~')
+                    req.path = "~/.bridgesessions/received/" + remote_path;
             }
             write_frame(ssl, req, CONTROL_STREAM_ID);
         } catch (const std::exception& e) {
