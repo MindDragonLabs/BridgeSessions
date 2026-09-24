@@ -3972,6 +3972,19 @@ public:
             // Update refreshes changed files through the existing overwrite
             // mechanism; default copies retain the fail-loud collision policy.
             std::string result = copy_single(s, dop, overwrite || update, verbose);
+            if (result.rfind("ERROR", 0) == 0 && dst.remote) {
+                // Direct-push fallback for older daemons whose receive loop can
+                // drop chunk frames (fixed in 26.09.23-a3): stage through the
+                // acknowledged file-send path and report exactly where it landed.
+                const std::string staged = fs::path(d).filename().string();
+                const std::string fallback = file_send(dst.peer, s.path, true, staged);
+                if (fallback.rfind("ERROR", 0) != 0) {
+                    std::cout << "NOTE direct push to " << dst.peer
+                              << " unavailable (pre-26.09.23-a3 daemon?); staged via file send"
+                              << " — landed at received/" << staged << "\n";
+                    result = fallback;
+                }
+            }
             if (result.rfind("ERROR", 0) == 0) {
                 ++failed;
                 std::cout << result << "\n";

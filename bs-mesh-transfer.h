@@ -444,6 +444,18 @@
                 result.find("SSL") != std::string::npos ||
                 result.find("connect") != std::string::npos;
             if (!retryable) return result;
+            // Zero-progress timeout: the receiver accepted the meta but never
+            // confirmed a single chunk. Old daemons could drop chunk frames
+            // entirely (fixed 26.09.23-a3) — re-sending identical bytes never
+            // helps, so abort after the first such attempt and let the caller
+            // fall back. Genuine transport drops carry resume_hint > 0 and keep
+            // the full reconnect budget.
+            if (resume_hint == 0 &&
+                (result.find("transfer ack") != std::string::npos ||
+                 result.find("idle timeout") != std::string::npos ||
+                 result.find("overall timeout") != std::string::npos))
+                return result + " (receiver never confirmed a chunk; " +
+                       "peer may run a pre-26.09.23-a3 daemon)";
             if (resume_hint > start_chunk) start_chunk = resume_hint;
         }
         return last_err + " (after " + std::to_string(kTransferReconnectMax) +
@@ -3745,10 +3757,17 @@ private:
             }
 
             auto messages = drain_complete_frames(c.rx_buffer);
+            const SOCKET this_fd = c.sock_fd;
             for (auto& msg : messages) {
-                if (static_cast<size_t>(conn_idx) >= conns_.size()) return;
-                if (conns_[static_cast<size_t>(conn_idx)].sock_fd == INVALID_SOCKET) return;
-                dispatch_message(conn_idx, msg);
+                // Resolve by fd identity every message: a handler may close an
+                // EARLIER conns_ slot (e.g. a sibling one-shot connection whose
+                // worker just completed), and erase() shifts later indices. The
+                // old index guards then silently DROPPED the rest of the batch —
+                // bs cp (list-conn + send-conn sharing a tick) lost its chunk
+                // frames exactly this way, leaving a 0-byte .part forever.
+                const int live_idx = find_conn_index(this_fd);
+                if (live_idx < 0) return;   // THIS conn died mid-batch
+                dispatch_message(live_idx, msg);
             }
         } catch (const std::exception& e) {
             if (static_cast<size_t>(conn_idx) < conns_.size()) {
@@ -3757,11 +3776,11 @@ private:
                 close_conn(conns_[static_cast<size_t>(conn_idx)]);
             }
         } catch (...) {
-            if (static_cast<size_t>(conn_idx) < conns_.size())
+            if (static_cast<size_t>(conn_idx) < conns_.size()) {
                 log_event("mesh_conn_close", conns_[static_cast<size_t>(conn_idx)].peer_name +
                           " reason=unknown_read_exception");
-            if (static_cast<size_t>(conn_idx) < conns_.size())
                 close_conn(conns_[static_cast<size_t>(conn_idx)]);
+            }
         }
     }
 
