@@ -248,6 +248,7 @@ cmake_configure_build() {
         -DCMAKE_BUILD_TYPE="${BUILD_TYPE}"
         -DBS_DEPS_MODE="${DEPS_MODE}"
         -DBS_OPENSSL="${OPENSSL_MODE}"
+        -DBS_BUILD_JOBS="${JOBS}"
         -DBUILD_TESTING="$([[ "${DO_TESTS}" == "yes" || "${TARGET}" == "test" ]] && echo ON || echo OFF)"
     )
     if [[ "${VERBOSE}" == "yes" ]]; then args+=(-DCMAKE_VERBOSE_MAKEFILE=ON); fi
@@ -723,12 +724,12 @@ do_deps() {
     cat <<EOF
 ${C_BOLD}Pinned dependencies${C_RESET} (cmake/Dependencies.cmake)
 
-  spdlog          v1.15.3    built from source, bundled fmt, static
-  nlohmann/json   v3.11.3    header-only
-  CLI11           v2.4.2     header-only
-  zstd            v1.5.6     static
-  Catch2          v3.8.0     tests only
-  OpenSSL         openssl-3.0.16   system by default (--openssl fetch for static)
+  spdlog          v1.17.0    built from source, bundled fmt, static
+  nlohmann/json   v3.12.0    header-only
+  CLI11           v2.7.2     header-only
+  zstd            v1.5.7     static
+  Catch2          v3.15.0    tests only
+  OpenSSL         openssl-3.5.7   system by default (--openssl fetch for static)
 
   Mode:    --deps fetch|system|auto     (default: fetch)
   OpenSSL: --openssl system|fetch       (default: system)

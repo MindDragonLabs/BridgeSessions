@@ -35,6 +35,14 @@ set_property(CACHE BS_DEPS_MODE PROPERTY STRINGS fetch system auto)
 set(BS_OPENSSL "system" CACHE STRING "OpenSSL source: system | fetch")
 set_property(CACHE BS_OPENSSL PROPERTY STRINGS system fetch)
 
+# The OpenSSL custom build runs make from inside a CMake target. The outer
+# `cmake --build --parallel N` limit does not automatically constrain that
+# nested make, so carry the caller's explicit limit into the custom command.
+set(BS_BUILD_JOBS "2" CACHE STRING "Parallel jobs for nested dependency builds")
+if(NOT BS_BUILD_JOBS MATCHES "^[1-9][0-9]*$")
+    message(FATAL_ERROR "BS_BUILD_JOBS must be a positive integer")
+endif()
+
 option(BS_STATIC_DEPS
        "Link non-system dependencies statically for portable artifacts" ON)
 
@@ -46,12 +54,12 @@ if(NOT BS_OPENSSL MATCHES "^(system|fetch)$")
 endif()
 
 # Pinned upstream versions. Keep alphabetical.
-set(BS_CLI11_TAG        "v2.4.2"   CACHE STRING "CLI11 pin")
-set(BS_CATCH2_TAG       "v3.8.0"   CACHE STRING "Catch2 pin")
-set(BS_JSON_TAG         "v3.11.3"  CACHE STRING "nlohmann/json pin")
-set(BS_SPDLOG_TAG       "v1.15.3"  CACHE STRING "spdlog pin")
-set(BS_ZSTD_TAG         "v1.5.6"   CACHE STRING "zstd pin")
-set(BS_OPENSSL_TAG      "openssl-3.0.16" CACHE STRING "OpenSSL pin")
+set(BS_CLI11_TAG        "v2.7.2")
+set(BS_CATCH2_TAG       "v3.15.0")
+set(BS_JSON_TAG         "v3.12.0")
+set(BS_SPDLOG_TAG       "v1.17.0")
+set(BS_ZSTD_TAG         "v1.5.7")
+set(BS_OPENSSL_TAG      "openssl-3.5.7")
 
 include(FetchContent)
 
@@ -78,6 +86,7 @@ function(bs_fetch name tag)
         GIT_REPOSITORY "${ARGN}"
         GIT_TAG        "${tag}"
         GIT_SHALLOW    TRUE
+        GIT_SUBMODULES ""
         GIT_PROGRESS   TRUE)
 endfunction()
 
@@ -115,7 +124,7 @@ if(BS_OPENSSL STREQUAL "fetch" AND NOT BS_DEPS_MODE STREQUAL "system")
         COMMAND ${CMAKE_COMMAND} -E remove_directory "${_ossl_prefix}"
         COMMAND ./Configure ${_ossl_target} no-shared no-tests
                 --prefix=${_ossl_prefix} --libdir=lib
-        COMMAND ${CMAKE_MAKE_PROGRAM} -j
+        COMMAND ${CMAKE_MAKE_PROGRAM} -j${BS_BUILD_JOBS}
         COMMAND ${CMAKE_MAKE_PROGRAM} install_sw
         WORKING_DIRECTORY "${openssl_SOURCE_DIR}"
         COMMENT "Building pinned OpenSSL ${BS_OPENSSL_TAG} (static)"

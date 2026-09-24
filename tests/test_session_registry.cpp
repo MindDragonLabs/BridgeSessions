@@ -94,6 +94,86 @@ TEST_CASE("SessionRegistry: create session via attach", "[session_registry]") {
     REQUIRE(registry.count() == 0);
 }
 
+TEST_CASE("SessionRegistry: exact detach preserves same-peer attachments and live override reattaches",
+          "[session_registry][multi_attach][replacement]") {
+    SessionRegistry registry;
+    uint16_t cols = 0, rows = 0;
+    const auto command = BS_CMD("cmd.exe /c ping -n 30 127.0.0.1 >nul", "sleep 30");
+    const uint32_t first = registry.attach_connection(
+        "same-peer", {command, SessionCommandSource::ClientOverride}, 80, 24,
+        "xterm-256color", "peer-key", 1, false, cols, rows);
+    REQUIRE(first != 0);
+    Session* session = registry.get("same-peer");
+    REQUIRE(session != nullptr);
+    const auto generation = session->generation;
+    const auto child = session->child_pid;
+
+    const uint32_t second = registry.attach_connection(
+        "same-peer", {"", SessionCommandSource::ConfigDefault}, 100, 40,
+        "xterm-256color", "peer-key", 2, false, cols, rows);
+    REQUIRE(second != 0);
+    REQUIRE(second != first);
+    REQUIRE(registry.detach(first));
+    REQUIRE(session->attachments.count(first) == 0);
+    REQUIRE(session->attachments.count(second) == 1);
+    REQUIRE(session->state == SessionState::Attached);
+    REQUIRE(session->peer_ids.size() == 1);
+    REQUIRE(session->peer_ids.front() == "peer-key");
+
+    const uint32_t takeover = registry.attach_connection(
+        "same-peer", {"echo takeover", SessionCommandSource::ClientOverride},
+        80, 24, "xterm-256color", "attacker", 3, false, cols, rows);
+    REQUIRE(takeover != 0);
+    REQUIRE(takeover != second);
+    REQUIRE(session->generation == generation);
+    REQUIRE(session->child_pid == child);
+    REQUIRE(session->attachments.size() == 2);
+    REQUIRE(session->attachments.count(second) == 1);
+    REQUIRE(session->attachments.count(takeover) == 1);
+
+    REQUIRE(registry.detach(second));
+    REQUIRE(session->state == SessionState::Attached);
+    REQUIRE(session->attachments.count(takeover) == 1);
+    REQUIRE_FALSE(registry.detach(takeover));
+    REQUIRE(session->attachments.empty());
+    REQUIRE(session->state == SessionState::Detached);
+    registry.kill("same-peer");
+}
+
+TEST_CASE("SessionRegistry: reconnect-only attaches only an existing live session",
+          "[session_registry][reconnect]") {
+    SessionRegistry registry;
+    uint16_t cols = 0, rows = 0;
+    const ResolvedSessionCommand reconnect{"", SessionCommandSource::ConfigDefault};
+    REQUIRE(registry.attach_connection("missing-reconnect", reconnect, 80, 24,
+        "xterm-256color", "peer", 1, false, cols, rows, true) == 0);
+    REQUIRE(registry.count() == 0);
+
+    Session* session = registry.attach("reconnect-existing",
+        BS_CMD("cmd.exe /c ping -n 30 127.0.0.1 >nul", "sleep 30"),
+        80, 24, "xterm-256color");
+    REQUIRE(session != nullptr);
+    const uint64_t generation = session->generation;
+    REQUIRE_FALSE(registry.detach("reconnect-existing"));
+    REQUIRE(session->state == SessionState::Detached);
+
+    const uint32_t aid = registry.attach_connection("reconnect-existing",
+        {"echo MUST-NOT-REPLACE", SessionCommandSource::ClientOverride},
+        100, 40, "xterm-256color", "peer", 2, false, cols, rows, true);
+    REQUIRE(aid != 0);
+    REQUIRE(registry.get("reconnect-existing") == session);
+    REQUIRE(session->generation == generation);
+    REQUIRE(session->state == SessionState::Attached);
+
+    REQUIRE_FALSE(registry.detach(aid));
+    session->state = SessionState::Recoverable;
+    REQUIRE(registry.attach_connection("reconnect-existing", reconnect, 80, 24,
+        "xterm-256color", "peer", 3, false, cols, rows, true) == 0);
+    REQUIRE(registry.get("reconnect-existing") == session);
+    REQUIRE(session->state == SessionState::Recoverable);
+    registry.kill("reconnect-existing");
+}
+
 // ── Test 2: Detach session, verify state ─────────────────────────
 
 TEST_CASE("SessionRegistry: detach session changes state", "[session_registry]") {
@@ -400,6 +480,14 @@ TEST_CASE("SessionRegistry: auto_restart respawns died child", "[session_registr
     REQUIRE(s != nullptr);
     s->auto_restart = true;
     s->reset_restart_failures();
+    s->owner_pubkey = "owner-key";
+    s->detach_signal = "HUP";
+    Session::Attachment retained_attachment;
+    retained_attachment.attach_id = 71;
+    retained_attachment.cols = 132;
+    retained_attachment.rows = 43;
+    retained_attachment.pubkey = "peer-a";
+    s->attachments.emplace(retained_attachment.attach_id, retained_attachment);
 
     auto old_generation = s->generation;
 
@@ -415,6 +503,11 @@ TEST_CASE("SessionRegistry: auto_restart respawns died child", "[session_registr
     REQUIRE(s2->auto_restart == true);
     REQUIRE(s2->state == SessionState::Attached);
     REQUIRE(s2->peer_ids == std::vector<std::string>{"peer-a"});
+    REQUIRE(s2->owner_pubkey == "owner-key");
+    REQUIRE(s2->detach_signal == "HUP");
+    REQUIRE(s2->attachments.size() == 2);
+    REQUIRE(s2->attachments.at(71).cols == 132);
+    REQUIRE(s2->attachments.at(71).rows == 43);
     // Respawn must yield a fresh spawn generation. (child_pid/HANDLE can be
     // recycled by the OS, so it is NOT a reliable respawn signal — generation is.)
     REQUIRE(s2->generation != old_generation);

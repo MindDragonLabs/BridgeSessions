@@ -34,21 +34,67 @@ for file in "${files[@]}"; do
   # by SHA256SUMS and the SBOM below.
   [[ "$file" == "bs_tray.ps1" ]] && continue
   detected=""
-  if [[ "$file" == *-source.tar.gz ]]; then
-    detected=$(tar -xOzf "$file" "bridgesessions-${VERSION}/VERSION" 2>/dev/null \
-      | tr -d '\r\n' || true)
+  if [[ "$file" == *-source.tar.gz || "$file" == *-source.zip ]]; then
+    # Read exactly the expected archive member, reject duplicates/missing
+    # entries, and compare its complete contents to VERSION (not strings in
+    # the archive which may come from unrelated files).
+    detected=$(python3 - "$file" "$VERSION" <<'PY'
+import sys, tarfile, zipfile
+path, version = sys.argv[1:]
+member = f"bridgesessions-{version}/VERSION"
+try:
+    if path.endswith(".zip"):
+        with zipfile.ZipFile(path) as archive:
+            names = archive.namelist()
+            if names.count(member) != 1:
+                raise ValueError("expected exactly one VERSION member")
+            value = archive.read(member).decode("ascii")
+    else:
+        with tarfile.open(path, "r:gz") as archive:
+            members = [m for m in archive.getmembers() if m.name == member]
+            if len(members) != 1 or not members[0].isfile():
+                raise ValueError("expected exactly one regular VERSION member")
+            value = archive.extractfile(members[0]).read().decode("ascii")
+    if value != version + "\n":
+        raise ValueError("VERSION contents do not exactly match expected release version")
+    print(version)
+except Exception as exc:
+    print(f"invalid source archive: {exc}", file=sys.stderr)
+    sys.exit(1)
+PY
+    )
   else
-    # Only execute native Linux ELF binaries. PE/Mach-O are validated via
-    # embedded strings so checksums work on a single release host.
-    if file -b "$file" | grep 'ELF .*executable' >/dev/null; then
+    description=$(file -b "$file")
+    if [[ "$file" == bridgesessions-linux-x86_64 ]]; then
+      [[ "$description" == ELF\ 64-bit\ LSB*x86-64* || "$description" == ELF\ 64-bit\ LSB*X86-64* ]] || {
+        printf 'unexpected artifact format: %s: %s\n' "$file" "$description" >&2; exit 1;
+      }
+    elif [[ "$file" == bridgesessions-macos-arm64 ]]; then
+      [[ "$description" == Mach-O\ 64-bit*arm64* ]] || {
+        printf 'unexpected artifact format: %s: %s\n' "$file" "$description" >&2; exit 1;
+      }
+    elif [[ "$file" == bridgesessions-windows-x86_64.exe ]]; then
+      [[ "$description" == PE32+*x86-64* ]] || {
+        printf 'unexpected artifact format: %s: %s\n' "$file" "$description" >&2; exit 1;
+      }
+    else
+      printf 'unrecognized release binary name: %s\n' "$file" >&2; exit 1
+    fi
+    # Execute only the native Linux artifact. Cross-platform formats must at
+    # least have the expected file type and exact embedded version token.
+    if [[ "$file" == bridgesessions-linux-x86_64 ]]; then
       if [[ -x "$file" ]]; then
-        detected=$("./$file" --version 2>/dev/null | tr -d '\r' | head -n 1 || true)
+        detected=$("./$file" --version 2>/dev/null | tr -d '\r' | head -n 1) || {
+          echo "could not execute Linux release binary: $file" >&2; exit 1;
+        }
+      else
+        echo "Linux release binary is not executable: $file" >&2; exit 1
       fi
     fi
     if [[ -z "$detected" ]]; then
       # Avoid grep -q under pipefail: early close SIGPIPEs strings and the
       # pipeline fails even when the version string is present.
-      if strings -a "$file" | grep -F -- "$VERSION" >/dev/null; then
+      if strings -a "$file" | grep -Fx -- "$VERSION" >/dev/null; then
         detected="$VERSION"
       fi
     fi
@@ -63,7 +109,9 @@ done
 # Write checksums for all artifacts.
 sha256sum "${files[@]}" > SHA256SUMS
 
-# Generate the SBOM with a fresh random UUID4.
+# Generate a stable SBOM serial so rebuilding the same release payload is
+# byte-for-byte reproducible and can be safely compared against a published
+# release during a workflow rerun.
 python3 - "$VERSION" "${files[@]}" <<'PY'
 import hashlib
 import json
@@ -72,6 +120,7 @@ import sys
 import uuid
 
 version, *names = sys.argv[1:]
+names.sort()
 components = []
 for name in names:
     path = pathlib.Path(name)
@@ -89,10 +138,13 @@ for name in names:
         }],
     })
 
+identity = version + "\n" + "\n".join(
+    f"{item['name']}:{item['hashes'][0]['content']}" for item in components
+)
 bom = {
     "bomFormat": "CycloneDX",
     "specVersion": "1.5",
-    "serialNumber": f"urn:uuid:{uuid.uuid4()}",
+    "serialNumber": f"urn:uuid:{uuid.uuid5(uuid.NAMESPACE_URL, identity)}",
     "version": 1,
     "metadata": {
         "component": {

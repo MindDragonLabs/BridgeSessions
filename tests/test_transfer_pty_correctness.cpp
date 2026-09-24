@@ -73,6 +73,115 @@ static std::string read_file(const fs::path& p) {
                        std::istreambuf_iterator<char>());
 }
 
+TEST_CASE("Windows session delivery is limited to exact attached session",
+          "[transfer][session][fanout]") {
+    Session first, second;
+    MeshController::Conn attached_a, attached_b, direct_unattached, other_session;
+    attached_a.attached_session = &first;
+    attached_b.attached_session = &first;
+    direct_unattached.purpose = MeshController::ConnectionPurpose::DirectSession;
+    other_session.attached_session = &second;
+
+    REQUIRE(MeshController::session_delivery_matches(attached_a, &first));
+    REQUIRE(MeshController::session_delivery_matches(attached_b, &first));
+    REQUIRE_FALSE(MeshController::session_delivery_matches(direct_unattached, &first));
+    REQUIRE_FALSE(MeshController::session_delivery_matches(other_session, &first));
+    REQUIRE_FALSE(MeshController::session_delivery_matches(attached_a, nullptr));
+}
+
+TEST_CASE("mode-2 listings omit sensitive canonical children but preserve received",
+          "[transfer][listing][security]") {
+    const auto temp_root = fs::temp_directory_path() / ("bs-listing-" + temp_suffix());
+    const auto root_arg = temp_root / ".bridgesessions";
+    fs::create_directories(root_arg / "received");
+    const auto root = fs::weakly_canonical(root_arg);
+    fs::create_directories(root / "private-state");
+    std::ofstream(root / "config") << "secret";
+    std::ofstream(root / "id_ed25519.pem") << "secret";
+    std::ofstream(root / "received" / "notes.txt") << "ok";
+    const auto alias = root.parent_path() / "harmless-alias";
+    std::error_code ec;
+    fs::create_symlink(root / "id_ed25519.pem", alias, ec);
+    const auto outside = root.parent_path() / "external-private";
+    fs::create_directories(outside);
+    std::ofstream(outside / "do-not-list.txt") << "private target data";
+    std::error_code dir_link_ec;
+    fs::create_directory_symlink(outside, root / "received" / "external", dir_link_ec);
+
+    REQUIRE(MeshController::file_listing_entry_allowed((root / "config").string(), false) == false);
+    REQUIRE_FALSE(MeshController::file_listing_entry_allowed(
+        (root / "id_ed25519.pem").string(), false));
+    REQUIRE_FALSE(MeshController::file_listing_entry_allowed(
+        (root / "private-state").string(), false));
+    REQUIRE(MeshController::file_listing_entry_allowed(
+        (root / "received").string(), false));
+    REQUIRE(MeshController::file_listing_entry_allowed(
+        (root / "received" / "notes.txt").string(), false));
+    if (!dir_link_ec) {
+        const auto link = root / "received" / "external";
+        REQUIRE_FALSE(MeshController::file_listing_entry_allowed(link.string(), false));
+        REQUIRE_FALSE(MeshController::file_listing_entry_allowed(link.string(), true));
+        REQUIRE_FALSE(MeshController::file_listing_entry_allowed(
+            (link / "do-not-list.txt").string(), false));
+    }
+    REQUIRE(MeshController::file_listing_entry_allowed(root.string(), false));
+    REQUIRE_FALSE(MeshController::file_listing_entry_allowed(
+        (root / "received" / ".." / "config").string(), false));
+    if (!ec) REQUIRE_FALSE(MeshController::file_listing_entry_allowed(alias.string(), false));
+    REQUIRE(MeshController::file_listing_entry_allowed(
+        (root / "config").string(), true));
+    fs::remove_all(temp_root);
+}
+
+TEST_CASE("routed attach fails closed regardless of legacy opt-in", "[transfer][session][forward]") {
+    // The decision is shared by the AttachMsg handler. TTL-zero/local-target
+    // requests continue through the local attach path; proxying never does.
+    REQUIRE(MeshController::forwarded_attach_is_unsupported(true));
+    REQUIRE_FALSE(MeshController::forwarded_attach_is_unsupported(false));
+    SessionDiedMsg failure;
+    failure.exit_code = 126;
+    REQUIRE(failure.exit_code == 126);
+
+    auto tmp = fs::temp_directory_path() / ("bs-forward-" + temp_suffix());
+    fs::create_directories(tmp);
+    auto cfg = test_cfg("forward-relay");
+    cfg.allow_forwarded_attaches = true;
+    {
+        MeshController mc(cfg, tmp.string());
+        auto conn = make_test_conn("requester", std::string(64, 'c'));
+        AttachMsg request;
+        request.session_name = "must-not-spawn-on-relay";
+        request.command = "echo do-not-run";
+        request.routing = "remote-node:2";
+        mc.inject_attach_for_test(conn, request);
+        REQUIRE_FALSE(mc.session_exists_for_test(request.session_name));
+        request.session_name = "must-not-spawn-after-ttl-expiry";
+        request.routing = "remote-node:0";
+        mc.inject_attach_for_test(conn, request);
+        REQUIRE_FALSE(mc.session_exists_for_test(request.session_name));
+    }
+    reset_logger_for_test();
+    fs::remove_all(tmp);
+}
+
+TEST_CASE("reconnect-only attach to missing session returns without spawning",
+          "[transfer][session][reconnect]") {
+    auto tmp = fs::temp_directory_path() / ("bs-reconnect-missing-" + temp_suffix());
+    fs::create_directories(tmp);
+    {
+        MeshController mc(test_cfg("reconnect-server"), tmp.string());
+        auto conn = make_test_conn("peer", std::string(64, 'b'));
+        AttachMsg attach;
+        attach.session_name = "already-lost";
+        attach.command = "echo must-not-run";
+        attach.reconnect_only = true;
+        mc.inject_attach_for_test(conn, attach);
+        REQUIRE_FALSE(mc.session_exists_for_test(attach.session_name));
+    }
+    reset_logger_for_test();
+    fs::remove_all(tmp);
+}
+
 // ── Async FILE_RECV destination per Conn ────────────────────────────
 
 TEST_CASE("async file recv uses per-connection destination directory", "[transfer][async_recv]") {
@@ -388,6 +497,58 @@ TEST_CASE("Windows ConPTY input is delivered by the bounded writer thread",
                      static_cast<DWORD>(received.size()), &read, nullptr));
     REQUIRE(read == payload.size());
     REQUIRE(received == payload);
+}
+
+TEST_CASE("blocked Windows ConPTY input does not hold up another session",
+          "[pty][input][windows][isolation]") {
+    Session stalled, active;
+    stalled.name = "stalled-pty";
+    active.name = "active-pty";
+    SECURITY_ATTRIBUTES sa{sizeof(sa), nullptr, FALSE};
+    REQUIRE(CreatePipe(&stalled.master_fd, &stalled.write_handle, &sa, 4096));
+    REQUIRE(CreatePipe(&active.master_fd, &active.write_handle, &sa, 4096));
+
+    const auto tmp = fs::temp_directory_path() / ("bs-windows-pty-" + temp_suffix());
+    fs::create_directories(tmp);
+    std::chrono::steady_clock::time_point teardown_started;
+    {
+        MeshController mc(test_cfg("windows-pty-isolation"), tmp.string());
+        const std::string blocked_payload(256 * 1024, 'S');
+        REQUIRE(mc.write_pty_input_for_test(stalled, blocked_payload.data(),
+                                            blocked_payload.size()));
+
+        // The reader stays open but consumes nothing. Observe that the first
+        // pipe has filled before sending input to the unrelated session.
+        DWORD stalled_available = 0;
+        for (int i = 0; i < 200 && stalled_available == 0; ++i) {
+            REQUIRE(PeekNamedPipe(stalled.master_fd, nullptr, 0, nullptr,
+                                  &stalled_available, nullptr));
+            if (stalled_available == 0) Sleep(5);
+        }
+        REQUIRE(stalled_available > 0);
+        REQUIRE_FALSE(mc.write_pty_input_for_test(stalled, "X", 1));
+
+        REQUIRE(mc.write_pty_input_for_test(active, "first", 5));
+        REQUIRE(mc.write_pty_input_for_test(active, "second", 6));
+        DWORD active_available = 0;
+        for (int i = 0; i < 200 && active_available < 11; ++i) {
+            REQUIRE(PeekNamedPipe(active.master_fd, nullptr, 0, nullptr,
+                                  &active_available, nullptr));
+            if (active_available < 11) Sleep(5);
+        }
+        REQUIRE(active_available == 11);
+        char received[11]{};
+        DWORD read = 0;
+        REQUIRE(ReadFile(active.master_fd, received, sizeof(received), &read,
+                         nullptr));
+        REQUIRE(read == sizeof(received));
+        REQUIRE(std::string_view(received, read) == "firstsecond");
+        teardown_started = std::chrono::steady_clock::now();
+    }
+    REQUIRE(std::chrono::steady_clock::now() - teardown_started <
+            std::chrono::seconds(3));
+    reset_logger_for_test();
+    fs::remove_all(tmp);
 }
 #endif
 

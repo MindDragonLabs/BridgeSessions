@@ -451,6 +451,7 @@ Session::~Session() {
 Session::Session(Session&& other) noexcept
     : name(std::move(other.name))
     , peer_ids(std::move(other.peer_ids))
+    , attachments(std::move(other.attachments))
     , command(std::move(other.command))
     , detach_signal(std::move(other.detach_signal))
     , parent_id(std::move(other.parent_id))
@@ -475,9 +476,11 @@ Session::Session(Session&& other) noexcept
     , created_at_sys(other.created_at_sys)
     , last_output_at(other.last_output_at)
     , last_attach_at(other.last_attach_at)
+    , finished_at(other.finished_at)
     , auto_restart(other.auto_restart)
     , restart_failures(other.restart_failures)
     , restart_window_start(other.restart_window_start)
+    , history_recorded(other.history_recorded)
     , generation(other.generation)
 {
 #ifdef _WIN32

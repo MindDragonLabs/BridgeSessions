@@ -638,16 +638,22 @@ inline bool stdin_is_terminal() {
 }
 
 [[nodiscard]] inline std::string make_ephemeral_session_name(std::string_view prefix) {
-    static std::atomic<uint32_t> seq{0};
-    const auto now = std::chrono::steady_clock::now().time_since_epoch().count();
-#ifdef _WIN32
-    const unsigned pid = static_cast<unsigned>(GetCurrentProcessId());
-#else
-    const unsigned pid = static_cast<unsigned>(::getpid());
-#endif
-    return std::string(prefix) + format_utc_datetime_compact() + "-"
-        + std::to_string(pid & 0xffff) + "-"
-        + std::to_string(seq.fetch_add(1, std::memory_order_relaxed));
+    // Include 128 bits from the platform crypto RNG. PID/counter/time values
+    // are useful for display but cannot guarantee uniqueness across hosts,
+    // containers, or processes started in the same second.
+    std::array<unsigned char, 16> nonce{};
+    if (RAND_bytes(nonce.data(), static_cast<int>(nonce.size())) != 1)
+        throw std::runtime_error("cryptographic RNG failed creating session name");
+    static constexpr char hex[] = "0123456789abcdef";
+    std::string result(prefix);
+    result += format_utc_datetime_compact();
+    result.push_back('-');
+    result.reserve(result.size() + nonce.size() * 2);
+    for (unsigned char byte : nonce) {
+        result.push_back(hex[byte >> 4]);
+        result.push_back(hex[byte & 0x0f]);
+    }
+    return result;
 }
 
 [[nodiscard]] inline std::string make_ephemeral_cmd_session_name() {

@@ -491,29 +491,54 @@ private:
         HANDLE handle = nullptr;
         std::string data;
     };
+    struct WindowsPtyLaneKey {
+        HANDLE handle = nullptr;
+        uint64_t generation = 0;
+        bool operator==(const WindowsPtyLaneKey&) const = default;
+    };
+    struct WindowsPtyLaneHash {
+        size_t operator()(const WindowsPtyLaneKey& key) const {
+            return std::hash<uintptr_t>{}(reinterpret_cast<uintptr_t>(key.handle)) ^
+                   (std::hash<uint64_t>{}(key.generation) << 1);
+        }
+    };
+    struct WindowsPtyLane {
+        std::condition_variable cv;
+        std::queue<WindowsPtyWriteTask> queue;
+        std::thread writer;
+        size_t pending_bytes = 0;  // includes the write currently in progress
+        bool exited = false;
+    };
     std::mutex windows_pty_mutex_;
-    std::condition_variable windows_pty_cv_;
-    std::queue<WindowsPtyWriteTask> windows_pty_queue_;
-    std::thread windows_pty_writer_;
-    bool windows_pty_stop_ = false;
+    std::unordered_map<WindowsPtyLaneKey, std::unique_ptr<WindowsPtyLane>,
+                       WindowsPtyLaneHash> windows_pty_lanes_;
+    std::atomic<bool> windows_pty_stop_{false};
+    // The existing poll-loop check reads this legacy aggregate. Keep it below
+    // high water: aggregate backpressure would pause *every* session when one
+    // ConPTY stops reading. Each lane is bounded independently below.
     std::atomic<size_t> windows_pty_pending_bytes_{0};
     static constexpr size_t kWindowsPtyInputHighWater = 64 * 1024;
     static constexpr size_t kWindowsPtyInputMax = 256 * 1024;
+    static constexpr size_t kWindowsPtyLaneMax = 128;
 
-    void windows_pty_writer_loop() {
+    void windows_pty_writer_loop(WindowsPtyLane* lane) {
         for (;;) {
             WindowsPtyWriteTask task;
             {
                 std::unique_lock lock(windows_pty_mutex_);
-                windows_pty_cv_.wait(lock, [this] {
-                    return windows_pty_stop_ || !windows_pty_queue_.empty();
-                });
-                if (windows_pty_stop_) return;
-                task = std::move(windows_pty_queue_.front());
-                windows_pty_queue_.pop();
+                if (!lane->cv.wait_for(lock, std::chrono::seconds(10),
+                                       [this, lane] {
+                                           return windows_pty_stop_.load() ||
+                                                  !lane->queue.empty();
+                                       }) || windows_pty_stop_.load()) {
+                    lane->exited = true;
+                    return;
+                }
+                task = std::move(lane->queue.front());
+                lane->queue.pop();
             }
             size_t offset = 0;
-            while (offset < task.data.size()) {
+            while (offset < task.data.size() && !windows_pty_stop_.load()) {
                 DWORD wrote = 0;
                 if (!WriteFile(task.handle, task.data.data() + offset,
                                static_cast<DWORD>(task.data.size() - offset),
@@ -522,61 +547,108 @@ private:
                 }
                 offset += wrote;
             }
-            windows_pty_pending_bytes_.fetch_sub(task.data.size());
             CloseHandle(task.handle);
+            {
+                std::lock_guard lock(windows_pty_mutex_);
+                lane->pending_bytes -= task.data.size();
+            }
+        }
+    }
+
+    // An idle lane exits after ten seconds. Reap completed threads before
+    // reusing a handle value; generation also separates a respawned runtime.
+    void reap_windows_pty_writers_locked() {
+        for (auto it = windows_pty_lanes_.begin();
+             it != windows_pty_lanes_.end();) {
+            if (!it->second->exited) {
+                ++it;
+                continue;
+            }
+            it->second->writer.join();
+            it = windows_pty_lanes_.erase(it);
         }
     }
 
     bool enqueue_windows_pty_input(Session& session, std::string_view data) {
         if (!session.write_handle || data.empty()) return data.empty();
-        const size_t pending = windows_pty_pending_bytes_.load();
-        if (data.size() > kWindowsPtyInputMax ||
-            pending > kWindowsPtyInputMax - data.size()) {
-            log_event("pty_input_overflow", session.name);
-            return false;
-        }
-        HANDLE duplicate = nullptr;
-        if (!DuplicateHandle(GetCurrentProcess(), session.write_handle,
-                             GetCurrentProcess(), &duplicate, 0, FALSE,
-                             DUPLICATE_SAME_ACCESS)) {
-            log_event("pty_input_duplicate_failed", session.name);
-            return false;
-        }
+        bool overflow = false;
+        bool writer_limit = false;
+        bool duplicate_failed = false;
         {
             std::lock_guard lock(windows_pty_mutex_);
-            if (windows_pty_stop_) {
-                CloseHandle(duplicate);
-                return false;
-            }
-            windows_pty_pending_bytes_.fetch_add(data.size());
-            windows_pty_queue_.push(WindowsPtyWriteTask{
-                duplicate, std::string(data)});
-            if (!windows_pty_writer_.joinable()) {
-                windows_pty_writer_ = std::thread([this] {
-                    windows_pty_writer_loop();
-                });
+            if (windows_pty_stop_.load()) return false;
+            reap_windows_pty_writers_locked();
+            const WindowsPtyLaneKey key{session.write_handle, session.generation};
+            auto it = windows_pty_lanes_.find(key);
+            const size_t pending = it == windows_pty_lanes_.end()
+                                       ? 0 : it->second->pending_bytes;
+            if (data.size() > kWindowsPtyInputMax ||
+                pending > kWindowsPtyInputMax - data.size()) {
+                overflow = true;
+            } else if (it == windows_pty_lanes_.end() &&
+                       windows_pty_lanes_.size() >= kWindowsPtyLaneMax) {
+                writer_limit = true;
+            } else {
+                HANDLE duplicate = nullptr;
+                if (!DuplicateHandle(GetCurrentProcess(), session.write_handle,
+                                     GetCurrentProcess(), &duplicate, 0, FALSE,
+                                     DUPLICATE_SAME_ACCESS)) {
+                    duplicate_failed = true;
+                } else {
+                    if (it == windows_pty_lanes_.end()) {
+                        auto lane = std::make_unique<WindowsPtyLane>();
+                        auto [inserted, unused] = windows_pty_lanes_.emplace(
+                            key, std::move(lane));
+                        (void)unused;
+                        it = inserted;
+                        it->second->writer = std::thread([this, lane = it->second.get()] {
+                            windows_pty_writer_loop(lane);
+                        });
+                    }
+                    it->second->pending_bytes += data.size();
+                    it->second->queue.push(WindowsPtyWriteTask{
+                        duplicate, std::string(data)});
+                    it->second->cv.notify_one();
+                }
             }
         }
-        windows_pty_cv_.notify_one();
+        if (overflow) log_event("pty_input_overflow", session.name);
+        if (writer_limit) log_event("pty_input_writer_limit", session.name);
+        if (duplicate_failed) log_event("pty_input_duplicate_failed", session.name);
+        if (overflow || writer_limit || duplicate_failed) return false;
         return true;
     }
 
     void shutdown_windows_pty_writer() {
         {
             std::lock_guard lock(windows_pty_mutex_);
-            windows_pty_stop_ = true;
+            windows_pty_stop_.store(true);
+            for (auto& [key, lane] : windows_pty_lanes_) {
+                (void)key;
+                lane->cv.notify_all();
+            }
         }
-        windows_pty_cv_.notify_all();
-        if (windows_pty_writer_.joinable()) {
-            CancelSynchronousIo(reinterpret_cast<HANDLE>(
-                windows_pty_writer_.native_handle()));
-            windows_pty_writer_.join();
+        for (auto& [key, lane] : windows_pty_lanes_) {
+            (void)key;
+            // Cancellation can race a worker entering WriteFile. Retry until
+            // that thread has actually stopped, then release its queued handles.
+            HANDLE thread_handle = nullptr;
+#ifdef __MINGW32__
+            // winpthreads native_handle() is a pthread ID, not a Win32 HANDLE.
+            thread_handle = static_cast<HANDLE>(
+                pthread_gethandle(lane->writer.native_handle()));
+#else
+            thread_handle = reinterpret_cast<HANDLE>(lane->writer.native_handle());
+#endif
+            while (WaitForSingleObject(thread_handle, 20) == WAIT_TIMEOUT)
+                CancelSynchronousIo(thread_handle);
+            lane->writer.join();
+            while (!lane->queue.empty()) {
+                CloseHandle(lane->queue.front().handle);
+                lane->queue.pop();
+            }
         }
-        while (!windows_pty_queue_.empty()) {
-            CloseHandle(windows_pty_queue_.front().handle);
-            windows_pty_queue_.pop();
-        }
-        windows_pty_pending_bytes_.store(0);
+        windows_pty_lanes_.clear();
     }
 #endif
 
@@ -1966,4 +2038,3 @@ private:
         }
 #endif
     }
-

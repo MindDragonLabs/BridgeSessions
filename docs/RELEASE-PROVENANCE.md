@@ -80,6 +80,13 @@ Set `BS_DEV_ID` if more than one identity exists.
 
 If the build Mac has no Developer ID certificate, build there and sign on a Mac that does. Copy only the unsigned binary and the entitlements. Do not email an unprotected `.p12`.
 
+The release workflow imports `MACOS_SIGNING_P12_B64` and
+`MACOS_SIGNING_P12_PASSWORD`, then requires `APP_STORE_CONNECT_KEY_ID`,
+`APP_STORE_CONNECT_ISSUER`, and `APP_STORE_CONNECT_KEY_P8` to sign and notarize
+the macOS artifact. Missing credentials fail the macOS job and prevent the
+publish job from running. Store the App Store Connect private key as a protected
+GitHub Actions secret; do not commit it or place it in a release artifact.
+
 `scripts/notarize-macos.sh` uploads the signed bundle to Apple's notary service and staples the ticket. The release cannot be uploaded without a valid notarization record.
 
 Re-signing the release artifact on a machine that does not have the Developer ID certificate strips the seal and can make Gatekeeper kill the process at launch. The installer does not re-sign.

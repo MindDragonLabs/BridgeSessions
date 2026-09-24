@@ -11,7 +11,11 @@ set -euo pipefail
 # On Windows (PowerShell):
 #   irm https://raw.githubusercontent.com/MindDragonLabs/BridgeSessions/main/scripts/install.ps1 | iex
 
-TAG="${BRIDGESESSIONS_TAG:-26.09.23-a2}"
+TAG="${BRIDGESESSIONS_TAG:-26.09.23-a3}"
+if [[ ! "$TAG" =~ ^[A-Za-z0-9][A-Za-z0-9.-]*$ ]]; then
+  echo "ERROR: invalid release tag" >&2
+  exit 2
+fi
 BASE="https://github.com/MindDragonLabs/BridgeSessions/releases/download/v${TAG}"
 INSTALL_DIR="${HOME}/.local/bin"
 VERSION_FILE="${INSTALL_DIR}/.bridgesessions-version"
@@ -19,6 +23,7 @@ FORCE_UPDATE="${BRIDGESESSIONS_FORCE:-0}"
 # Resolved again after BIN_NAME is known; set early so EXIT traps can restart.
 BIN_ABS=""
 CONFIG_PATH="${HOME}/.bridgesessions/config"
+DAEMON_PGREP_PATTERN='[b]ridgesessions .*--daemon'
 DAEMON_WAS_STOPPED=0
 
 os=$(uname -s)
@@ -74,21 +79,21 @@ stop_daemon() {
   case "${os}" in
     Darwin)
       launchctl bootout "gui/$(id -u)/com.bridgesessions.mesh" 2>/dev/null || true
-      pkill -f "bridgesessions.*--config" 2>/dev/null || true
+      pkill -f "${DAEMON_PGREP_PATTERN}" 2>/dev/null || true
       ;;
     Linux)
       # Runtime mask blocks Restart=always during the swap. It is cleared
       # on reboot and always unmasked in start_daemon.
       systemctl --user mask --runtime bridgesessions.service 2>/dev/null || true
       systemctl --user stop bridgesessions.service 2>/dev/null || true
-      pkill -f "bridgesessions.*--config" 2>/dev/null || true
+      pkill -f "${DAEMON_PGREP_PATTERN}" 2>/dev/null || true
       ;;
   esac
   sleep 1
   # Verify daemon is actually stopped
-  if pgrep -f "bridgesessions.*--config" >/dev/null 2>&1; then
+  if pgrep -f "${DAEMON_PGREP_PATTERN}" >/dev/null 2>&1; then
     # Force kill if still running
-    pkill -9 -f "bridgesessions.*--config" 2>/dev/null || true
+    pkill -9 -f "${DAEMON_PGREP_PATTERN}" 2>/dev/null || true
     sleep 1
   fi
 }
@@ -106,7 +111,7 @@ start_daemon() {
       systemctl --user enable --now bridgesessions.service 2>/dev/null || true
       # Fallback: if systemd not available, start manually
       if ! systemctl --user is-active bridgesessions.service >/dev/null 2>&1; then
-        if ! pgrep -f "bridgesessions.*--config" >/dev/null 2>&1; then
+        if ! pgrep -f "${DAEMON_PGREP_PATTERN}" >/dev/null 2>&1; then
           if [ -n "${BIN_ABS}" ] && [ -x "${BIN_ABS}" ]; then
             nohup "${BIN_ABS}" --daemon --config "${CONFIG_PATH}" >/dev/null 2>&1 &
           fi
@@ -126,22 +131,47 @@ restore_daemon() {
 CURRENT=""
 [ -f "${VERSION_FILE}" ] && CURRENT="$(cat "${VERSION_FILE}")" || true
 
+# Fetch the release manifest before deciding that a same-version installation
+# is current. A tag can be republished or its assets repaired without changing
+# the version string; the marker alone is therefore not an artifact identity.
+TMP_BIN="${INSTALL_DIR}/.${BIN_NAME}.download.$$"
+TMP_SUMS="${INSTALL_DIR}/.SHA256SUMS.$$"
+trap restore_daemon EXIT INT TERM
+echo "→ Checking release checksum manifest..."
+if ! curl -fsSL "${BASE}/SHA256SUMS" -o "${TMP_SUMS}"; then
+  echo "ERROR: could not download SHA256SUMS; refusing unverified binary." >&2
+  exit 1
+fi
+EXPECTED_HASH=$(awk -v name="${BIN}" '$2 == name { if (n++) exit 2; print $1 }' "${TMP_SUMS}" | tr 'A-F' 'a-f') || {
+  echo "ERROR: duplicate SHA256SUMS entries for ${BIN}." >&2; exit 1;
+}
+if ! printf '%s' "${EXPECTED_HASH}" | grep -qE '^[0-9a-f]{64}$'; then
+  echo "ERROR: SHA256SUMS has no valid entry for ${BIN}." >&2
+  exit 1
+fi
+INSTALLED_HASH=""
+RECORDED_HASH=""
+[ -f "${INSTALL_DIR}/.bridgesessions-artifact-sha256" ] && RECORDED_HASH="$(cat "${INSTALL_DIR}/.bridgesessions-artifact-sha256")" || true
+if [ -f "${BIN_ABS}" ]; then
+  if command -v sha256sum >/dev/null 2>&1; then
+    INSTALLED_HASH=$(sha256sum "${BIN_ABS}" | awk '{print $1}')
+  elif command -v shasum >/dev/null 2>&1; then
+    INSTALLED_HASH=$(shasum -a 256 "${BIN_ABS}" | awk '{print $1}')
+  else
+    echo "ERROR: sha256sum or shasum is required." >&2; exit 1
+  fi
+fi
+
 # Determine if we need to download
 NEEDS_DOWNLOAD=0
 if [ "${FORCE_UPDATE}" = "1" ]; then
   NEEDS_DOWNLOAD=1
-elif [ "${CURRENT}" != "${TAG}" ] || [ ! -x "${INSTALL_DIR}/${BIN_NAME}" ]; then
+elif [ "${CURRENT}" != "${TAG}" ] || [ ! -x "${INSTALL_DIR}/${BIN_NAME}" ] || [ "${RECORDED_HASH}" != "${EXPECTED_HASH}" ] || [ "${INSTALLED_HASH}" != "${EXPECTED_HASH}" ]; then
   NEEDS_DOWNLOAD=1
 fi
 
 if [ "${NEEDS_DOWNLOAD}" = "1" ]; then
-  # Stop daemon before swapping binary (prevents "Text file busy")
-  echo "→ Stopping existing daemon..."
-  stop_daemon
-
   echo "→ Downloading bridgesessions ${TAG} for ${os}-${arch}..."
-  TMP_BIN="${INSTALL_DIR}/.${BIN_NAME}.download.$$"
-  trap restore_daemon EXIT INT TERM
   curl -fsSL --progress-bar "${BASE}/${BIN}" -o "${TMP_BIN}"
   # Clear the quarantine flag macOS stamps on downloaded binaries. Without
   # this, Gatekeeper kills an unnotarized Developer ID binary with SIGKILL
@@ -154,16 +184,6 @@ if [ "${NEEDS_DOWNLOAD}" = "1" ]; then
   fi
 
   # SHA-256 verification is mandatory and precedes parsing or execution.
-  TMP_SUMS="${INSTALL_DIR}/.SHA256SUMS.$$"
-  if ! curl -fsSL "${BASE}/SHA256SUMS" -o "${TMP_SUMS}"; then
-    echo "ERROR: could not download SHA256SUMS; refusing unverified binary." >&2
-    exit 1
-  fi
-  EXPECTED_HASH=$(grep " ${BIN}\$" "${TMP_SUMS}" | awk '{print $1}' | tr 'A-F' 'a-f' || true)
-  if ! printf '%s' "${EXPECTED_HASH}" | grep -qE '^[0-9a-f]{64}$'; then
-    echo "ERROR: SHA256SUMS has no valid entry for ${BIN}." >&2
-    exit 1
-  fi
   if command -v sha256sum >/dev/null 2>&1; then
     ACTUAL_HASH=$(sha256sum "${TMP_BIN}" | awk '{print $1}')
   elif command -v shasum >/dev/null 2>&1; then
@@ -177,8 +197,6 @@ if [ "${NEEDS_DOWNLOAD}" = "1" ]; then
     exit 1
   }
   echo "→ SHA-256 verified."
-  rm -f "${TMP_SUMS}"
-
   chmod +x "${TMP_BIN}"
   validate_binary "${TMP_BIN}"
 
@@ -189,13 +207,30 @@ if [ "${NEEDS_DOWNLOAD}" = "1" ]; then
     exit 1
   fi
 
-  # Atomic swap: rename old binary out of the way, then install new one.
+  # All remotely controlled inputs have now been downloaded and validated.
+  # Only now disrupt the running service. Keep the old executable until the
+  # new one is installed and runnable; restore it if either rename fails.
+  echo "→ Stopping existing daemon..."
+  stop_daemon
   # This avoids "Text file busy" (ETXTBSY) on Linux when the daemon
   # process is still holding the file open during shutdown.
+  OLD_BIN="${INSTALL_DIR}/.${BIN_NAME}.old.$$"
+  HAD_OLD=0
   if [ -f "${INSTALL_DIR}/${BIN_NAME}" ]; then
-    mv -f "${INSTALL_DIR}/${BIN_NAME}" "${INSTALL_DIR}/${BIN_NAME}.old" 2>/dev/null || true
+    mv -f "${INSTALL_DIR}/${BIN_NAME}" "${OLD_BIN}"
+    HAD_OLD=1
   fi
-  mv -f "${TMP_BIN}" "${INSTALL_DIR}/${BIN_NAME}"
+  if ! mv -f "${TMP_BIN}" "${INSTALL_DIR}/${BIN_NAME}"; then
+    [ "${HAD_OLD}" = 1 ] && mv -f "${OLD_BIN}" "${INSTALL_DIR}/${BIN_NAME}"
+    echo "ERROR: binary swap failed; previous installation restored." >&2
+    exit 1
+  fi
+  if ! chmod +x "${INSTALL_DIR}/${BIN_NAME}" || ! "${INSTALL_DIR}/${BIN_NAME}" --version >/dev/null 2>&1; then
+    rm -f "${INSTALL_DIR}/${BIN_NAME}"
+    [ "${HAD_OLD}" = 1 ] && mv -f "${OLD_BIN}" "${INSTALL_DIR}/${BIN_NAME}"
+    echo "ERROR: installed binary failed post-swap validation; previous installation restored." >&2
+    exit 1
+  fi
   chmod +x "${INSTALL_DIR}/${BIN_NAME}"
   # Strip quarantine again post-swap (the mv may re-stamp it on some macOS).
   if [ "${os}" = "Darwin" ]; then
@@ -208,10 +243,13 @@ if [ "${NEEDS_DOWNLOAD}" = "1" ]; then
   ln -sf "${INSTALL_DIR}/${BIN_NAME}" "${INSTALL_DIR}/bs"
 
   # Clean up old binary after successful swap
-  rm -f "${INSTALL_DIR}/${BIN_NAME}.old" 2>/dev/null || true
+  rm -f "${OLD_BIN}" 2>/dev/null || true
   echo "${TAG}" > "${VERSION_FILE}"
+  printf '%s\n' "${EXPECTED_HASH}" > "${INSTALL_DIR}/.bridgesessions-artifact-sha256"
   echo "→ Binary updated."
 else
+  rm -f "${TMP_BIN}"
+  rm -f "${TMP_SUMS}"
   validate_binary "${INSTALL_DIR}/${BIN_NAME}"
   echo "→ bridgesessions ${TAG} already installed."
 fi
@@ -314,8 +352,8 @@ EOF
     stop_daemon
     start_daemon
     sleep 2
-    if pgrep -f "bridgesessions.*--config" >/dev/null 2>&1; then
-      echo "→ Daemon running (PID $(pgrep -f 'bridgesessions.*--config' | head -1))."
+    if pgrep -f "${DAEMON_PGREP_PATTERN}" >/dev/null 2>&1; then
+      echo "→ Daemon running (PID $(pgrep -f "${DAEMON_PGREP_PATTERN}" | head -1))."
     else
       echo "→ WARNING: Daemon not running. Start manually:"
       echo "   ${BIN_ABS} --config ${CONFIG_PATH}"
@@ -389,7 +427,7 @@ MPEOF
       # Stop daemons before swap
       launchctl bootout "gui/$(id -u)/com.bridgesessions.mesh" 2>/dev/null || true
       launchctl bootout "gui/$(id -u)/com.bridgesessions.cua-helper" 2>/dev/null || true
-      pkill -9 -f bridgesessions 2>/dev/null || true
+      pkill -9 -f "${DAEMON_PGREP_PATTERN}" 2>/dev/null || true
       sleep 1
 
       # Install the .app bundle

@@ -15,6 +15,7 @@ seed node-b 192.0.2.11:19949 pubkey=<64-hex-ed25519-public-key>
 sessions.default_shell /bin/bash -l
 sessions.persistence_path ~/.bridgesessions/sessions.json
 sessions.authorized_keys_path ~/.bridgesessions/authorized_keys
+sessions.allow_forwarded_attaches false
 session.agent.command /bin/bash -lc 'exec hermes --tui'
 receive_dir ~/.bridgesessions/received
 receive_retention_hours 24
@@ -40,6 +41,7 @@ The addresses above are documentation-only. Use addresses that belong to your ne
 | `session.<name>.command` | Named-session command |
 | `sessions.idle_timeout_hours` | Idle session expiry |
 | `sessions.authorized_keys_path` | Inbound trusted keys |
+| `sessions.allow_forwarded_attaches` | Deprecated/ignored: routed attaches to another node are unsupported and fail with status 126, regardless of this value. |
 | `receive_dir` | Inbox and default served-file root |
 | `receive_retention_hours` | Hours a received file stays in the inbox before removal. `0` keeps them forever. Default 24. |
 | `transfer.max_bytes` | Per-file limit |

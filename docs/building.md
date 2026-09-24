@@ -42,12 +42,12 @@ They are pinned in [`cmake/Dependencies.cmake`](../cmake/Dependencies.cmake) and
 
 | Dependency | Pin | How |
 |---|---|---|
-| spdlog | `v1.15.3` | Source, built with its **bundled** fmt, static |
-| nlohmann/json | `v3.11.3` | Source, header-only |
-| CLI11 | `v2.4.2` | Source, header-only |
-| zstd | `v1.5.6` | Source, static |
-| Catch2 | `v3.8.0` | Source, tests only |
-| OpenSSL | `openssl-3.0.16` | System by default; `--openssl fetch` to build static |
+| spdlog | `v1.17.0` | Source, built with its **bundled** fmt, static |
+| nlohmann/json | `v3.12.0` | Source, header-only |
+| CLI11 | `v2.7.2` | Source, header-only |
+| zstd | `v1.5.7` | Source, static |
+| Catch2 | `v3.15.0` | Source, tests only |
+| OpenSSL | `openssl-3.5.7` | System by default; `--openssl fetch` to build static |
 
 spdlog uses its bundled fmt on purpose. Using a distribution's spdlog drags in an external `libfmt` whose soname differs per distribution — that is how a release binary ended up requiring `libspdlog.so.1` and `libfmt.so.8` and could not load on Arch.
 

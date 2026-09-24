@@ -302,6 +302,7 @@ struct AttachMsg {
     std::string signal_on_detach; // optional: HUP/TERM/INT/KILL sent to child on last-peer detach
     uint32_t client_instance_id = 0; // per-connection instance id, distinct from client pubkey (2.0.8 multi-attach)
     bool spectator = false; // 2.0.8: read-only attach (receives Output; Keystroke/CuaRequest rejected)
+    bool reconnect_only = false; // trailing optional byte: never create a missing session
 };
 
 struct SessionInfo {
@@ -951,7 +952,7 @@ void serialize_msg(Serializer& s, const ImageFrameMsg&   m) {
     if (!m.data.empty()) s.bytes(std::span<const uint8_t>(m.data.data(), m.data.size()));
 }
 void serialize_msg(Serializer& s, const ImageAckMsg&)     {}
-void serialize_msg(Serializer& s, const AttachMsg&       m) { s.u16(m.cols); s.u16(m.rows); s.str_prefixed(m.term); s.str_prefixed(m.session_name); s.str_prefixed(m.routing); s.str_prefixed_u16(m.command); s.str_prefixed_u16(m.signal_on_detach); s.u32be(m.client_instance_id); s.u8(m.spectator ? 1 : 0); }
+void serialize_msg(Serializer& s, const AttachMsg&       m) { s.u16(m.cols); s.u16(m.rows); s.str_prefixed(m.term); s.str_prefixed(m.session_name); s.str_prefixed(m.routing); s.str_prefixed_u16(m.command); s.str_prefixed_u16(m.signal_on_detach); s.u32be(m.client_instance_id); s.u8(m.spectator ? 1 : 0); s.u8(m.reconnect_only ? 1 : 0); }
 void serialize_msg(Serializer& s, const DetachMsg&)        {}
 void serialize_msg(Serializer& s, const PingMsg&)          {}
 void serialize_msg(Serializer& s, const PongMsg&)          {}
@@ -1745,7 +1746,7 @@ Message decode(std::span<const uint8_t> raw) {
         return m;
     }
     case 0x11: { ClipboardEchoMsg m; m.hash = d.str_size(payload.size()); return m; }
-    case 0x06: { AttachMsg m; m.cols = d.u16(); m.rows = d.u16(); m.term = d.str_prefixed(); m.session_name = d.str_prefixed(); m.routing = d.str_prefixed(); /* command is optional (v1.7+, str_prefixed_u16). v1.6 clients don't send it. */ m.command = d.ok(2) ? d.str_prefixed_u16() : std::string{}; /* signal_on_detach is optional (v2.0.7+, str_prefixed_u16). */ m.signal_on_detach = d.ok(2) ? d.str_prefixed_u16() : std::string{}; /* client_instance_id is optional (2.0.8+, u32be). Legacy 2.0.7 clients don't send it. */ m.client_instance_id = d.ok(4) ? d.u32be() : 0u; /* spectator is optional (2.0.8+, u8). Defaults to interactive (false). */ m.spectator = d.ok(1) ? (d.u8() != 0) : false; return m; }
+    case 0x06: { AttachMsg m; m.cols = d.u16(); m.rows = d.u16(); m.term = d.str_prefixed(); m.session_name = d.str_prefixed(); m.routing = d.str_prefixed(); /* command is optional (v1.7+, str_prefixed_u16). v1.6 clients don't send it. */ m.command = d.ok(2) ? d.str_prefixed_u16() : std::string{}; /* signal_on_detach is optional (v2.0.7+, str_prefixed_u16). */ m.signal_on_detach = d.ok(2) ? d.str_prefixed_u16() : std::string{}; /* client_instance_id is optional (2.0.8+, u32be). Legacy 2.0.7 clients don't send it. */ m.client_instance_id = d.ok(4) ? d.u32be() : 0u; /* spectator is optional (2.0.8+, u8). Defaults to interactive (false). */ m.spectator = d.ok(1) ? (d.u8() != 0) : false; /* reconnect_only is an optional trailing byte; old frames default false. */ m.reconnect_only = d.ok(1) ? (d.u8() != 0) : false; return m; }
     case 0x07: return DetachMsg{};
     case 0x08: {
         SessionListMsg m;

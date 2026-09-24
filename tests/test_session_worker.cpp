@@ -6,6 +6,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <string>
 #include <thread>
 
@@ -224,6 +225,8 @@ TEST_CASE("session worker: ClientOverride replacement does not adopt old worker"
     REQUIRE(original != nullptr);
     REQUIRE(original->hosted);
     const uint64_t old_generation = original->generation;
+    // Replacement is permitted once the previous transport has detached.
+    REQUIRE_FALSE(reg.detach("replace"));
 
     uint16_t eff_cols = 0, eff_rows = 0;
     const uint32_t aid = reg.attach_connection(
@@ -247,6 +250,91 @@ TEST_CASE("session worker: ClientOverride replacement does not adopt old worker"
     const fs::path sock_dir = home / "run" / "bs-sessions";
     reg.kill("replace");
     REQUIRE(wait_socket_gone(sock_dir, 5s));
+    fs::remove_all(home);
+}
+
+TEST_CASE("session worker: READY identity detects legacy name-only payload by path",
+          "[session_worker][adoption][legacy]") {
+    const std::string home = "/tmp/bs-ready-decode-test";
+    const std::string name = "legacy:name";
+    const std::string path = worker::legacy_worker_socket_path(home, name);
+    std::string decoded;
+    pid_t child_pid = -1;
+
+    std::vector<uint8_t> legacy(name.begin(), name.end());
+    REQUIRE(legacy.size() >= 4);
+    REQUIRE(worker::decode_ready_identity(legacy, home, path, decoded, child_pid));
+    REQUIRE(decoded == name);
+    REQUIRE(child_pid == -1);
+
+    std::vector<uint8_t> current(name.begin(), name.end());
+    const uint8_t pid_bytes[] = {0, 0, 0x12, 0x34};
+    current.insert(current.end(), std::begin(pid_bytes), std::end(pid_bytes));
+    REQUIRE(worker::decode_ready_identity(current, home, path, decoded, child_pid));
+    REQUIRE(decoded == name);
+    REQUIRE(child_pid == 0x1234);
+
+    REQUIRE_FALSE(worker::decode_ready_identity(legacy, home,
+        worker::worker_socket_path(home, "different"), decoded, child_pid));
+}
+
+TEST_CASE("session worker: replacing adopted legacy-path worker waits for retirement",
+          "[session_worker][replacement][legacy]") {
+    const std::string exe = worker_exe_from_env();
+    if (exe.empty()) {
+        WARN("BS_TEST_BS_BINARY not set — skipping session-worker tests");
+        SUCCEED("skipped: BS_TEST_BS_BINARY unset");
+        return;
+    }
+    const fs::path home = make_temp_home();
+    const std::string name = "legacy:replace";
+    const std::string old_path = worker::legacy_worker_socket_path(home.string(), name);
+    worker::WorkerConfig cfg;
+    cfg.socket_path = old_path;
+    cfg.session_name = name;
+    cfg.command = "sleep 60";
+    cfg.app_home = home.string();
+    const pid_t spawned = worker::spawn_session_worker(cfg, exe);
+    REQUIRE(spawned >= 0);
+
+    const auto deadline = std::chrono::steady_clock::now() + 8s;
+    int probe = -1;
+    while (std::chrono::steady_clock::now() < deadline && probe < 0) {
+        probe = worker::connect_to_worker(old_path, 100);
+        if (probe < 0) std::this_thread::sleep_for(20ms);
+    }
+    REQUIRE(probe >= 0);
+    ::close(probe);
+
+    pid_t expected_worker_pid = spawned;
+    if (expected_worker_pid == 0) {
+        std::ifstream pid_file(old_path + ".pid");
+        long value = -1;
+        REQUIRE(pid_file >> value);
+        expected_worker_pid = static_cast<pid_t>(value);
+    }
+
+    SessionRegistry reg;
+    reg.set_app_home(home.string());
+    reg.set_worker_exe(exe);
+    reg.adopt_workers();
+    Session* adopted = reg.get(name);
+    REQUIRE(adopted != nullptr);
+    REQUIRE(adopted->hosted);
+    REQUIRE(adopted->state == SessionState::Detached);
+    REQUIRE(adopted->worker_pid == expected_worker_pid);
+
+    uint16_t cols = 0, rows = 0;
+    const uint32_t aid = reg.attach_connection(
+        name, {"echo NEW-WORKER; sleep 10", SessionCommandSource::ClientOverride},
+        80, 24, "xterm-256color", "", 0, false, cols, rows);
+    REQUIRE(aid != 0);
+    REQUIRE(adopted->generation > 0);
+    REQUIRE_FALSE(fs::exists(old_path));
+    std::string captured;
+    REQUIRE(pump_until_contains(*adopted, "NEW-WORKER", 5s, &captured));
+    reg.kill(name);
+    REQUIRE(wait_socket_gone(home / "run" / "bs-sessions", 5s));
     fs::remove_all(home);
 }
 

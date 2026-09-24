@@ -842,6 +842,13 @@
                 list_dir = scoped ? fs::path(receive_dir_).string()
                                   : expand_home("~");
             }
+            if (listing_path_contains_symlink(list_dir)) {
+                try {
+                    write_frame(ssl, FileAckMsg{0, 0, true,
+                        "refused symlink listing path"}, CONTROL_STREAM_ID);
+                } catch (...) {}
+                return "ERROR refused symlink listing path";
+            }
             std::error_code lec;
             if (!fs::exists(list_dir, lec) || !fs::is_directory(list_dir, lec)) {
                 try {
@@ -867,6 +874,15 @@
             std::error_code it_ec;
             for (fs::directory_iterator it(list_dir, it_ec), end; it != end && !it_ec; it.increment(it_ec)) {
                 std::error_code sec;
+                // Directory iterators follow symlinks for is_directory() and
+                // file_size(); never disclose metadata or target contents.
+                if (it->is_symlink(sec) ||
+                    !file_listing_entry_allowed(it->path().string(),
+                                                config_.allow_sensitive_paths))
+                    continue;
+                // Canonicalize each child too: listing a harmless-looking
+                // symlink must not reveal a sensitive target's metadata.
+                // Ordinary received-directory entries remain listable.
                 const auto name = it->path().filename().string();
                 if (name.empty() || name == "." || name == "..") continue;
                 std::string type = it->is_directory(sec) ? "dir" : "file";
@@ -2658,38 +2674,13 @@ public:
                     ? std::atoi(a.routing.substr(sep + 1).c_str()) : 0;
 
                 // Forward if we're not the target and TTL allows one more hop
-                if (!peer_name_eq(hop_target, config_.node_name) && ttl > 0) {
-                    if (!config_.allow_forwarded_attaches) {
-                        log_event("session_attach_forward_denied",
-                                  a.session_name + " -> " + hop_target
-                                      + " (sessions.allow_forwarded_attaches=false)");
-                        SessionDiedMsg denied;
-                        denied.exit_code = 126;
-                        (void)enqueue_frame(conn, denied, CONTROL_STREAM_ID);
-                        return;
-                    }
-                    Conn* mesh = nullptr;
-                    for (auto& mc : conns_) {
-                        if (is_live_mesh_transport_for(mc, hop_target)) {
-                            mesh = &mc; break;
-                        }
-                    }
-                    if (mesh && mesh->ssl) {
-                        AttachMsg forward = a;
-                        forward.routing = hop_target + ":" + std::to_string(ttl - 1);
-                        try {
-                            write_frame(mesh->ssl.get(), forward, CONTROL_STREAM_ID);
-                            log_event("session_attach_forwarded_to_hop",
-                                a.session_name + " -> " + hop_target + " ttl=" + std::to_string(ttl));
-                        } catch (...) {
-                            log_event("session_attach_hop_forward_failed", hop_target);
-                        }
-                    } else {
-                        log_event("session_attach_hop_unreachable", hop_target);
-                        SessionDiedMsg unreachable;
-                        unreachable.exit_code = 126;
-                        (void)enqueue_frame(conn, unreachable, CONTROL_STREAM_ID);
-                    }
+                if (forwarded_attach_is_unsupported(
+                        !peer_name_eq(hop_target, config_.node_name))) {
+                    log_event("session_attach_forward_unsupported",
+                              a.session_name + " -> " + hop_target);
+                    SessionDiedMsg unsupported;
+                    unsupported.exit_code = 126;
+                    (void)enqueue_frame(conn, unsupported, CONTROL_STREAM_ID);
                     return;
                 }
                 // If TTL is 0 or we are the target, fall through to local attach
@@ -2715,7 +2706,7 @@ public:
                                        a.cols, a.rows, a.term,
                                        conn.peer_pubkey,
                                        a.client_instance_id, a.spectator,
-                                       eff_c, eff_r);
+                                       eff_c, eff_r, a.reconnect_only);
             auto* s = (aid != 0) ? sessions_.get(a.session_name) : nullptr;
             if (s) {
                 // Record the detach-signal request (v2.1) so the server can
@@ -3220,6 +3211,73 @@ public:
         }
     }
 
+    // Session membership, not transport purpose, controls output/death
+    // delivery. This keeps Windows' final pipe drain aligned with normal
+    // fanout while preserving every legitimate attachment to this session.
+    static bool session_delivery_matches(const Conn& conn, const Session* session) {
+        return session != nullptr && conn.attached_session == session;
+    }
+
+    static bool file_listing_entry_allowed(const std::string& path,
+                                           bool allow_sensitive_paths) {
+        if (listing_path_contains_symlink(path)) return false;
+        if (allow_sensitive_paths) return true;
+        if (is_sensitive_mesh_path(path)) return false;
+
+        // The application root contains private daemon state beyond the
+        // explicitly named key/config files. Expose only its received inbox;
+        // this prevents directory-name/size/mtime leaks for newly-added
+        // private children that the filename classifier does not yet know.
+        namespace fs = std::filesystem;
+        std::error_code ec;
+        const fs::path canonical = fs::weakly_canonical(fs::path(path), ec);
+        if (ec) return false;
+        auto lower = [](std::string value) {
+            std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
+                return static_cast<char>(std::tolower(c));
+            });
+            return value;
+        };
+        for (auto it = canonical.begin(); it != canonical.end(); ++it) {
+            if (lower(it->string()) != ".bridgesessions") continue;
+            auto next = it;
+            ++next;
+            if (next == canonical.end()) return true; // listing the root itself
+            return lower(next->string()) == "received";
+        }
+        return true;
+    }
+
+    static bool listing_path_contains_symlink(const std::string& path) {
+        namespace fs = std::filesystem;
+        fs::path current;
+        for (const auto& component : fs::path(path)) {
+            current /= component;
+            std::error_code ec;
+            const auto status = fs::symlink_status(current, ec);
+            if (!ec && fs::is_symlink(status)) return true;
+            if (ec && ec != std::errc::no_such_file_or_directory &&
+                ec != std::errc::not_a_directory)
+                return true; // ambiguous path: fail closed
+        }
+        return false;
+    }
+
+    static bool forwarded_attach_is_unsupported(bool routed_to_other_node) {
+        // TTL expiry is also an error; it must never turn a remote target
+        // into an implicit local session creation request.
+        return routed_to_other_node;
+    }
+
+    void inject_attach_for_test(Conn& conn, const AttachMsg& attach) {
+        Message msg = attach;
+        handle_inbound_session(conn, msg);
+    }
+
+    bool session_exists_for_test(const std::string& name) const {
+        return sessions_.get(name) != nullptr;
+    }
+
     // 4. pty_output_poller — poll PTY output for each attached session
     void pty_output_poller() {
         // Drain every live PTY, including detached sessions, so the child never
@@ -3337,12 +3395,7 @@ public:
                     for (auto& target : conns_) {
                         if (target.sock_fd == INVALID_SOCKET || !target.ssl) continue;
                         if (target.exec_busy && target.exec_busy->load()) continue;
-                        // Prefer attached_session match; also any DirectSession
-                        // peer (one-shot shell uses a dedicated TLS conn).
-                        const bool match =
-                            target.attached_session == s ||
-                            target.purpose == ConnectionPurpose::DirectSession;
-                        if (!match) continue;
+                        if (!session_delivery_matches(target, s)) continue;
                         if (enqueue_frame(target, lom, CONTROL_STREAM_ID)) {
                             ++targets;
                         } else {
@@ -3427,15 +3480,7 @@ public:
                 for (auto& target : conns_) {
                     if (target.sock_fd == INVALID_SOCKET || !target.ssl) continue;
                     if (target.exec_busy && target.exec_busy->load()) continue;
-                    // 2.0.9 fix: deliver SessionDied to both attached sessions
-                    // AND DirectSession connections (non-interactive -x mode).
-                    // Previously only matched attached_session, so -x callers
-                    // spun forever waiting for a death notice that never arrived
-                    // (RCA 2026-07-23: Start-Process descendants → -x hangs).
-                    const bool match =
-                        target.attached_session == s ||
-                        target.purpose == ConnectionPurpose::DirectSession;
-                    if (!match) continue;
+                    if (!session_delivery_matches(target, s)) continue;
                     (void)enqueue_frame(target, sdm, CONTROL_STREAM_ID);
                 }
                 log_event("session_died", s->name + " exit_code=" + std::to_string(exit_code));

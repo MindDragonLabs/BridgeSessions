@@ -151,6 +151,39 @@ TEST_CASE("AttachMsg backward compat: empty command decodes cleanly", "[shell][p
     REQUIRE(b.command.empty());
 }
 
+TEST_CASE("AttachMsg reconnect-only flag is optional and round-trips",
+          "[shell][protocol][reconnect]") {
+    AttachMsg reconnect;
+    reconnect.session_name = "existing-only";
+    reconnect.reconnect_only = true;
+    auto current = encode(Message{reconnect}, CONTROL_STREAM_ID);
+    const auto decoded = std::get<AttachMsg>(decode(current));
+    REQUIRE(decoded.reconnect_only);
+
+    // A legacy frame has the old payload shape (through spectator only).
+    auto legacy = encode(Message{AttachMsg{}}, CONTROL_STREAM_ID);
+    REQUIRE(legacy.size() > FRAME_HEADER_SIZE_U16);
+    legacy.pop_back();
+    const auto old_payload_size = read_u16(legacy.data() + 4);
+    REQUIRE(old_payload_size > 0);
+    write_u16(legacy.data() + 4, static_cast<uint16_t>(old_payload_size - 1));
+    const auto old_decoded = std::get<AttachMsg>(decode(legacy));
+    REQUIRE_FALSE(old_decoded.reconnect_only);
+}
+
+TEST_CASE("interactive reconnect marks only attempts after initial attach was sent",
+          "[shell][reconnect]") {
+    AttachMsg initial;
+    MeshController::prepare_interactive_attach(initial, false, "run once");
+    REQUIRE(initial.command == "run once");
+    REQUIRE_FALSE(initial.reconnect_only);
+
+    AttachMsg retry;
+    MeshController::prepare_interactive_attach(retry, true, "run once");
+    REQUIRE(retry.command.empty());
+    REQUIRE(retry.reconnect_only);
+}
+
 TEST_CASE("ExitCodeMsg and SessionDiedMsg semantics", "[shell]") {
     ExitCodeMsg e;
     REQUIRE(e.code == 0);
@@ -266,6 +299,15 @@ TEST_CASE("daemon IPC shell relay explicitly delegates to direct TLS",
         -1, "permission denied"));
 }
 
+TEST_CASE("shell IPC error handlers tolerate callers without output storage",
+          "[shell][ipc]") {
+    std::string output;
+    MeshController::store_shell_ipc_output(&output, "direct TLS required");
+    REQUIRE(output == "direct TLS required");
+    REQUIRE_NOTHROW(MeshController::store_shell_ipc_output(
+        nullptr, "direct TLS required"));
+}
+
 TEST_CASE("prune_ephemeral_sessions removes finished health/cmd sessions",
           "[shell][oneshot][reaper]") {
     auto cfg = make_shell_test_config("reaper-node");
@@ -370,11 +412,11 @@ TEST_CASE("new harness quick-connect sessions do not reuse profile names",
 
 TEST_CASE("ephemeral session names carry a UTC datetime segment",
           "[shell][quick-connect][naming]") {
-    // Format: tty-YYYYMMDD-HHMMSS-pid-seq (26.09.13). The date must parse as
+    // Format: tty-YYYYMMDD-HHMMSS-<128-bit hex nonce>. The date must parse as
     // a real calendar date so operators can date stale sessions by eye.
     auto name = resolve_quick_connect_session_name("");
     REQUIRE(name.rfind("tty-", 0) == 0);
-    auto body = name.substr(4);                    // YYYYMMDD-HHMMSS-pid-seq
+    auto body = name.substr(4);
     auto dash = body.find('-');
     REQUIRE(dash == 8);
     auto date = body.substr(0, dash);
@@ -383,6 +425,9 @@ TEST_CASE("ephemeral session names carry a UTC datetime segment",
     REQUIRE(time.size() == 6);
     REQUIRE(date.find_first_not_of("0123456789") == std::string::npos);
     REQUIRE(time.find_first_not_of("0123456789") == std::string::npos);
+    const auto nonce = body.substr(dash + 8);
+    REQUIRE(nonce.size() == 32);
+    REQUIRE(nonce.find_first_not_of("0123456789abcdef") == std::string::npos);
     int mon  = std::stoi(date.substr(4, 2));
     int day  = std::stoi(date.substr(6, 2));
     int hour = std::stoi(time.substr(0, 2));
@@ -420,7 +465,7 @@ TEST_CASE("SessionRegistry::kill reports existence honestly",
     REQUIRE_FALSE(mc.sessions().kill("tty-killtest-19700101-000000-0"));
 }
 
-TEST_CASE("ClientOverride force-respawns live default session",
+TEST_CASE("ClientOverride reattaches live session and replaces detached session",
           "[shell][oneshot][attach]") {
     auto cfg = make_shell_test_config("oneshot-node");
     MeshController mc(cfg);
@@ -438,6 +483,7 @@ TEST_CASE("ClientOverride force-respawns live default session",
     REQUIRE(s != nullptr);
     REQUIRE(s->is_valid());
     const uint64_t gen0 = s->generation;
+    const uint32_t original_aid = s->attachments.begin()->first;
 
 #ifdef _WIN32
     const std::string oneshot = "cmd.exe /c echo oneshot-ok";
@@ -446,6 +492,17 @@ TEST_CASE("ClientOverride force-respawns live default session",
 #endif
     uint16_t ec = 0, er = 0;
     uint32_t aid = mc.sessions().attach_connection(
+        "default",
+        ResolvedSessionCommand{oneshot, SessionCommandSource::ClientOverride},
+        80, 24, "xterm-256color", "", 0, false, ec, er);
+    REQUIRE(aid != 0);
+    REQUIRE(aid != original_aid);
+    REQUIRE(s->generation == gen0);
+    REQUIRE(s->command == long_shell);
+    REQUIRE(s->attachments.size() == 2);
+
+    REQUIRE_FALSE(mc.sessions().detach("default"));
+    aid = mc.sessions().attach_connection(
         "default",
         ResolvedSessionCommand{oneshot, SessionCommandSource::ClientOverride},
         80, 24, "xterm-256color", "", 0, false, ec, er);

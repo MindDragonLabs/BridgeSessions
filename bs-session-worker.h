@@ -296,6 +296,34 @@ inline std::string legacy_worker_socket_path(const std::string& app_home,
     return worker_socket_dir(app_home) + "/" + safe + ".sock";
 }
 
+// Decode both READY wire formats by validating their reported name against
+// the socket path actually connected. Legacy payloads contain only the name;
+// current payloads append a four-byte child PID. Length alone is insufficient
+// to distinguish them because session names are not fixed-width.
+inline bool decode_ready_identity(const std::vector<uint8_t>& payload,
+                                  const std::string& app_home,
+                                  const std::string& connected_path,
+                                  std::string& session_name,
+                                  pid_t& child_pid) {
+    child_pid = -1;
+    auto matches = [&](const uint8_t* data, size_t size) {
+        if (!data || size == 0) return false;
+        std::string candidate(reinterpret_cast<const char*>(data), size);
+        if (worker_socket_path(app_home, candidate) != connected_path &&
+            legacy_worker_socket_path(app_home, candidate) != connected_path)
+            return false;
+        session_name = std::move(candidate);
+        return true;
+    };
+
+    if (payload.size() >= 4 &&
+        matches(payload.data(), payload.size() - 4)) {
+        child_pid = static_cast<pid_t>(read_u32be(payload.data() + payload.size() - 4));
+        return true;
+    }
+    return matches(payload.data(), payload.size());
+}
+
 // ────────────────────────────────────────────────────────────────────
 // 4. Session Worker Process (the standalone worker)
 // ────────────────────────────────────────────────────────────────────
@@ -1225,28 +1253,16 @@ inline std::vector<DiscoveredWorker> discover_workers(const std::string& app_hom
             continue;
         }
 
-        // Wait for READY message. The final four payload bytes are child pid
-        // (u32be); older workers omit them and remain compatible.
+        // Wait for READY message (legacy name-only or current name+pid).
         WorkerMessage msg;
         pid_t child_pid = -1;
         bool ready = false;
         for (int attempt = 0; attempt < 3 && !ready; ++attempt)
             ready = worker_recv(fd, msg, 2000) && msg.type == WMSG_READY;
         if (ready) {
-            // Current READY frames end in a 4-byte child pid; older workers
-            // sent only the name. In both cases the worker-reported name is
-            // authoritative, with legacy-path matching for upgrade adoption.
-            const bool has_child_pid = msg.data.size() >= 4;
-            const auto name_end = has_child_pid ? msg.data.end() - 4
-                                                : msg.data.end();
-            const std::string session_name(msg.data.begin(), name_end);
-            const bool path_matches =
-                worker_socket_path(app_home, session_name) == full_path ||
-                legacy_worker_socket_path(app_home, session_name) == full_path;
-            if (path_matches) {
-                if (has_child_pid)
-                    child_pid = static_cast<pid_t>(
-                        read_u32be(msg.data.data() + msg.data.size() - 4));
+            std::string session_name;
+            if (decode_ready_identity(msg.data, app_home, full_path,
+                                      session_name, child_pid)) {
                 DiscoveredWorker dw;
                 dw.session_name = session_name;
                 dw.socket_path = full_path;

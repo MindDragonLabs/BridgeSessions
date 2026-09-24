@@ -90,6 +90,7 @@ class SessionRegistry {
     static void install_spawned_runtime(Session& target, Session&& spawned,
                                         SessionState state) {
         auto peer_ids = std::move(target.peer_ids);
+        auto attachments = std::move(target.attachments);
         auto scrollback = std::move(target.scrollback);
 #ifndef _WIN32
         auto pending_input = std::move(target.pending_input);
@@ -101,6 +102,8 @@ class SessionRegistry {
         const auto restart_window_start = target.restart_window_start;
         const Session::Kind kind = target.kind;
         auto parent_id = std::move(target.parent_id);
+        auto detach_signal = std::move(target.detach_signal);
+        auto owner_pubkey = std::move(target.owner_pubkey);
 
         // P2 audit fix: the manual destructor + placement-new on a
         // unique_ptr-owned object is a double-free hazard if the Session move
@@ -112,6 +115,7 @@ class SessionRegistry {
         target.~Session();
         new (&target) Session(std::move(replacement));
         target.peer_ids = std::move(peer_ids);
+        target.attachments = std::move(attachments);
         target.scrollback = std::move(scrollback);
 #ifndef _WIN32
         target.pending_input = std::move(pending_input);
@@ -123,6 +127,8 @@ class SessionRegistry {
         target.restart_window_start = restart_window_start;
         target.kind = kind;
         target.parent_id = std::move(parent_id);
+        target.detach_signal = std::move(detach_signal);
+        target.owner_pubkey = std::move(owner_pubkey);
         target.history_recorded = false;
         target.state = state;
     }
@@ -211,7 +217,8 @@ public:
                                uint16_t cols, uint16_t rows, const std::string& term,
                                const std::string& peer_pubkey,
                                uint32_t client_instance_id, bool spectator,
-                               uint16_t& out_eff_cols, uint16_t& out_eff_rows) {
+                               uint16_t& out_eff_cols, uint16_t& out_eff_rows,
+                               bool require_existing_live = false) {
         std::unique_lock lock(mutex_);
         Session* s = nullptr;
 
@@ -223,6 +230,14 @@ public:
             if (ch <= 0x20 || ch == 0x7f) return 0;
 
         auto it = sessions_.find(name);
+        if (require_existing_live) {
+            if (it == sessions_.end()) return 0;
+            const SessionState state = it->second->state;
+            const bool existing_live = state == SessionState::Running
+                                    || state == SessionState::Detached
+                                    || state == SessionState::Attached;
+            if (!existing_live) return 0;
+        }
         if (it != sessions_.end()) {
             s = it->second.get();
 
@@ -233,10 +248,15 @@ public:
                            || s->state == SessionState::Detached
                            || s->state == SessionState::Attached;
             const bool force_respawn =
-                resolved.source == SessionCommandSource::ClientOverride
+                !require_existing_live
+                && resolved.source == SessionCommandSource::ClientOverride
                 && !resolved.command.empty();
 
-            if (live && !force_respawn) {
+            // A live attached session always wins over a newly supplied
+            // command: that command may be the client's configured harness
+            // default while it is reconnecting to an existing named session.
+            // Only detached sessions may be explicitly replaced.
+            if (live && (!force_respawn || !s->attachments.empty())) {
                 s->state = SessionState::Attached;
                 s->last_attach_at = std::chrono::steady_clock::now();
                 if (!peer_pubkey.empty()
@@ -259,13 +279,30 @@ public:
                 if (force_respawn && s->hosted) {
                     const std::string socket_path =
                         worker::worker_socket_path(app_home_, name);
+                    const std::string legacy_socket_path =
+                        worker::legacy_worker_socket_path(app_home_, name);
                     if (s->master_fd >= 0)
                         (void)worker::worker_send(s->master_fd,
                                                   worker::WMSG_SHUTDOWN);
                     terminate_worker_and_reap(s->worker_pid);
                     bool stopped = false;
                     for (int attempt = 0; attempt < 100; ++attempt) {
-                        if (!worker::ping_worker(socket_path)) {
+                        // The replacement must not race an adopted legacy
+                        // worker which owns the pre-injective socket name.
+                        // Confirm process death and disappearance of both
+                        // possible socket paths before spawning on either.
+                        const bool process_gone = s->worker_pid <= 0 ||
+                            (::kill(s->worker_pid, 0) != 0 && errno == ESRCH);
+                        std::error_code ec;
+                        const bool current_exists = std::filesystem::exists(socket_path, ec);
+                        const bool current_gone = !ec && !current_exists;
+                        ec.clear();
+                        const bool legacy_exists = std::filesystem::exists(legacy_socket_path, ec);
+                        const bool legacy_gone = !ec && !legacy_exists;
+                        if (process_gone && current_gone && legacy_gone &&
+                            !worker::ping_worker(socket_path) &&
+                            (legacy_socket_path == socket_path ||
+                             !worker::ping_worker(legacy_socket_path))) {
                             stopped = true;
                             break;
                         }
@@ -452,11 +489,10 @@ public:
         // Re-apply MIN-wins geometry: if the detached pane was the narrowest,
         // the PTY must grow back to the next-smallest remaining pane.
         if (!s->attachments.empty()) apply_min_geometry_locked(*s);
-        if (!pubkey.empty()) {
-            s->peer_ids.erase(
-                std::remove(s->peer_ids.begin(), s->peer_ids.end(), pubkey),
-                s->peer_ids.end());
-        }
+        if (!pubkey.empty() && std::none_of(s->attachments.begin(), s->attachments.end(),
+                [&](const auto& kv) { return kv.second.pubkey == pubkey; }))
+            s->peer_ids.erase(std::remove(s->peer_ids.begin(), s->peer_ids.end(), pubkey),
+                              s->peer_ids.end());
         if (s->attachments.empty() &&
             (s->state == SessionState::Attached || s->state == SessionState::Running)) {
             if (!s->detach_signal.empty()) {

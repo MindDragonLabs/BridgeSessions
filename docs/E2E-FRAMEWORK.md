@@ -57,7 +57,12 @@ BS_E2E_PEERS="linux-peer,macos-peer" scripts/e2e-fleet-test.sh
 
 ## Peer discovery
 
-`scripts/e2e-fleet-test.sh --discover` walks the configured mesh and lists every peer that responds to `bs health`. Use the output to compose a `BS_E2E_PEERS` list. Discovery never opens a write path; it is read-only.
+`scripts/e2e-fleet-test.sh --all --quick` walks the configured seed list and runs the health and shell probes against every healthy peer. Use the `peer:` sections in its output to compose a `BS_E2E_PEERS` list. The quick lane skips file-transfer, detached-terminal, and CUA probes.
+
+For mixed-version client/server coverage, set `BS_E2E_VERSION` to the local
+candidate version and `BS_E2E_PEER_VERSION` to the expected peer base version.
+Capability build metadata after `+` is accepted only when that base version
+matches exactly.
 
 ## Desktop prerequisites
 

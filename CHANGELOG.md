@@ -2,6 +2,45 @@
 
 Notable user-visible changes. Git history contains implementation-level detail.
 
+## 26.09.23-a3
+
+### Fixed
+
+- Windows output and process-exit notifications now go only to connections
+  attached to that exact session, preventing cross-session output/status leaks.
+- Live named sessions are reattached in place; command overrides cannot take
+  over a process while it has active clients. Reconnect-only requests fail
+  instead of silently creating a replacement shell when the original session
+  is missing or no longer live.
+- Closing a transport removes its exact attachment while preserving other
+  same-session attachments, their geometry, and detach-signal semantics.
+- New terminal names use a 128-bit cryptographic nonce, avoiding collisions
+  between independent clients/processes started in the same second.
+- Legacy session workers are matched using their actual socket path and are
+  fully retired before replacement, including workers discovered after an
+  upgrade.
+- Windows session output is isolated; sensitive child files and symlink aliases
+  are excluded from directory listings. Forwarded attaches now fail explicitly
+  instead of starting a remote session whose I/O cannot reach the requester.
+- Script push/run uses direct TLS for remote shell steps, checks operation
+  failures, tolerates null output buffers, and gives every run its own session.
+
+### Installer and release integrity
+
+- Unix installers download and verify the artifact before stopping the daemon,
+  detect same-version binary drift, and restore the prior binary after a failed
+  replacement.
+- Manual release dispatch builds and archives the requested tag commit; release
+  publication refuses to overwrite differing assets. Linux/macOS dependency
+  checks and source-archive VERSION validation now fail closed.
+- Added lifecycle, reconnect, Windows fanout, sensitive-listing, forwarded
+  attach, script IPC, install transaction, and release-integrity regressions.
+- Live E2E now validates daemon capability-suffixed versions correctly and
+  supports an explicit peer-version expectation for mixed-version testing.
+- Release builds now use the dependency versions required by provenance
+  (OpenSSL 3.5.7, zstd 1.5.7, spdlog 1.17.0, CLI11 2.7.2, Catch2 3.15.0, and
+  nlohmann/json 3.12.0); Linux release artifacts statically use OpenSSL 3.5.7.
+
 ## 26.09.23-a2
 
 ### Fixed

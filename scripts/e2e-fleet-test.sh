@@ -18,6 +18,7 @@
 #   BS_E2E_SKIP_CUA=1            skip CUA probes
 #   BS_E2E_SKIP_LARGE=1          skip large transfer
 #   BS_E2E_VERSION               expected version substring (default from VERSION file)
+#   BS_E2E_PEER_VERSION          expected daemon base version (defaults to client version)
 #   BS_E2E_PEERS                 comma-separated peer list (lab-specific; not committed)
 #
 # Exit 0 if all required tests pass; non-zero otherwise.
@@ -91,6 +92,7 @@ EXPECTED_VERSION="${BS_E2E_VERSION:-}"
 if [[ -z "$EXPECTED_VERSION" && -f "$REPO_ROOT/VERSION" ]]; then
   EXPECTED_VERSION="$(tr -d '[:space:]' < "$REPO_ROOT/VERSION")"
 fi
+EXPECTED_PEER_VERSION="${BS_E2E_PEER_VERSION:-$EXPECTED_VERSION}"
 
 # ── reporting ───────────────────────────────────────────────────────
 ts() { date -u +"%Y-%m-%dT%H:%M:%SZ"; }
@@ -284,10 +286,14 @@ try:
 except (json.JSONDecodeError, AttributeError):
     print("")
 ' "$peer" 2>/dev/null || true)"
-  if [[ -n "$EXPECTED_VERSION" && "$out" == "$EXPECTED_VERSION" ]]; then
+  # Daemons advertise feature capabilities as build metadata (for example
+  # 26.09.23-a3+frm2+enroll). Accept that metadata only after an exact base
+  # version match; do not treat arbitrary version-looking command output as
+  # proof that the expected daemon is running.
+  if [[ -n "$EXPECTED_PEER_VERSION" && ( "$out" == "$EXPECTED_PEER_VERSION" || "$out" == "$EXPECTED_PEER_VERSION"+* ) ]]; then
     record PASS "$peer" remote_version "$out"
   elif [[ -n "$out" ]]; then
-    record FAIL "$peer" remote_version "expected $EXPECTED_VERSION, daemon reports $out"
+    record FAIL "$peer" remote_version "expected $EXPECTED_PEER_VERSION, daemon reports $out"
   else
     record FAIL "$peer" remote_version "daemon version unavailable from fleet JSON"
   fi
@@ -489,6 +495,7 @@ write_json() {
     echo "  \"finished\": \"$(ts)\","
     echo "  \"binary\": \"$(printf '%s' "$BS_BIN" | sed 's/"/\\"/g')\","
     echo "  \"expected_version\": \"$(printf '%s' "$EXPECTED_VERSION" | sed 's/"/\\"/g')\","
+    echo "  \"expected_peer_version\": \"$(printf '%s' "$EXPECTED_PEER_VERSION" | sed 's/"/\\"/g')\","
     echo "  \"pass\": $PASS,"
     echo "  \"fail\": $FAIL,"
     echo "  \"skip\": $SKIP,"

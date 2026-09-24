@@ -71,3 +71,18 @@ def test_installer_does_not_record_unverified_payload(tmp_path: Path):
     assert result.returncode != 0
     assert "SHA256SUMS has no valid entry" in result.stderr
     assert not (tmp_path / "home/.local/bin/.bridgesessions-version").exists()
+
+
+def test_installer_rejects_unsafe_tag_before_network_access(tmp_path: Path):
+    env = make_fake_tools(tmp_path, "Linux", "x86_64")
+    env["BRIDGESESSIONS_TAG"] = "../../unexpected"
+    result = subprocess.run(
+        ["bash", str(INSTALL_SCRIPT)],
+        text=True,
+        capture_output=True,
+        env=env,
+        timeout=15,
+    )
+    assert result.returncode != 0
+    assert "invalid release tag" in result.stderr
+    assert not Path(env["CURL_LOG"]).exists()

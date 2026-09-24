@@ -11,6 +11,17 @@
 public:
     // ── Constructor ───────────────────────────────────────────
 
+    static void prepare_interactive_attach(AttachMsg& attach,
+                                           bool initial_attach_already_sent,
+                                           const std::string& command) {
+        attach.command = initial_attach_already_sent ? std::string{} : command;
+        attach.reconnect_only = initial_attach_already_sent;
+    }
+
+    static void store_shell_ipc_output(std::string* output, std::string value) {
+        if (output) *output = std::move(value);
+    }
+
     MeshController(const MeshConfig& cfg, std::string app_home = {},
                    std::string config_path = {})
         : config_(cfg)
@@ -1417,16 +1428,19 @@ public:
         // v1.6 daemons without SHELL handler return "ERROR bad request" (plaintext),
         // not base64. Route through daemon_shell_via_ipc caller's fallback.
         if (line.rfind("ERROR ", 0) == 0) {
-            *output = line.substr(6);
+            store_shell_ipc_output(output, line.substr(6));
             return -1;
         }
         std::string decoded = b64dec(line);
         auto colon = decoded.find(':');
-        if (colon == std::string::npos) { *output = decoded; return 0; }
+        if (colon == std::string::npos) {
+            store_shell_ipc_output(output, std::move(decoded));
+            return 0;
+        }
         int exit_code = 0;
         try { exit_code = std::stoi(decoded.substr(0, colon)); }
         catch (...) { /* non-numeric prefix (e.g. C:\... paths) → exit 0 */ }
-        *output = decoded.substr(colon + 1);
+        store_shell_ipc_output(output, decoded.substr(colon + 1));
         return exit_code;
     }
 
@@ -2930,7 +2944,7 @@ public:
                 am.cols = last_cols;
                 am.rows = last_rows;
                 am.term = term;
-                am.command = attach_request_sent ? std::string{} : cmd;
+                prepare_interactive_attach(am, attach_request_sent, cmd);
                 am.signal_on_detach = signal_on_detach;
                 write_frame(sc.ssl.get(), am, CONTROL_STREAM_ID);
                 attach_request_sent = true;
@@ -4584,26 +4598,15 @@ public:
             return "ERROR unexpected cache filename: " + fname;
         const std::string hash = fname.substr(0, 64);
 
-        // Check if peer already has it
-        std::string check_cmd = "test -f ~/.bridgesessions/scripts/" + hash + ".sh && echo PRESENT || echo ABSENT";
-        std::string check_output;
-        // Use daemon_shell_via_ipc for quick check (non-interactive)
-        int ec = daemon_shell_via_ipc(peer, "script-check-" + hash.substr(0, 8),
-                                      check_cmd, &check_output);
-        if (ec >= 0 && check_output.find("PRESENT") != std::string::npos) {
-            return "OK " + hash + " already on " + peer;
-        }
-        // Also try direct shell for peer check if IPC failed
-        if (ec < 0) {
-            // Use shell_peer in non-interactive mode to check
-            // (if daemon not available, shell_peer does direct TLS)
-            std::string cmd_out;
-            // Can't easily capture from shell_peer here — just push if check failed
-        }
-
-        // Ensure peer has the scripts directory
-        std::string mkdir_cmd = "mkdir -p ~/.bridgesessions/scripts";
-        daemon_shell_via_ipc(peer, "script-mkdir", mkdir_cmd, nullptr);
+        // SHELL IPC is intentionally fail-closed; use the dedicated direct-TLS
+        // shell path rather than assuming daemon IPC executed this command.
+        // Uploading the content-addressed script again is safe and idempotent.
+        auto [cols, rows] = get_winsize();
+        const int mkdir_rc = shell_peer(
+            peer, "", "mkdir -p ~/.bridgesessions/scripts && test -d ~/.bridgesessions/scripts",
+            cols, rows, "xterm-256color");
+        if (mkdir_rc != 0)
+            return "ERROR could not prepare scripts directory on " + peer;
 
         // Send the script file via existing file_send
         std::string result = file_send(peer, path, true);
@@ -4612,10 +4615,12 @@ public:
         // Move received file to scripts cache on peer
         // file_send delivers to peer's received/ dir — move it
         std::string received_name = fname;
-        std::string move_cmd = "mv ~/.bridgesessions/received/" + received_name
-                             + " ~/.bridgesessions/scripts/" + hash + ".sh 2>/dev/null"
-                             + " || true";
-        daemon_shell_via_ipc(peer, "script-move-" + hash.substr(0, 8), move_cmd, nullptr);
+        std::string move_cmd = "src=\"$HOME/.bridgesessions/received/" + received_name
+                             + "\"; dst=\"$HOME/.bridgesessions/scripts/" + hash
+                             + ".sh\"; test -f \"$src\" && mv -f -- \"$src\" \"$dst\"";
+        const int move_rc = shell_peer(peer, "", move_cmd, cols, rows, "xterm-256color");
+        if (move_rc != 0)
+            return "ERROR could not install script on " + peer;
 
         return "OK pushed " + hash + " to " + peer;
     }
@@ -4656,7 +4661,7 @@ public:
             "bash \"$HOME/.bridgesessions/scripts/" + hash + ".sh\"";
         for (const auto& arg : args) exec_cmd += " " + posix_shell_quote(arg);
         auto [cols, rows] = get_winsize();
-        return shell_peer(peer, "script-" + hash.substr(0, 8), exec_cmd,
+        return shell_peer(peer, make_ephemeral_cmd_session_name(), exec_cmd,
                           cols, rows, "xterm-256color");
     }
 
