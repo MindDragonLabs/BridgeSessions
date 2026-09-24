@@ -262,6 +262,10 @@ jobs:
             -o "dist/bridgesessions-${v}-source.tar.gz" "$commit"
           git archive --format=zip --prefix="bridgesessions-${v}/" \
             -o "dist/bridgesessions-${v}-source.zip" "$commit"
+      - name: Restore exec bits
+        # actions/upload-artifact zips files and drops permissions; the release
+        # binaries must ship executable (release-checksums.sh guards this).
+        run: chmod +x dist/bridgesessions-linux-x86_64 dist/bridgesessions-macos-arm64
       - name: Checksums and SBOM
         # release-checksums.sh validates every artifact's embedded version,
         # writes SHA256SUMS (artifacts + SBOM hash; never itself), and the
