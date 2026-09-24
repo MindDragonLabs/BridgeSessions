@@ -1870,8 +1870,23 @@
             const fs::path relative = fs::relative(entry.path(), root, ec);
             if (ec) return "ERROR vfolder relative path failed";
             const fs::path remote = fs::path(vf->remote_path) / relative;
-            const std::string result = direct_connect_file_send(
+            std::string result = direct_connect_file_send(
                 vf->remote_peer, entry.path().string(), true, remote.generic_string());
+            if (result.rfind("ERROR", 0) == 0) {
+                // Staged fallback for pre-a3 daemons: the file still lands
+                // (at the receive root) with a clear label instead of a
+                // silent per-file failure.
+                const std::string staged = entry.path().filename().string();
+                const std::string fb = file_send(
+                    vf->remote_peer, entry.path().string(), true, staged);
+                if (fb.rfind("ERROR", 0) != 0) {
+                    std::cout << "NOTE vfolder direct push unavailable on "
+                              << vf->remote_peer
+                              << " (pre-26.09.23-a3 daemon?); staged at received/"
+                              << staged << "\n";
+                    result = "OK";
+                }
+            }
             if (result.rfind("ERROR", 0) == 0) return result;
             ++sent;
         }

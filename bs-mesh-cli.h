@@ -4298,8 +4298,21 @@ public:
 
         const std::string new_checksum = sha256_file_stream(local_path);
         if (new_checksum == original_checksum) { std::cout << "no changes\n"; return 0; }
-        const std::string uploaded = direct_connect_file_send(
+        std::string uploaded = direct_connect_file_send(
             peer_name, local_path, true, remote_path);
+        if (uploaded.rfind("ERROR", 0) == 0) {
+            // Staged fallback for pre-a3 daemons (their receive loop can drop
+            // chunk frames): the edited copy still lands, clearly labeled.
+            const std::string staged =
+                std::filesystem::path(remote_path).filename().string();
+            const std::string fb = file_send(peer_name, local_path, true, staged);
+            if (fb.rfind("ERROR", 0) != 0) {
+                std::cout << "NOTE write-back to " << remote_path
+                          << " unavailable (pre-26.09.23-a3 daemon?); edited copy staged at"
+                          << " received/" << staged << " — move it into place after the fleet roll\n";
+                uploaded = fb;
+            }
+        }
         std::cout << uploaded << "\n";
         return uploaded.rfind("ERROR", 0) == 0 ? 1 : 0;
     }
