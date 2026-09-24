@@ -3112,7 +3112,8 @@ int bridgesessions_main(int argc, char** argv) {
                 "https://api.github.com/repos/MindDragonLabs/BridgeSessions/releases?per_page=20";
             const std::string fetch = "curl -fL -s -o " +
                 bs::mesh::shell_arg_quote(releases_path) + " " +
-                bs::mesh::shell_arg_quote(releases_url) + " 2>/dev/null";
+                bs::mesh::shell_arg_quote(releases_url) +
+                (bs::mesh::sys_is_windows() ? " 2>NUL" : " 2>/dev/null");
             if (releases_path.empty() || std::system(fetch.c_str()) != 0) {
                 if (!releases_path.empty()) ::unlink(releases_path.c_str());
                 std::cerr << "upgrade: failed to resolve latest GitHub release\n";
@@ -3168,9 +3169,14 @@ int bridgesessions_main(int argc, char** argv) {
         return 1;
 #endif
 
-        // Determine current binary path
-        std::string home = std::getenv("HOME") ? std::getenv("HOME") : ".";
-        std::string bin_path = home + "/.local/bin/bridgesessions";
+        // Determine current binary path. Resolve the ACTUAL running executable
+        // on every platform: the old $HOME/.local/bin guess swapped the wrong
+        // file on Windows (HOME unset under WinRM/services → the swap hit
+        // .\.local\bin and rolled back; HOME set by Git-for-Windows → the new
+        // binary landed outside the install dir) and armed the rollback
+        // watchdog with the same wrong path. Keep the macOS .app override for
+        // bundle installs.
+        std::string bin_path = current_exe_path(argv[0]);
 #ifdef __APPLE__
         // Check if running from .app bundle
         char exe_path[4096] = {};
@@ -3889,8 +3895,7 @@ int bridgesessions_main(int argc, char** argv) {
         bs::mesh::MeshConfig cfg = bs::mesh::load_config(config_path);
         bs::mesh::bootstrap_identity(home_dir);
         bs::mesh::MeshController mc(cfg, home_dir);
-        mc.edit_peer(edit_target);
-        return 0;
+        return mc.edit_peer(edit_target) == 0 ? 0 : 1;
     }
     if (rscript_cmd_app->parsed()) {
         bs::mesh::MeshConfig cfg = bs::mesh::load_config(config_path);

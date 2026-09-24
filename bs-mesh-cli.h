@@ -4230,26 +4230,28 @@ public:
     }
 
     // ── CLI: edit_peer ──────────────────────────────────────────
-    void edit_peer(const std::string& target) {
+    // Returns 0 on success/no-changes, 1 on any failure (D6: the exit code used
+    // to be hardcoded 0 at the call site even when the remote refused the path).
+    int edit_peer(const std::string& target) {
         auto colon = target.find(':');
         if (colon == std::string::npos || colon == 0 || colon == target.size() - 1) {
             std::cerr << "usage: bridgesessions edit <peer>:<path>\n";
-            return;
+            return 1;
         }
         const std::string peer_name = target.substr(0, colon);
         const std::string remote_path = target.substr(colon + 1);
         const std::string suffix = std::filesystem::path(remote_path).extension().string();
         const std::string local_path = create_private_temp_file("edit", suffix);
-        if (local_path.empty()) { std::cerr << "cannot create edit temp file\n"; return; }
+        if (local_path.empty()) { std::cerr << "cannot create edit temp file\n"; return 1; }
         struct TempGuard {
             std::string path;
             ~TempGuard() { std::error_code ec; std::filesystem::remove(path, ec); }
         } cleanup{local_path};
 
         const std::string received = direct_connect_file_recv(peer_name, remote_path, local_path);
-        if (received.rfind("ERROR", 0) == 0) { std::cerr << received << "\n"; return; }
+        if (received.rfind("ERROR", 0) == 0) { std::cerr << received << "\n"; return 1; }
         const std::string original_checksum = sha256_file_stream(local_path);
-        if (original_checksum.empty()) { std::cerr << "cannot hash downloaded file\n"; return; }
+        if (original_checksum.empty()) { std::cerr << "cannot hash downloaded file\n"; return 1; }
 
 #ifdef _WIN32
         std::string editor = "notepad";
@@ -4259,13 +4261,14 @@ public:
         if (const char* env_editor = std::getenv("EDITOR"); env_editor && *env_editor)
             editor = env_editor;
         const int editor_rc = run_editor_process(editor, local_path);
-        if (editor_rc != 0) { std::cerr << "editor exited with code " << editor_rc << "\n"; return; }
+        if (editor_rc != 0) { std::cerr << "editor exited with code " << editor_rc << "\n"; return 1; }
 
         const std::string new_checksum = sha256_file_stream(local_path);
-        if (new_checksum == original_checksum) { std::cout << "no changes\n"; return; }
+        if (new_checksum == original_checksum) { std::cout << "no changes\n"; return 0; }
         const std::string uploaded = direct_connect_file_send(
             peer_name, local_path, true, remote_path);
         std::cout << uploaded << "\n";
+        return uploaded.rfind("ERROR", 0) == 0 ? 1 : 0;
     }
 
     // ── CLI: run_script ─────────────────────────────────────────
