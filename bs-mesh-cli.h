@@ -3987,21 +3987,36 @@ public:
                 }
             }
             if (result.rfind("ERROR", 0) == 0 && src.remote && !dst.remote) {
-                // Pull fallback (twin of the push fallback): an older daemon's
-                // direct-send loop can drop chunk frames the same way.
+                // Pull fallback (twin of the push fallback): stage through the
+                // acknowledged file-recv path when direct pull fails. Receive
+                // into a UNIQUE temp dir first — landing into the destination
+                // directory directly can collide with the caller's own source
+                // file (dir/<remote-basename> may be the file being copied!).
                 const fs::path want(d);
                 const fs::path dir = want.parent_path();
-                const std::string fallback = file_recv(src.peer, s.path, dir.string(), true);
+                const std::string tmpdir =
+                    (fs::temp_directory_path() / ("bs-cp-pull-" + std::to_string(
+                        static_cast<unsigned long long>(
+                            std::chrono::steady_clock::now().time_since_epoch().count())))).string();
+                std::error_code ec;
+                fs::create_directories(tmpdir, ec);
+                const std::string fallback = file_recv(src.peer, s.path, tmpdir, true);
                 if (fallback.rfind("ERROR", 0) != 0) {
-                    fs::path landed = dir / fs::path(s.path).filename();
-                    std::error_code ec;
-                    if (landed != want) fs::rename(landed, want, ec);
+                    fs::path landed = fs::path(tmpdir) / fs::path(s.path).filename();
+                    if (landed != want) {
+                        fs::rename(landed, want, ec);
+                        if (ec) {
+                            fs::copy_file(landed, want,
+                                fs::copy_options::overwrite_existing, ec);
+                        }
+                    }
                     std::cout << "NOTE direct pull from " << src.peer
                               << " unavailable (pre-26.09.23-a3 daemon?); staged via file recv\n";
                     const uint64_t b = fs::file_size(want, ec);
                     result = "DONE " + std::to_string(ec ? 0 : b) + " " +
                              sha256_file_stream(want) + " " + want.string();
                 }
+                fs::remove_all(tmpdir, ec);
             }
             if (result.rfind("ERROR", 0) == 0) {
                 ++failed;
