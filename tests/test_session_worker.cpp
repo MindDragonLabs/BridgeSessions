@@ -40,14 +40,12 @@ std::string worker_exe_from_env() {
 }
 
 fs::path make_temp_home() {
-    // macOS $TMPDIR (/var/folders/<30 chars>/T/) makes the worker unix-socket
-    // path exceed the 104-byte sun_path limit — hosted spawn refuses and the
-    // test would exercise the forkpty fallback instead. Keep the base short.
-#ifdef __APPLE__
+    // Keep the base SHORT on every OS. macOS $TMPDIR (/var/folders/<30 chars>/T/)
+    // and a long Linux $TMPDIR (e.g. agent scratch dirs) both push the worker
+    // unix-socket path past the 104/108-byte sun_path limit — hosted spawn then
+    // refuses ("worker socket path too long"), the session silently falls back
+    // to inline forkpty, and output assertions against the hosted pump fail.
     const fs::path base = "/tmp";
-#else
-    const fs::path base = fs::temp_directory_path();
-#endif
     auto tmp = base / ("bs_sw_" + std::to_string(::getpid()) + "_" +
                        std::to_string(std::chrono::steady_clock::now()
                                           .time_since_epoch().count()));
@@ -308,9 +306,16 @@ TEST_CASE("session worker: replacing adopted legacy-path worker waits for retire
 
     pid_t expected_worker_pid = spawned;
     if (expected_worker_pid == 0) {
-        std::ifstream pid_file(old_path + ".pid");
+        // The worker writes its .pid AFTER listen(), so the probe above can win
+        // the race and find the socket before the pid file exists — poll
+        // briefly instead of failing on a missing file.
         long value = -1;
-        REQUIRE(pid_file >> value);
+        for (int attempt = 0; attempt < 100 && value < 0; ++attempt) {
+            std::ifstream pid_file(old_path + ".pid");
+            if (pid_file >> value) break;
+            std::this_thread::sleep_for(20ms);
+        }
+        REQUIRE(value > 0);
         expected_worker_pid = static_cast<pid_t>(value);
     }
 
