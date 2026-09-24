@@ -1610,8 +1610,10 @@ int bridgesessions_main(int argc, char** argv) {
     {
         edit_cmd_app->description(
             "Edit a remote file locally: copies PEER:PATH to a temp file, opens\n"
-            "$EDITOR, and writes it back on save.");
-        edit_cmd_app->footer("Example:\n  bs edit dev:/etc/nginx.conf");
+            "$EDITOR, and writes it back on save. The peer serves the path from\n"
+            "its receive_dir jail unless it opts into broader reads — paths\n"
+            "outside the jail are refused (\"refused path outside receive_dir\").");
+        edit_cmd_app->footer("Example:\n  bs edit dev:notes/config.yaml\n");
     }
     {
         rscript_cmd_app->description(
@@ -4132,6 +4134,13 @@ int bridgesessions_main(int argc, char** argv) {
                           + " " + sq(pane_file);
         int rc = std::system(cmd.c_str());
         if (rc != 0) {
+            // 32512 == 127<<8: the shell could not execute the helper at all.
+            if (rc == 32512 || bin == "bridgepanel") {
+                std::cerr << "ERROR bridgepanel helper not found or not executable\n"
+                          << "  install tools/bridgepanel and put it on PATH\n"
+                          << "  (e.g. ~/.local/bin/bridgepanel), then retry\n";
+                return 1;
+            }
             std::cerr << "ERROR bridgepanel publish failed (rc=" << rc << ")\n";
             return 1;
         }

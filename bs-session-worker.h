@@ -269,13 +269,26 @@ inline std::string worker_socket_path(const std::string& app_home, const std::st
     if (already_safe) {
         safe = session_name;
     } else {
-        static constexpr char hex[] = "0123456789ABCDEF";
-        safe.reserve(1 + session_name.size() * 2);
-        safe.push_back('!');
+        // Bounded filename for non-safe names: 64-bit FNV-1a + an 8-char
+        // readable tail (26 bytes fixed). The old '!' + hex-doubling scheme
+        // grew to 2N+1 chars, so a long app_home or a long non-safe name
+        // overran sun_path (104/108), the hosted spawn refused ("worker socket
+        // path too long"), and the session silently lost daemon-restart
+        // durability via the forkpty fallback. Session identity never depended
+        // on the filename: READY names are validated by recomputing both paths
+        // (decode_ready_identity) and adoption recovers the name from READY.
+        uint64_t h = 1469598103934665603ull;   // FNV-1a 64 offset basis
+        for (unsigned char c : session_name) { h ^= c; h *= 1099511628211ull; }
+        static constexpr char hex[] = "0123456789abcdef";
+        std::string tail;
         for (unsigned char c : session_name) {
-            safe.push_back(hex[c >> 4]);
-            safe.push_back(hex[c & 0x0f]);
+            if (safe_byte(c)) tail.push_back(c);
+            if (tail.size() == 8) break;
         }
+        safe.reserve(26);
+        safe.push_back('!');
+        for (int i = 15; i >= 0; --i) safe.push_back(hex[(h >> (i * 4)) & 0xF]);
+        if (!tail.empty()) { safe.push_back('-'); safe += tail; }
     }
     return worker_socket_dir(app_home) + "/" + safe + ".sock";
 }
