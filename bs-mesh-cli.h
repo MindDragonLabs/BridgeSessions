@@ -3985,6 +3985,23 @@ public:
                     result = fallback;
                 }
             }
+            if (result.rfind("ERROR", 0) == 0 && src.remote && !dst.remote) {
+                // Pull fallback (twin of the push fallback): an older daemon's
+                // direct-send loop can drop chunk frames the same way.
+                const fs::path want(d);
+                const fs::path dir = want.parent_path();
+                const std::string fallback = file_recv(src.peer, s.path, dir.string(), true);
+                if (fallback.rfind("ERROR", 0) != 0) {
+                    fs::path landed = dir / fs::path(s.path).filename();
+                    std::error_code ec;
+                    if (landed != want) fs::rename(landed, want, ec);
+                    std::cout << "NOTE direct pull from " << src.peer
+                              << " unavailable (pre-26.09.23-a3 daemon?); staged via file recv\n";
+                    const uint64_t b = fs::file_size(want, ec);
+                    result = "DONE " + std::to_string(ec ? 0 : b) + " " +
+                             sha256_file_stream(want) + " " + want.string();
+                }
+            }
             if (result.rfind("ERROR", 0) == 0) {
                 ++failed;
                 std::cout << result << "\n";
