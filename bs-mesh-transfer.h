@@ -1440,6 +1440,23 @@
             FileRequestMsg req;
             req.path = remote_path;
             req.mode = request_mode;
+            // Subdirectory requests over the classic confined mode get their
+            // path "cleaned" to a bare basename by older receivers, which then
+            // silently serves receive_dir/<basename> — a different (often
+            // stale) file, with no error (the long-misattributed "file send
+            // corrupts files" ghost). Ask for a direct get instead (mode 1:
+            // serve the ~/expanded path as-is; +fcp peers v26.09.15+) whenever
+            // the path carries a directory. Bare-basename requests keep the
+            // classic confined mode. Legacy peers ignore the trailing byte.
+            // Relative subpaths anchor at ~/.bridgesessions/received/ (the
+            // standard layout that receive_dir-relative dest= values use).
+            if (request_mode == 0 &&
+                remote_path.find('/') != std::string::npos &&
+                remote_path.back() != '/' &&
+                remote_path.front() != '/' && remote_path.front() != '~') {
+                req.mode = 1;
+                req.path = "~/.bridgesessions/received/" + remote_path;
+            }
             write_frame(ssl, req, CONTROL_STREAM_ID);
         } catch (const std::exception& e) {
             return "ERROR send request: " + std::string(e.what());
