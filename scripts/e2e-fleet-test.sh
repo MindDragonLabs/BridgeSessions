@@ -200,7 +200,108 @@ else
   record FAIL local peers_list "unexpected: ${PEERS_OUT:0:120}"
 fi
 
-# ── per-peer feature matrix ─────────────────────────────────────────
+# ── per-peer 
+# ── session isolation ────────────────────────
+# Two named sessions in parallel; markers must end up in their OWN
+# pty_capture file, never in the other. Cross-contamination is a
+# session-output isolation failure.
+test_session_isolation() {
+  local peer="$1" os="$2"
+  local a="e2e_iso_a_$$" b="e2e_iso_b_$$"
+  local a_dir="$WORKDIR/iso-a-$$"; b_dir="$WORKDIR/iso-b-$$"
+  mkdir -p "$a_dir" "$b_dir"
+  case "$os" in
+    windows)
+      run_to "$BS_BIN" shell "$peer" --cmd "powershell.exe -NoProfile -Command \"for (\$i=0;\$i -lt 20;\$i++) { Add-Content -Path 'C:\\Windows\\Temp\\iso_a.log' \"ISO_A_\$i\"; Start-Sleep -Milliseconds 200 }\"" --detach >/dev/null 2>&1 || true
+      run_to "$BS_BIN" shell "$peer" --cmd "powershell.exe -NoProfile -Command \"for (\$i=0;\$i -lt 20;\$i++) { Add-Content -Path 'C:\\Windows\\Temp\\iso_b.log' \"ISO_B_\$i\"; Start-Sleep -Milliseconds 200 }\"" --detach >/dev/null 2>&1 || true
+      sleep 5
+      run_to "$BS_BIN" file recv "$peer" "C:\\Windows\\Temp\\iso_a.log" --to "$WORKDIR/iso_a-$$.log" --wait >/dev/null 2>&1 || true
+      run_to "$BS_BIN" file recv "$peer" "C:\\Windows\\Temp\\iso_b.log" --to "$WORKDIR/iso_b-$$.log" --wait >/dev/null 2>&1 || true
+      ;;
+    *)
+      run_to "$BS_BIN" shell "$peer" --cmd "for i in $(seq 1 20); do echo ISO_A_$a\$i; sleep 0.25; done" --detach > "$a_dir/out.txt" 2>/dev/null || true
+      run_to "$BS_BIN" shell "$peer" --cmd "for i in $(seq 1 20); do echo ISO_B_$b\$i; sleep 0.25; done" --detach > "$b_dir/out.txt" 2>/dev/null || true
+      sleep 5
+      run_to "$BS_BIN" file recv "$peer" "${a}.log" --to "$WORKDIR/iso_a-$$.log" --wait >/dev/null 2>&1 || true
+      run_to "$BS_BIN" file recv "$peer" "${b}.log" --to "$WORKDIR/iso_b-$$.log" --wait >/dev/null 2>&1 || true
+      if [[ ! -f "$WORKDIR/iso_a-$$.log" ]]; then
+        [[ -f "$a_dir/out.txt" ]] && cp "$a_dir/out.txt" "$WORKDIR/iso_a-$$.log"
+      fi
+      if [[ ! -f "$WORKDIR/iso_b-$$.log" ]]; then
+        [[ -f "$b_dir/out.txt" ]] && cp "$b_dir/out.txt" "$WORKDIR/iso_b-$$.log"
+      fi
+      ;;
+  esac
+  if [[ -f "$WORKDIR/iso_a-$$.log" && -f "$WORKDIR/iso_b-$$.log" ]]; then
+    local a_has_b b_has_a
+    a_has_b="$(grep -c "ISO_B_" "$WORKDIR/iso_a-$$.log" 2>/dev/null || echo 0)"
+    b_has_a="$(grep -c "ISO_A_" "$WORKDIR/iso_b-$$.log" 2>/dev/null || echo 0)"
+    if [[ "$a_has_b" -eq 0 && "$b_has_a" -eq 0 ]]; then
+      record PASS "$peer" session_isolation "a/b streams separate"
+    else
+      record FAIL "$peer" session_isolation "cross-talk: a->b=$a_has_b, b->a=$b_has_a"
+    fi
+  else
+    record SKIP "$peer" session_isolation "could not capture session stdio"
+  fi
+}
+
+# ── harness name verification ─────────────────────
+# Confirm the name shown in sessions list is the harness name, not "shell".
+test_harness_name() {
+  local peer="$1" os="$2"
+  local harness="e2e-harness-$$"
+  case "$os" in
+    windows)
+      run_to "$BS_BIN" run-script "$peer" "Write-Output HELLO_FROM_HARNESS; Start-Sleep -Seconds 5" --name "$harness" >/dev/null 2>&1 || true
+      ;;
+    *)
+      run_to "$BS_BIN" run-script "$peer" "echo HELLO_FROM_HARNESS; sleep 5" --name "$harness" >/dev/null 2>&1 || true
+      ;;
+  esac
+  sleep 2
+  local out
+  out="$(run_to "$BS_BIN" sessions "$peer" 2>&1 || true)"
+  if assert_contains "$out" "$harness"; then
+    record PASS "$peer" harness_name "sessions list shows $harness"
+  elif printf '%s' "$out" | grep -qi 'no sessions\|no active'; then
+    record SKIP "$peer" harness_name "no live sessions; harness already reaped"
+  else
+    record FAIL "$peer" harness_name "name $harness not in sessions list: $(echo "$out" | tr '\n' ' ' | head -c 120)"
+  fi
+  run_to "$BS_BIN" sessions "$peer" --kill "$harness" >/dev/null 2>&1 || true
+}
+
+# ── idle session survival ────────────────────
+# Spawn a long-lived harness session and confirm it is still alive after
+# a wait window well beyond any short-timeout reaper. The nominal idle
+# reaper window is hours; this catches "session dropped after N seconds"
+# regressions, not the 48h reaper itself.
+test_session_idle_alive() {
+  local peer="$1" os="$2"
+  local stay="e2e-stay-$$"
+  case "$os" in
+    windows)
+      run_to "$BS_BIN" run-script "$peer" "Start-Sleep -Seconds 6" --name "$stay" >/dev/null 2>&1 || true
+      ;;
+    *)
+      run_to "$BS_BIN" run-script "$peer" "sleep 6" --name "$stay" >/dev/null 2>&1 || true
+      ;;
+  esac
+  sleep 8
+  local out
+  out="$(run_to "$BS_BIN" sessions "$peer" 2>&1 || true)"
+  if assert_contains "$out" "$stay"; then
+    record PASS "$peer" session_idle_alive "$stay still present after 8s"
+  elif printf '%s' "$out" | grep -qi 'no sessions'; then
+    record FAIL "$peer" session_idle_alive "$stay reaped before 8s"
+  else
+    record SKIP "$peer" session_idle_alive "could not retrieve sessions list"
+  fi
+  run_to "$BS_BIN" sessions "$peer" --kill "$stay" >/dev/null 2>&1 || true
+}
+
+# ── feature matrix ─────────────────────────────────────────
 detect_os() {
   # stdout: linux|macos|windows|unknown
   local peer="$1" out
@@ -283,6 +384,14 @@ test_peer() {
 
   os="$(detect_os "$peer")"
   record PASS "$peer" os_detect "$os"
+
+  # new gates (Devin audit 2026-09-25): session isolation, harness-name,
+  # idle survival. Run as a separate block so --quick can skip cleanly.
+  if [[ $QUICK -eq 0 ]]; then
+    test_session_isolation "$peer" "$os"
+    test_harness_name "$peer" "$os"
+    test_session_idle_alive "$peer" "$os"
+  fi
 
   # shell hostname
   out="$(shell_probe_with_retry "$peer" "$(shell_hostname_cmd "$os")")"
