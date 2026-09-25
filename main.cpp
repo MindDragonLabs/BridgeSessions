@@ -3586,13 +3586,13 @@ int bridgesessions_main(int argc, char** argv) {
         // Windows: after schtasks /end the old process can hold the exe lock
         // for a few seconds while it exits (2026-09-08 RCA: blind Sleep(2000)
         // then a single rename raced the lock). Retry the first rename for up
-        // to ~15s before giving up; rename(2)/MoveFileEx never corrupts a
+        // to 30s before giving up; rename(2)/MoveFileEx never corrupts a
         // running image, it just fails while the lock is held.
 #ifdef _WIN32
         {
             bool moved = ::rename(bin_path.c_str(), old_path.c_str()) == 0;
-            for (int i = 0; !moved && i < 30; ++i) {
-                Sleep(500);
+            for (int i = 0; !moved && i < 3; ++i) {
+                Sleep(10 * 1000);
                 moved = ::rename(bin_path.c_str(), old_path.c_str()) == 0;
             }
             if (!moved) {

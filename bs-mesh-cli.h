@@ -1524,6 +1524,7 @@ public:
                   "max_secs=" + std::to_string(max_secs) +
                   " seeds=" + std::to_string(config_.seeds.size()));
 
+        int retry_delay_secs = 10;
         while (running_ && std::chrono::steady_clock::now() < deadline) {
             for (const auto& seed : config_.seeds) {
                 if (seed.addr.empty()) continue;
@@ -1540,11 +1541,13 @@ public:
                 }
                 CLOSESOCK(sfd);
             }
-            // Service inbound connections while waiting (non-blocking 1s tick).
+            // Service inbound connections while waiting with exponential retry
+            // spacing: 10s, 20s, 40s, ... capped at 5m.
             if (listen_fd_ != INVALID_SOCKET)
-                service_reconnect_wait_once(1000);
+                service_reconnect_wait_once(retry_delay_secs * 1000);
             else
-                std::this_thread::sleep_for(std::chrono::seconds(1));
+                std::this_thread::sleep_for(std::chrono::seconds(retry_delay_secs));
+            retry_delay_secs = std::min(retry_delay_secs * 2, 300);
         }
         log_event("startup_network_wait_timeout",
                   "no seed reachable in " + std::to_string(max_secs) + "s");
@@ -2114,8 +2117,8 @@ public:
             // steals waitpid() and leaves the client waiting forever.
             sessions_.reap_dead(false);
 
-            // 11. `bs run` supervision (liveness + backoff restarts) — 1s cadence
-            if (now - last_run_service_tick_ >= std::chrono::seconds(1)) {
+            // 11. `bs run` supervision (liveness + backoff restarts) — 10s cadence
+            if (now - last_run_service_tick_ >= std::chrono::seconds(10)) {
                 run_services_tick();
                 last_run_service_tick_ = now;
             }
@@ -2590,11 +2593,11 @@ public:
             const bool retryable = result.fail == ConnectFailReason::Timeout ||
                                    result.fail == ConnectFailReason::Refused;
             if (!retryable || attempt == max_attempts - 1) break;
-            // Linear backoff with jitter: 250ms, 500ms, ...
-            int base_ms = 250 * (attempt + 1);
-            int jitter = std::rand() % (base_ms / 4 + 1);
+            // Exponential backoff: 10s, 20s, 40s, ... capped at 5m.
+            const int shift = std::min(attempt, 5);
+            const int delay_secs = std::min(300, 10 * (1 << shift));
             std::this_thread::sleep_for(
-                std::chrono::milliseconds(base_ms + jitter));
+                std::chrono::seconds(delay_secs));
         }
         return result;
     }
@@ -2904,14 +2907,14 @@ public:
         // an otherwise-live ClientOverride session.
         bool attach_request_sent = false;
         uint16_t badge_rows = 0;  // rows at last bottom-row draw (badge/notice)
-        int reconnect_delay_ms = 100;
+        int reconnect_delay_ms = 10000;
         int reconnect_attempt = 1;
         try {
         while (!local_stop) {
             addr = find_peer_addr(peer_name);
             if (addr.empty()) {
                 local_stop = wait_for_local_stop(reconnect_delay_ms);
-                reconnect_delay_ms = std::min(reconnect_delay_ms * 2, 5000);
+                reconnect_delay_ms = std::min(reconnect_delay_ms * 2, 300000);
                 continue;
             }
 
@@ -2926,11 +2929,11 @@ public:
                     return 255;
                 }
                 local_stop = wait_for_local_stop(reconnect_delay_ms);
-                reconnect_delay_ms = std::min(reconnect_delay_ms * 2, 5000);
+                reconnect_delay_ms = std::min(reconnect_delay_ms * 2, 300000);
                 continue;
             }
 
-            reconnect_delay_ms = 100;
+            reconnect_delay_ms = 10000;
             reconnect_attempt = 1;
             bool transport_alive = true;
             auto [last_cols, last_rows] = get_winsize();
@@ -3115,7 +3118,7 @@ public:
                         sc_cols, sc_rows, badge_rows) << std::flush;
                     badge_rows = sc_rows;
                 }
-                reconnect_delay_ms = std::min(reconnect_delay_ms * 2, 5000);
+                reconnect_delay_ms = std::min(reconnect_delay_ms * 2, 300000);
             }
         }
         } catch (...) {
@@ -4814,10 +4817,11 @@ public:
     }
 
     // Compute the next reconnect delay in milliseconds for the given attempt number.
-    // Doubles from 100ms, capped at reconnect_backoff_max_secs * 1000.
+    // Doubles from 10s, capped at five minutes (and the configured ceiling).
     long next_backoff_ms(int attempt) const {
-        long ms = 100;
-        long cap = static_cast<long>(config_.reconnect_backoff_max_secs) * 1000;
+        long ms = 10000;
+        long cap = std::max(10000L, std::min(300000L,
+            static_cast<long>(config_.reconnect_backoff_max_secs) * 1000L));
         for (int i = 0; i < attempt; ++i) {
             ms = std::min(ms * 2, cap);
         }

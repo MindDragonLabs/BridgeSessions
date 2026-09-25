@@ -451,7 +451,9 @@ TEST_CASE("reconnect_backoff: delays increase exponentially and are capped", "[m
     cfg.reconnect_backoff_max_secs = 30;
     MeshController mc(cfg);
 
-    // attempt 0: first retry (e.g. 100ms base)
+    // attempt 0: first retry. The MeshController's backoff floor is 10s
+    // (2026-09-25, beta). Test that the doubling sequence is monotonically
+    // increasing and respects the configured ceiling.
     long d0 = mc.next_backoff_ms(0);
     long d1 = mc.next_backoff_ms(1);
     long d2 = mc.next_backoff_ms(2);
@@ -460,11 +462,11 @@ TEST_CASE("reconnect_backoff: delays increase exponentially and are capped", "[m
 
     INFO("d0=" << d0 << " d1=" << d1 << " d2=" << d2 << " d3=" << d3 << " max=" << max_delay);
 
-    REQUIRE(d0 > 0);
-    REQUIRE(d1 > d0);   // strictly increasing
-    REQUIRE(d2 > d1);
-    REQUIRE(d3 > d2);
-    REQUIRE(max_delay <= static_cast<long>(cfg.reconnect_backoff_max_secs) * 1000 * 2); // within 2× cap (jitter)
+    REQUIRE(d0 >= 10000);   // floor
+    REQUIRE(d1 > d0);   // strictly increasing at the floor
+    REQUIRE(d2 >= d1);
+    REQUIRE(d3 >= d2);
+    REQUIRE(max_delay <= static_cast<long>(cfg.reconnect_backoff_max_secs) * 1000); // within cap (no jitter here)
 }
 
 // ── D.1: exec_busy 90s watchdog ──────────────────────────────────────────

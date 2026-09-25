@@ -69,7 +69,7 @@ struct MeshConfig {
     // so a copy left behind doubles the storage cost of every transfer. 0
     // disables expiry. Default 24.
     int receive_retention_hours = 24;
-    int ping_interval_secs = 5;
+    int ping_interval_secs = 10;
     int pong_timeout_secs = 30;
     // When true, offer `bridgesessions upgrade` to peers that reconnect with an
     // older Hello.version than this node (cooldown-limited). Peers that were

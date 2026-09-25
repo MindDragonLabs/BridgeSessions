@@ -56,7 +56,7 @@ TEST_CASE("load_config fills defaults for missing keys", "[config]") {
     REQUIRE(cfg.max_peers == 50);
     REQUIRE(cfg.gossip_interval_secs == 30);
     REQUIRE(cfg.reconnect_backoff_max_secs == 300);
-    REQUIRE(cfg.ping_interval_secs == 5);
+    REQUIRE(cfg.ping_interval_secs == 10);
     REQUIRE(cfg.pong_timeout_secs == 30);
     REQUIRE(cfg.scrollback_lines == 2000);
     REQUIRE(cfg.idle_timeout_hours == 48);

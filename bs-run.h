@@ -5,7 +5,7 @@
 // `bs run --self --name <n> -- <cmd...>` registers a run-service with the
 // daemon. The daemon spawns the command DETACHED from any session (its own
 // process group, double-fork / systemd-run scope like spawn_session_worker),
-// supervises it, restarts it with exponential backoff capped at 60s, and
+// supervises it, restarts it with exponential backoff capped at 5 minutes, and
 // appends its stdout/stderr to a per-service log under the BridgeSessions
 // home. State lives in <app_home>/state/run-services.json so supervision
 // resumes after a daemon restart (same quarantine pattern as sessions.json,
@@ -33,8 +33,8 @@ namespace runsrv {
 
 // ── State model ─────────────────────────────────────────────────────
 
-inline constexpr int kRunRestartMaxBackoffSecs = 60;
-inline constexpr int kRunRestartBaseBackoffSecs = 2;
+inline constexpr int kRunRestartMaxBackoffSecs = 300;
+inline constexpr int kRunRestartBaseBackoffSecs = 10;
 // After this many consecutive failed restarts the service is left in
 // "backoff" (supervision paused, state kept) instead of spawning forever.
 inline constexpr int kRunRestartGiveUp = 10;
@@ -232,7 +232,7 @@ inline int64_t run_spawn_detached(const std::string& command,
 
 // ── Backoff policy (pure, unit-tested) ──────────────────────────────
 
-// Exponential backoff with a 60s cap: 2, 4, 8, 16, 32, 60, 60, ...
+// Exponential backoff with a 5m cap: 10, 20, 40, 80, 160, 300, 300, ...
 [[nodiscard]] inline int run_backoff_secs(int consecutive_failures) {
     if (consecutive_failures < 1) return kRunRestartBaseBackoffSecs;
     int shift = consecutive_failures - 1;

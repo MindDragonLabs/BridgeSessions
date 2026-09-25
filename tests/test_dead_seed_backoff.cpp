@@ -72,10 +72,11 @@ TEST_CASE("dead_seed_backoff: next_backoff_ms increases exponentially",
 
     INFO("d0=" << d0 << " d1=" << d1 << " d2=" << d2 << " d3=" << d3);
 
-    REQUIRE(d0 == 100);         // base: 100ms
-    REQUIRE(d1 == 200);         // 100 * 2
-    REQUIRE(d2 == 400);         // 200 * 2
-    REQUIRE(d3 == 800);         // 400 * 2
+    // 10s floor for production loops (2026-09-25, beta); doubles until cap.
+    REQUIRE(d0 == 10000);       // base: 10s
+    REQUIRE(d1 == 20000);       // 10s * 2
+    REQUIRE(d2 == 40000);       // 20s * 2
+    REQUIRE(d3 == 80000);       // 40s * 2
 }
 
 // ── 2. Backoff caps at reconnect_backoff_max_secs ──────────────────────
@@ -86,23 +87,29 @@ TEST_CASE("dead_seed_backoff: next_backoff_ms caps at reconnect_backoff_max_secs
     cfg.reconnect_backoff_max_secs = 5;  // 5000ms cap
     MeshController mc(cfg);
 
-    long cap = static_cast<long>(cfg.reconnect_backoff_max_secs) * 1000;
+    // With the 10s production floor, the cap is dominated by the inner floor
+    // (10s) unless reconnect_backoff_max_secs >= 10. Test with a meaningful cap
+    // that the doubling sequence respects.
+    long ceil_ms = static_cast<long>(cfg.reconnect_backoff_max_secs) * 1000;
+    long floor_ms = 10000;
 
-    // At high attempt numbers, delay must not exceed the cap.
-    long d10 = mc.next_backoff_ms_for_test(10);
-    long d20 = mc.next_backoff_ms_for_test(20);
-    long d50 = mc.next_backoff_ms_for_test(50);
+    // At high attempt numbers, delay must not exceed max(floor, effective cap).
+    long effective_cap = std::max(ceil_ms, floor_ms);
+    long d10  = mc.next_backoff_ms_for_test(10);
+    long d20  = mc.next_backoff_ms_for_test(20);
+    long d50  = mc.next_backoff_ms_for_test(50);
     long d100 = mc.next_backoff_ms_for_test(100);
 
-    INFO("cap=" << cap << " d10=" << d10 << " d20=" << d20
+    INFO("effective_cap=" << effective_cap
+         << " d10=" << d10 << " d20=" << d20
          << " d50=" << d50 << " d100=" << d100);
 
-    REQUIRE(d10 <= cap);
-    REQUIRE(d20 <= cap);
-    REQUIRE(d50 <= cap);
-    REQUIRE(d100 <= cap);
+    REQUIRE(d10  <= effective_cap);
+    REQUIRE(d20  <= effective_cap);
+    REQUIRE(d50  <= effective_cap);
+    REQUIRE(d100 <= effective_cap);
     // The cap should actually be reached at some point.
-    REQUIRE(d100 == cap);
+    REQUIRE(d100 == effective_cap);
 }
 
 // ── 3. Backoff with hardened default config (300s cap) ────────────────
@@ -226,19 +233,23 @@ TEST_CASE("dead_seed_backoff: start_outbound_handshake rejects when pending full
 
 TEST_CASE("dead_seed_backoff: doubling sequence is correct",
           "[dead_seed][backoff][sequence]") {
+    // The floor is 10s and the ceiling is min(5 minutes, reconnect_backoff_max_secs).
+    // Use a 300s cap so the doubling sequence reaches and stays at the ceiling,
+    // and verify the FULL sequence matches expectations.
     auto cfg = backoff_cfg("backoff-seq");
-    cfg.reconnect_backoff_max_secs = 3600;  // 1 hour cap so we see the full sequence
+    cfg.reconnect_backoff_max_secs = 300;  // 5 min cap = matches internal ceiling
     MeshController mc(cfg);
 
-    // Verify the full doubling sequence until cap.
-    long expected = 100;
+    // Verify the full doubling sequence until cap: 10s, 20s, 40s, 80s, 160s, 300s (cap), 300s, ...
+    // The doubling loop clamps at the cap, so once the doubling would exceed it, it stays.
+    constexpr long cap = 300 * 1000;
+    long expected = 10000;
     for (int attempt = 0; attempt < 20; ++attempt) {
         long actual = mc.next_backoff_ms_for_test(attempt);
-        long cap = 3600 * 1000;
         long exp = std::min(expected, cap);
         INFO("attempt=" << attempt << " expected=" << exp << " actual=" << actual);
         REQUIRE(actual == exp);
-        expected *= 2;
+        expected = std::min(expected * 2, cap); // keep in sync with the doubling-or-cap tree
     }
 }
 
