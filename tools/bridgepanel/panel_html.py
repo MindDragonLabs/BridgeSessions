@@ -730,9 +730,6 @@ INDEX_HTML = r'''<!doctype html>
     out.sort((a, b) => a.name.localeCompare(b.name, undefined, {sensitivity:"base"})); // Alphabetical by machine name
     return out;
   }
-  function selectedHost() {
-    return machineList().find(m => m.name === selMachine) || null;
-  }
   function renderMachines() {
     const list = machineList().filter(m => !query || m.name.toLowerCase().includes(query));
     $("#machines").innerHTML = !list.length
@@ -1042,8 +1039,16 @@ INDEX_HTML = r'''<!doctype html>
     $("#content").innerHTML = "<div class=\"empty\">Select a file in the inbox.</div>";
     $("#filesHead").textContent = "Files · " + name;
     updateDestHint();
+    refreshHostSessions(name);
     await loadVolumes();
     await loadListing();
+  }
+
+  function clearHostSessions() {
+    const el = document.getElementById("hostSessions");
+    if (!el) return;
+    el.hidden = true;
+    el.textContent = "";
   }
 
   function bufToB64(buf) {
