@@ -482,6 +482,9 @@ private:
 
     // Auto-upgrade: last attempt time per peer (cooldown).
     std::unordered_map<std::string, std::chrono::steady_clock::time_point> auto_upgrade_last_;
+    // 2026-09-25: track consecutive auto-upgrade dispatch attempts per peer so
+    // the goal's 60s→5min→configured-ceiling backoff is real, not a flat cooldown.
+    std::unordered_map<std::string, int> auto_upgrade_attempts_;
 
     // ── Transfer telemetry ────────────────────────────────────────────
     TransferTelemetryRing transfer_telemetry_;
@@ -1414,11 +1417,18 @@ private:
         }
         if (!version_is_older(remote_ver, kBridgeSessionsVersion)) return;
         const auto now = std::chrono::steady_clock::now();
-        const auto cooldown = std::chrono::seconds(
-            std::max(60, config_.auto_upgrade_cooldown_secs));
+        // 60s -> 5m -> configured-cool ceiling, doubled per consecutive
+        // failed dispatch. Reset on success (auto_upgrade_complete rc==0).
+        const int attempts = auto_upgrade_attempts_[peer];
+        const long base_cool = std::max(60L, (long)config_.auto_upgrade_cooldown_secs);
+        long cool_secs = 60;
+        if (attempts >= 2) cool_secs = 300;
+        if (attempts >= 3) cool_secs = base_cool;
+        const auto cooldown = std::chrono::seconds(cool_secs);
         auto it = auto_upgrade_last_.find(peer);
         if (it != auto_upgrade_last_.end() && now - it->second < cooldown) return;
         auto_upgrade_last_[peer] = now;
+        auto_upgrade_attempts_[peer] = attempts + 1;
         log_event("auto_upgrade_dispatch",
                   peer + " remote=" + remote_ver +
                   " local=" + std::string(kBridgeSessionsVersion));

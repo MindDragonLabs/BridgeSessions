@@ -132,8 +132,12 @@ inline void arm_upgrade_watchdog(const std::string& bin_path,
     s += "@echo off\r\n";
     s += "timeout /t 20 /nobreak >nul\r\n";
     s += "for %%i in (1 2 3 4 5 6) do (\r\n";
+    // Mesh port is TLS; plain-HTTP curl always exits non-zero (56/7). Treat
+    // "any exit other than 7 (connect refused)" as alive, matching the
+    // Linux fallback. Only the persistent connect-refused means the new
+    // daemon truly did not bind and rollback is appropriate.
     s += "  curl -s -m 2 -o nul http://127.0.0.1:" + port + "/ >nul 2>&1\r\n";
-    s += "  if not errorlevel 1 exit /b 0\r\n";
+    s += "  if not errorlevel 7 exit /b 0\r\n";
     s += "  timeout /t 10 /nobreak >nul\r\n";
     s += ")\r\n";
     s += "echo %date% %time% watchdog: new daemon did not bind; rolling back >> " + qw(log) + "\r\n";

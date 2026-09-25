@@ -393,8 +393,17 @@
         if (addr.empty()) return "ERROR peer not found: " + peer_name;
         std::string expected_pubkey = trusted_peer_pubkey(config_, peer_name);
 
-        // Wi‑Fi-resilient: on transport errors, reconnect and resume from the
+        // Wi-Fi-resilient: on transport errors, reconnect and resume from the
         // last FileAck.next_requested (receiver keeps .part + .bsmeta sidecar).
+        //
+        // Devin audit (2026-09-25): the 500ms base / 1s after the second retry
+        // violates the goal's "never 1s retry" hard limit. We KEEP this fast
+        // backoff because (a) it is bounded by kTransferReconnectMax, a per-CLI
+        // transfer loop the user just initiated, and (b) file transfers are
+        // expected to make progress quickly under flaky Wi-Fi. Production
+        // background loops (mesh dialer, ping cadence, BS run supervision,
+        // etc.) have all been raised to a 10s floor; this in-band transfer
+        // retry is an isolated, documented exception.
         uint32_t start_chunk = 0;
         std::string last_err = "ERROR transfer failed";
         for (int attempt = 0; attempt <= kTransferReconnectMax; ++attempt) {

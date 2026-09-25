@@ -3010,10 +3010,14 @@ int bridgesessions_main(int argc, char** argv) {
 #ifdef __linux__
             const std::string upg_log = home_dir + "/upgrade.log";
             const std::string self_exe = current_exe_path(argv[0]);
-            std::string reexec = "setsid sh -c \"'" + self_exe + "' upgrade\"";
+            // Strip the mesh-session markers in the child: re-execing would
+            // re-enter upgrade_in_mesh_session() and recurse. Detached
+            // upgrade must look like a standalone process.
+            std::string reexec = "env -u BS_SESSION -u BS_SESSION_ID setsid sh -c \"'"
+                + self_exe + "' upgrade";
             if (!upgrade_tag.empty()) reexec += " --tag '" + upgrade_tag + "'";
             if (allow_downgrade) reexec += " --allow-downgrade";
-            reexec += " >>'" + upg_log + "' 2>&1 <'/dev/null'\"";
+            reexec += " >>'" + upg_log + "' 2>&1 </dev/null'\"";
             if (std::system(reexec.c_str()) == 0) {
                 std::cout << "→ Detaching upgrade from this session (daemon carrier).\n"
                           << "  Log: " << upg_log << "\n"
