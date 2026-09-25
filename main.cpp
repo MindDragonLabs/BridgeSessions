@@ -3607,7 +3607,18 @@ int bridgesessions_main(int argc, char** argv) {
             }
         }
 #else
-        ::rename(bin_path.c_str(), old_path.c_str());  // may fail if not exists
+        if (::rename(bin_path.c_str(), old_path.c_str()) != 0) {
+            // POSIX rename may fail for many reasons (missing .old, permissions).
+            // The rollback paths below read from old_path; if rename failed AND
+            // old_path didn't already exist, the rollback is a no-op and a future
+            // watchdog restore silently does nothing. Log the outcome so the
+            // upgrade log shows whether .old is real before we proceed.
+            std::error_code ec(errno, std::system_category());
+            if (errno != ENOENT) {
+                std::cerr << "upgrade: rename to " << old_path << " failed: "
+                          << ec.message() << "\n";
+            }
+        }
 #endif
         if (::rename(tmp_path.c_str(), bin_path.c_str()) != 0) {
             // First rename failed (cross-device tmp vs bin). Stage on the SAME
