@@ -555,6 +555,7 @@ EOF
   <key>CFBundleVersion</key><string>${TAG}</string>
   <key>CFBundleShortVersionString</key><string>${TAG}</string>
   <key>CFBundleExecutable</key><string>bridgesessions</string>
+  <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>LSMinimumSystemVersion</key><string>13.0</string>
   <key>NSHumanReadableCopyright</key><string>Copyright (c) Mind-Dragon</string>
   <key>LSUIElement</key><true/>
@@ -571,6 +572,12 @@ EOF
       # that have no Developer ID cert. Just copy the signed binary as-is.
       # TCC tracks the TeamIdentifier (QL5MD8FKPL) from the embedded signature.
       echo "→ .app bundle created (preserving signed binary)"
+      REPO_ICNS="$(cd "$(dirname "$0")/.." && pwd)/BSMenubar/AppIcon.icns"
+      if [ -f "${REPO_ICNS}" ]; then
+        mkdir -p "${LOCAL_APP}/Contents/Resources"
+        cp -f "${REPO_ICNS}" "${LOCAL_APP}/Contents/Resources/AppIcon.icns"
+        echo "→ App icon copied into the local bundle"
+      fi
       # Stable local signing — same rationale as the /Applications branch:
       # anchor the DR on a per-machine certificate leaf so TCC permissions
       # survive upgrades instead of re-prompting on every new cdhash.
@@ -705,6 +712,18 @@ EOF
       echo "  → WARNING: bs_tray.py not found in scripts/ — skipping tray install."
     fi
 
+    ICON_SHARE="${HOME}/.local/share/bridgesessions"
+    mkdir -p "${ICON_SHARE}"
+    REPO_PNG="$(cd "$(dirname "$0")/.." && pwd)/assets/icon-b.png"
+    TRAY_ICON="${ICON_SHARE}/icon-b.png"
+    if [ -f "${REPO_PNG}" ]; then
+      cp -f "${REPO_PNG}" "${TRAY_ICON}"
+      echo "  → Tray icon installed to ${TRAY_ICON}"
+    else
+      TRAY_ICON="bridgesessions"
+      echo "  → WARNING: assets/icon-b.png not found — tray will draw a fallback."
+    fi
+
     # Install Python dependencies for tray app
     if command -v pip3 >/dev/null 2>&1; then
       echo "  → Installing pystray + Pillow..."
@@ -725,7 +744,7 @@ Name=Bridge Sessions
 GenericName=Mesh Terminal Relay
 Comment=Bridge Sessions fleet status tray app
 Exec=${TRAY_SCRIPT_DEST}
-Icon=bridgesessions
+Icon=${TRAY_ICON}
 Terminal=false
 X-GNOME-Autostart-enabled=true
 Categories=Network;Utility;

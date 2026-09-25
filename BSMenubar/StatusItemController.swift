@@ -18,7 +18,7 @@ final class StatusItemController: NSObject {
         self.fleetController = fleetController
         self.settingsController = settingsController
         self.helperManager = helperManager
-        self.statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        self.statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         super.init()
         configureButton()
         rebuildMenu()
@@ -28,14 +28,37 @@ final class StatusItemController: NSObject {
         }
     }
 
-    // Draw "B" as attributed text (no asset dependency)
+    // Draw a centered "B" image. A title sits on the font baseline and looks high.
     private func configureButton() {
         guard let button = statusItem.button else { return }
-        let attrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.menuBarFont(ofSize: 16),
-            .foregroundColor: NSColor(calibratedRed: 0.247, green: 0.663, blue: 0.878, alpha: 1.0)
-        ]
-        button.attributedTitle = NSAttributedString(string: "B", attributes: attrs)
+        let px: CGFloat = 18
+        let image = NSImage(size: NSSize(width: px, height: px), flipped: false) { rect in
+            let paragraph = NSMutableParagraphStyle()
+            paragraph.alignment = .center
+            let font = NSFont.menuBarFont(ofSize: 13)
+            let attrs: [NSAttributedString.Key: Any] = [
+                .font: font,
+                .foregroundColor: NSColor(calibratedRed: 0.247, green: 0.663, blue: 0.878, alpha: 1.0),
+                .paragraphStyle: paragraph
+            ]
+            let str = NSAttributedString(string: "B", attributes: attrs)
+            let glyph = str.boundingRect(
+                with: rect.size,
+                options: [.usesLineFragmentOrigin, .usesFontLeading]
+            )
+            let drawRect = NSRect(
+                x: rect.midX - glyph.width / 2 - glyph.origin.x,
+                y: rect.midY - glyph.height / 2 - glyph.origin.y,
+                width: glyph.width,
+                height: glyph.height
+            )
+            str.draw(with: drawRect, options: [.usesLineFragmentOrigin, .usesFontLeading], context: nil)
+            return true
+        }
+        image.isTemplate = false
+        button.image = image
+        button.imagePosition = .imageOnly
+        button.title = ""
         button.toolTip = "BridgeSessions Helper"
     }
 

@@ -3924,7 +3924,11 @@ private:
             // Attempt connect (non-blocking; handshake completes in event loop).
             bool started = start_outbound_handshake(s);
             if (started) {
-                backoffs_.erase(s.addr);
+                // Handshake start is not success. Hold the next dial for 10s.
+                // A completed Hello erases this entry.
+                bo.attempt = std::max(bo.attempt, 1);
+                bo.delay_ms = std::max(bo.delay_ms, 10000);
+                bo.next_attempt = now + std::chrono::seconds(10);
             } else {
                 bo.attempt++;
                 // P2: ±25% jitter to prevent thundering herd on reconnect.
@@ -3933,8 +3937,9 @@ private:
                 const int jitter_pct = static_cast<int>(rng_() % 50u) - 25;
                 const int jitter = static_cast<int>(
                     static_cast<int64_t>(bo.delay_ms) * jitter_pct / 100);
-                bo.next_attempt = now + std::chrono::milliseconds(bo.delay_ms + jitter);
-                bo.delay_ms = std::min(std::max(bo.delay_ms * 2, 1000), bo.max_ms);
+                const int wait_ms = std::max(10000, bo.delay_ms + jitter);
+                bo.next_attempt = now + std::chrono::milliseconds(wait_ms);
+                bo.delay_ms = std::min(std::max(bo.delay_ms * 2, 10000), bo.max_ms);
                 break; // one failed bounded dial per loop; keep accept/read responsive
             }
         }
@@ -3958,7 +3963,9 @@ private:
                 if (bo.attempt > 0 && now < bo.next_attempt) continue;
                 bool started = start_outbound_handshake(d);
                 if (started) {
-                    backoffs_.erase(d.addr);
+                    bo.attempt = std::max(bo.attempt, 1);
+                    bo.delay_ms = std::max(bo.delay_ms, 10000);
+                    bo.next_attempt = now + std::chrono::seconds(10);
                 } else {
                     bo.attempt++;
                     // P2 audit fix: apply the same ±25% seeded jitter as seeds
@@ -3966,8 +3973,9 @@ private:
                     const int jitter_pct = static_cast<int>(rng_() % 50u) - 25;
                     const int jitter = static_cast<int>(
                         static_cast<int64_t>(bo.delay_ms) * jitter_pct / 100);
-                    bo.next_attempt = now + std::chrono::milliseconds(bo.delay_ms + jitter);
-                    bo.delay_ms = std::min(std::max(bo.delay_ms * 2, 1000), bo.max_ms);
+                    const int wait_ms = std::max(10000, bo.delay_ms + jitter);
+                    bo.next_attempt = now + std::chrono::milliseconds(wait_ms);
+                    bo.delay_ms = std::min(std::max(bo.delay_ms * 2, 10000), bo.max_ms);
                     break; // one failed bounded dial per loop; keep accept/read responsive
                 }
             }

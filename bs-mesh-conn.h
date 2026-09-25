@@ -319,7 +319,7 @@ private:
 
     // Backoff state per seed
     struct Backoff {
-        int delay_ms = 100;
+        int delay_ms = 10000;
         int max_ms = 30000;
         int attempt = 0;
         std::chrono::steady_clock::time_point next_attempt{};
@@ -839,9 +839,12 @@ private:
         if (index >= conns_.size()) return false;
         auto& c = conns_[index];
         if (!close_conn(c)) return false;
-        // Remove backoff for this peer so it can be reconnected
+        // A dropped connection must not be redialed in the same second.
         if (!c.peer_addr.empty()) {
-            backoffs_.erase(c.peer_addr);
+            auto& bo = backoffs_[c.peer_addr];
+            bo.attempt = std::max(bo.attempt, 1);
+            bo.delay_ms = std::max(bo.delay_ms, 10000);
+            bo.next_attempt = std::chrono::steady_clock::now() + std::chrono::seconds(10);
         }
         conns_.erase(conns_.begin() + static_cast<ptrdiff_t>(index));
         return true;

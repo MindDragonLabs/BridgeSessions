@@ -45,5 +45,7 @@ BEGIN
     VALUE "Translation", 0x0409, 1200
   END
 END
+
+1 ICON "${REPO}/assets/icon-b.ico"
 EOF
 echo "wrote windows/version.rc for ${V}"

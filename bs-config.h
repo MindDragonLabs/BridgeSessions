@@ -330,7 +330,7 @@ void write_peer_line(std::ostream& os, const std::string& prefix, const PeerEntr
             if (v.has_value() && *v >= 0) cfg.receive_retention_hours = *v;
         } else if (key_str == "mesh.ping_interval_secs") {
             auto v = parse_int(val);
-            if (v.has_value()) cfg.ping_interval_secs = *v;
+            if (v.has_value() && *v >= 10) cfg.ping_interval_secs = *v;
         } else if (key_str == "mesh.pong_timeout_secs") {
             auto v = parse_int(val);
             if (v.has_value()) cfg.pong_timeout_secs = *v;

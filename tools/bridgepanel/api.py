@@ -57,6 +57,26 @@ def bs_ipc(verb: str, timeout: float = BS_IPC_TIMEOUT) -> str:
             s.close()
 
 
+HARNESS_NAMES = frozenset({
+    "hermes", "claude-code", "codex", "opencode", "grok",
+    "copilot", "cursor", "kimi", "devin", "shell",
+})
+_PROBE_PREFIXES = ("health-", "cmd-", "oneshot-", "script-", "hcheck-", "vcheck-", "tty-")
+
+
+def is_visible_harness_session(name: str, command: str = "", kind: str = "") -> bool:
+    """Panel allow-list: harness names only. Hide probes, cron, and agent jobs."""
+    name = (name or "").strip()
+    command = (command or "").strip()
+    kind = (kind or "").strip().lower()
+    blob = f"{name} {command}".lower()
+    if not name or "cron" in blob or "agent job" in blob:
+        return False
+    if kind == "probe" or name.startswith(_PROBE_PREFIXES):
+        return False
+    return name in HARNESS_NAMES
+
+
 def query_bs_sessions() -> list[dict]:
     """Query BridgeSessions daemon for active sessions via IPC.
 

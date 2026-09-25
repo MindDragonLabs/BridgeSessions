@@ -19,7 +19,8 @@
 #   BS_E2E_SKIP_LARGE=1          skip large transfer
 #   BS_E2E_VERSION               expected version substring (default from VERSION file)
 #   BS_E2E_PEER_VERSION          expected daemon base version (defaults to client version)
-#   BS_E2E_PEERS                 comma-separated peer list (lab-specific; not committed)
+#   BS_E2E_TYPE_MS               shell round-trip limit in ms (default 2000)
+#   BS_E2E_FILE_MS               small file send limit in ms (default 2000)
 #
 # Exit 0 if all required tests pass; non-zero otherwise.
 set -euo pipefail
@@ -27,6 +28,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 TIMEOUT_SEC="${BS_E2E_TIMEOUT:-45}"
+TYPE_LIMIT_MS="${BS_E2E_TYPE_MS:-2000}"
+FILE_LIMIT_MS="${BS_E2E_FILE_MS:-2000}"
+SELF_TEST=0
 QUICK=0
 ALL_PEERS=0
 JSON_OUT=""
@@ -71,6 +75,7 @@ while [[ $# -gt 0 ]]; do
     --all) ALL_PEERS=1; shift ;;
     --json) JSON_OUT="${2:?}"; shift 2 ;;
     --timeout) TIMEOUT_SEC="${2:?}"; shift 2 ;;
+    --self-test) SELF_TEST=1; shift ;;
     -h|--help)
       sed -n '2,30p' "$0"
       exit 0
@@ -112,6 +117,28 @@ assert_contains() {
   local haystack="$1" needle="$2"
   [[ "$haystack" == *"$needle"* ]]
 }
+
+now_ms() {
+  python3 -c 'import time; print(int(time.time()*1000))'
+}
+
+timing_verdict() {
+  # timing_verdict <elapsed_ms> <limit_ms>
+  local ms="$1" limit="$2"
+  if [[ "$ms" -le "$limit" ]]; then
+    echo PASS
+  else
+    echo FAIL
+  fi
+}
+
+if [[ "$SELF_TEST" -eq 1 ]]; then
+  [[ "$(timing_verdict 1500 2000)" == PASS ]] || { echo "self-test fast failed" >&2; exit 1; }
+  [[ "$(timing_verdict 2000 2000)" == PASS ]] || { echo "self-test equal failed" >&2; exit 1; }
+  [[ "$(timing_verdict 2500 2000)" == FAIL ]] || { echo "self-test slow failed" >&2; exit 1; }
+  echo "self-test ok"
+  exit 0
+fi
 
 # ── peer discovery ──────────────────────────────────────────────────
 list_seed_peers() {
@@ -274,6 +301,16 @@ test_peer() {
     record FAIL "$peer" shell_os_probe "${out//$'\n'/ }"
   fi
 
+  # One short command. A retry loop would hide a slow path, so this is one try.
+  start_ms="$(now_ms)"
+  out="$(run_to "$BS_BIN" shell "$peer" --cmd 'echo BS_E2E_PING' 2>&1 || true)"
+  type_ms="$(( $(now_ms) - start_ms ))"
+  if assert_contains "$out" "BS_E2E_PING" && [[ "$(timing_verdict "$type_ms" "$TYPE_LIMIT_MS")" == PASS ]]; then
+    record PASS "$peer" shell_typing "${type_ms}ms"
+  else
+    record FAIL "$peer" shell_typing "${type_ms}ms limit ${TYPE_LIMIT_MS}ms"
+  fi
+
   # Ask the connected daemon for its own version. Shelling out to a binary on
   # Windows is unreliable when the daemon runs as SYSTEM: %LOCALAPPDATA% then
   # points at systemprofile, not the installer's profile. Never accept an
@@ -311,6 +348,17 @@ except (json.JSONDecodeError, AttributeError):
     record PASS "$peer" file_send "ok"
   else
     record FAIL "$peer" file_send "${out//$'\n'/ }"
+  fi
+
+  tmp_fast="$WORKDIR/fast-${peer}.txt"
+  printf 'fast\n' > "$tmp_fast"
+  start_ms="$(now_ms)"
+  out="$(run_to "$BS_BIN" file send "$peer" "$tmp_fast" --dest "e2e-fast-${peer}-$$.txt" --wait 2>&1 || true)"
+  file_ms="$(( $(now_ms) - start_ms ))"
+  if { assert_contains "$out" "OK sent" || assert_contains "$out" "PROGRESS"; } && [[ "$(timing_verdict "$file_ms" "$FILE_LIMIT_MS")" == PASS ]]; then
+    record PASS "$peer" file_send_fast "${file_ms}ms"
+  else
+    record FAIL "$peer" file_send_fast "${file_ms}ms limit ${FILE_LIMIT_MS}ms"
   fi
 
   # verify content landed: recv-roundtrip (pull back by basename).

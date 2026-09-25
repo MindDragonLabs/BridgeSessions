@@ -373,6 +373,21 @@ if (Test-Path -LiteralPath $TRAY_SCRIPT_DST -PathType Leaf) {
         $shortcut.Arguments = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$TRAY_SCRIPT_DST`""
         $shortcut.WorkingDirectory = $INSTALL_DIR
         $shortcut.IconLocation = "$BIN_PATH,0"
+        $icoDst = Join-Path $INSTALL_DIR "icon-b.ico"
+        $icoSrc = $null
+        if ($STAGED_DIR) {
+            $stagedIco = Join-Path $STAGED_DIR "icon-b.ico"
+            if (Test-Path -LiteralPath $stagedIco -PathType Leaf) { $icoSrc = $stagedIco }
+        }
+        if (-not $icoSrc -and $PSScriptRoot) {
+            $repoIco = Join-Path (Split-Path $PSScriptRoot -Parent) "assets\icon-b.ico"
+            if (Test-Path -LiteralPath $repoIco -PathType Leaf) { $icoSrc = $repoIco }
+        }
+        if ($icoSrc) {
+            Copy-Item -LiteralPath $icoSrc -Destination $icoDst -Force
+            $shortcut.IconLocation = $icoDst
+            Write-Host "-> Tray icon installed to $icoDst"
+        }
         $shortcut.Description = "Bridge Sessions System Tray"
         $shortcut.WindowStyle = 7  # Minimized
         $shortcut.Save()

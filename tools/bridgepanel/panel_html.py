@@ -81,7 +81,10 @@ INDEX_HTML = r'''<!doctype html>
   .col.machines { border-right: 1px solid var(--border); }
   .col.files { border-right: 1px solid var(--border); }
   .col-scroll { flex: 1; min-height: 0; overflow-y: auto; }
-  .col-head { padding: 10px 14px 8px; font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--faint); display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .pane-back { display: none; }
+  .host-sessions { padding: 6px 10px 8px; border-bottom: 1px solid var(--border); font-size: 12px; }
+  .host-sessions .hs-title { font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--faint); margin-bottom: 4px; }
+  .host-sessions .hs-row { display: flex; justify-content: space-between; gap: 8px; min-height: 28px; align-items: center; }
   .col-head .count { font-family: var(--mono); font-weight: 400; letter-spacing: 0; }
   .icon-btn { width: 22px; height: 22px; border-radius: 6px; background: var(--surface2); color: var(--muted); border: 1px solid var(--border); cursor: pointer; font-size: 13px; line-height: 1; }
   .icon-btn:hover { border-color: var(--muted); color: var(--text); }
@@ -220,9 +223,23 @@ INDEX_HTML = r'''<!doctype html>
   .toast.err { background: var(--danger); color: #fff; }
 
   @media (max-width: 800px) {
-    .shell { grid-template-columns: 160px minmax(0,1fr); }
-    .col.files, .splitter { display: none; }
-    .search { display: none; }
+    header { height: auto; min-height: 52px; flex-wrap: wrap; gap: 8px; padding: 8px 10px; }
+    .brand .sub, .summary, .search, .avatar { display: none; }
+    .hdr-right { gap: 8px; }
+    .shell { grid-template-columns: minmax(0, 1fr); }
+    .splitter { display: none; }
+    .col, .work { display: none; }
+    body:not([data-pane]) #colHosts,
+    body[data-pane="hosts"] #colHosts,
+    body[data-pane="files"] #colFiles,
+    body[data-pane="work"] .work { display: flex; }
+    .work-top, .toolbar { flex-wrap: wrap; }
+    .content-wrap { padding: 12px; }
+    .btn, .fitem, .icon-btn, .theme-toggle { min-height: 40px; }
+    #paneBack, #filesBack { display: inline-flex; }
+  }
+  @media (hover: none) {
+    .fitem .more { opacity: 1; width: 40px; height: 40px; }
   }
 </style>
 <link rel="stylesheet" href="__ASSET_BASE__static/toastui-editor.min.css">
@@ -248,7 +265,8 @@ INDEX_HTML = r'''<!doctype html>
   </aside>
   <div class="splitter" id="splitHosts" role="separator" aria-orientation="vertical" aria-label="Resize hosts pane"></div>
   <aside class="col files" id="colFiles">
-    <div class="col-head"><span id="filesHead">Files</span><button class="icon-btn" id="refreshBtn" title="Refresh" aria-label="Refresh files">↻</button></div>
+    <div class="col-head"><button class="btn pane-back" id="filesBack" type="button">Back</button><span id="filesHead">Files</span><button class="icon-btn" id="refreshBtn" title="Refresh" aria-label="Refresh files">↻</button></div>
+    <div id="hostSessions" class="host-sessions" hidden></div>
     <div class="filters" id="filters">
       <button class="chip active" data-filter="all">All</button>
       <button class="chip" data-filter="md">Markdown</button>
@@ -285,6 +303,7 @@ INDEX_HTML = r'''<!doctype html>
   <div class="splitter" id="splitFiles" role="separator" aria-orientation="vertical" aria-label="Resize files pane"></div>
   <main class="work">
     <div class="work-top">
+      <button class="btn pane-back" id="paneBack" type="button">Back</button>
       <div class="breadcrumb" id="breadcrumb"></div>
       <div class="toolbar">
         <button class="btn" id="editBtn" style="display:none">Edit</button>
@@ -344,6 +363,11 @@ INDEX_HTML = r'''<!doctype html>
   const listMem = {};
 
   const $ = s => document.querySelector(s);
+  function narrow() { return window.matchMedia("(max-width: 800px)").matches; }
+  function setPane(name) {
+    if (!narrow()) { document.body.removeAttribute("data-pane"); return; }
+    document.body.dataset.pane = name;
+  }
   const $$ = s => Array.from(document.querySelectorAll(s));
   const esc = s => String(s).replace(/[&<>\"']/g, c =>
     ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
@@ -679,8 +703,30 @@ INDEX_HTML = r'''<!doctype html>
     out.sort((a, b) => a.name.localeCompare(b.name, undefined, {sensitivity:"base"})); // Alphabetical by machine name
     return out;
   }
-  function selectedHost() {
-    return machineList().find(m => m.name === selMachine) || null;
+  function visibleSession(s) {
+    const name = String(s && s.name || "");
+    const cmd = String(s && s.command || "");
+    const kind = String(s && s.kind || "").toLowerCase();
+    const blob = (name + " " + cmd).toLowerCase();
+    if (!name || blob.includes("cron") || blob.includes("agent job")) return false;
+    if (kind === "probe" || /^(health-|cmd-|oneshot-|script-|hcheck-|vcheck-|tty-)/.test(name)) return false;
+    return ["hermes","claude-code","codex","opencode","grok","copilot","cursor","kimi","devin","shell"].includes(name);
+  }
+  function sessionsForHost(name) {
+    if (!name) return [];
+    if (mesh.node === name) return (mesh.sessions || []).filter(visibleSession);
+    const peer = (mesh.peers || []).find(p => p.name === name);
+    return ((peer && peer.sessions) || []).filter(visibleSession);
+  }
+  function renderHostSessions() {
+    const el = $("#hostSessions");
+    if (!el) return;
+    if (!selMachine) { el.hidden = true; el.innerHTML = ""; return; }
+    const rows = sessionsForHost(selMachine);
+    el.hidden = false;
+    el.innerHTML = "<div class=\"hs-title\">Sessions</div>" + (rows.length
+      ? rows.map(s => "<div class=\"hs-row\"><span>" + esc(s.name) + "</span><span>" + esc(s.state || "") + "</span></div>").join("")
+      : "<div class=\"empty\">No harness sessions.</div>");
   }
   function renderMachines() {
     const list = machineList().filter(m => !query || m.name.toLowerCase().includes(query));
@@ -695,6 +741,7 @@ INDEX_HTML = r'''<!doctype html>
           (m.you ? "<span class=\"you\">you</span>" : "") + "</div>";
       }).join("");
     $("#machineCount").textContent = list.length + " shown";
+    renderHostSessions();
     const online = machineList().filter(m => machineStatus(m) !== "offline").length;
     const total = machineList().length;
     if (mesh.offline && !mesh.node) $("#summary").innerHTML = "<b>mesh offline</b>";
@@ -902,6 +949,7 @@ INDEX_HTML = r'''<!doctype html>
   }
 
   async function openFile(name, kind) {
+    setPane("work");
     selName = name;
     selKind = kind;
     curRaw = "";
@@ -993,6 +1041,7 @@ INDEX_HTML = r'''<!doctype html>
     updateDestHint();
     await loadVolumes();
     await loadListing();
+    setPane("files");
   }
 
   function bufToB64(buf) {
@@ -1061,6 +1110,12 @@ INDEX_HTML = r'''<!doctype html>
     applyTheme(theme === "dark" ? "light" : "dark");
     remountMd();
   });
+  $("#paneBack").addEventListener("click", () => {
+    const pane = document.body.dataset.pane || "hosts";
+    setPane(pane === "work" ? "files" : "hosts");
+  });
+  $("#filesBack").addEventListener("click", () => setPane("hosts"));
+  window.addEventListener("resize", () => { if (!narrow()) setPane("hosts"); });
   $("#refreshBtn").addEventListener("click", () => loadListing(true));
   const treeBtn = $("#treeToggle");
   if (treeBtn) treeBtn.addEventListener("click", () => toggleTree());

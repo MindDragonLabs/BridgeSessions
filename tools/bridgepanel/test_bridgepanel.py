@@ -363,7 +363,10 @@ class TestHttpSurface(unittest.TestCase):
         self.assertEqual(status, 200)
         raw = raw.decode("utf-8") if isinstance(raw, bytes) else raw
         self.assertIn('class="col-head">Hosts', raw)
-        self.assertIn('id="filesHead">Files<', raw)
+        self.assertIn('id="filesHead"', raw)
+        self.assertIn('id="filesBack"', raw)
+        self.assertIn('id="hostSessions"', raw)
+        self.assertIn("function visibleSession", raw)
         self.assertNotIn('id="sessionsHead"', raw)
         self.assertNotIn('id="newSessionBtn"', raw)
         self.assertNotIn('id="createModal"', raw)
@@ -376,6 +379,10 @@ class TestHttpSurface(unittest.TestCase):
         self.assertIn("/api/volumes", raw)
         self.assertNotIn('label: "received"', raw)
         self.assertIn('id="splitHosts"', raw)
+        self.assertIn('id="paneBack"', raw)
+        self.assertIn("function setPane", raw)
+        self.assertIn('body[data-pane="files"] #colFiles', raw)
+        self.assertNotIn(".col.files, .splitter { display: none; }", raw)
         self.assertIn('id="splitFiles"', raw)
         self.assertIn('initSplitters', raw)
         self.assertNotIn('windows · inbox', raw)
@@ -1137,6 +1144,15 @@ class TestLauncher(unittest.TestCase):
             text = fh.read()
         self.assertIn("panel.py", text)
         self.assertNotIn("bridgepanel.py", text)
+
+
+class TestHarnessSessionFilter(unittest.TestCase):
+    def test_allow_list_hides_cron_and_probes(self):
+        from bridgepanel.api import is_visible_harness_session
+        self.assertTrue(is_visible_harness_session("hermes", "hermes --tui --yolo", "harness"))
+        self.assertFalse(is_visible_harness_session("hermes", "cron daily", "harness"))
+        self.assertFalse(is_visible_harness_session("health-bs-health-1", "", "probe"))
+        self.assertFalse(is_visible_harness_session("build", "bash", "user"))
 
 
 if __name__ == "__main__":
