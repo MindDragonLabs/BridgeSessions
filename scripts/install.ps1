@@ -336,6 +336,24 @@ Write-Host "-> Daemon started."
 
 # -- 10. INSTALL TRAY APP -----------------------------------------------------
 $TRAY_SCRIPT_DST = "$INSTALL_DIR\bs_tray.ps1"
+$iconDst = Join-Path $INSTALL_DIR "icon-b.ico"
+$iconSrcList = @()
+if ($STAGED_DIR) {
+    $iconSrcList += (Join-Path $STAGED_DIR "icon-b.ico")
+    $iconSrcList += (Join-Path $STAGED_DIR "assets\icon-b.ico")
+}
+if ($PSScriptRoot) {
+    $iconSrcList += (Join-Path $PSScriptRoot "..\assets\icon-b.ico")
+    $iconSrcList += (Join-Path $PSScriptRoot "icon-b.ico")
+}
+foreach ($iconSrc in $iconSrcList) {
+    if ($iconSrc -and (Test-Path -LiteralPath $iconSrc -PathType Leaf)) {
+        New-Item -ItemType Directory -Force -Path $INSTALL_DIR | Out-Null
+        Copy-Item -LiteralPath $iconSrc -Destination $iconDst -Force
+        Write-Host "-> Installed icon-b.ico to $INSTALL_DIR"
+        break
+    }
+}
 # In the documented `irm ... | iex` install, PSScriptRoot is empty. Use the
 # staged artifact directory for offline QA or fetch the versioned release asset.
 $trayTmp = "$INSTALL_DIR\bs_tray.download.$PID.ps1"
@@ -372,21 +390,10 @@ if (Test-Path -LiteralPath $TRAY_SCRIPT_DST -PathType Leaf) {
         $shortcut.TargetPath = "powershell.exe"
         $shortcut.Arguments = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$TRAY_SCRIPT_DST`""
         $shortcut.WorkingDirectory = $INSTALL_DIR
-        $shortcut.IconLocation = "$BIN_PATH,0"
-        $icoDst = Join-Path $INSTALL_DIR "icon-b.ico"
-        $icoSrc = $null
-        if ($STAGED_DIR) {
-            $stagedIco = Join-Path $STAGED_DIR "icon-b.ico"
-            if (Test-Path -LiteralPath $stagedIco -PathType Leaf) { $icoSrc = $stagedIco }
-        }
-        if (-not $icoSrc -and $PSScriptRoot) {
-            $repoIco = Join-Path (Split-Path $PSScriptRoot -Parent) "assets\icon-b.ico"
-            if (Test-Path -LiteralPath $repoIco -PathType Leaf) { $icoSrc = $repoIco }
-        }
-        if ($icoSrc) {
-            Copy-Item -LiteralPath $icoSrc -Destination $icoDst -Force
-            $shortcut.IconLocation = $icoDst
-            Write-Host "-> Tray icon installed to $icoDst"
+        if (Test-Path -LiteralPath $iconDst -PathType Leaf) {
+            $shortcut.IconLocation = "$iconDst,0"
+        } else {
+            $shortcut.IconLocation = "$BIN_PATH,0"
         }
         $shortcut.Description = "Bridge Sessions System Tray"
         $shortcut.WindowStyle = 7  # Minimized
