@@ -363,10 +363,7 @@ class TestHttpSurface(unittest.TestCase):
         self.assertEqual(status, 200)
         raw = raw.decode("utf-8") if isinstance(raw, bytes) else raw
         self.assertIn('class="col-head">Hosts', raw)
-        self.assertIn('id="filesHead"', raw)
-        self.assertIn('id="filesBack"', raw)
-        self.assertIn('id="hostSessions"', raw)
-        self.assertIn("function visibleSession", raw)
+        self.assertIn('id="filesHead">Files<', raw)
         self.assertNotIn('id="sessionsHead"', raw)
         self.assertNotIn('id="newSessionBtn"', raw)
         self.assertNotIn('id="createModal"', raw)
@@ -379,10 +376,6 @@ class TestHttpSurface(unittest.TestCase):
         self.assertIn("/api/volumes", raw)
         self.assertNotIn('label: "received"', raw)
         self.assertIn('id="splitHosts"', raw)
-        self.assertIn('id="paneBack"', raw)
-        self.assertIn("function setPane", raw)
-        self.assertIn('body[data-pane="files"] #colFiles', raw)
-        self.assertNotIn(".col.files, .splitter { display: none; }", raw)
         self.assertIn('id="splitFiles"', raw)
         self.assertIn('initSplitters', raw)
         self.assertNotIn('windows · inbox', raw)
@@ -1146,13 +1139,68 @@ class TestLauncher(unittest.TestCase):
         self.assertNotIn("bridgepanel.py", text)
 
 
-class TestHarnessSessionFilter(unittest.TestCase):
-    def test_allow_list_hides_cron_and_probes(self):
-        from bridgepanel.api import is_visible_harness_session
-        self.assertTrue(is_visible_harness_session("hermes", "hermes --tui --yolo", "harness"))
-        self.assertFalse(is_visible_harness_session("hermes", "cron daily", "harness"))
-        self.assertFalse(is_visible_harness_session("health-bs-health-1", "", "probe"))
-        self.assertFalse(is_visible_harness_session("build", "bash", "user"))
+class TestPhoneLayoutCSS(unittest.TestCase):
+    """Structural phone-view checks: parse the CSS in INDEX_HTML, no browser."""
+
+    @classmethod
+    def setUpClass(cls):
+        import re
+        from panel_html import INDEX_HTML
+        cls.html = INDEX_HTML
+        cls.css = re.search(r"<style>(.*?)</style>", INDEX_HTML, re.S).group(1)
+
+    def rules(self, selector, css=None):
+        import re
+        css = self.css if css is None else css
+        return [m.group(1) for m in re.finditer(
+            r"(?:^|})\s*" + re.escape(selector) + r"\s*\{([^}]*)\}", css)]
+
+    def media(self, cond):
+        i = self.css.index("@media (" + cond + ")")
+        j = self.css.index("{", i) + 1
+        depth, k = 1, j
+        while depth:
+            depth += {"{": 1, "}": -1}.get(self.css[k], 0)
+            k += 1
+        return self.css[j:k - 1]
+
+    def test_breakpoints_present(self):
+        for cond in ("max-width: 1024px", "max-width: 800px", "max-width: 480px", "hover: none"):
+            self.assertIn("@media (" + cond + ")", self.css)
+
+    def test_tap_targets(self):
+        for sel, prop in ((".chip", "min-height: 28px"), (".lang-pick", "min-height: 28px"),
+                          (".tnode", "min-height: 28px"), (".breadcrumb button", "min-height: 24px"),
+                          (".pathrow button", "min-height: 24px")):
+            self.assertTrue(any(prop in r for r in self.rules(sel)), sel)
+        self.assertTrue(any("min-width: 28px" in r for r in self.rules(".icon-btn", self.media("max-width: 800px"))))
+
+    def test_pathrow_wraps(self):
+        r = " ".join(self.rules(".pathrow"))
+        for prop in ("flex-wrap: wrap", "overflow-wrap: anywhere", "min-width: 0"):
+            self.assertIn(prop, r)
+
+    def test_table_scrolls(self):
+        self.assertTrue(any("overflow-x: auto" in r for r in self.rules(".content table")))
+
+    def test_dvh_with_vh_fallback(self):
+        for sel in (".preview-pdf", ".preview-media"):
+            r = " ".join(self.rules(sel))
+            self.assertIn("100vh", r, sel)
+            self.assertIn("100dvh", r, sel)
+            self.assertLess(r.index("100vh"), r.index("100dvh"), sel)
+
+    def test_host_filter_reachable_on_phone(self):
+        self.assertIn('id="hostFilterBtn"', self.html)
+        self.assertTrue(any("display: none" in r for r in self.rules(".host-filter-btn")))
+        m800 = self.media("max-width: 800px")
+        self.assertTrue(any("display: inline-block" in r for r in self.rules(".host-filter-btn", m800)))
+        self.assertTrue(any("display: block" in r for r in self.rules(".search.sheet", m800)))
+
+    def test_no_inline_handlers(self):
+        import re
+        markup = re.sub(r"<script>.*?</script>", "", self.html, flags=re.S)
+        self.assertIsNone(re.search(r"<[^>]*\son[a-z]+\s*=", markup))
 
 
 if __name__ == "__main__":

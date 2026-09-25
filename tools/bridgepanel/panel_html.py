@@ -81,10 +81,10 @@ INDEX_HTML = r'''<!doctype html>
   .col.machines { border-right: 1px solid var(--border); }
   .col.files { border-right: 1px solid var(--border); }
   .col-scroll { flex: 1; min-height: 0; overflow-y: auto; }
-  .pane-back { display: none; }
-  .host-sessions { padding: 6px 10px 8px; border-bottom: 1px solid var(--border); font-size: 12px; }
+.host-sessions { padding: 6px 10px 8px; border-bottom: 1px solid var(--border); font-size: 12px; }
   .host-sessions .hs-title { font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--faint); margin-bottom: 4px; }
   .host-sessions .hs-row { display: flex; justify-content: space-between; gap: 8px; min-height: 28px; align-items: center; }
+  .col-head { padding: 10px 14px 8px; font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--faint); display: flex; align-items: center; justify-content: space-between; gap: 8px; }
   .col-head .count { font-family: var(--mono); font-weight: 400; letter-spacing: 0; }
   .icon-btn { width: 22px; height: 22px; border-radius: 6px; background: var(--surface2); color: var(--muted); border: 1px solid var(--border); cursor: pointer; font-size: 13px; line-height: 1; }
   .icon-btn:hover { border-color: var(--muted); color: var(--text); }
@@ -104,11 +104,11 @@ INDEX_HTML = r'''<!doctype html>
   .mrow .you { font-size: 10px; color: var(--accent); text-transform: uppercase; letter-spacing: .06em; }
 
   .filters { display: flex; gap: 4px; padding: 0 10px 8px; flex-wrap: wrap; }
-  .chip { height: 22px; padding: 0 8px; border-radius: 999px; border: 1px solid var(--border); background: transparent; color: var(--muted); font-size: 11px; cursor: pointer; }
+  .chip { min-height: 28px; padding: 0 10px; border-radius: 999px; border: 1px solid var(--border); background: transparent; color: var(--muted); font-size: 11px; cursor: pointer; }
   .chip:hover { color: var(--text); }
   .chip.active { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
-  .pathrow { display: flex; align-items: center; gap: 6px; padding: 0 12px 8px; font-family: var(--mono); font-size: 11px; color: var(--faint); }
-  .pathrow button { border: none; background: none; color: var(--accent); cursor: pointer; font: inherit; }
+  .pathrow { display: flex; align-items: center; gap: 6px; padding: 0 12px 8px; font-family: var(--mono); font-size: 11px; color: var(--faint); flex-wrap: wrap; overflow-wrap: anywhere; min-width: 0; }
+  .pathrow button { border: none; background: none; color: var(--accent); cursor: pointer; font: inherit; min-height: 24px; padding: 0 4px; overflow-wrap: anywhere; text-align: left; }
   .pathrow button:hover { text-decoration: underline; }
   .volrow { display: flex; gap: 4px; padding: 0 10px 8px; flex-wrap: wrap; align-items: center; }
   .volrow .chip .free { color: var(--faint); margin-left: 4px; font-size: 10px; }
@@ -116,7 +116,7 @@ INDEX_HTML = r'''<!doctype html>
   .viewbar { display: flex; gap: 4px; padding: 0 10px 6px; align-items: center; }
   .viewbar .icon-btn.active { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
   .tree { max-height: 36%; overflow: auto; border-bottom: 1px solid var(--border); padding: 2px 6px 8px; font-size: 12px; }
-  .tnode { display: flex; align-items: center; gap: 4px; padding: 3px 4px; cursor: pointer; border-radius: 4px; color: var(--muted); }
+  .tnode { display: flex; align-items: center; gap: 4px; min-height: 28px; padding: 3px 4px; cursor: pointer; border-radius: 4px; color: var(--muted); }
   .tnode:hover { background: var(--surface2); color: var(--text); }
   .tnode.open > .tn { color: var(--text); }
   .tnode.here { background: var(--accent-soft); color: var(--text); }
@@ -158,7 +158,7 @@ INDEX_HTML = r'''<!doctype html>
   .breadcrumb { font-family: var(--mono); font-size: 12px; color: var(--faint); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .breadcrumb .cur { color: var(--accent); }
   .breadcrumb .sep { margin: 0 6px; }
-  .breadcrumb button { border: none; background: none; color: var(--faint); cursor: pointer; font: inherit; padding: 0; }
+  .breadcrumb button { border: none; background: none; color: var(--faint); cursor: pointer; font: inherit; font-size: 12px; min-height: 24px; padding: 0 6px; }
   .breadcrumb button:hover { color: var(--accent); text-decoration: underline; }
   .toolbar { display: flex; gap: 8px; flex-shrink: 0; }
   .btn { padding: 6px 13px; border-radius: 8px; font-size: 12.5px; font-weight: 500; background: var(--surface2); color: var(--text); border: 1px solid var(--border); cursor: pointer; }
@@ -181,7 +181,7 @@ INDEX_HTML = r'''<!doctype html>
   .content pre { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 13px 15px; overflow-x: auto; margin: 12px 0; }
   .content pre code { background: none; color: var(--text); padding: 0; }
   .content blockquote { border-left: 3px solid var(--accent); padding: 2px 0 2px 14px; margin: 12px 0; color: var(--muted); font-style: italic; }
-  .content table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 13px; }
+  .content table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 13px; display: block; max-width: 100%; overflow-x: auto; }
   .content th { text-align: left; font-family: var(--mono); font-size: 11px; font-weight: 600; color: var(--faint); padding: 8px 12px; border-bottom: 1px solid var(--border); }
   .content td { padding: 8px 12px; border-bottom: 1px solid var(--border); color: var(--muted); }
   .content strong { color: var(--text); }
@@ -191,15 +191,15 @@ INDEX_HTML = r'''<!doctype html>
   .list-banner { font-size: 11px; color: var(--faint); padding: 6px 12px; border-bottom: 1px solid var(--border); }
   .skel { padding: 8px 12px; }
   .skel i { display: block; height: 11px; margin: 8px 0; border-radius: 4px; background: var(--surface2); }
-  .preview-media { max-width: 100%; max-height: calc(100vh - 180px); border-radius: 10px; border: 1px solid var(--border); background: var(--surface); }
+  .preview-media { max-width: 100%; max-height: calc(100vh - 180px); max-height: calc(100dvh - 180px); border-radius: 10px; border: 1px solid var(--border); background: var(--surface); }
   video.preview-media { width: 100%; background: #000; }
   .md-host { display: none; flex: 1; min-height: 0; }
   .md-host.on { display: block; }
   .cm-host { display: none; flex: 1; min-height: 0; }
   .cm-host.on { display: flex; flex-direction: column; min-height: 0; }
   .cm-host.on .cm-editor { flex: 1; min-height: 0; }
-  .preview-pdf { width: 100%; height: calc(100vh - 160px); border: 0; border-radius: 10px; background: var(--surface); }
-  .lang-pick { font: inherit; font-size: 12px; background: var(--surface2); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 3px 6px; max-width: 160px; }
+  .preview-pdf { width: 100%; height: calc(100vh - 160px); height: calc(100dvh - 160px); border: 0; border-radius: 10px; background: var(--surface); }
+  .lang-pick { font: inherit; font-size: 12px; min-height: 28px; background: var(--surface2); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 3px 6px; max-width: 160px; }
   .new-box { display: none; gap: 6px; padding: 0 10px 8px; align-items: center; }
   .new-box.on { display: flex; }
   .new-box input { flex: 1; min-width: 0; background: var(--surface2); border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 5px 8px; font: inherit; font-size: 12px; }
@@ -222,24 +222,34 @@ INDEX_HTML = r'''<!doctype html>
   .toast.show { opacity: 1; transform: translate(-50%, 0); }
   .toast.err { background: var(--danger); color: #fff; }
 
+  .host-filter-btn { display: none; }
+
+  @media (max-width: 1024px) {
+    .content-wrap { padding: 18px 20px; }
+    .work-top { padding: 10px 16px; }
+  }
   @media (max-width: 800px) {
-    header { height: auto; min-height: 52px; flex-wrap: wrap; gap: 8px; padding: 8px 10px; }
-    .brand .sub, .summary, .search, .avatar { display: none; }
-    .hdr-right { gap: 8px; }
-    .shell { grid-template-columns: minmax(0, 1fr); }
-    .splitter { display: none; }
-    .col, .work { display: none; }
-    body:not([data-pane]) #colHosts,
-    body[data-pane="hosts"] #colHosts,
-    body[data-pane="files"] #colFiles,
-    body[data-pane="work"] .work { display: flex; }
-    .work-top, .toolbar { flex-wrap: wrap; }
-    .content-wrap { padding: 12px; }
-    .btn, .fitem, .icon-btn, .theme-toggle { min-height: 40px; }
-    #paneBack, #filesBack { display: inline-flex; }
+    .shell { grid-template-columns: 160px minmax(0,1fr); }
+    .col.files, .splitter { display: none; }
+    .content-wrap { padding: 14px 16px; }
+    .work-top { padding: 8px 12px; flex-wrap: wrap; }
+    .icon-btn { min-width: 28px; min-height: 40px; }
+    .host-filter-btn { display: inline-block; width: 32px; height: 32px; border-radius: 8px; background: transparent; border: 1px solid var(--border); color: var(--muted); cursor: pointer; font-size: 15px; }
+    .host-filter-btn.on { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
+    .search { display: none; }
+    .search.sheet { display: block; position: fixed; z-index: 40; top: 52px; left: 0; right: 0; max-width: none; padding: 10px 12px; background: var(--surface); border-bottom: 1px solid var(--border); box-shadow: var(--shadow); }
+    .search.sheet input { height: 40px; font-size: 16px; }
+    .search.sheet .icon { left: 22px; }
+  }
+  @media (max-width: 480px) {
+    .shell { grid-template-columns: 128px minmax(0,1fr); }
+    .brand .sub, .summary { display: none; }
+    .content-wrap { padding: 10px 12px; }
+    .work-top { padding: 6px 10px; }
+    .toolbar { flex-wrap: wrap; }
   }
   @media (hover: none) {
-    .fitem .more { opacity: 1; width: 40px; height: 40px; }
+    .fitem .more { opacity: 1; width: 28px; height: 28px; }
   }
 </style>
 <link rel="stylesheet" href="__ASSET_BASE__static/toastui-editor.min.css">
@@ -250,7 +260,8 @@ INDEX_HTML = r'''<!doctype html>
 
 <header>
   <div class="brand"><span class="mark">B</span><span class="name">Bridge Panel</span><span class="sub">__BUILD_TAG__</span></div>
-  <div class="search"><span class="icon">&#8962;</span><input id="search" placeholder="Filter hosts…" aria-label="Filter hosts"></div>
+  <button type="button" class="host-filter-btn" id="hostFilterBtn" title="Filter hosts" aria-label="Filter hosts" aria-expanded="false" aria-controls="hostSearch">&#8962;</button>
+  <div class="search" id="hostSearch"><span class="icon">&#8962;</span><input id="search" placeholder="Filter hosts…" aria-label="Filter hosts"></div>
   <div class="hdr-right">
     <span class="summary" id="summary"></span>
     <button class="theme-toggle" id="themeToggle" title="Toggle theme" aria-label="Toggle theme">&#9680;</button>
@@ -265,9 +276,9 @@ INDEX_HTML = r'''<!doctype html>
   </aside>
   <div class="splitter" id="splitHosts" role="separator" aria-orientation="vertical" aria-label="Resize hosts pane"></div>
   <aside class="col files" id="colFiles">
-    <div class="col-head"><button class="btn pane-back" id="filesBack" type="button">Back</button><span id="filesHead">Files</span><button class="icon-btn" id="refreshBtn" title="Refresh" aria-label="Refresh files">↻</button></div>
-    <div id="hostSessions" class="host-sessions" hidden></div>
-    <div class="filters" id="filters">
+    <div class="col-head"><span id="filesHead">Files</span><button class="icon-btn" id="refreshBtn" title="Refresh" aria-label="Refresh files">↻</button></div>
+        <div id="hostSessions" class="host-sessions" hidden></div>
+<div class="filters" id="filters">
       <button class="chip active" data-filter="all">All</button>
       <button class="chip" data-filter="md">Markdown</button>
       <button class="chip" data-filter="image">Images</button>
@@ -303,7 +314,6 @@ INDEX_HTML = r'''<!doctype html>
   <div class="splitter" id="splitFiles" role="separator" aria-orientation="vertical" aria-label="Resize files pane"></div>
   <main class="work">
     <div class="work-top">
-      <button class="btn pane-back" id="paneBack" type="button">Back</button>
       <div class="breadcrumb" id="breadcrumb"></div>
       <div class="toolbar">
         <button class="btn" id="editBtn" style="display:none">Edit</button>
@@ -363,12 +373,23 @@ INDEX_HTML = r'''<!doctype html>
   const listMem = {};
 
   const $ = s => document.querySelector(s);
-  function narrow() { return window.matchMedia("(max-width: 800px)").matches; }
-  function setPane(name) {
-    if (!narrow()) { document.body.removeAttribute("data-pane"); return; }
-    document.body.dataset.pane = name;
-  }
   const $$ = s => Array.from(document.querySelectorAll(s));
+  const HARNESS_NAMES = frozenset({"hermes","claude-code","codex","opencode","grok","copilot","cursor","kimi","devin","shell"});
+  function isVisibleHarness(name){return name && !name.startsWith('cron') && HARNESS_NAMES.has(name);}
+  async function refreshHostSessions(name){
+    const el = document.getElementById("hostSessions");
+    if (!el) return;
+    if (!name) { el.hidden = true; el.textContent = ""; return; }
+    let rows = [];
+    try { rows = await apiCall("/sessions", name); } catch (e) {}
+    const visible = Array.isArray(rows) ? rows.filter(r => isVisibleHarness(((r && r.name) || "").trim())) : [];
+    if (!visible.length) { el.hidden = true; el.textContent = ""; return; }
+    el.hidden = false;
+    el.innerHTML = `<div class="hs-title">sessions (harness)</div>` + visible.map(r => (
+      `<div class="hs-row"><span>${esc(((r && r.name) || ""))}</span><span>${esc(((r && r.state) || ""))}</span></div>`
+    )).join("");
+  }
+
   const esc = s => String(s).replace(/[&<>\"']/g, c =>
     ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
   const LANG_TABLE = __LANG_TABLE__;
@@ -703,30 +724,8 @@ INDEX_HTML = r'''<!doctype html>
     out.sort((a, b) => a.name.localeCompare(b.name, undefined, {sensitivity:"base"})); // Alphabetical by machine name
     return out;
   }
-  function visibleSession(s) {
-    const name = String(s && s.name || "");
-    const cmd = String(s && s.command || "");
-    const kind = String(s && s.kind || "").toLowerCase();
-    const blob = (name + " " + cmd).toLowerCase();
-    if (!name || blob.includes("cron") || blob.includes("agent job")) return false;
-    if (kind === "probe" || /^(health-|cmd-|oneshot-|script-|hcheck-|vcheck-|tty-)/.test(name)) return false;
-    return ["hermes","claude-code","codex","opencode","grok","copilot","cursor","kimi","devin","shell"].includes(name);
-  }
-  function sessionsForHost(name) {
-    if (!name) return [];
-    if (mesh.node === name) return (mesh.sessions || []).filter(visibleSession);
-    const peer = (mesh.peers || []).find(p => p.name === name);
-    return ((peer && peer.sessions) || []).filter(visibleSession);
-  }
-  function renderHostSessions() {
-    const el = $("#hostSessions");
-    if (!el) return;
-    if (!selMachine) { el.hidden = true; el.innerHTML = ""; return; }
-    const rows = sessionsForHost(selMachine);
-    el.hidden = false;
-    el.innerHTML = "<div class=\"hs-title\">Sessions</div>" + (rows.length
-      ? rows.map(s => "<div class=\"hs-row\"><span>" + esc(s.name) + "</span><span>" + esc(s.state || "") + "</span></div>").join("")
-      : "<div class=\"empty\">No harness sessions.</div>");
+  function selectedHost() {
+    return machineList().find(m => m.name === selMachine) || null;
   }
   function renderMachines() {
     const list = machineList().filter(m => !query || m.name.toLowerCase().includes(query));
@@ -741,7 +740,6 @@ INDEX_HTML = r'''<!doctype html>
           (m.you ? "<span class=\"you\">you</span>" : "") + "</div>";
       }).join("");
     $("#machineCount").textContent = list.length + " shown";
-    renderHostSessions();
     const online = machineList().filter(m => machineStatus(m) !== "offline").length;
     const total = machineList().length;
     if (mesh.offline && !mesh.node) $("#summary").innerHTML = "<b>mesh offline</b>";
@@ -949,7 +947,6 @@ INDEX_HTML = r'''<!doctype html>
   }
 
   async function openFile(name, kind) {
-    setPane("work");
     selName = name;
     selKind = kind;
     curRaw = "";
@@ -1041,7 +1038,6 @@ INDEX_HTML = r'''<!doctype html>
     updateDestHint();
     await loadVolumes();
     await loadListing();
-    setPane("files");
   }
 
   function bufToB64(buf) {
@@ -1075,6 +1071,13 @@ INDEX_HTML = r'''<!doctype html>
     await loadListing(true);
   }
 
+  $("#hostFilterBtn").addEventListener("click", () => {
+    const box = $("#hostSearch"), on = !box.classList.contains("sheet");
+    box.classList.toggle("sheet", on);
+    $("#hostFilterBtn").classList.toggle("on", on);
+    $("#hostFilterBtn").setAttribute("aria-expanded", on ? "true" : "false");
+    if (on) $("#search").focus();
+  });
   $("#search").addEventListener("input", e => { query = e.target.value.trim().toLowerCase(); renderMachines(); });
   $("#fileSearch").addEventListener("input", e => { fileQuery = e.target.value.trim().toLowerCase(); renderFiles(); });
   async function jumpToPath(raw) {
@@ -1110,12 +1113,6 @@ INDEX_HTML = r'''<!doctype html>
     applyTheme(theme === "dark" ? "light" : "dark");
     remountMd();
   });
-  $("#paneBack").addEventListener("click", () => {
-    const pane = document.body.dataset.pane || "hosts";
-    setPane(pane === "work" ? "files" : "hosts");
-  });
-  $("#filesBack").addEventListener("click", () => setPane("hosts"));
-  window.addEventListener("resize", () => { if (!narrow()) setPane("hosts"); });
   $("#refreshBtn").addEventListener("click", () => loadListing(true));
   const treeBtn = $("#treeToggle");
   if (treeBtn) treeBtn.addEventListener("click", () => toggleTree());
