@@ -2,7 +2,7 @@
 
 ## Supported version
 
-`26.09.24-a1` is the current release line. The repository stamps the same version in `VERSION`, in the installer default tag, and in the binary itself. Upgrade older builds before reporting unless you are reproducing a regression that requires the older code.
+`26.09.25` is the working line in this tree. The last published GitHub release is `v26.09.24-a1`. This tree stamps `26.09.25` in `VERSION` and in the installer default tag. That tag is not published yet. Do not treat the installer default as a downloadable release until the tag exists. Upgrade older builds before reporting unless you are reproducing a regression that requires the older code.
 
 The previous release lines include `26.08.31-release` and `26.08.27-r1`. Mixed lines on the same mesh still talk to each other through the protocol compatibility profile; mixed major protocol lines may not. The release pipeline enforces version negotiation at handshake time.
 

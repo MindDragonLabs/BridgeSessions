@@ -2,6 +2,14 @@
 
 Notable user-visible changes. Git history contains implementation-level detail.
 
+## 26.09.25
+
+### Changed
+
+- Local main is a clean tree based on published `v26.09.24-a1`, stamped `26.09.25`.
+- This commit is a beta plan. It does not publish binaries. Do not push it until a real release exists.
+- Beta scope is in `TODO-2026-09-25.md` and `docs/plans/26.09.25-beta.md`.
+
 ## 26.09.24-a1
 
 ### Fixed

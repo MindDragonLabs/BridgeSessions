@@ -9,9 +9,9 @@
   <key>CFBundleIdentifier</key>
   <string>com.minddragon.bridgesessions.menubar</string>
   <key>CFBundleVersion</key>
-  <string>26.09.24-a1</string>
+  <string>26.09.25</string>
   <key>CFBundleShortVersionString</key>
-  <string>26.09.24-a1</string>
+  <string>26.09.25</string>
   <key>CFBundleIconFile</key>
   <string>AppIcon</string>
   <key>CFBundleIconName</key>
