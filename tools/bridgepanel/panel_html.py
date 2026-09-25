@@ -229,8 +229,10 @@ INDEX_HTML = r'''<!doctype html>
     .work-top { padding: 10px 16px; }
   }
   @media (max-width: 800px) {
-    .shell { grid-template-columns: 160px minmax(0,1fr); }
-    .col.files, .splitter { display: none; }
+    .shell { grid-template-columns: 1fr; grid-template-rows: minmax(0, 30vh) minmax(0, 25vh) minmax(0, 1fr); }
+    .splitter { display: none; }
+    .col, .work { overflow: auto; min-height: 0; }
+    .col.files { border-right: 0; border-top: 1px solid var(--border); }
     .content-wrap { padding: 14px 16px; }
     .work-top { padding: 8px 12px; flex-wrap: wrap; }
     .icon-btn { min-width: 28px; min-height: 40px; }
@@ -242,7 +244,7 @@ INDEX_HTML = r'''<!doctype html>
     .search.sheet .icon { left: 22px; }
   }
   @media (max-width: 480px) {
-    .shell { grid-template-columns: 128px minmax(0,1fr); }
+    .shell { grid-template-columns: 1fr; grid-template-rows: minmax(0, 32vh) minmax(0, 28vh) minmax(0, 1fr); }
     .brand .sub, .summary { display: none; }
     .content-wrap { padding: 10px 12px; }
     .work-top { padding: 6px 10px; }
@@ -374,14 +376,18 @@ INDEX_HTML = r'''<!doctype html>
 
   const $ = s => document.querySelector(s);
   const $$ = s => Array.from(document.querySelectorAll(s));
-  const HARNESS_NAMES = frozenset({"hermes","claude-code","codex","opencode","grok","copilot","cursor","kimi","devin","shell"});
+  const HARNESS_NAMES = new Set(["hermes","claude-code","codex","opencode","grok","copilot","cursor","kimi","devin","shell"]);
   function isVisibleHarness(name){return name && !name.startsWith('cron') && HARNESS_NAMES.has(name);}
   async function refreshHostSessions(name){
     const el = document.getElementById("hostSessions");
     if (!el) return;
     if (!name) { el.hidden = true; el.textContent = ""; return; }
     let rows = [];
-    try { rows = await apiCall("/sessions", name); } catch (e) {}
+    try {
+      const data = await api("/api/machines");
+      const m = (data && data.peers || []).find(p => p.name === name);
+      rows = (m && m.sessions) || [];
+    } catch (e) {}
     const visible = Array.isArray(rows) ? rows.filter(r => isVisibleHarness(((r && r.name) || "").trim())) : [];
     if (!visible.length) { el.hidden = true; el.textContent = ""; return; }
     el.hidden = false;
