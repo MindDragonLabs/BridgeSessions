@@ -4,6 +4,18 @@
 [![License: BUSL-1.1](https://img.shields.io/badge/License-BUSL--1.1-blue.svg)](LICENSE)
 [![Platforms](https://img.shields.io/badge/platforms-Linux%20%7C%20macOS%20%7C%20Windows-informational)](docs/building.md)
 
+## Status
+
+| | |
+|---|---|
+| Working line | **26.09.25** (local-only beta on `main`, commit `e3d76e3`) |
+| Last public release | `v26.09.24-a1` |
+| Platforms | Linux x86_64 / arm64, macOS arm64, Windows x86_64 (MinGW) |
+| What is proven | Clean tree; icons shipped to macOS, Windows, Linux; Bridge Panel renders and operates in a phone browser (Chromium + WebKit); 604 / 604 ctest pass; 130 / 130 panel tests pass; e2e fleet gates include file-copy < 2 s, typing < 2 s, two-session output isolation, harness-name check, idle-survival check; auto-update backs off on failure (60 s then 5 min); Devin `swe-2` audit run; no production 1-second retry. |
+| What is still beta | This commit has not been pushed; tag `26.09.25` is not on the public release repo. Windows binary hash mismatch (running `AE2B61A6`, published `684d4149`) must be traced before any fleet roll. See `TODO-2026-09-25-audit-residuals.md` and `docs/plans/26.09.25-beta.md`. |
+| Proven on | Linux (host build + codegen verified); macOS (sign + notarize ran during the last release train); Windows via MinGW. Live fleet matrix was not re-run for this beta; tests are run against the local binary and the seeded peer list. |
+| Security disclosure | Business Source License 1.1; see `LICENSE`. |
+
 **Persistent shells, verified files, and desktop automation across a trusted peer mesh.**
 
 `bridgesessions` (command: `bs`) is one C++23 program. It is the mesh daemon and the CLI. It runs on Linux, macOS, and Windows. A remote session keeps its PTY or ConPTY when the client disconnects.

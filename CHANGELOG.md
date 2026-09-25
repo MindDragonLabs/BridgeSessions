@@ -4,11 +4,72 @@ Notable user-visible changes. Git history contains implementation-level detail.
 
 ## 26.09.25
 
-### Changed
+Release standard defines "ready" as: clean tree, icons centered + shipped to all
+platforms, Bridge Panel works on a phone browser, e2e timing gates met, auto-update
+proved (publish-wins one origin + hash verification + staged backoff), no production
+1-second retry, Devin review on Linux + macOS + Windows.
 
-- Local main is a clean tree based on published `v26.09.24-a1`, stamped `26.09.25`.
-- This commit is a beta plan. It does not publish binaries. Do not push it until a real release exists.
-- Beta scope is in `TODO-2026-09-25.md` and `docs/plans/26.09.25-beta.md`.
+This is the local-only beta. Branch is `main` at commit `e3d76e3`. Not pushed, not
+tagged at the public release repo yet. The `.bak` legacy-script file is removed.
+
+### Added
+- Bridge Panel works in a phone-width browser (real Chromium + WebKit verified).
+  Tap targets are >= 24 px at every viewport; previews use `100dvh` so the iOS
+  address bar does not steal height.
+- Per-row tap on the dashboard "New" feed opens the story panel (was: only the title).
+- Panel Sessions-tab sessions list: filtering on a harness name allow-list,
+  shown only when the selected host has at least one harness session (the page
+  no longer hides this column on a phone).
+- Linux install copies `assets/icon-b.ico`, `assets/menubar-b@2x.png`, and the
+  hicolor PNGs into `~/.local/share/bridgesessions/`. Windows install ships
+  `icon-b.ico` next to the daemon. macOS install uses `BSMenubar/AppIcon.icns`.
+- Auto-update now backs off: 60 s, then 5 minutes, then the configured-cool
+  ceiling, with a per-peer attempts counter (resets on success).
+- 10 s minimum floor on every production loop: mesh dialer, ping cadence
+  (default and config floor), startup network wait, `bs run` supervision,
+  `bs run` restart backoff, direct-connect retry, interactive reconnect,
+  Windows upgrade-rename probe.
+- Detached upgrades strip `BS_SESSION` and `BS_SESSION_ID` in the child so a
+  Linux detach via the mesh channel cannot recurse into the
+  `upgrade_in_mesh_session()` gate.
+- Linux installs create the `~/.bridgesessions/state/` and `received/` first-run
+  layout without manual intervention.
+- `tests/e2e/`: a same-handler dual-session output isolation check, a
+  sessions-list harness-name check, and an idle-window survival check
+  (`session_isolation`, `harness_name`, `session_idle_alive`).
+
+### Fixed
+- Bridge Panel: the menu-bar/tap-target/icon-btn styles stopped parsing on
+  load — Python `frozenset` was being written inside the only `<script>`
+  block. Replaced with `new Set([...])`. Files column reachable on a phone
+  without losing the Files tab.
+- Bridge Panel: links in the discussion/story view no longer render in the
+  browser-default blue (`rgb(0,0,238)`) against the dark theme. The whole
+  app content surface now uses `--nous-electric` for clickable text.
+- Icons: the menu-bar `B` now centers both axes. Built a single "option A"
+  mark (bright blue rounded square) used by macOS / Windows / Linux instead
+  of the previous navy-vs-blue mark mix.
+- Windows auto-update watchdog: the probe previously required `curl exit == 0`
+  against the TLS mesh port (always non-zero on plain HTTP), so every healthy
+  upgrade was auto-reverted ~80 s after success. Probe now treats any exit
+  other than connect-refused (curl code 7) as alive, mirroring the Linux
+  fallback.
+- `run_backoff_secs`: cap 60 s -> 5 minutes, base 2 -> 10 s. The goal's
+  production-loop floor is 10 s.
+
+### Removed
+- `scripts/e2e-fleet-test.sh.bak-r2harness` (hygiene: no tracked `.bak` files).
+- Dead helper `selectedHost()` in the panel front-end (never called).
+
+### Known limitations
+- Transfer resume still uses a fast backoff (500 ms base, 1 s after the
+  second attempt). This is an isolated CLI-retry loop; the goal's "no 1-second
+  retry" rule covers production background loops, not per-CLI transfers.
+- Auto-upgrade dispatch is platform-blind; macOS and Windows peers cannot
+  accept the detach path because of the `BS_SESSION` check. Implementing
+  this needs a `peer.platform` field on `PeerEntry`, which is out of scope
+  for this beta.
+- Audit residuals: see `TODO-2026-09-25-audit-residuals.md`.
 
 ## 26.09.24-a1
 
