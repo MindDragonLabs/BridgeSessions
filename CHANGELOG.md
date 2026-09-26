@@ -2,6 +2,34 @@
 
 Notable user-visible changes. Git history contains implementation-level detail.
 
+## 26.09.28 (planned — Monday)
+
+Working line for the next release. VERSION stays `26.09.25-r1` until the release
+train runs Monday; the public installer keeps pointing at the published
+`v26.09.25-r1` assets.
+
+Landed since v26.09.25-r1 (already on main):
+
+### Fixed
+
+- One-shot CLI retries (`bs shell --cmd`, file ops) stay fast-bounded
+  (250/500/750 ms, 3 attempts). The 10 s floor applies to background loops only;
+  a dead peer errors in seconds instead of hanging ~10 s
+  (`test_daemon_disconnect_returns_error_not_hang`, CI ubuntu-22.04 leg).
+
+Queued for 26.09.28 (tracked in `docs/plans/26.09.28.md`):
+
+- macOS in-band upgrade must update `~/Applications/BridgeSessions.app`, not only
+  `/Applications` (found during the r1 fleet roll — daemon binaries on user-path
+  installs were skipped).
+- btcr systemd unit flapping (`activating (auto-restart)`, Main PID exits 0).
+- E2e fleet matrix run against the r1 binary (goal item 4).
+- Auto-update canary proof: one successful swap + one forced bad-hash refusal
+  (goal item 6).
+- mysqlknights (SSH key), devin-mac (no SSH user/key named) — still behind.
+- Deferred Devin items: sessions-tab server integration test; platform-blind
+  auto-upgrade dispatch (needs `peer.platform`).
+
 ## 26.09.25-r1
 
 Release standard defines "ready" as: clean tree, icons centered + shipped to all
