@@ -11,7 +11,7 @@ set -euo pipefail
 # On Windows (PowerShell):
 #   irm https://raw.githubusercontent.com/MindDragonLabs/BridgeSessions/main/scripts/install.ps1 | iex
 
-TAG="${BRIDGESESSIONS_TAG:-26.09.25}"
+TAG="${BRIDGESESSIONS_TAG:-26.09.25-r1}"
 if [[ ! "$TAG" =~ ^[A-Za-z0-9][A-Za-z0-9.-]*$ ]]; then
   echo "ERROR: invalid release tag" >&2
   exit 2
