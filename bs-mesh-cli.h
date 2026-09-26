@@ -2593,11 +2593,16 @@ public:
             const bool retryable = result.fail == ConnectFailReason::Timeout ||
                                    result.fail == ConnectFailReason::Refused;
             if (!retryable || attempt == max_attempts - 1) break;
-            // Exponential backoff: 10s, 20s, 40s, ... capped at 5m.
-            const int shift = std::min(attempt, 5);
-            const int delay_secs = std::min(300, 10 * (1 << shift));
+            // Fast bounded retry: 250ms, 500ms, 750ms, capped by max_attempts.
+            // This is the one-shot CLI path (`bs shell --cmd`, file ops), not a
+            // production background loop — a dead peer must error in seconds
+            // (tests/test_daemon_restart_disconnect.py requires < 8s). The 10s
+            // floor applies to the mesh dialer / ping / supervision / interactive
+            // reconnect loops only.
+            int base_ms = 250 * (attempt + 1);
+            int jitter = std::rand() % (base_ms / 4 + 1);
             std::this_thread::sleep_for(
-                std::chrono::seconds(delay_secs));
+                std::chrono::milliseconds(base_ms + jitter));
         }
         return result;
     }
