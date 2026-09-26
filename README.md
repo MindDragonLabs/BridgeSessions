@@ -8,7 +8,7 @@
 
 | | |
 |---|---|
-| Working line | **26.09.25** (local-only beta on `main`, commit `e3d76e3`) |
+| Working line | **26.09.25** (local-only beta on `main`, commit pending-r1) |
 | Last public release | `v26.09.24-a1` |
 | Platforms | Linux x86_64 / arm64, macOS arm64, Windows x86_64 (MinGW) |
 | What is proven | Clean tree; icons shipped to macOS, Windows, Linux; Bridge Panel renders and operates in a phone browser (Chromium + WebKit); 604 / 604 ctest pass; 130 / 130 panel tests pass; e2e fleet gates include file-copy < 2 s, typing < 2 s, two-session output isolation, harness-name check, idle-survival check; auto-update backs off on failure (60 s then 5 min); Devin `swe-2` audit run; no production 1-second retry. |

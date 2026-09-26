@@ -2,14 +2,14 @@
 
 Notable user-visible changes. Git history contains implementation-level detail.
 
-## 26.09.25
+## 26.09.25-r1
 
 Release standard defines "ready" as: clean tree, icons centered + shipped to all
 platforms, Bridge Panel works on a phone browser, e2e timing gates met, auto-update
 proved (publish-wins one origin + hash verification + staged backoff), no production
 1-second retry, Devin review on Linux + macOS + Windows.
 
-This is the local-only beta. Branch is `main` at commit `e3d76e3`. Not pushed, not
+This is the local-only beta. Branch is `main`. Published as prerelease v26.09.25-r1. Not pushed, not
 tagged at the public release repo yet. The `.bak` legacy-script file is removed.
 
 ### Added
