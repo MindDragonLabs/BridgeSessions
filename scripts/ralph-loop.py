@@ -79,6 +79,10 @@ def ask_model(messages: list[dict], max_tokens: int = 4096) -> str:
         "messages": messages,
         "temperature": 0.2,
         "max_tokens": max_tokens,
+        # ollama defaults num_ctx to 2048 — silently truncating the 30k-token
+        # prompt to nothing, which is how the model ended up hallucinating
+        # file contents. 64k covers both focus files + history.
+        "options": {"num_ctx": 65536},
     }).encode()
     req = urllib.request.Request(MODEL_URL, data=body,
                                  headers={"Content-Type": "application/json"})
