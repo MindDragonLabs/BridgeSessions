@@ -107,7 +107,22 @@ def extract_diff(text: str) -> str | None:
 
 
 def apply_replacements(repls: list[tuple[str, str, str]]) -> tuple[bool, str]:
+    # Models hallucinate familiar-but-wrong paths (llama.cpp's src/config.cpp
+    # is the classic). Redirect known aliases to the real editable file.
+    REDIRECT = {
+        "src/config.cpp": "bs-config.h",
+        "config.cpp": "bs-config.h",
+        "config.h": "bs-config.h",
+        "mesh_config.cpp": "bs-config.h",
+        "mesh-config.cpp": "bs-config.h",
+        "bridgesessions.cpp": "main.cpp",
+        "src/main.cpp": "main.cpp",
+        "transfer.cpp": "bs-mesh-transfer.h",
+        "transfer.h": "bs-mesh-transfer.h",
+        "mesh-transfer.h": "bs-mesh-transfer.h",
+    }
     for path, old, new in repls:
+        path = REDIRECT.get(path, path.lstrip("./"))
         if path not in EDITABLE:
             return False, f"scope violation: {path}"
         p = REPO / path
@@ -158,7 +173,8 @@ Goals, in order:
 3. Lower keystroke echo latency (key_ms p50 — lower is better).
 
 Hard constraints:
-- Prefer `replace` blocks — far more reliable than diffs. Format:
+- Use ONLY `replace` blocks. NEVER emit unified diffs — they get rejected.
+  Format:
   ```replace
   FILE: bs-mesh-transfer.h
   <<<<<<<
@@ -168,8 +184,8 @@ Hard constraints:
   >>>>>>>
   ```
   The old text must appear EXACTLY ONCE in the file. You may emit several
-  blocks. As a fallback you may emit one unified diff in a ```diff fence.
-- Only touch these files: {editable}
+  blocks. The FILE path must be one of exactly these names (no src/ prefix,
+  no .cpp renames): {editable}
 - Do not touch UI/rendering/TUI code paths; rendering quality must not change.
 - Do not weaken security: no removing TLS, hash checks, auth, or pinning.
 - Small, surgical changes. One idea per iteration.
