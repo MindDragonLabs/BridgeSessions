@@ -3197,8 +3197,19 @@ int bridgesessions_main(int argc, char** argv) {
 
         const std::string base_url =
             "https://github.com/MindDragonLabs/BridgeSessions/releases/download/v" + tag;
-        const std::string download_url = base_url + "/" + binary_name;
-        const std::string sums_url = base_url + "/SHA256SUMS";
+        // Test/QA hook: BRIDGESESSIONS_UPGRADE_BASE_URL redirects the anonymous
+        // download root (binary + SHA256SUMS) to a staging server. Used by the
+        // forced bad-hash refusal canary proof. The SHA256 compare still gates
+        // every swap — the override cannot bypass hash verification.
+        // Token-authenticated API lookup (private repo) is unaffected.
+        std::string effective_base_url = base_url;
+        if (const char* ovr = std::getenv("BRIDGESESSIONS_UPGRADE_BASE_URL");
+            ovr && *ovr) {
+            effective_base_url = ovr;
+            std::cerr << "upgrade: using BRIDGESESSIONS_UPGRADE_BASE_URL override\n";
+        }
+        const std::string download_url = effective_base_url + "/" + binary_name;
+        const std::string sums_url = effective_base_url + "/SHA256SUMS";
 
         // Resolve download targets. Token source (optional, for private
         // repo operation): BRIDGESESSIONS_GITHUB_TOKEN, else GH_TOKEN, else
