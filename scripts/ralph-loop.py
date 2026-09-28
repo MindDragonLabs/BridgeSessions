@@ -87,12 +87,38 @@ def ask_model(messages: list[dict], max_tokens: int = 4096) -> str:
     return data["choices"][0]["message"]["content"]
 
 
+def extract_replacements(text: str) -> list[tuple[str, str, str]]:
+    """Parse `replace` blocks: FILE / <<<<<<< old / ======= / >>>>>>> new."""
+    out: list[tuple[str, str, str]] = []
+    for m in re.finditer(
+        r"```replace\nFILE:\s*(\S+)\n<<<<<<<+\n(.*?)\n=======+\n(.*?)\n>>>>>>>+[^\n]*\n```",
+        text, re.S,
+    ):
+        out.append((m.group(1), m.group(2), m.group(3)))
+    return out
+
+
 def extract_diff(text: str) -> str | None:
     m = re.search(r"```(?:diff|patch)?\n(.*?)```", text, re.S)
     candidate = m.group(1) if m else text
     if "--- " in candidate and "+++ " in candidate and "@@" in candidate:
         return candidate
     return None
+
+
+def apply_replacements(repls: list[tuple[str, str, str]]) -> tuple[bool, str]:
+    for path, old, new in repls:
+        if path not in EDITABLE:
+            return False, f"scope violation: {path}"
+        p = REPO / path
+        if not p.exists():
+            return False, f"missing file: {path}"
+        content = p.read_text()
+        n = content.count(old)
+        if n != 1:
+            return False, f"old block occurs {n}x in {path} (need exactly 1)"
+        p.write_text(content.replace(old, new))
+    return True, ""
 
 
 def touched_files(diff: str) -> list[str]:
@@ -132,15 +158,31 @@ Goals, in order:
 3. Lower keystroke echo latency (key_ms p50 — lower is better).
 
 Hard constraints:
-- Output ONE unified diff (```diff fenced) against the current tree. Nothing else.
+- Prefer `replace` blocks — far more reliable than diffs. Format:
+  ```replace
+  FILE: bs-mesh-transfer.h
+  <<<<<<<
+  <exact text copied verbatim from the current tree>
+  =======
+  <replacement text>
+  >>>>>>>
+  ```
+  The old text must appear EXACTLY ONCE in the file. You may emit several
+  blocks. As a fallback you may emit one unified diff in a ```diff fence.
 - Only touch these files: {editable}
 - Do not touch UI/rendering/TUI code paths; rendering quality must not change.
 - Do not weaken security: no removing TLS, hash checks, auth, or pinning.
-- Small, surgical changes. One idea per diff.
+- Small, surgical changes. One idea per iteration.
 - The benchmark runs two daemons on 127.0.0.1 loopback. Throughput on raw
   loopback should reach multiple GiB/s; current bottleneck is inside our
   framing/crypto/chunking pipeline.
 """.format(editable=", ".join(EDITABLE))
+
+# Files the model sees in full each iteration. Kept tight on purpose: a 30B
+# model with a huge context is slow and loses focus. It can read anything in
+# EDITABLE on the next turn by asking — but in practice these two carry the
+# transfer hot path and the tunables.
+FOCUS_FILES = ["bs-mesh-transfer.h", "bs-config.h"]
 
 
 def main() -> int:
@@ -167,10 +209,10 @@ def main() -> int:
     while it < MAX_ITERS:
         it += 1
         target_files = []
-        for f in EDITABLE:
+        for f in FOCUS_FILES:
             p = REPO / f
             if p.exists():
-                target_files.append(f"===== {f} =====\n" + p.read_text()[:60000])
+                target_files.append(f"===== {f} =====\n" + p.read_text()[:80000])
         context = "\n\n".join(target_files)
         user_msg = (
             f"Current best score: {best_score:.1f}\n"
@@ -189,27 +231,36 @@ def main() -> int:
             time.sleep(30)
             continue
 
-        diff = extract_diff(reply)
-        if not diff:
-            log({"event": "no_diff", "iter": it})
-            history.append(f"iter {it}: model produced no parseable diff")
-            continue
+        repls = extract_replacements(reply)
+        if repls:
+            run(["git", "checkout", "--", "."])
+            ok, err = apply_replacements(repls)
+            if not ok:
+                log({"event": "apply_fail", "iter": it, "err": err[:300]})
+                history.append(f"iter {it}: replace failed: {err[:150]}")
+                continue
+        else:
+            diff = extract_diff(reply)
+            if not diff:
+                log({"event": "no_diff", "iter": it})
+                history.append(f"iter {it}: model produced no parseable diff")
+                continue
 
-        bad = [f for f in touched_files(diff) if f not in EDITABLE]
-        if bad:
-            log({"event": "scope_violation", "iter": it, "files": bad})
-            history.append(f"iter {it}: tried to touch {bad} — rejected")
-            continue
+            bad = [f for f in touched_files(diff) if f not in EDITABLE]
+            if bad:
+                log({"event": "scope_violation", "iter": it, "files": bad})
+                history.append(f"iter {it}: tried to touch {bad} — rejected")
+                continue
 
-        run(["git", "checkout", "--", "."])
-        ap = subprocess.run(["git", "apply", "--check", "-"], input=diff,
-                            cwd=REPO, capture_output=True, text=True)
-        if ap.returncode != 0:
-            log({"event": "apply_fail", "iter": it, "err": ap.stderr[-300:]})
-            history.append(f"iter {it}: diff did not apply: {ap.stderr[-120:]}")
-            continue
-        subprocess.run(["git", "apply", "-"], input=diff, cwd=REPO,
-                       capture_output=True, text=True)
+            run(["git", "checkout", "--", "."])
+            ap = subprocess.run(["git", "apply", "--check", "-"], input=diff,
+                                cwd=REPO, capture_output=True, text=True)
+            if ap.returncode != 0:
+                log({"event": "apply_fail", "iter": it, "err": ap.stderr[-300:]})
+                history.append(f"iter {it}: diff did not apply: {ap.stderr[-120:]}")
+                continue
+            subprocess.run(["git", "apply", "-"], input=diff, cwd=REPO,
+                           capture_output=True, text=True)
 
         ok, build_err = build()
         if not ok:
@@ -251,7 +302,7 @@ def main() -> int:
             run(["git", "commit", "-q", "-m",
                  f"ralph iter {it}: score {best_score:.1f} -> {cs:.1f}"])
             log({"event": "accept", "iter": it, "old": best_score, "new": cs,
-                 "bench": cand, "diff_head": diff[:400]})
+                 "bench": cand})
             best_score = cs
             base = cand
             history.append(f"iter {it}: ACCEPTED score {cs:.1f}")
