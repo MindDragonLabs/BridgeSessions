@@ -27,6 +27,16 @@ Landed since v26.09.25-r1 (already on main):
 
 ### Added
 
+- cua-driver-rs backend for `bs cua` (trycua/cua v0.30.3). When a driver
+  binary and its user-session daemon are present, BS verbs (screen_info,
+  capture, key, text, click, wheel) route through it with `scope: "desktop"`,
+  ahead of the `--cua-helper`/native chain. Strictly additive: any failure
+  falls through; `BS_CUA_DRIVER=0` opts out. Calls run through a bounded
+  executor (20 s default, `BS_CUA_DRIVER_TIMEOUT_MS` override) because the
+  driver hangs against a dead display server. The installer fetches the pinned
+  platform binary and verifies it against the upstream checksums manifest
+  (`BS_NO_CUA_DRIVER=1` skips). mouse_move stays on the native path (the
+  driver only moves its synthetic agent cursor).
 - `BRIDGESESSIONS_UPGRADE_BASE_URL` staging override for the upgrade path.
   Binary + SHA256SUMS downloads can be redirected to a staging server for QA;
   the SHA256 compare still gates every swap. Proven by the forced bad-hash
