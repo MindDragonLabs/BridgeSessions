@@ -681,9 +681,55 @@ TOTAL=$((PASS + FAIL + SKIP))
 echo "  pass=$PASS fail=$FAIL skip=$SKIP total=$TOTAL"
 echo "  finished: $(ts)"
 
+# Mandatory-gate enforcement (astra audit 2026-09-26): a SKIP or missing
+# mandatory gate is not a pass. The mandatory set is the release-qualifying
+# list; every tested peer must PASS each one.
+MANDATORY_GATES=(shell_typing file_send_fast session_isolation harness_name session_idle_alive)
+MANDATORY_FAIL=0
+for peer in "${PEERS[@]}"; do
+  for gate in "${MANDATORY_GATES[@]}"; do
+    found=""
+    for r in "${RESULTS[@]}"; do
+      IFS='|' read -r status rpeer feature detail <<< "$r"
+      if [[ "$rpeer" == "$peer" && "$feature" == "$gate" ]]; then
+        found="$status"
+        break
+      fi
+    done
+    if [[ "$found" != "PASS" ]]; then
+      echo "  GATE  $peer / $gate: ${found:-MISSING}"
+      MANDATORY_FAIL=1
+    fi
+  done
+done
+
+# Platform coverage: the release-qualifying matrix must touch Linux, macOS,
+# and Windows. Enforced when running --all (fleet sweep); explicit peer lists
+# are exempt (targeted runs).
+PLATFORM_FAIL=0
+if [[ $ALL_PEERS -eq 1 ]]; then
+  declare -A SEEN_OS=()
+  for r in "${RESULTS[@]}"; do
+    IFS='|' read -r status rpeer feature detail <<< "$r"
+    if [[ "$feature" == "os_detect" && "$status" == "PASS" ]]; then
+      SEEN_OS["$detail"]=1
+    fi
+  done
+  for want in linux macos windows; do
+    if [[ -z "${SEEN_OS[$want]:-}" ]]; then
+      echo "  COVERAGE  missing platform: $want"
+      PLATFORM_FAIL=1
+    fi
+  done
+fi
+
 if [[ -n "$JSON_OUT" ]]; then
   write_json "$JSON_OUT"
   echo "  json: $JSON_OUT"
+fi
+
+if [[ $MANDATORY_FAIL -eq 1 || $PLATFORM_FAIL -eq 1 ]]; then
+  FAIL=$((FAIL + 1))
 fi
 
 if [[ $FAIL -gt 0 ]]; then

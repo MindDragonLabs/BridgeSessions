@@ -1205,3 +1205,63 @@ class TestPhoneLayoutCSS(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class TestSessionsTabContract(unittest.TestCase):
+    """Sessions-tab contract (26.09.25-r1 panel sessions tab, astra #4).
+
+    The panel's host Sessions tab is fed by /api/machines -> query_mesh_tree()
+    peers[].sessions, filtered by api.is_visible_harness_session. These tests
+    pin the data path: peers carry sessions, and the allow-list hides cron /
+    agent / probe jobs while keeping harness launches.
+    """
+
+    def setUp(self):
+        from bridgepanel.cache import clear_caches
+        clear_caches()
+
+    def test_machines_peers_carry_sessions(self):
+        import bridgepanel.api as bp_api
+
+        payload = (b'{"node":"self","uptime_s":1,"peers":[{"name":"peer-x",'
+                   b'"addr":"1.2.3.4:19949","healthy":true,"last_pong_s":1,'
+                   b'"sessions":[{"name":"hermes","state":"attached","command":"hermes","bytes":10},'
+                   b'{"name":"cron-nightly","state":"attached","command":"bash","bytes":5}]}],'
+                   b'"sessions":[]}\n')
+
+        class FakeSock:
+            def __init__(self):
+                self.chunks = [payload]
+            def settimeout(self, t): pass
+            def connect(self, addr): pass
+            def sendall(self, b): pass
+            def recv(self, n):
+                return self.chunks.pop(0) if self.chunks else b""
+            def close(self): pass
+
+        orig = bp_api.socket.socket
+        orig_tok = bp_api.bs_ipc_token
+        bp_api.socket.socket = lambda *a, **k: FakeSock()
+        bp_api.bs_ipc_token = lambda: "t" * 64
+        try:
+            tree = bp_api.query_mesh_tree()
+        finally:
+            bp_api.socket.socket = orig
+            bp_api.bs_ipc_token = orig_tok
+        peers = tree.get("peers", [])
+        self.assertEqual(len(peers), 1)
+        sess = peers[0].get("sessions", [])
+        self.assertEqual(len(sess), 2)
+        names = [s["name"] for s in sess]
+        self.assertIn("hermes", names)
+        self.assertIn("cron-nightly", names)
+
+    def test_harness_allowlist_hides_cron_and_probes(self):
+        import bridgepanel.api as bp_api
+        self.assertTrue(bp_api.is_visible_harness_session("hermes"))
+        self.assertTrue(bp_api.is_visible_harness_session("codex"))
+        self.assertFalse(bp_api.is_visible_harness_session("cron-nightly"))
+        self.assertFalse(bp_api.is_visible_harness_session("agent-job-1"))
+        self.assertFalse(bp_api.is_visible_harness_session("health-check"))
+        self.assertFalse(bp_api.is_visible_harness_session(""))
+        self.assertFalse(bp_api.is_visible_harness_session("shell", command="cron run"))

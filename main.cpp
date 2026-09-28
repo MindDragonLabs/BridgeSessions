@@ -3649,12 +3649,24 @@ int bridgesessions_main(int argc, char** argv) {
         ::unlink(tmp_path.c_str());
 
 #ifdef __APPLE__
-        // Update .app bundle if it exists
-        std::string app_bin = "/Applications/BridgeSessions.app/Contents/MacOS/bridgesessions";
-        if (std::filesystem::exists("/Applications/BridgeSessions.app")) {
+        // Update .app bundle(s) if present. Fleet Macs install to the user
+        // path (~/Applications); check both, update every one that exists.
+        // (26.09.25-r1 roll: the in-band updater only touched /Applications,
+        // so daemons running from the user bundle stayed on the old binary.)
+        for (const auto& app_dir : {
+                std::string("/Applications/BridgeSessions.app"),
+                home_dir + "/../Applications/BridgeSessions.app"}) {
+            if (!std::filesystem::exists(app_dir)) continue;
+            std::string app_bin = app_dir + "/Contents/MacOS/bridgesessions";
+            std::error_code app_ec;
             std::filesystem::copy_file(bin_path, app_bin,
-                std::filesystem::copy_options::overwrite_existing);
-            std::string app_sign = "codesign --force --deep --sign '" + dev_id + "' /Applications/BridgeSessions.app 2>/dev/null";
+                std::filesystem::copy_options::overwrite_existing, app_ec);
+            if (app_ec) {
+                std::cerr << "upgrade: could not update " << app_bin << ": "
+                          << app_ec.message() << "\n";
+                continue;
+            }
+            std::string app_sign = "codesign --force --deep --sign '" + dev_id + "' '" + app_dir + "' 2>/dev/null";
             std::system(app_sign.c_str());
         }
 #endif
