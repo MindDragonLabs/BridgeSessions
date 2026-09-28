@@ -838,6 +838,61 @@ if [ $# -ge 2 ] && [ "$1" = "join" ]; then
   exit 0
 fi
 
+# ── cua-driver-rs (optional desktop-control backend, 26.09.28) ─────────────
+# Pinned release; verified against the upstream checksums manifest. Failure is
+# a warning, never fatal — `bs cua` falls back to the helper/native chain when
+# no driver is installed. Skip with BS_NO_CUA_DRIVER=1.
+CUA_DRIVER_VERSION="0.30.3"
+install_cua_driver() {
+  [ "${BS_NO_CUA_DRIVER:-0}" = "1" ] && return 0
+  case "${os}" in
+    Linux)  [ "${arch}" = "x86_64" ] && CUA_ARCH="linux-x86_64" || CUA_ARCH="linux-arm64" ;;
+    Darwin) [ "${arch}" = "arm64" ]  && CUA_ARCH="darwin-arm64" || CUA_ARCH="darwin-x86_64" ;;
+    *) return 0 ;;
+  esac
+  local cua_base="https://github.com/trycua/cua/releases/download/cua-driver-rs-v${CUA_DRIVER_VERSION}"
+  local tarball="cua-driver-rs-${CUA_DRIVER_VERSION}-${CUA_ARCH}-binary.tar.gz"
+  local tmp_cua="${INSTALL_DIR}/.cua-driver-download.$$"
+  local tmp_sums="${INSTALL_DIR}/.cua-driver-sums.$$"
+  echo "→ Fetching cua-driver ${CUA_DRIVER_VERSION} (${CUA_ARCH})..."
+  if ! curl -fsSL "${cua_base}/checksums.txt" -o "${tmp_sums}" 2>/dev/null; then
+    echo "   (cua-driver checksums unavailable — skipping; bs cua uses the fallback chain)"
+    rm -f "${tmp_cua}" "${tmp_sums}"
+    return 0
+  fi
+  if ! curl -fsSL "${cua_base}/${tarball}" -o "${tmp_cua}" 2>/dev/null; then
+    echo "   (cua-driver download failed — skipping; bs cua uses the fallback chain)"
+    rm -f "${tmp_cua}" "${tmp_sums}"
+    return 0
+  fi
+  local expected actual
+  expected=$(awk -v name="${tarball}" '$2 == name { print $1 }' "${tmp_sums}" | tr 'A-F' 'a-f' | head -1)
+  if command -v sha256sum >/dev/null 2>&1; then
+    actual=$(sha256sum "${tmp_cua}" | awk '{print $1}')
+  else
+    actual=$(shasum -a 256 "${tmp_cua}" | awk '{print $1}')
+  fi
+  if [ -z "${expected}" ] || [ "${expected}" != "${actual}" ]; then
+    echo "   WARNING: cua-driver checksum mismatch — NOT installing (fallback chain stays active)" >&2
+    rm -f "${tmp_cua}" "${tmp_sums}"
+    return 0
+  fi
+  local tmp_dir="${INSTALL_DIR}/.cua-driver-extract.$$"
+  mkdir -p "${tmp_dir}"
+  tar -xzf "${tmp_cua}" -C "${tmp_dir}" 2>/dev/null || true
+  local bin_found
+  bin_found=$(find "${tmp_dir}" -name 'cua-driver' -type f | head -1)
+  if [ -n "${bin_found}" ]; then
+    cp "${bin_found}" "${INSTALL_DIR}/cua-driver"
+    chmod +x "${INSTALL_DIR}/cua-driver"
+    echo "   cua-driver ${CUA_DRIVER_VERSION} installed → ${INSTALL_DIR}/cua-driver"
+  else
+    echo "   (cua-driver binary not found in archive — skipping)"
+  fi
+  rm -rf "${tmp_dir}" "${tmp_cua}" "${tmp_sums}"
+}
+install_cua_driver
+
 echo "→ Ready."
 echo "   To join a mesh, run:"
 echo "   ${INSTALL_DIR}/${BIN_NAME} join <host-addr> <invite-code> --start"
