@@ -110,23 +110,40 @@ def extract_diff(text: str) -> str | None:
     return None
 
 
+# Models hallucinate familiar-but-wrong paths (llama.cpp's src/config.cpp is
+# the classic). Redirect known aliases to the real editable file. Shared by
+# the replace-block path and the diff path.
+REDIRECT = {
+    "src/config.cpp": "bs-config.h",
+    "config.cpp": "bs-config.h",
+    "config.h": "bs-config.h",
+    "mesh_config.cpp": "bs-config.h",
+    "mesh-config.cpp": "bs-config.h",
+    "bridgesessions.cpp": "main.cpp",
+    "src/main.cpp": "main.cpp",
+    "transfer.cpp": "bs-mesh-transfer.h",
+    "transfer.h": "bs-mesh-transfer.h",
+    "mesh-transfer.h": "bs-mesh-transfer.h",
+}
+
+
+def redirect_path(path: str) -> str:
+    return REDIRECT.get(path, path.lstrip("./"))
+
+
+def rewrite_diff_paths(diff: str) -> str:
+    out = []
+    for line in diff.splitlines(keepends=True):
+        m = re.match(r"^(\+\+\+ b/|--- a/)(.+)$", line.rstrip("\n"))
+        if m:
+            line = m.group(1) + redirect_path(m.group(2).strip()) + "\n"
+        out.append(line)
+    return "".join(out)
+
+
 def apply_replacements(repls: list[tuple[str, str, str]]) -> tuple[bool, str]:
-    # Models hallucinate familiar-but-wrong paths (llama.cpp's src/config.cpp
-    # is the classic). Redirect known aliases to the real editable file.
-    REDIRECT = {
-        "src/config.cpp": "bs-config.h",
-        "config.cpp": "bs-config.h",
-        "config.h": "bs-config.h",
-        "mesh_config.cpp": "bs-config.h",
-        "mesh-config.cpp": "bs-config.h",
-        "bridgesessions.cpp": "main.cpp",
-        "src/main.cpp": "main.cpp",
-        "transfer.cpp": "bs-mesh-transfer.h",
-        "transfer.h": "bs-mesh-transfer.h",
-        "mesh-transfer.h": "bs-mesh-transfer.h",
-    }
     for path, old, new in repls:
-        path = REDIRECT.get(path, path.lstrip("./"))
+        path = redirect_path(path)
         if path not in EDITABLE:
             return False, f"scope violation: {path}"
         p = REPO / path
@@ -265,6 +282,7 @@ def main() -> int:
                 log({"event": "no_diff", "iter": it})
                 history.append(f"iter {it}: model produced no parseable diff")
                 continue
+            diff = rewrite_diff_paths(diff)
 
             bad = [f for f in touched_files(diff) if f not in EDITABLE]
             if bad:
