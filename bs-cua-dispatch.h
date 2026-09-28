@@ -255,6 +255,18 @@ extern "C" int bs_macos_capture_png(const char*, unsigned, char*, size_t);
         return resp;
     }
 
+    // cua-driver-rs (trycua/cua) backend: when the driver binary + daemon are
+    // present, it goes first. Strictly additive — nullopt falls through to
+    // the helper/native chain; an answered error is retained for the outer
+    // message. BS_CUA_DRIVER=0 disables. (26.09.28)
+    {
+        auto driver_resp = cua_driver_execute(req);
+        if (driver_resp.has_value()) {
+            if (driver_resp->status == 0) return *driver_resp;
+            resp.error = driver_resp->error;
+        }
+    }
+
 #ifdef _WIN32
     // Prefer cua-helper for ALL actions (including capture). Session 0 daemons
     // cannot reliably GDI-capture the interactive desktop; the helper (user

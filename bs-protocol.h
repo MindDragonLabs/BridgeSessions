@@ -45,6 +45,13 @@
 #include <sys/statvfs.h>
 #include <ifaddrs.h>
 #include <net/if.h>
+// bs-cua-driver.h process executor (global scope: sibling headers are
+// included inside namespace bs::mesh and must not pull C headers in there)
+#include <poll.h>
+#include <signal.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <unistd.h>
 #endif
 #endif
 #include <cstdint>
@@ -164,6 +171,7 @@ inline constexpr std::string_view kBridgeSessionsVersion = BS_VERSION;
 #include "bs-osc52.h"
 #include "bs-jail-policy.h"
 #include "bs-pty.h"
+#include "bs-cua-driver.h"   // cua-driver-rs backend; cua_execute (dispatch) calls it
 #include "bs-cua-dispatch.h"
 #include "bs-config.h"
 #include "bs-run.h"
