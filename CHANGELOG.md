@@ -16,19 +16,42 @@ Landed since v26.09.25-r1 (already on main):
   (250/500/750 ms, 3 attempts). The 10 s floor applies to background loops only;
   a dead peer errors in seconds instead of hanging ~10 s
   (`test_daemon_disconnect_returns_error_not_hang`, CI ubuntu-22.04 leg).
+- macOS in-band upgrade now updates every `.app` bundle that exists
+  (`/Applications` and `~/Applications`), not only `/Applications`. The r1 roll
+  skipped daemon binaries on user-path installs; found on all three fleet Macs.
+- Auto-upgrade attempts counter now resets on a successful dispatch — the
+  staged backoff (60 s → 5 min → cooldown) no longer stays raised after a
+  healthy upgrade.
+- btcr systemd unit flap confirmed transient (post-upgrade churn); the unit is
+  stable with a running Main PID. No unit change needed.
+
+### Added
+
+- `BRIDGESESSIONS_UPGRADE_BASE_URL` staging override for the upgrade path.
+  Binary + SHA256SUMS downloads can be redirected to a staging server for QA;
+  the SHA256 compare still gates every swap. Proven by the forced bad-hash
+  refusal canary on fecv4: tampered download refused before any swap, daemon
+  untouched, exit 1.
+- E2e fleet test hardening: the mandatory release gates (`shell_typing`,
+  `file_send_fast`, `session_isolation`, `harness_name`, `session_idle_alive`)
+  must PASS — a SKIP or a missing gate now fails the run; `--all` sweeps also
+  require explicit Linux + macOS + Windows coverage.
+- BridgePanel sessions-tab contract tests: peers carry sessions through
+  `/api/machines`, and the harness allow-list hides cron/agent/probe jobs
+  (132 panel tests).
+- Release publisher now auto-marks suffixed versions (`-rN`, `-aN`, `-betaN`)
+  as prerelease, so a beta can no longer become the Latest release by
+  accident.
 
 Queued for 26.09.28 (tracked in `docs/plans/26.09.28.md`):
 
-- macOS in-band upgrade must update `~/Applications/BridgeSessions.app`, not only
-  `/Applications` (found during the r1 fleet roll — daemon binaries on user-path
-  installs were skipped).
-- btcr systemd unit flapping (`activating (auto-restart)`, Main PID exits 0).
-- E2e fleet matrix run against the r1 binary (goal item 4).
-- Auto-update canary proof: one successful swap + one forced bad-hash refusal
-  (goal item 6).
+- `hermes --native` TUI render issue (hermes-agent fork) — repro attempt shows
+  native mode renders correctly under tmux/Linux; symptom is
+  environment-specific, needs the operator's terminal details. Deferred.
+- E2e fleet matrix run against the final release binaries.
 - mysqlknights (SSH key), devin-mac (no SSH user/key named) — still behind.
-- Deferred Devin items: sessions-tab server integration test; platform-blind
-  auto-upgrade dispatch (needs `peer.platform`).
+- Deferred Devin item: platform-blind auto-upgrade dispatch (needs
+  `peer.platform` on `PeerEntry`).
 
 ## 26.09.25-r1
 
