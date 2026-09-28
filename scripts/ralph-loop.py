@@ -92,10 +92,14 @@ def ask_model(messages: list[dict], max_tokens: int = 4096) -> str:
 
 
 def extract_replacements(text: str) -> list[tuple[str, str, str]]:
-    """Parse `replace` blocks: FILE / <<<<<<< old / ======= / >>>>>>> new."""
+    """Parse `replace` blocks: FILE / <<<<<<< old / ======= / >>>>>>> new.
+
+    Tolerant: fence may be replace/diff/patch/empty, marker runs of >=4,
+    FILE: spacing loose, markers may appear without a fence at all.
+    """
     out: list[tuple[str, str, str]] = []
     for m in re.finditer(
-        r"```replace\nFILE:\s*(\S+)\n<<<<<<<+\n(.*?)\n=======+\n(.*?)\n>>>>>>>+[^\n]*\n```",
+        r"FILE:\s*(\S+)\s*\n<{4,}\s*\n(.*?)\n={4,}\s*\n(.*?)\n>{4,}",
         text, re.S,
     ):
         out.append((m.group(1), m.group(2), m.group(3)))
@@ -291,13 +295,17 @@ def main() -> int:
                 continue
 
             run(["git", "checkout", "--", "."])
-            ap = subprocess.run(["git", "apply", "--check", "-"], input=diff,
-                                cwd=REPO, capture_output=True, text=True)
+            # --recount: 30B models get hunk line counts wrong constantly;
+            # recount recomputes them instead of rejecting the patch.
+            ap = subprocess.run(["git", "apply", "--recount", "--check", "-"],
+                                input=diff, cwd=REPO, capture_output=True, text=True)
             if ap.returncode != 0:
-                log({"event": "apply_fail", "iter": it, "err": ap.stderr[-300:]})
-                history.append(f"iter {it}: diff did not apply: {ap.stderr[-120:]}")
+                log({"event": "apply_fail", "iter": it, "err": ap.stderr[-300:],
+                     "reply_head": reply[:300]})
+                history.append(f"iter {it}: diff did not apply: {ap.stderr[-120:]}. "
+                               "Use replace blocks instead of diffs.")
                 continue
-            subprocess.run(["git", "apply", "-"], input=diff, cwd=REPO,
+            subprocess.run(["git", "apply", "--recount", "-"], input=diff, cwd=REPO,
                            capture_output=True, text=True)
 
         ok, build_err = build()
