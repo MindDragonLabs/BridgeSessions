@@ -345,8 +345,16 @@ def main() -> int:
                     run(["git", "checkout", "--", "."])
                     continue
             run(["git", "add", "-A"])
-            run(["git", "commit", "-q", "-m",
-                 f"ralph iter {it}: score {best_score:.1f} -> {cs:.1f}"])
+            cr = run(["git", "commit", "-q", "-m",
+                      f"ralph iter {it}: score {best_score:.1f} -> {cs:.1f}"])
+            if cr.returncode != 0:
+                # Commit failed (e.g. no git identity). Revert and do NOT
+                # adopt the phantom baseline.
+                log({"event": "commit_fail", "iter": it,
+                     "err": (cr.stdout + cr.stderr)[-300:]})
+                history.append(f"iter {it}: git commit failed — reverted")
+                run(["git", "checkout", "--", "."])
+                continue
             log({"event": "accept", "iter": it, "old": best_score, "new": cs,
                  "bench": cand})
             best_score = cs
