@@ -2,10 +2,10 @@
 
 Notable user-visible changes. Git history contains implementation-level detail.
 
-## 26.09.28 (planned — Monday)
+## 26.09.28 (planned)
 
 Working line for the next release. VERSION stays `26.09.25-r1` until the release
-train runs Monday; the public installer keeps pointing at the published
+train runs on operator go; the public installer keeps pointing at the published
 `v26.09.25-r1` assets.
 
 Landed since v26.09.25-r1 (already on main):
