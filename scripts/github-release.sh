@@ -27,5 +27,14 @@ assets=(
 )
 for asset in "${assets[@]}"; do [[ -f "$asset" ]] || { echo "error: missing $asset" >&2; exit 1; }; done
 if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then echo "error: release exists" >&2; exit 1; fi
-gh release create "$TAG" "${assets[@]}" --repo "$REPO" --verify-tag --latest --title "BridgeSessions $VERSION" --generate-notes
-gh release view "$TAG" --repo "$REPO" --json url,tagName,assets
+# Pre-release policy: any version carrying a suffix (-rN, -aN, -betaN) is a
+# beta and must not become the Latest release (goal: upgrade clients must not
+# pick up a beta). Plain versions (26.09.28) ship as Latest.
+EXTRA=()
+if [[ "$VERSION" == *-* ]]; then
+  EXTRA=(--prerelease)
+else
+  EXTRA=(--latest)
+fi
+gh release create "$TAG" "${assets[@]}" --repo "$REPO" --verify-tag "${EXTRA[@]}" --title "BridgeSessions $VERSION" --generate-notes
+gh release view "$TAG" --repo "$REPO" --json url,tagName,isPrerelease,assets

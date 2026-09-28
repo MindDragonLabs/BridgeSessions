@@ -1346,6 +1346,10 @@
             const int rc = std::system(cmd.c_str());
             log_event("auto_upgrade_complete",
                       task.peer_name + " rc=" + std::to_string(rc));
+            // Success resets the staged-backoff attempts counter (the 60s ->
+            // 5min -> cooldown ramp in maybe_schedule_auto_upgrade). Failure
+            // leaves it raised so the next dispatch backs off further.
+            if (rc == 0) auto_upgrade_attempts_.erase(task.peer_name);
             break;
         }
         }

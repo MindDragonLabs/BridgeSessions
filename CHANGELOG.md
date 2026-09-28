@@ -37,8 +37,8 @@ platforms, Bridge Panel works on a phone browser, e2e timing gates met, auto-upd
 proved (publish-wins one origin + hash verification + staged backoff), no production
 1-second retry, Devin review on Linux + macOS + Windows.
 
-This is the local-only beta. Branch is `main`. Published as prerelease v26.09.25-r1. Not pushed, not
-tagged at the public release repo yet. The `.bak` legacy-script file is removed.
+This is the beta for the 26.09.25 line. Published as prerelease `v26.09.25-r1`
+(main @ `d5319a2`); the fleet is rolled and healthy on r1.
 
 ### Added
 - Bridge Panel works in a phone-width browser (real Chromium + WebKit verified).
