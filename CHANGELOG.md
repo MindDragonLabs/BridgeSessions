@@ -2,7 +2,7 @@
 
 Notable user-visible changes. Git history contains implementation-level detail.
 
-## 26.09.28 (planned)
+## 26.09.28
 
 Working line for the next release. VERSION stays `26.09.25-r1` until the release
 train runs on operator go; the public installer keeps pointing at the published
