@@ -273,40 +273,22 @@ def main() -> int:
             continue
 
         repls = extract_replacements(reply)
-        if repls:
-            run(["git", "checkout", "--", "."])
-            ok, err = apply_replacements(repls)
-            if not ok:
-                log({"event": "apply_fail", "iter": it, "err": err[:300]})
-                history.append(f"iter {it}: replace failed: {err[:150]}")
-                continue
-        else:
-            diff = extract_diff(reply)
-            if not diff:
-                log({"event": "no_diff", "iter": it})
-                history.append(f"iter {it}: model produced no parseable diff")
-                continue
-            diff = rewrite_diff_paths(diff)
+        if not repls:
+            # Replace-blocks only. Diffs from this model class fail at a ~95%
+            # rate (context mismatch) even with --recount; force the reliable
+            # format instead of accepting a diff fallback.
+            log({"event": "no_diff", "iter": it, "reply_head": reply[:300]})
+            history.append(
+                f"iter {it}: no replace block found. You MUST use the "
+                "```replace FILE/<<<<<<< /======= />>>>>>> format — no diffs.")
+            continue
 
-            bad = [f for f in touched_files(diff) if f not in EDITABLE]
-            if bad:
-                log({"event": "scope_violation", "iter": it, "files": bad})
-                history.append(f"iter {it}: tried to touch {bad} — rejected")
-                continue
-
-            run(["git", "checkout", "--", "."])
-            # --recount: 30B models get hunk line counts wrong constantly;
-            # recount recomputes them instead of rejecting the patch.
-            ap = subprocess.run(["git", "apply", "--recount", "--check", "-"],
-                                input=diff, cwd=REPO, capture_output=True, text=True)
-            if ap.returncode != 0:
-                log({"event": "apply_fail", "iter": it, "err": ap.stderr[-300:],
-                     "reply_head": reply[:300]})
-                history.append(f"iter {it}: diff did not apply: {ap.stderr[-120:]}. "
-                               "Use replace blocks instead of diffs.")
-                continue
-            subprocess.run(["git", "apply", "--recount", "-"], input=diff, cwd=REPO,
-                           capture_output=True, text=True)
+        run(["git", "checkout", "--", "."])
+        ok, err = apply_replacements(repls)
+        if not ok:
+            log({"event": "apply_fail", "iter": it, "err": err[:300]})
+            history.append(f"iter {it}: replace failed: {err[:150]}")
+            continue
 
         ok, build_err = build()
         if not ok:
