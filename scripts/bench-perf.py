@@ -105,13 +105,19 @@ class Node:
         )
 
 
-def bench_file(a: Node, b: Node, sizes: list[int], reps: int) -> dict:
+def bench_file(a: Node, b: Node, sizes: list[int], reps: int, compressible: bool = False) -> dict:
     results = {}
     tmp = Path(tempfile.mkdtemp(prefix="bs-bench-file-"))
     try:
         for size in sizes:
             f = tmp / f"{size}m.bin"
-            f.write_bytes(os.urandom(size * 1024 * 1024))
+            if compressible:
+                # Realistic compressible payload: a 4KB random block repeated.
+                # Random-only benches hide the effect of compression entirely.
+                block = os.urandom(4096)
+                f.write_bytes(block * (size * 1024 * 1024 // 4096))
+            else:
+                f.write_bytes(os.urandom(size * 1024 * 1024))
             times = []
             for _ in range(reps):
                 t0 = time.monotonic()
@@ -223,6 +229,8 @@ def main() -> int:
     ap.add_argument("--reps", type=int, default=REPS_DEFAULT)
     ap.add_argument("--keystrokes", type=int, default=KEYSTROKES_DEFAULT)
     ap.add_argument("--cmd-reps", type=int, default=CMD_REPS_DEFAULT)
+    ap.add_argument("--compressible", action="store_true",
+                    help="file payloads are compressible (repeated 4KB block)")
     ap.add_argument("--keep", action="store_true", help="keep bench dirs (debug)")
     args = ap.parse_args()
 
@@ -251,7 +259,7 @@ def main() -> int:
         if not up:
             raise RuntimeError("mesh did not come up between benchA and benchB")
 
-        report["file_mib_s"] = bench_file(a, b, sizes, args.reps)
+        report["file_mib_s"] = bench_file(a, b, sizes, args.reps, args.compressible)
         report["cmd_ms"] = bench_cmd_latency(a, b, args.cmd_reps)
         report["key_ms"] = bench_keystroke(a, b, args.keystrokes)
         report["status"] = "ok"
