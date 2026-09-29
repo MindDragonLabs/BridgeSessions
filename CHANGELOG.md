@@ -32,7 +32,11 @@ Landed since v26.09.25-r1 (already on main):
   payloads 290/310 → 332/393 MiB/s (+14%/+27%); random payloads and command
   latency flat. The sweep (`scripts/ralph-sweep.py`) is a mechanical
   grid+refine search over `scripts/bench-perf.py`, which also gained a
-  compressible-payload mode this round.
+  compressible-payload mode this round. Follow-up sweeps on two more 5090s
+  confirmed 64K default is the plateau across boxes, and mapped the chunk
+  ceiling: chunk_large above `kTransferChunkRawSizeMax` (256K) fails transfers
+  because send declares the raw size while receive clamps — raising it is a
+  protocol change, deliberately not in this release.
 - cua-driver-rs backend for `bs cua` (trycua/cua v0.30.3). When a driver
   binary and its user-session daemon are present, BS verbs (screen_info,
   capture, key, text, click, wheel) route through it with `scope: "desktop"`,
