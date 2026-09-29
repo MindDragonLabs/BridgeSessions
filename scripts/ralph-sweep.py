@@ -39,6 +39,12 @@ GRID = {
     "zstd": [1, 3],
 }
 
+# Env overrides let parallel instances sweep different dimensions:
+# SWEEP_DEFAULT="65536,98304" SWEEP_LARGE="262144,393216" SWEEP_ZSTD="1,2"
+for key, env_name in (("default", "SWEEP_DEFAULT"), ("large", "SWEEP_LARGE"), ("zstd", "SWEEP_ZSTD")):
+    if os.environ.get(env_name):
+        GRID[key] = [int(v) for v in os.environ[env_name].split(",") if v.strip()]
+
 BENCH_BASE = ["python3", "scripts/bench-perf.py", "--bin", "./build/bridgesessions",
               "--sizes", "64,256", "--reps", "3", "--keystrokes", "30", "--cmd-reps", "6"]
 
@@ -141,7 +147,9 @@ def main() -> int:
         r = evaluate(d, lg, z)
         if r is not None:
             results[(d, lg, z)] = r["score"]
-            if r["score"] > best_score * 1.02:
+            # 0.5% gate: bench reps already median-filter noise; last round the
+            # 2% gate blocked the actual best point (762.3 vs committed 753.5).
+            if r["score"] > best_score * 1.005:
                 best_params, best_score = (d, lg, z), r["score"]
                 log({"event": "new_best", "params": list(best_params),
                      "score": round(best_score, 1)})
@@ -167,7 +175,7 @@ def main() -> int:
             r = evaluate(*cand)
             if r is not None:
                 results[cand] = r["score"]
-                if r["score"] > best_score * 1.02:
+                if r["score"] > best_score * 1.005:
                     best_params, best_score = cand, r["score"]
                     improved = True
                     log({"event": "new_best", "phase": "refine",
