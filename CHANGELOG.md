@@ -27,6 +27,12 @@ Landed since v26.09.25-r1 (already on main):
 
 ### Added
 
+- Transfer tunables from the ralph sweep (vast.ai 5090 run): chunk_default
+  64K, chunk_large 128K, zstd level 1. Loopback bench on fecv3: compressible
+  payloads 290/310 → 332/393 MiB/s (+14%/+27%); random payloads and command
+  latency flat. The sweep (`scripts/ralph-sweep.py`) is a mechanical
+  grid+refine search over `scripts/bench-perf.py`, which also gained a
+  compressible-payload mode this round.
 - cua-driver-rs backend for `bs cua` (trycua/cua v0.30.3). When a driver
   binary and its user-session daemon are present, BS verbs (screen_info,
   capture, key, text, click, wheel) route through it with `scope: "desktop"`,
