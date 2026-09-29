@@ -260,7 +260,10 @@ struct ProcResult {
     // Not cached: tests flip CUA_DRIVER_PATH/BS_CUA_DRIVER between cases, and
     // the lookup is a few stat() calls — cheap relative to a process spawn.
     const std::optional<std::string> driver = find_cua_driver();
-    if (!driver) return std::nullopt;
+    if (!driver) {
+        log_event("cua_driver_skip", "no driver binary found");
+        return std::nullopt;
+    }
 
     std::string tool;
     nlohmann::json args = nlohmann::json::object();
@@ -323,6 +326,9 @@ struct ProcResult {
     }
     if (pr.exit_code != 0) {
         // Daemon down or tool hard-failed: fall through to the bs chain.
+        log_event("cua_driver_skip", "call rc=" + std::to_string(pr.exit_code) +
+                  " tool=" + tool + " out=" + pr.out.substr(0, 120) +
+                  " err=" + pr.err.substr(0, 120));
         return std::nullopt;
     }
 
@@ -330,6 +336,7 @@ struct ProcResult {
     try {
         j = nlohmann::json::parse(pr.out);
     } catch (...) {
+        log_event("cua_driver_skip", "json parse failed, out=" + pr.out.substr(0, 120));
         return std::nullopt;  // unparseable — treat as unavailable
     }
     if (j.value("isError", false)) {
