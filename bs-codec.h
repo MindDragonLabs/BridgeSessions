@@ -1144,7 +1144,7 @@ inline ZSTD_DCtx* get_zstd_dctx() {
 
 std::vector<uint8_t> zstd_compress(std::span<const uint8_t> data) {
     std::vector<uint8_t> out(ZSTD_compressBound(data.size()));
-    size_t sz = ZSTD_compressCCtx(get_zstd_cctx(), out.data(), out.size(), data.data(), data.size(), 3);
+    size_t sz = ZSTD_compressCCtx(get_zstd_cctx(), out.data(), out.size(), data.data(), data.size(), 1);
     if (ZSTD_isError(sz)) throw std::runtime_error(std::string("zstd compress: ") + ZSTD_getErrorName(sz));
     out.resize(sz);
     return out;
@@ -1323,8 +1323,8 @@ constexpr int kTransferProgressIntervalSec = 10;
 constexpr int kTransferReconnectMax = 12;
 // Default raw chunk size for legacy (u16-only) peers: uncompressible data must
 // still fit MAX_FRAME_PAYLOAD_U16 after framing. With +frm2, prefer large.
-constexpr size_t kTransferChunkRawSizeDefault = 48 * 1024;
-constexpr size_t kTransferChunkRawSizeLarge   = 256 * 1024; // frm2 peers
+constexpr size_t kTransferChunkRawSizeDefault = 64 * 1024;
+constexpr size_t kTransferChunkRawSizeLarge   = 128 * 1024; // frm2 peers
 constexpr size_t kTransferChunkRawSizeMin     = 4 * 1024;
 constexpr size_t kTransferChunkRawSizeMax     = 256 * 1024; // clamp upper
 constexpr size_t kTransferChunkRawSize = kTransferChunkRawSizeDefault; // alias
