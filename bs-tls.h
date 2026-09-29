@@ -113,7 +113,10 @@ std::pair<EVP_PKEY*, X509*> generate_ed25519_cert(const char* cn) {
     X509_gmtime_adj(X509_get_notAfter(cert), 365LL * 24LL * 3600LL * 10LL);
     X509_set_pubkey(cert, pkey);
 
-    X509_NAME* name = X509_get_subject_name(cert);
+    // OpenSSL 3.x returns const here; older 1.1 returns non-const. Take the
+    // const pointer and cast away for the entry-add (the cert is ours and the
+    // call is the documented way to set the subject).
+    X509_NAME* name = const_cast<X509_NAME*>(X509_get_subject_name(cert));
     X509_NAME_add_entry_by_txt(name, "CN", MBSTRING_ASC,
                                reinterpret_cast<const unsigned char*>(cn), -1, -1, 0);
     X509_set_issuer_name(cert, name);
