@@ -2,6 +2,24 @@
 
 Notable user-visible changes. Git history contains implementation-level detail.
 
+## 26.10.03
+
+Session management and TUI hardening. Working line for the next release.
+
+### Fixed
+
+- TUI menus no longer shred on small terminals: the frame width is clamped to
+  the terminal so rows never wrap, the title is truncated instead of
+  overflowing, and long row labels are cut at a UTF-8 boundary (not mid-glyph).
+  Arrow-key selection stays on the highlighted row at any window size.
+
+### Added
+
+- Harness sessions (`bs <peer>` → New → harness) run their command through a
+  login shell so the user's `~/.profile` PATH (`~/.local/bin`, `~/.hermes/bin`)
+  is honored — `bs fecv3` → New → hermes now launches the Hermes TUI instead of
+  `sh: hermes: command not found`.
+
 ## 26.09.28
 
 Working line for the next release. VERSION stays `26.09.25-r1` until the release

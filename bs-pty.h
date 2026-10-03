@@ -435,7 +435,14 @@ inline void close_nonstdio_fds_before_exec() {
         }
         // Close inherited daemon FDs before exec.
         close_nonstdio_fds_before_exec();
-        execl("/bin/sh", "sh", "-c", command.c_str(), nullptr);
+        // -l (login shell): the daemon inherits a minimal PATH from
+        // systemd/launchd (/usr/local/bin:/usr/bin) that omits the user's
+        // ~/.local/bin, ~/.hermes/bin, etc. Harness commands (e.g.
+        // `hermes --tui --yolo`) therefore failed with "command not found".
+        // A login shell sources /etc/profile and ~/.profile, restoring the
+        // PATH the user actually gets in an interactive shell (same convention
+        // as tmux/screen/SSH).
+        execl("/bin/sh", "sh", "-l", "-c", command.c_str(), nullptr);
         _exit(127);
     }
     const int master_flags = fcntl(master_fd, F_GETFL, 0);

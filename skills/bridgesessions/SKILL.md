@@ -144,6 +144,15 @@ Caveat (observed 2026-09-16, Windows 11 peer, daemon 26.09.15-r1): nested
 `copy /Y`, `start`, `echo`. If a nested PowerShell one-shot stalls, drop to cmd.exe syntax
 or push a `.ps1` and use `run-script`.
 
+## Release review evidence
+
+- Track written, integrated, tested, published, and deployed separately; none proves another.
+- Review diverged branches with `git cherry -v main <branch>` and merge-base (`main...branch`) diffs. Endpoint diffs include newer main changes absent from old branches and can falsely suggest intentional deletions. Patch-equivalent commits are already integrated even with different hashes.
+- Preserve stashes until hunk-level supersession is proven and deletion is approved. Age does not prove saved work is disposable.
+- Check registered CTest names before using `ctest -R`. Pass Catch tags directly to the test executable when needed.
+- Test terminal width with independent cell measurements and a real PTY. Byte counts and code-point counts both fail for wide or combining characters; tests that mirror the renderer can conceal defects.
+- Test password-reset revocation across separate CLI and server processes. Clearing the setter's in-memory session map does not revoke cookies retained by an already-running server when the signing secret remains unchanged.
+
 ## Develop
 
 ```bash
