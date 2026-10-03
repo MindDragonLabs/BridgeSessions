@@ -139,7 +139,7 @@ TEST_CASE("Round-trip: ServerInfoMsg", "[codec][roundtrip]") {
     m3.load = 0.0;
     m3.sessions_summary_json = "[]";
     m3.host_stats_json = "{\"cpu\":1}";
-    m3.latency_json = "{\"fecv3\":12,\"macbook\":43}";
+    m3.latency_json = "{\"TEST-PC1\":12,\"TEST-PC2\":43}";
     auto m4 = roundtrip(m3);
     REQUIRE(m4.sessions_summary_json == m3.sessions_summary_json);
     REQUIRE(m4.host_stats_json == m3.host_stats_json);

@@ -30,7 +30,7 @@ BS_E2E_PEERS="linux-peer,macos-peer,windows-peer" \
 
 # Windows-only desktop lane, against multiple already-connected peers
 python3 tests/e2e/runner.py --layers L2,L3 --windows-only \
-  --peer-win "avirserver2016,avirserver2020,shadow-pc"
+  --peer-win "windows-server-1,windows-server-2,windows-desktop"
 ```
 
 Pass live peer names through arguments or environment variables. Never hardcode a private fleet in the repository. The peer list is sanitized at the script boundary; the runner redacts operator paths, addresses, and hostnames from the JSON summary.

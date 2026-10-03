@@ -1,5 +1,7 @@
 # Goal — BridgeSessions 26.09.25
 
+Peer names in this document use generic role labels or placeholders.
+
 ## Result
 
 Ship a clean `26.09.25` beta that is safe to publish. The tree is already stamped `26.09.25` on local `main` at commit `99afdf3`. That commit is not pushed. GitHub still serves `v26.09.24-a1`.
@@ -20,7 +22,7 @@ This file is the goal for the beta work. The task list is `TODO-2026-09-25.md`. 
 
 - Do not push `main`. The installer default tag is `26.09.25`. That tag is not on GitHub. A push breaks the public installer.
 - Do not roll the fleet. The running Windows hash is `AE2B61A6`. The published Windows hash is `684d4149`. Trace that hash before any roll.
-- Windows proof uses WinRM. Do not use `bs shell` as the Windows proof. The Shadow PC is `SHADOW-OLNM5J3N` at `100.127.41.92`.
+- Windows proof uses WinRM. Do not use `bs shell` as the Windows proof. The Shadow PC is `<windows-peer>` at `<windows-address>`.
 - Do not add a 1-second reconnect, upgrade, or ping loop. A test wait must stay inside the test.
 - Do not restore `._*` files or `*.bak` files from the pre-clean stash. Review `auth.py` and `invites.py` in that stash before any panel copy.
 - A subagent report is not proof. The parent re-checks the file, the test, or the host.
@@ -63,6 +65,6 @@ Two lanes must not edit the same file. Auto-update and the loop fix share the re
 ## Not this goal
 
 - Do not publish `v26.09.25`.
-- Do not start sven-bot. Its hypervisor is still unknown.
-- Do not log in to `devin-bs-mac` until an SSH user and key are named.
+- Do not start linux-bot. Its hypervisor is still unknown.
+- Do not log in to `mac-legacy` until an SSH user and key are named.
 - Do not commit this file unless the operator asks.

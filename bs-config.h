@@ -77,7 +77,7 @@ struct MeshConfig {
     bool auto_upgrade = true;
     // Which node owns auto-upgrade dispatch. Empty = legacy behavior (any node
     // with a newer binary upgrades stale peers). Set to a node name (e.g.
-    // "fecv3") so exactly one designated node dispatches; everyone else just
+    // "linux-build") so exactly one designated node dispatches; everyone else just
     // logs. Prevents a fleet from hammering a stale peer with concurrent
     // upgrade-restarts from every healthy node at once.
     std::string auto_upgrade_origin;
