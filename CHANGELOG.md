@@ -4,7 +4,8 @@ Notable user-visible changes. Git history contains implementation-level detail.
 
 ## 26.10.03
 
-Session management and TUI hardening. Working line for the next release.
+Local candidate for session management, native-app phase 0, and TUI hardening.
+Not published. Candidate installer defaults are local only; public main is unchanged.
 
 ### Fixed
 
@@ -22,9 +23,8 @@ Session management and TUI hardening. Working line for the next release.
 
 ## 26.09.28
 
-Working line for the next release. VERSION stays `26.09.25-r1` until the release
-train runs on operator go; the public installer keeps pointing at the published
-`v26.09.25-r1` assets.
+Released as `v26.09.28`. The local `26.10.03` candidate is separate from this
+published release.
 
 Landed since v26.09.25-r1 (already on main):
 
