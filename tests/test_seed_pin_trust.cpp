@@ -1,7 +1,7 @@
 // test_seed_pin_trust.cpp — regression tests for the 26.09.16 audit fixes.
 //
 // Covers two production incidents (AUDIT-26-09-16-windows.md F1/F3 + the
-// devin-mac live join on macmini, 2026-09-16):
+// macOS client live join on a macOS host, 2026-09-16):
 //
 //   1. F3 root cause: a peer pinned via `seed ... pubkey=` in the config was
 //      NOT accepted inbound — server_cert_verify_cb consulted only

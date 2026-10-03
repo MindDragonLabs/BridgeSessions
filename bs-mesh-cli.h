@@ -3560,7 +3560,7 @@ public:
         std::string path;       // raw path text after peer: split
     };
 
-    // "macbook:~/x.pdf" → {remote=true, macbook, ~/x.pdf}; plain path stays
+    // "mac-laptop:~/x.pdf" → {remote=true, mac-laptop, ~/x.pdf}; plain path stays
     // local. A bare "peer:" with empty path is a caller error.
     static bool parse_copy_operand(const std::string& text, CopyOperand& out,
                                    std::string& err) {

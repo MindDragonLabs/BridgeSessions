@@ -326,7 +326,7 @@ struct ServerInfoMsg {
     // Keys: cpu, mem, disk (pct), load, os, arch, ncpu, mem_mb, disk_gb.
     std::string host_stats_json;
     // Optional trailing (v26.09.18+, TODO item 2 mesh sync): reporter's
-    // measured RTT table as compact JSON: {"fecv3":12,"macbook":43}. Values
+    // measured RTT table as compact JSON: {"TEST-PC1":12,"TEST-PC2":43}. Values
     // are the PING/PONG round-trip this node last measured to each peer
     // (Conn::pong_rtt_ms), so every node's gossip contributes its own vantage
     // point. Empty = no data (old peers). Consumers treat it as

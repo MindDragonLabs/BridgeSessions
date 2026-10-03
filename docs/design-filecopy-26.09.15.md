@@ -1,5 +1,7 @@
 # Design: `bs cp` — direct cross-host file copy (26.09.15)
 
+Peer names in this document use generic role labels or placeholders.
+
 ## Problem (evidence)
 
 Three real failure patterns, all from the Heimdall IR bot's document-ingest loop
@@ -8,8 +10,8 @@ and the operator's own use:
 1. **Pull requires pre-staging on the source peer.** `bs file recv <peer> <path>`
    only serves paths under the source peer's `receive_dir`
    (`resolve_file_request_path(path, receive_dir_)`, bs-mesh-transfer.h:736).
-   The IR bot's actual flow is: `mdfind` locates a PDF anywhere on the MacBook
-   (`~/Heimdall/`, `~/Downloads/`), then `bs file recv macbook <that path>`
+   The IR bot's actual flow is: `mdfind` locates a PDF anywhere on the macOS laptop
+   (`~/Heimdall/`, `~/Downloads/`), then `bs file recv mac-laptop <that path>`
    fails or silently resolves against the receive dir. The bot fell back to
    `bs shell` + `cat`/ssh + manual `mv` — the transfer subsystem was bypassed.
 
@@ -44,10 +46,10 @@ bs file ls <peer>:<dir>
 
 - Either side may be `peer:path` (scp convention). Exactly one remote side, or
   both (relay); local→local is rejected (`use cp`).
-  - `bs cp macbook:~/Heimdall/stmt.pdf ./stmt.pdf`        (pull)
-  - `bs cp ./report.md fecv3:/srv/reports/report.md`      (push)
-  - `bs cp 'macbook:~/Heimdall/*.pdf' ~/heimdall-ingest/raw/`  (glob, quoted)
-  - `bs cp -r macbook:~/Heimdall ./Heimdall`              (tree)
+  - `bs cp mac-laptop:~/Heimdall/stmt.pdf ./stmt.pdf`        (pull)
+  - `bs cp ./report.md linux-build:/srv/reports/report.md`      (push)
+  - `bs cp 'mac-laptop:~/Heimdall/*.pdf' ~/heimdall-ingest/raw/`  (glob, quoted)
+  - `bs cp -r mac-laptop:~/Heimdall ./Heimdall`              (tree)
 - Bare peer name resolves as today; no path guessing — a `peer:` prefix with
   empty path is an error.
 - `--wait` is implied: `cp` is synchronous, always (agents must not add it).
@@ -128,7 +130,7 @@ collisions, no `.1/.2` suffix (4); `DONE <bytes> <sha256> <final-path>` line
 so agents verify without a second round trip (5); `bs file ls` (8).
 Also incorporated: glob support (2), `/tmp`-as-dest symmetry (3),
 `--overwrite` semantics, mtime preservation (7), and implied `--wait`.
-Third-party relay (`fecv3:path -> macbook:path` without bytes through the
+Third-party relay (`linux-build:path -> mac-laptop:path` without bytes through the
 caller) is deferred — the mesh protocol routes via the requesting node today;
 true source→dest streaming is a protocol-level change for a later release.
 The bot's staging+mv workaround and its scp-everywhere drift are the direct
@@ -144,6 +146,6 @@ evidence for this whole design.
   round trip; mtime preserved ±2s; `DONE <bytes> <sha256> <path>` line
   format; old-peer error string; `file.copy_scope = receive_dir` refusal;
   `bs file ls` on receive dir and arbitrary dir.
-- E2E: macmini↔macbook real transfer incl. a `~/Documents` pull (the IR flow),
-  glob pull `macbook:~/Heimdall/*.pdf` → `~/heimdall-ingest/raw/`, SHA
+- E2E: mac-desktop↔mac-laptop real transfer incl. a `~/Documents` pull (the IR flow),
+  glob pull `mac-laptop:~/Heimdall/*.pdf` → `~/heimdall-ingest/raw/`, SHA
   round-trip, mtime round-trip, no leftover staging copy on the destination.

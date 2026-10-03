@@ -149,18 +149,18 @@ TEST_CASE("fcp: version caps advertise +fcp", "[fcp]") {
 TEST_CASE("cp: operand parsing", "[cp]") {
     MeshController::CopyOperand op;
     std::string err;
-    REQUIRE(MeshController::parse_copy_operand("macbook:~/Heimdall/a.pdf", op, err));
+    REQUIRE(MeshController::parse_copy_operand("TEST-PC2:~/Heimdall/a.pdf", op, err));
     CHECK(op.remote);
-    CHECK(op.peer == "macbook");
+    CHECK(op.peer == "TEST-PC2");
     CHECK(op.path == "~/Heimdall/a.pdf");
 
     REQUIRE(MeshController::parse_copy_operand("./local/file.txt", op, err));
     CHECK_FALSE(op.remote);
     CHECK(op.path == "./local/file.txt");
 
-    REQUIRE(MeshController::parse_copy_operand("fecv3:/srv/reports/r.md", op, err));
+    REQUIRE(MeshController::parse_copy_operand("TEST-PC1:/srv/reports/r.md", op, err));
     CHECK(op.remote);
-    CHECK(op.peer == "fecv3");
+    CHECK(op.peer == "TEST-PC1");
     CHECK(op.path == "/srv/reports/r.md");
 
     // Windows drive letter stays local.
@@ -178,7 +178,7 @@ TEST_CASE("cp: operand parsing", "[cp]") {
     CHECK(op.path == "z:/data/x.bin");
 
     // Bare peer: is an error.
-    CHECK_FALSE(MeshController::parse_copy_operand("macbook:", op, err));
+    CHECK_FALSE(MeshController::parse_copy_operand("TEST-PC2:", op, err));
     CHECK_FALSE(err.empty());
 }
 
