@@ -186,6 +186,10 @@ if(BUILD_TESTING)
 # Without CONFIGURE_DEPENDS, an existing build can expose stale *_NOT_BUILT
 # CTest entries until the developer manually re-runs CMake.
 file(GLOB TEST_SOURCES CONFIGURE_DEPENDS "tests/*.cpp")
+if(NOT WIN32)
+    list(APPEND TEST_SOURCES
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/e2e/panel_session_acceptance.cpp")
+endif()
 include(Catch)
 foreach(TEST_SRC ${TEST_SOURCES})
     get_filename_component(TEST_NAME ${TEST_SRC} NAME_WE)
@@ -246,7 +250,16 @@ foreach(TEST_SRC ${TEST_SOURCES})
     # them unless a Windows emulator is configured; defer discovery to native
     # Windows CI/runtime in that case.
     if(NOT CMAKE_CROSSCOMPILING)
-        if(TEST_NAME STREQUAL "test_mesh" OR
+        if(TEST_NAME STREQUAL "test_panel_session_control")
+            add_test(NAME test_panel_session_control COMMAND test_panel_session_control)
+        elseif(TEST_NAME STREQUAL "panel_session_acceptance")
+            add_dependencies(${TEST_NAME} bridgesessions)
+            add_test(NAME panel_session_acceptance
+                COMMAND panel_session_acceptance $<TARGET_FILE:bridgesessions>)
+            set_tests_properties(panel_session_acceptance PROPERTIES
+                RESOURCE_LOCK bridgesessions_ipc
+                TIMEOUT 120)
+        elseif(TEST_NAME STREQUAL "test_mesh" OR
            TEST_NAME STREQUAL "test_mesh_responsiveness")
             catch_discover_tests(${TEST_NAME}
                 PROPERTIES RESOURCE_LOCK bridgesessions_ipc)
