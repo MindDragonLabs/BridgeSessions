@@ -2,6 +2,8 @@
 
 Peer names in this document use generic role labels or placeholders.
 
+Peer names in this document use generic role labels or placeholders.
+
 ## Result
 
 Ship a quality release the project can build on for the rest of the program, and
