@@ -5,6 +5,7 @@ import base64
 import hashlib
 import html as _html
 import json
+import re
 import sys
 import time
 from http import HTTPStatus
@@ -19,9 +20,11 @@ from .api import (build_tree, daemon_connect_session, daemon_create_session,
                   remote_file_recv, remote_file_send, write_local_inbox_file,
                   write_volume_file)
 from .ops import mkdir_path, rename_path, trash_path
+from . import auth as panel_auth
 from .consts import APP, MAX_UPLOAD, VERSION, max_file_upload
 from .files import (file_kind, markdown_to_html, resolve_file, safe_name,
                     safe_relpath, safe_session_name, safe_type, sessions_dir)
+from .invites import TOKEN_PATTERN, list_invites, mint_invite, render_invite_page, seed_info
 from .panel_html import FAVICON_SVG, INDEX_HTML
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -35,14 +38,10 @@ STATIC_FILES = {
     "codemirror-bundle.min.js": "application/javascript; charset=utf-8",
 }
 
-
 def mesh_node_name() -> str:
     """Return the local mesh node name from MESH_TREE (best-effort)."""
-    try:
-        tree = query_mesh_tree()
-        return tree.get("node", "")
-    except Exception:
-        return ""
+    tree = query_mesh_tree()
+    return tree.get("node", "")
 
 
 class BridgePanelHandler(BaseHTTPRequestHandler):
@@ -187,12 +186,116 @@ class BridgePanelHandler(BaseHTTPRequestHandler):
     def reject(self, status: int, message: str) -> None:
         self.send_bytes(message.encode("utf-8"), "text/plain; charset=utf-8", status)
 
+    def _read_json_body(self, limit: int) -> dict | None:
+        """Read one bounded JSON object with a deadline and no trailing data."""
+        try:
+            length = int(self.headers.get("Content-Length", "-1"))
+        except (TypeError, ValueError):
+            self.reject(HTTPStatus.BAD_REQUEST, "Invalid Content-Length")
+            return None
+        if length < 2:
+            self.reject(HTTPStatus.BAD_REQUEST, "JSON body required")
+            return None
+        if length > limit:
+            self.reject(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, "Content too large")
+            return None
+        old_timeout = self.connection.gettimeout()
+        try:
+            self.connection.settimeout(5.0)
+            raw = self.rfile.read(length)
+        except (TimeoutError, OSError):
+            self.reject(HTTPStatus.REQUEST_TIMEOUT, "Request body timeout")
+            return None
+        finally:
+            self.connection.settimeout(old_timeout)
+        if len(raw) != length:
+            self.reject(HTTPStatus.BAD_REQUEST, "Incomplete request body")
+            return None
+        try:
+            value = json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, ValueError, json.JSONDecodeError):
+            self.reject(HTTPStatus.BAD_REQUEST, "Invalid JSON")
+            return None
+        if not isinstance(value, dict):
+            self.reject(HTTPStatus.BAD_REQUEST, "JSON object required")
+            return None
+        return value
+
+    def _drain_body(self) -> None:
+        """Consume ignored bodies or close, preventing keep-alive desync."""
+        try:
+            length = int(self.headers.get("Content-Length", "0") or 0)
+        except (TypeError, ValueError):
+            self.close_connection = True
+            return
+        if length <= 0:
+            return
+        if length > MAX_UPLOAD:
+            self.close_connection = True
+            return
+        try:
+            remaining = length
+            while remaining:
+                chunk = self.rfile.read(min(remaining, 65536))
+                if not chunk:
+                    self.close_connection = True
+                    return
+                remaining -= len(chunk)
+        except (BrokenPipeError, ConnectionResetError, TimeoutError, OSError):
+            self.close_connection = True
+
+    def _verified_https_or_local(self) -> bool:
+        host = (self.client_address[0] if self.client_address else "").strip("[]")
+        if host in ("127.0.0.1", "::1", "localhost") or host.startswith("127."):
+            return True
+        if getattr(self.server, "is_https", False):
+            return True
+        proxies = {x.strip() for x in __import__("os").environ.get("BRIDGEPANEL_TRUSTED_PROXY_IPS", "").split(",") if x.strip()}
+        return host in proxies and self.headers.get("X-Forwarded-Proto", "").lower() == "https"
+
+    def _v1_auth(self) -> bool:
+        return bool(getattr(self, "auth_scopes", set()) & {"admin", "read", "write", "sessions", "chat"})
+
+    def _v1_scope_allowed(self, method: str, path: str) -> bool:
+        scopes = getattr(self, "auth_scopes", set())
+        if "admin" in scopes:
+            return True
+        if path.startswith("/api/v1/auth/tokens"):
+            return False
+        if path.startswith("/api/v1/chat"):
+            required = "chat"
+        elif path.startswith("/api/v1/sessions"):
+            required = "sessions" if method in ("POST", "DELETE") else "read"
+        elif method == "POST" and path == "/api/v1/files/content":
+            required = "write"
+        else:
+            required = "read"
+        return required in scopes
+
     def _origin_allowed(self) -> bool:
         origin = self.headers.get("Origin", "")
         if not origin:
             return True
-        host = (urlparse(origin).hostname or "").strip("[]")
-        return host in ("127.0.0.1", "localhost", "::1") or host.startswith("127.")
+        try:
+            parsed = urlparse(origin)
+            request = urlparse("//" + self.headers.get("Host", ""))
+            proxies = {x.strip() for x in __import__("os").environ.get("BRIDGEPANEL_TRUSTED_PROXY_IPS", "").split(",") if x.strip()}
+            client = self.client_address[0] if getattr(self, "client_address", None) else ""
+            https = (getattr(self.server, "is_https", False)
+                     or client in proxies and self.headers.get("X-Forwarded-Proto", "").lower() == "https")
+            expected_scheme = "https" if https else "http"
+            port = parsed.port or (443 if parsed.scheme == "https" else 80)
+            request_port = request.port or (443 if parsed.scheme == "https" else 80)
+            return (parsed.scheme == expected_scheme and bool(request.hostname)
+                    and parsed.hostname == request.hostname and port == request_port
+                    and not parsed.username and not parsed.password
+                    and parsed.path in ("", "/") and not parsed.query and not parsed.fragment)
+        except ValueError:
+            return False
+
+    def _cookie_csrf_allowed(self) -> bool:
+        return (getattr(self, "auth_kind", "") != "cookie"
+                or bool(self.headers.get("Origin")) and self._origin_allowed())
 
     def _sse_write(self, payload: dict | None = None, comment: str | None = None) -> None:
         if comment is not None:
@@ -268,17 +371,25 @@ class BridgePanelHandler(BaseHTTPRequestHandler):
 
     def authorized_path(self, *, require_token: bool = False) -> tuple[str, str] | None:
         parsed = urlparse(self.path)
-        trusted_ips = getattr(self.server, "trusted_ips", set())
         auth_header = self.headers.get("Authorization", "")
         scheme, _, bearer = auth_header.partition(" ")
-        has_bearer = (
-            scheme.lower() == "bearer"
-            and bool(bearer)
-            and __import__("secrets").compare_digest(bearer, self.token)
-        )
-        if self.client_address[0] in trusted_ips and not require_token:
-            return parsed.path, parsed.query
-        if not has_bearer:
+        self.auth_scopes = set()
+        self.auth_identity = None
+        self.auth_kind = None
+        if auth_header:
+            if scheme.lower() != "bearer" or not bearer or len(bearer) > 512:
+                return None
+            self.auth_scopes = panel_auth.credential_scope(bearer, self.token)
+            self.auth_identity = panel_auth.credential_identity(bearer, self.token)
+            self.auth_kind = "bearer"
+        else:
+            self.auth_identity = panel_auth.cookie_identity(self.headers.get("Cookie", ""))
+            if self.auth_identity:
+                self.auth_scopes = {"admin", "read", "write", "sessions", "chat"}
+                self.auth_kind = "cookie"
+        if not self.auth_scopes or not self.auth_identity:
+            return None
+        if require_token and "admin" not in self.auth_scopes and "write" not in self.auth_scopes:
             return None
         return parsed.path, parsed.query
 
@@ -288,6 +399,29 @@ class BridgePanelHandler(BaseHTTPRequestHandler):
         # Health check (no auth)
         if parsed.path == "/healthz":
             self.send_json({"ok": True, "service": APP, "version": VERSION})
+            return
+
+        if parsed.path == "/api/login" and panel_auth.login_enabled():
+            self.send_bytes(panel_auth.LOGIN_HTML.encode("utf-8"), "text/html; charset=utf-8")
+            return
+
+        if parsed.path == "/api/invites":
+            if not self.authorized_path(require_token=True) or "admin" not in self.auth_scopes:
+                self.reject(HTTPStatus.NOT_FOUND, "Not found")
+                return
+            self.send_json(list_invites())
+            return
+
+        if parsed.path.startswith("/api/v1/"):
+            if not self.authorized_path(require_token=False):
+                self.send_json({"ok": False, "error": {"code": "unauthorized", "message": "authentication required"}}, HTTPStatus.UNAUTHORIZED)
+                return
+            if not self._v1_scope_allowed("GET", parsed.path):
+                self.send_json({"ok": False, "error": {"code": "forbidden", "message": "credential scope does not permit this route"}}, HTTPStatus.FORBIDDEN)
+                return
+            from . import v1
+            status, payload = v1.dispatch("GET", parsed.path, parse_qs(parsed.query), identity=self.auth_identity)
+            self.send_json(payload, status)
             return
 
         auth = self.authorized_path(require_token=False)
@@ -425,11 +559,89 @@ class BridgePanelHandler(BaseHTTPRequestHandler):
             self.reject(HTTPStatus.NOT_FOUND, "Not found")
 
     def do_POST(self) -> None:
+        parsed = urlparse(self.path)
+
+        if parsed.path == "/api/login":
+            if not panel_auth.login_enabled() or not self._verified_https_or_local() or not self._origin_allowed():
+                self.reject(HTTPStatus.FORBIDDEN, "password login requires local or verified HTTPS transport")
+                return
+            body = self._read_json_body(16 * 1024)
+            if body is None:
+                return
+            if set(body) != {"user", "pass"} or not isinstance(body.get("user"), str) or not isinstance(body.get("pass"), str):
+                self.reject(HTTPStatus.BAD_REQUEST, "user and pass are required")
+                return
+            if not panel_auth.verify_password(body["user"], body["pass"], self.client_address[0]):
+                self.reject(HTTPStatus.UNAUTHORIZED, "invalid credentials")
+                return
+            cookie = panel_auth.new_session()
+            secure = self.headers.get("X-Forwarded-Proto", "").lower() == "https" or getattr(self.server, "is_https", False)
+            flags = "; HttpOnly; SameSite=Strict; Path=/"
+            if secure:
+                flags += "; Secure"
+            self.send_response(200)
+            self.security_headers("application/json; charset=utf-8", len(b'{"ok":true}'))
+            self.send_header("Set-Cookie", f"{panel_auth.COOKIE}={cookie}{flags}")
+            self.end_headers()
+            self.wfile.write(b'{"ok":true}')
+            return
+
+        if self.headers.get("Cookie") and not self.headers.get("Authorization") and (not self.headers.get("Origin") or not self._origin_allowed()):
+            self.reject(HTTPStatus.FORBIDDEN, "origin is not allowed")
+            return
+
+        if parsed.path.startswith("/api/v1/"):
+            if not self.authorized_path(require_token=False):
+                self.send_json({"ok": False, "error": {"code": "unauthorized", "message": "authentication required"}}, HTTPStatus.UNAUTHORIZED)
+                return
+            if not self._v1_scope_allowed("POST", parsed.path):
+                self.send_json({"ok": False, "error": {"code": "forbidden", "message": "credential scope does not permit this route"}}, HTTPStatus.FORBIDDEN)
+                return
+            if not self._cookie_csrf_allowed():
+                self.send_json({"ok": False, "error": {"code": "origin_denied", "message": "origin is not allowed"}}, HTTPStatus.FORBIDDEN)
+                return
+            body = self._read_json_body(256 * 1024)
+            if body is None:
+                return
+            from . import v1
+            status, payload = v1.dispatch("POST", parsed.path, parse_qs(parsed.query), body, identity=self.auth_identity)
+            self.send_json(payload, status)
+            return
+
         auth = self.authorized_path(require_token=True)
         if not auth:
             self.reject(HTTPStatus.NOT_FOUND, "Not found")
             return
         path, _ = auth
+
+        if path == "/api/invites":
+            self._drain_body()
+            if "admin" not in self.auth_scopes:
+                self.reject(HTTPStatus.FORBIDDEN, "administrator credential required")
+                return
+            self.send_json(mint_invite())
+            return
+
+        if path == "/api/invites/page":
+            body = self._read_json_body(64 * 1024)
+            if body is None:
+                return
+            if set(body) - {"token", "seed", "window_seconds", "expires_at"} or not isinstance(body.get("token"), str):
+                self.reject(HTTPStatus.BAD_REQUEST, "token is required")
+                return
+            token = body["token"].strip()
+            if not re.fullmatch(TOKEN_PATTERN, token):
+                self.reject(HTTPStatus.BAD_REQUEST, "invalid token")
+                return
+            seed = str(body.get("seed") or seed_info().get("addr", ""))
+            try:
+                window = int(body.get("window_seconds") or 300)
+            except (TypeError, ValueError):
+                self.reject(HTTPStatus.BAD_REQUEST, "invalid window_seconds")
+                return
+            record = {"token": token, "seed": seed, "window_seconds": window, "expires_at": str(body.get("expires_at") or "")}
+            self.send_json({"ok": True, "page": render_invite_page(record)})
+            return
 
         if path == "/api/save":
             try:
@@ -634,3 +846,21 @@ class BridgePanelHandler(BaseHTTPRequestHandler):
             return
 
         self.reject(HTTPStatus.NOT_FOUND, "Not found")
+
+    def do_DELETE(self) -> None:
+        parsed = urlparse(self.path)
+        if not parsed.path.startswith("/api/v1/"):
+            self.reject(HTTPStatus.NOT_FOUND, "Not found")
+            return
+        if not self.authorized_path(require_token=False):
+            self.send_json({"ok": False, "error": {"code": "unauthorized", "message": "authentication required"}}, HTTPStatus.UNAUTHORIZED)
+            return
+        if not self._v1_scope_allowed("DELETE", parsed.path):
+            self.send_json({"ok": False, "error": {"code": "forbidden", "message": "credential scope does not permit this route"}}, HTTPStatus.FORBIDDEN)
+            return
+        if not self._cookie_csrf_allowed():
+            self.send_json({"ok": False, "error": {"code": "origin_denied", "message": "origin is not allowed"}}, HTTPStatus.FORBIDDEN)
+            return
+        from . import v1
+        status, payload = v1.dispatch("DELETE", parsed.path, parse_qs(parsed.query), identity=self.auth_identity)
+        self.send_json(payload, status)

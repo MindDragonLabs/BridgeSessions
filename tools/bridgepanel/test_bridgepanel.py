@@ -1145,7 +1145,7 @@ class TestPhoneLayoutCSS(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         import re
-        from panel_html import INDEX_HTML
+        from bridgepanel.panel_html import INDEX_HTML
         cls.html = INDEX_HTML
         cls.css = re.search(r"<style>(.*?)</style>", INDEX_HTML, re.S).group(1)
 

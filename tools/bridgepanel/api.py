@@ -197,9 +197,7 @@ def daemon_create_session(machine: str, name: str, command: str,
     """
     import subprocess
 
-    bs_bin = os.path.expanduser("~/bridgesessions/build/bridgesessions")
-    if not os.path.isfile(bs_bin):
-        bs_bin = os.path.expanduser("~/bridgesessions/bridgesessions")
+    bs_bin = _bs_binary()
 
     args = [bs_bin, "shell", machine, "-n", name, "-x", command]
     if detach:
@@ -212,7 +210,7 @@ def daemon_create_session(machine: str, name: str, command: str,
         )
     except subprocess.TimeoutExpired:
         return {"ok": False, "error": "command timed out"}
-    except FileNotFoundError:
+    except (FileNotFoundError, PermissionError):
         return {"ok": False, "error": f"bs binary not found: {bs_bin}"}
 
     if result.returncode != 0:
@@ -246,14 +244,75 @@ def daemon_session_input(session: str, data: str) -> dict:
     }
 
 
+_CONTROL_NAME_RE = re.compile(r"^(?:\.|[A-Za-z0-9][A-Za-z0-9._-]{0,63})$")
+
+
+def _control_names(machine: str, session: str) -> tuple[str, str] | None:
+    machine, session = str(machine or ""), str(session or "")
+    if not _CONTROL_NAME_RE.fullmatch(machine) or not _CONTROL_NAME_RE.fullmatch(session):
+        return None
+    return machine, session
+
+
+def daemon_session_input_v1(machine: str, session: str, data: bytes) -> dict:
+    names = _control_names(machine, session)
+    if names is None or len(data) > 65536:
+        return {"ok": False, "error": "invalid session or input size"}
+    raw = bs_ipc(f"SESSION_INPUT {names[0]} {names[1]} {_b64.b64encode(data).decode('ascii')}", timeout=3.0).strip()
+    if raw == "OK":
+        return {"ok": True}
+    return {"ok": False, "error": raw or "daemon unavailable"}
+
+
+def daemon_session_scrollback_v1(machine: str, session: str, offset: int, limit: int) -> dict:
+    names = _control_names(machine, session)
+    if names is None or offset < 0 or not 1 <= limit <= 65536:
+        return {"ok": False, "error": "invalid session, offset, or limit"}
+    raw = bs_ipc(f"SESSION_SCROLLBACK {names[0]} {names[1]} {offset} {limit}", timeout=3.0).strip()
+    parts = raw.split()
+    if len(parts) < 3 or parts[0] != "OK":
+        return {"ok": False, "error": raw or "daemon unavailable"}
+    try:
+        next_offset = int(parts[1])
+    except ValueError:
+        return {"ok": False, "error": "malformed daemon offset"}
+    payload = parts[2]
+    reset = len(parts) > 3 and parts[3] == "RESET"
+    if payload == "-":
+        payload = ""
+    try:
+        data = _b64.b64decode(payload, validate=True) if payload else b""
+    except (ValueError, _b64.binascii.Error):
+        return {"ok": False, "error": "malformed daemon payload"}
+    if len(data) > limit:
+        return {"ok": False, "error": "daemon payload exceeds requested limit"}
+    return {"ok": True, "offset": next_offset, "text_b64": _b64.b64encode(data).decode("ascii"), "reset": reset}
+
+
+def daemon_session_kill_v1(machine: str, session: str) -> dict:
+    names = _control_names(machine, session)
+    if names is None:
+        return {"ok": False, "error": "invalid session or machine"}
+    raw = bs_ipc(f"SESSION_KILL {names[0]} {names[1]}", timeout=3.0).strip()
+    if raw == "OK":
+        return {"ok": True}
+    return {"ok": False, "error": raw or "daemon unavailable"}
+
+
 def _bs_binary() -> str:
-    """Find the bs binary."""
+    """Find the bs binary, honoring the candidate-lane executable override."""
+    override = os.environ.get("BRIDGEPANEL_BS_BINARY", "").strip()
+    if override:
+        candidate = os.path.abspath(os.path.expanduser(override))
+        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+            return candidate
+        return ""
     for cand in (
         os.path.expanduser("~/.local/bin/bridgesessions"),
         os.path.expanduser("~/bridgesessions/build/bridgesessions"),
         os.path.expanduser("~/bridgesessions/bridgesessions"),
     ):
-        if os.path.isfile(cand):
+        if os.path.isfile(cand) and os.access(cand, os.X_OK):
             return cand
     return "bs"
 
@@ -415,7 +474,7 @@ def remote_file_recv(machine: str, remote_path: str) -> dict:
         )
     except subprocess.TimeoutExpired:
         return {"ok": False, "error": f"transfer timed out ({int(timeout)}s)"}
-    except FileNotFoundError:
+    except (FileNotFoundError, PermissionError):
         return {"ok": False, "error": f"bs binary not found: {bs_bin}"}
 
     combined = (result.stdout or "") + "\n" + (result.stderr or "")
@@ -495,7 +554,7 @@ def remote_file_send(machine: str, remote_path: str, content: str | bytes) -> di
         )
     except subprocess.TimeoutExpired:
         return {"ok": False, "error": f"transfer timed out ({int(timeout)}s)"}
-    except FileNotFoundError:
+    except (FileNotFoundError, PermissionError):
         return {"ok": False, "error": f"bs binary not found: {bs_bin}"}
     finally:
         try:
@@ -866,7 +925,7 @@ def _run_remote_script(machine: str, script: str, suffix: str, interp: str) -> d
                 args, capture_output=True, text=True, timeout=45.0,
                 env={**os.environ, "HOME": os.path.expanduser("~")},
             )
-        except (subprocess.TimeoutExpired, FileNotFoundError):
+        except (subprocess.TimeoutExpired, FileNotFoundError, PermissionError):
             return {}
     finally:
         try:
@@ -1084,7 +1143,7 @@ def _run_remote_list(machine: str, rel: str, windows: bool) -> dict:
             )
         except subprocess.TimeoutExpired:
             return {"ok": False, "error": "list timed out", "path": rel, "items": []}
-        except FileNotFoundError:
+        except (FileNotFoundError, PermissionError):
             return {"ok": False, "error": f"bs binary not found: {bs_bin}", "path": rel, "items": []}
     finally:
         try:
@@ -1195,6 +1254,10 @@ def read_volume_file(machine: str, root: str, rel: str) -> dict:
         return {"ok": False, "error": err}
     if is_self_node(machine, tree):
         target = Path(abs_path)
+        try:
+            target.resolve().relative_to(Path(match["os_path"]).resolve())
+        except (ValueError, OSError):
+            return {"ok": False, "error": "path_rejected"}
         if not target.is_file():
             return {"ok": False, "error": "file not found"}
         try:
