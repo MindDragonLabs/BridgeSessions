@@ -253,6 +253,20 @@ class BridgePanelHandler(BaseHTTPRequestHandler):
         proxies = {x.strip() for x in __import__("os").environ.get("BRIDGEPANEL_TRUSTED_PROXY_IPS", "").split(",") if x.strip()}
         return host in proxies and self.headers.get("X-Forwarded-Proto", "").lower() == "https"
 
+    def _forwarded_https(self) -> bool:
+        """True only when a configured trusted proxy reports an https hop.
+
+        X-Forwarded-Proto is a plain request header, so any client can set it.
+        It is only meaningful when the immediate peer is a proxy this
+        deployment actually trusts, which is what
+        BRIDGESPANEL_TRUSTED_PROXY_IPS lists.
+        """
+        proxies = {x.strip() for x in __import__("os").environ.get("BRIDGESPANEL_TRUSTED_PROXY_IPS", "").split(",") if x.strip()}
+        if not proxies:
+            return False
+        client = self.client_address[0] if getattr(self, "client_address", None) else ""
+        return client in proxies and self.headers.get("X-Forwarded-Proto", "").lower() == "https"
+
     def _v1_auth(self) -> bool:
         return bool(getattr(self, "auth_scopes", set()) & {"admin", "read", "write", "sessions", "chat"})
 
@@ -575,7 +589,14 @@ class BridgePanelHandler(BaseHTTPRequestHandler):
                 self.reject(HTTPStatus.UNAUTHORIZED, "invalid credentials")
                 return
             cookie = panel_auth.new_session()
-            secure = self.headers.get("X-Forwarded-Proto", "").lower() == "https" or getattr(self.server, "is_https", False)
+            # Mark the cookie Secure whenever the session could have travelled
+            # over TLS. X-Forwarded-Proto is attacker-controlled, so it only
+            # counts when the request actually came from a configured trusted
+            # proxy (BRIDGESPANEL_TRUSTED_PROXY_IPS), the same rule
+            # _origin_allowed() already applies. Trusting the bare header would
+            # let any client drop the Secure flag by omitting it.
+            secure = (getattr(self.server, "is_https", False)
+                      or self._forwarded_https())
             flags = "; HttpOnly; SameSite=Strict; Path=/"
             if secure:
                 flags += "; Secure"

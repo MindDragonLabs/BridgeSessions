@@ -62,6 +62,38 @@ class TestAuthIsolated(unittest.TestCase):
         self.assertFalse(auth.login_enabled())
         self.assertFalse(auth.verify_password("admin", "anything", "fixture"))
 
+    def test_forwarded_https_requires_a_trusted_proxy(self):
+        # X-Forwarded-Proto is set by the client, so it must not be able to
+        # mark the session cookie Secure (or not) on its own. Only a peer
+        # listed in BRIDGESPANEL_TRUSTED_PROXY_IPS may assert an https hop.
+        from bridgepanel.server import BridgePanelHandler
+
+        class FakeServer:
+            is_https = False
+
+        def handler_for(client_ip, forwarded):
+            h = object.__new__(BridgePanelHandler)
+            h.server = FakeServer()
+            h.client_address = (client_ip, 5555)
+            h.headers = {"X-Forwarded-Proto": forwarded}
+            return h
+
+        env_name = "BRIDGESPANEL_TRUSTED_PROXY_IPS"
+        previous = os.environ.get(env_name)
+        try:
+            os.environ.pop(env_name, None)
+            self.assertFalse(handler_for("203.0.113.9", "https")._forwarded_https())
+            os.environ[env_name] = "203.0.113.9"
+            self.assertTrue(handler_for("203.0.113.9", "https")._forwarded_https())
+            self.assertFalse(handler_for("203.0.113.9", "http")._forwarded_https())
+            os.environ[env_name] = "198.51.100.1"
+            self.assertFalse(handler_for("203.0.113.9", "https")._forwarded_https())
+        finally:
+            if previous is None:
+                os.environ.pop(env_name, None)
+            else:
+                os.environ[env_name] = previous
+
     def test_scoped_token_expiry_and_revoke(self):
         row = auth.issue_api_token("phone", ["read"], ttl=60)
         self.assertEqual(auth.credential_scope(row["token"]), {"read"})
