@@ -94,6 +94,36 @@ class TestAuthIsolated(unittest.TestCase):
             else:
                 os.environ[env_name] = previous
 
+    def test_audit_trail_records_credential_lifecycle(self):
+        # S2 requires audit events for the credential lifecycle. The log must
+        # identify the credential without ever containing the secret, because
+        # it is written to disk in the config home.
+        row = auth.issue_api_token("audit-phone", ["read"], ttl=60)
+        self.assertTrue(auth.revoke_api_token(row["id"]))
+        events = auth.read_audit()
+        self.assertTrue(events, "no audit events were recorded")
+        kinds = [e.get("event") for e in events]
+        self.assertIn("token_issued", kinds)
+        self.assertIn("token_revoked", kinds)
+        blob = json.dumps(events)
+        self.assertNotIn(row["token"], blob)
+        issued = next(e for e in events if e.get("event") == "token_issued")
+        self.assertEqual(issued["id"], row["id"])
+        self.assertEqual(issued["label"], "audit-phone")
+        self.assertEqual(issued["scopes"], ["read"])
+        self.assertIn("ts", issued)
+        # Written 0600: the log sits in the config home next to the token store.
+        self.assertEqual(auth.audit_log_path().stat().st_mode & 0o777, 0o600)
+
+    def test_audit_survives_a_malformed_line(self):
+        auth.issue_api_token("before", ["read"], ttl=60)
+        with auth.audit_log_path().open("a", encoding="utf-8") as handle:
+            handle.write("this is not json\n")
+        auth.issue_api_token("after", ["read"], ttl=60)
+        labels = [e.get("label") for e in auth.read_audit()]
+        self.assertIn("before", labels)
+        self.assertIn("after", labels)
+
     def test_scoped_token_expiry_and_revoke(self):
         row = auth.issue_api_token("phone", ["read"], ttl=60)
         self.assertEqual(auth.credential_scope(row["token"]), {"read"})

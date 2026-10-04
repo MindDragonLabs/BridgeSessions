@@ -17,6 +17,7 @@ import hashlib
 import hmac
 import json
 import secrets
+import sys
 import threading
 import time
 import os
@@ -87,6 +88,56 @@ def auth_path() -> Path:
 def token_store_path() -> Path:
     from .consts import config_home
     return config_home() / "api-tokens.json"
+
+
+def audit_log_path() -> Path:
+    """Where credential lifecycle events are recorded.
+
+    Separate from the token store: this must survive token-store rewrites and
+    stay readable by an operator without decrypting anything.
+    """
+    from .consts import config_home
+    return config_home() / "auth-audit.log"
+
+
+def audit(event: str, **fields: object) -> None:
+    """Append one structured auth event.
+
+    Deliberately never records a secret: callers pass identifiers, labels and
+    scopes, never the token value. A write failure must not take down the
+    request being audited, so it is swallowed after being reported to stderr.
+    """
+    record = {"ts": round(time.time(), 3), "event": event}
+    record.update(fields)
+    line = json.dumps(record, sort_keys=True, default=str)
+    try:
+        path = audit_log_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(line + "\n")
+        os.chmod(path, 0o600)
+    except OSError as exc:
+        print(f"bridgepanel: auth audit write failed: {exc}", file=sys.stderr)
+
+
+def read_audit(limit: int = 200) -> list[dict]:
+    """Most recent audit events, oldest first. Malformed lines are skipped."""
+    try:
+        raw = audit_log_path().read_text(encoding="utf-8")
+    except OSError:
+        return []
+    out: list[dict] = []
+    for line in raw.splitlines()[-limit:]:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            parsed = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(parsed, dict):
+            out.append(parsed)
+    return out
 
 
 def _kdf(password: str, salt: bytes, iterations: int = PBKDF2_ITERATIONS) -> str:
@@ -283,6 +334,10 @@ def issue_api_token(label: str, scopes: list[str], ttl: int = API_TOKEN_TTL) -> 
         row = {"id": secrets.token_hex(8), "label": label[:128], "hash": hashlib.sha256(token.encode()).hexdigest(), "scopes": sorted(set(scopes)), "expires_at": time.time() + ttl, "revoked": False}
         rows.append(row)
         _write_tokens(rows)
+    # Never log the token itself: the id, label and scopes are what an
+    # operator needs to identify and revoke the credential later.
+    audit("token_issued", id=row["id"], label=row["label"],
+          scopes=row["scopes"], expires_at=row["expires_at"])
     return {k: v for k, v in row.items() if k != "hash"} | {"token": token}
 
 
@@ -298,7 +353,10 @@ def revoke_api_token(token_id: str) -> bool:
                 changed = True
         if changed:
             _write_tokens(rows)
-        return changed
+        label = next((r.get("label") for r in rows if r.get("id") == token_id), "")
+    if changed:
+        audit("token_revoked", id=token_id, label=label)
+    return changed
 
 
 def list_api_tokens() -> list[dict]:
