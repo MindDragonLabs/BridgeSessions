@@ -10,7 +10,9 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/catch_session.hpp>
 
-#include <cctype>
+#include <cstdint>
+#include <codecvt>
+#include <locale>
 #include <string>
 #include <vector>
 
@@ -20,43 +22,67 @@
 
 namespace {
 
-// Visible length (ANSI escape sequences stripped) — reused by several tests.
-size_t visible_len(const std::string& s) {
-    size_t vis = 0;
-    for (size_t i = 0; i < s.size();) {
-        if (s[i] == '\x1b') {
-            if (s.compare(i, 2, "\x1b[") == 0) {
-                i += 2;
-                while (i < s.size() && !std::isalpha(static_cast<unsigned char>(s[i]))) ++i;
-                ++i;
-            } else {
-                i += 2;
-            }
-            continue;
-        }
-        ++vis; ++i;
-    }
-    return vis;
-}
-
-// Visible cell width: bytes → cells by counting non-UTF-8-continuation bytes
-// outside escape sequences (matches bs-tui.h's own cell math).
-size_t visible_cells(const std::string& s) {
+// Independent oracle for the concrete UTF-8 corpus below. It uses explicit
+// decoded sequences and expected terminal widths rather than bs-tui.h's
+// scanner, so a byte-counting regression cannot make its own tests pass.
+size_t oracle_cells(const std::string& s) {
     size_t cells = 0;
     for (size_t i = 0; i < s.size();) {
+        // These clusters have independently specified widths in the corpus.
+        bool cluster = false;
+        for (const std::string token : {"👩‍💻", "🇩🇪", "❤️", "1️⃣", "👍🏽"}) {
+            if (s.compare(i, token.size(), token) == 0) {
+                cells += 2; i += token.size(); cluster = true; break;
+            }
+        }
+        if (cluster) continue;
         if (s[i] == '\x1b') {
             if (s.compare(i, 2, "\x1b[") == 0) {
                 i += 2;
-                while (i < s.size() && !std::isalpha(static_cast<unsigned char>(s[i]))) ++i;
-                ++i;
+                while (i < s.size() && static_cast<unsigned char>(s[i]) < 0x40) ++i;
+                if (i < s.size()) ++i;
+            } else if (s.compare(i, 2, "\x1b]") == 0) {
+                i += 2;
+                while (i < s.size() && s[i] != '\a') {
+                    if (s[i] == '\x1b' && i + 1 < s.size() && s[i + 1] == '\\') {
+                        i += 2;
+                        break;
+                    }
+                    ++i;
+                }
+                if (i < s.size() && s[i] == '\a') ++i;
             } else {
                 i += 2;
             }
             continue;
         }
         const unsigned char c = static_cast<unsigned char>(s[i]);
-        if ((c & 0xC0) != 0x80) ++cells;
-        ++i;
+        if (c < 0x80) {
+            if (c != '\r' && c != '\n' && c != '\t') ++cells;
+            ++i;
+            continue;
+        }
+        if (s.compare(i, 2, "\xc3\xa9") == 0) { ++cells; i += 2; continue; }
+        if (s.compare(i, 2, "\xcc\x81") == 0) { i += 2; continue; }
+        if (s.compare(i, 3, "\xe5\x90\x8d") == 0 ||
+            s.compare(i, 3, "\xe7\xa7\xb0") == 0 ||
+            s.compare(i, 3, "\xe9\x95\xb7") == 0 ||
+            s.compare(i, 3, "\xe3\x81\x84") == 0) {
+            cells += 2; i += 3; continue;
+        }
+        if (s.compare(i, 4, "\xf0\x9f\x91\xa9") == 0 ||
+            s.compare(i, 4, "\xf0\x9f\x92\xbb") == 0 ||
+            s.compare(i, 4, "\xf0\x9f\x87\xa9") == 0 ||
+            s.compare(i, 4, "\xf0\x9f\x87\xaa") == 0) {
+            cells += 2; i += 4; continue;
+        }
+        size_t sequence = 1;
+        if (c >= 0xc2 && c <= 0xdf) sequence = 2;
+        else if (c >= 0xe0 && c <= 0xef) sequence = 3;
+        else if (c >= 0xf0 && c <= 0xf4) sequence = 4;
+        if (i + sequence <= s.size()) i += sequence;
+        else ++i;
+        ++cells;
     }
     return cells;
 }
@@ -73,6 +99,14 @@ std::vector<std::string> frame_lines(const std::string& f) {
         p = nl + 1;
     }
     return ls;
+}
+
+bool valid_utf8(const std::string& text) {
+    try {
+        std::wstring_convert<std::codecvt_utf8<char32_t>, char32_t> codec;
+        const auto decoded = codec.from_bytes(text);
+        return codec.converted() == text.size() && codec.to_bytes(decoded) == text;
+    } catch (const std::range_error&) { return false; }
 }
 
 } // namespace
@@ -93,32 +127,7 @@ TEST_CASE("menu frame pads rows to fixed width (no reflow wobble)", "[tui][menu]
     size_t lines = 0;
     for (size_t p = 0; p < f.size(); ++p) if (f[p] == '\n') ++lines;
     REQUIRE(lines >= 4);  // top border, title, 2 rows, bottom border
-    // Every line inside the box must render the same visible width (no
-    // reflow wobble). visible_len counts bytes; multi-byte UTF-8 box glyphs
-    // make absolute cell math fragile, so assert cross-line consistency by
-    // comparing each line against its own UTF-8-normalized cell width:
-    // border line has 24 cells (╭ + 22 + ╮), so every other line must also
-    // be 24 cells. Convert bytes → cells by counting non-continuation bytes
-    // outside escape sequences.
-    auto visible_cells = [&](const std::string& s) {
-        size_t cells = 0;
-        for (size_t i = 0; i < s.size();) {
-            if (s[i] == '\x1b') {  // strip escape sequence
-                if (s.compare(i, 2, "\x1b[") == 0) {
-                    i += 2;
-                    while (i < s.size() && !std::isalpha(static_cast<unsigned char>(s[i]))) ++i;
-                    ++i;
-                } else {
-                    i += 2;
-                }
-                continue;
-            }
-            unsigned char c = static_cast<unsigned char>(s[i]);
-            if ((c & 0xC0) != 0x80) ++cells;  // not a UTF-8 continuation byte
-            ++i;
-        }
-        return cells;
-    };
+    // Compare each line against an independent terminal-cell oracle.
     std::vector<std::string> ls;
     for (size_t p = 0; p < f.size();) {
         size_t nl = f.find('\n', p);
@@ -131,10 +140,10 @@ TEST_CASE("menu frame pads rows to fixed width (no reflow wobble)", "[tui][menu]
         p = nl + 1;
     }
     REQUIRE(ls.size() >= 5);  // top, title, separator, 2 rows, bottom
-    int top = visible_cells(ls[0]);
+    int top = static_cast<int>(oracle_cells(ls[0]));
     REQUIRE(top == 24);       // ╭ + (width+2) dashes + ╮
     for (size_t i = 1; i < ls.size(); ++i)
-        REQUIRE(visible_cells(ls[i]) == top);
+        REQUIRE(oracle_cells(ls[i]) == static_cast<size_t>(top));
 }
 
 TEST_CASE("footer is dimmed and shows the hint", "[tui][menu]") {
@@ -184,11 +193,11 @@ TEST_CASE("menu frame truncates an overlong title to the frame width", "[tui][me
     auto f = bs::tui::menu_frame({long_title, true}, {"one", "two"}, 0, 20);
     auto ls = frame_lines(f);
     REQUIRE(ls.size() >= 5);
-    const size_t border = visible_cells(ls.front());  // ╭ + 22 dashes + ╮ = 24
+    const size_t border = oracle_cells(ls.front());  // ╭ + 22 dashes + ╮ = 24
     for (const auto& line : ls)
-        REQUIRE(visible_cells(line) == border);
+        REQUIRE(oracle_cells(line) == border);
     // The title still appears, truncated.
-    REQUIRE(visible_cells(ls[1]) == border);
+    REQUIRE(oracle_cells(ls[1]) == border);
 }
 
 TEST_CASE("menu frame truncates overlong rows without splitting UTF-8", "[tui][menu][wrap]") {
@@ -198,22 +207,10 @@ TEST_CASE("menu frame truncates overlong rows without splitting UTF-8", "[tui][m
     auto f = bs::tui::menu_frame({"t"}, {wide}, 0, 16);
     auto ls = frame_lines(f);
     REQUIRE(ls.size() >= 5);
-    const size_t border = visible_cells(ls.front());
+    const size_t border = oracle_cells(ls.front());
     for (const auto& line : ls)
-        REQUIRE(visible_cells(line) == border);
-    // Reassemble the row text: it must be valid UTF-8 (no orphaned continuation
-    // bytes) — decode it and confirm the whole string round-trips as text.
-    for (const auto& line : ls) {
-        // ASCII-only structural lines are trivially valid; only check the row.
-        if (line.find("名称") == std::string::npos && line.find("abcdef") == std::string::npos)
-            continue;
-        // Ensure no byte 0x80-0xBF appears without a preceding lead byte.
-        for (size_t i = 0; i < line.size(); ++i) {
-            const unsigned char c = static_cast<unsigned char>(line[i]);
-            if (c >= 0x80 && c <= 0xBF)
-                REQUIRE(i > 0);  // continuation byte with a preceding byte
-        }
-    }
+        REQUIRE(oracle_cells(line) == border);
+    for (const auto& line : ls) REQUIRE(valid_utf8(line));
 }
 
 TEST_CASE("selected row marker survives truncation", "[tui][menu][wrap]") {
@@ -226,6 +223,86 @@ TEST_CASE("selected row marker survives truncation", "[tui][menu][wrap]") {
     for (size_t p = f.find("\x1b[7m"); p != std::string::npos;
          p = f.find("\x1b[7m", p + 1)) ++highlights;
     REQUIRE(highlights == 1);
+}
+
+TEST_CASE("cell width handles combining, CJK, emoji clusters, and ANSI grammar",
+          "[tui][unicode]") {
+    REQUIRE(bs::tui::tui_row_width("é") == 1);
+    REQUIRE(bs::tui::tui_row_width("e\xcc\x81") == 1);
+    REQUIRE(bs::tui::tui_row_width("名称") == 4);
+    REQUIRE(bs::tui::tui_row_width("👩‍💻") == 2);
+    REQUIRE(bs::tui::tui_row_width("🇩🇪") == 2);
+
+    const std::string styled = "\x1b[38;5;200m名称\x1b[0m";
+    REQUIRE(bs::tui::tui_row_width(styled) == 4);
+    REQUIRE(bs::tui::tui_row_width("\x1b[?25htext\x1b]0;title\a") == 4);
+    REQUIRE(bs::tui::tui_truncate("名称-xyz", 3) == "名");
+    REQUIRE(bs::tui::tui_truncate("a\nb\rc", 99) == "a b c");
+    REQUIRE(bs::tui::tui_truncate(std::string("\xf0\x28\x8c\x28"), 99) ==
+            "\xef\xbf\xbd(\xef\xbf\xbd(");
+}
+
+TEST_CASE("tiny menu widths remain bounded and cell-aligned", "[tui][menu][tiny]") {
+    for (size_t width : {size_t{0}, size_t{1}, size_t{2}, size_t{3}}) {
+        auto lines = frame_lines(bs::tui::menu_frame(
+            {"長いタイトル"}, {"名称", "👩‍💻"}, 0, width));
+        REQUIRE(lines.size() == 6);
+        const size_t line_width = oracle_cells(lines.front());
+        REQUIRE(line_width == width + 4);
+        for (const auto& line : lines) REQUIRE(oracle_cells(line) == line_width);
+    }
+}
+
+TEST_CASE("Unicode frame geometry uses independent cell expectations", "[tui][unicode][geometry]") {
+    for (const std::string text : {"名称", "é", "e\xcc\x81", "名称名称名称名称名称名称名称", "👩‍💻", "🇩🇪", "❤️", "1️⃣", "👍🏽"}) {
+        for (size_t width : {size_t{0}, size_t{1}, size_t{2}, size_t{3}, size_t{16}, size_t{20}}) {
+            auto lines = frame_lines(bs::tui::menu_frame({text}, {text, text}, 1, width));
+            for (const auto& line : lines) {
+                REQUIRE(valid_utf8(line));
+                REQUIRE(oracle_cells(line) == width + 4);
+            }
+        }
+    }
+}
+
+TEST_CASE("scanner consumes CSI finals and string controls safely", "[tui][scanner]") {
+    for (char final = 0x40; final <= 0x7e; ++final) {
+        const std::string input = "a\x1b[?12;3 " + std::string(1, final) + "b";
+        REQUIRE(bs::tui::tui_truncate(input, 10) == "ab");
+    }
+    REQUIRE(bs::tui::tui_truncate("\x1b[38:2::1:2:3mabc\x1b[0m", 2) ==
+            "\x1b[38:2::1:2:3mab");
+    REQUIRE(bs::tui::tui_truncate("\x1b]8;;https://example.test\x1b\\abc\x1b]8;;\a", 10) == "abc");
+    REQUIRE(bs::tui::tui_truncate("x\x1b]unclosed", 10) == "x");
+    REQUIRE(bs::tui::tui_truncate("x\x1b[31", 10) == "x");
+    REQUIRE(bs::tui::tui_truncate("x\x1bPpayload\x1b\\y", 10) == "xy");
+    REQUIRE(bs::tui::tui_truncate("a\t\r\n\b\x7f" "b", 20) == "a     b");
+    REQUIRE(bs::tui::tui_truncate("a\xe2\x80\xae" "b", 20) == "ab");
+}
+
+TEST_CASE("truncation preserves clusters and rejects malformed UTF-8", "[tui][unicode][scanner]") {
+    for (const std::string cluster : {"👩‍💻", "🇩🇪", "❤️", "1️⃣", "👍🏽"}) {
+        REQUIRE(bs::tui::tui_row_width(cluster) == 2);
+        REQUIRE(bs::tui::tui_truncate(cluster + "x", 1).empty());
+        REQUIRE(bs::tui::tui_truncate(cluster + "x", 2) == cluster);
+    }
+    REQUIRE(bs::tui::tui_row_width("a‍b") == 2); // ZWJ doesn't collapse arbitrary text
+    REQUIRE(bs::tui::tui_truncate("\xcc\x81" "x", 1) == "x");
+    REQUIRE(bs::tui::tui_truncate("e\x1b[31m\xcc\x81" "x", 1) == "e\x1b[31m\xcc\x81");
+    REQUIRE(bs::tui::tui_row_width("กข") == 2); // Thai letters are not combining marks
+    REQUIRE(bs::tui::tui_row_width("a\xe1\xab\x80") == 1); // U+1AC0 extended combining mark
+    for (const std::string malformed : {"\x80", "\xc0\xaf", "\xe0\x80\xaf", "\xed\xa0\x80",
+                                       "\xf4\x90\x80\x80", "\xf5\x80\x80\x80", "\xc3", "\xe5\x90"}) {
+        REQUIRE_FALSE(valid_utf8(malformed));
+        const auto normalized = bs::tui::tui_truncate(malformed, 100);
+        REQUIRE(valid_utf8(normalized));
+        REQUIRE(normalized != malformed);
+    }
+    for (size_t cap = 0; cap < 16; ++cap) {
+        const auto clipped = bs::tui::tui_truncate("é名称e\xcc\x81👩‍💻🇩🇪", cap);
+        REQUIRE(valid_utf8(clipped));
+        REQUIRE(oracle_cells(clipped) <= cap);
+    }
 }
 
 int main(int argc, char* argv[]) {
