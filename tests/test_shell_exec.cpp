@@ -580,76 +580,91 @@ TEST_CASE("MeshConfig defaults for daemon", "[shell]") {
     REQUIRE(c.gossip_interval_secs == 60);
 }
 
+
 TEST_CASE("session command runs through a login shell (user PATH honored)",
           "[shell][login-path]") {
 #ifndef _WIN32
-    // A login shell sources $HOME/.profile, restoring the PATH the daemon's
-    // minimal systemd/launchd environment omits (~/.local/bin etc.). A harness
-    // command like `hermes --tui` therefore resolves. Prove it with a
-    // throwaway HOME whose .profile exports a sentinel and prepends a bin dir.
     namespace fs = std::filesystem;
-    const std::string tmp = (fs::temp_directory_path() /
-        ("bs-login-profile-" + std::to_string(::getpid()))).string();
-    fs::create_directories(tmp + "/bin");
-    {
-        std::ofstream prof(tmp + "/.profile");
-        prof << "export PATH=\"" << tmp << "/bin:$PATH\"\n"
-             << "export BS_LOGIN_SENTINEL=bs-login-ok\n";
-    }
-    {
-        std::ofstream exe(tmp + "/bin/bs-login-probe");
-        exe << "#!/bin/sh\necho BS_LOGIN_PROBE_OK\n";
-    }
-    fs::permissions(tmp + "/bin/bs-login-probe",
-        fs::perms::owner_all | fs::perms::group_read | fs::perms::others_read |
-        fs::perms::owner_exec | fs::perms::group_exec | fs::perms::others_exec);
-
-    // RAII: restore HOME and remove the throwaway tree even if a REQUIRE fires.
-    const char* old_home = std::getenv("HOME");
-    const std::string old_home_s = old_home ? old_home : "";
-    struct HomeGuard {
-        std::string old;
-        std::string tmp;
-        ~HomeGuard() {
-            if (!old.empty()) setenv("HOME", old.c_str(), 1);
-            else unsetenv("HOME");
+    char pattern[] = "/tmp/bs-login-profile-XXXXXX";
+    const char* made = ::mkdtemp(pattern);
+    REQUIRE(made != nullptr);
+    const std::string tmp = made;
+    const char* home = std::getenv("HOME");
+    const char* path = std::getenv("PATH");
+    struct EnvironmentGuard {
+        bool had_home, had_path;
+        std::string home, path, tmp;
+        ~EnvironmentGuard() {
+            if (had_home) setenv("HOME", home.c_str(), 1); else unsetenv("HOME");
+            if (had_path) setenv("PATH", path.c_str(), 1); else unsetenv("PATH");
             std::error_code ec;
-            std::filesystem::remove_all(tmp, ec);
+            fs::remove_all(tmp, ec);
         }
-    } guard{old_home_s, tmp};
-
-    auto cfg = make_shell_test_config("login-path-node");
-    MeshController mc(cfg);  // identity/bootstrap uses the real HOME
-
+    } guard{home != nullptr, path != nullptr, home ? home : "", path ? path : "", tmp};
+    fs::create_directory(tmp + "/bin");
+    {
+        std::ofstream profile(tmp + "/.profile");
+        profile << "export PATH='" << tmp << "/bin':/usr/bin:/bin\n"
+                << "export BS_LOGIN_SENTINEL=bs-login-ok\n"
+                << "printf 'PROFILE_STDOUT\\n'\n"
+                << "printf 'PROFILE_STDERR\\n' >&2\n";
+        REQUIRE(profile.good());
+        std::ofstream probe(tmp + "/bin/bs-login-probe");
+        probe << "#!/bin/sh\nprintf 'PROBE_STDOUT\\n'\n"
+                 "printf 'PROBE_STDERR\\n' >&2\nexit 23\n";
+        REQUIRE(probe.good());
+    }
+    fs::permissions(tmp + "/bin/bs-login-probe", fs::perms::owner_all);
+    // Set the environment before any session/identity infrastructure exists.
+    // Direct PTY creation needs neither a mesh socket nor an operator identity.
     setenv("HOME", tmp.c_str(), 1);
-    auto* s = mc.sessions().attach(
-        "login-path-test",
-        ResolvedSessionCommand{"bs-login-probe && echo $BS_LOGIN_SENTINEL",
-                               SessionCommandSource::ClientOverride},
-        80, 24, "xterm-256color");
-    REQUIRE(s != nullptr);
-
-    std::string out;
+    setenv("PATH", "/usr/bin:/bin", 1);
+    std::string command;
+    int expected_status = 0;
+    std::vector<std::string> expected{"PROFILE_STDOUT", "PROFILE_STDERR"};
+    SECTION("minimal PATH discovers the profile tool and exports its environment") {
+        command = "printf 'SENTINEL=%s\\n' \"$BS_LOGIN_SENTINEL\"; "
+                  "printf 'SESSION=%s\\n' \"$BS_SESSION\"; bs-login-probe";
+        expected.insert(expected.end(), {"PROBE_STDOUT", "PROBE_STDERR", "SENTINEL=bs-login-ok", "SESSION=1"});
+        expected_status = 23;
+    }
+    SECTION("missing command preserves diagnostic and status") {
+        command = "bs-nonexistent-login-test-command";
+        expected.push_back("bs-nonexistent-login-test-command");
+        expected_status = 127;
+    }
+    SECTION("explicit operator PATH and exit status are preserved") {
+        command = "PATH=/bin; export PATH; printf 'OPERATOR_PATH=%s\\n' \"$PATH\"; exit 19";
+        expected.push_back("OPERATOR_PATH=/bin");
+        expected_status = 19;
+    }
+    auto result = create_session("login-path-test", command, 80, 24, "xterm-256color");
+    REQUIRE(result.has_value());
+    auto& session = *result;
+    std::string output;
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
     while (std::chrono::steady_clock::now() < deadline) {
-        char buf[4096];
-        const ssize_t n = ::read(s->master_fd, buf, sizeof(buf));
-        if (n > 0) out.append(buf, static_cast<size_t>(n));
-        else if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR))
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
-        else if (n < 0) break;
-        if (out.find("BS_LOGIN_PROBE_OK") != std::string::npos &&
-            out.find("bs-login-ok") != std::string::npos)
-            break;
-        if (!s->is_valid()) break;
+        char bytes[4096];
+        const ssize_t count = ::read(session.master_fd, bytes, sizeof(bytes));
+        if (count > 0) output.append(bytes, static_cast<size_t>(count));
+        else if (count == 0 || (count < 0 && errno == EIO)) break;
+        else if (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR) FAIL("PTY read failed");
+        else std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
-    mc.sessions().kill("login-path-test");
-
-    // The probe resolved via the profile's PATH and the sentinel was exported —
-    // both prove a login shell sourced $HOME/.profile.
-    REQUIRE(out.find("BS_LOGIN_PROBE_OK") != std::string::npos);
-    REQUIRE(out.find("bs-login-ok") != std::string::npos);
+    int status = 0;
+    pid_t reaped = 0;
+    while (std::chrono::steady_clock::now() < deadline) {
+        reaped = ::waitpid(session.child_pid, &status, WNOHANG);
+        if (reaped != 0) break;
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    REQUIRE(reaped == session.child_pid);
+    session.child_pid = -1; // already reaped; destructor only closes the PTY
+    REQUIRE(WIFEXITED(status));
+    REQUIRE(WEXITSTATUS(status) == expected_status);
+    for (const auto& marker : expected) REQUIRE(output.find(marker) != std::string::npos);
 #else
-    SUCCEED("login-shell path is POSIX-only");
+    // The POSIX login path does not change the Windows command launcher.
+    REQUIRE(true);
 #endif
 }
