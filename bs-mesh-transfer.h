@@ -1961,6 +1961,29 @@
                     c.pong_rtt_ms = rtt;
             }
         }
+        else if (std::holds_alternative<SessionInputReplyMsg>(msg)) {
+            const auto& reply = std::get<SessionInputReplyMsg>(msg);
+            complete_panel_session_ipc(c, reply.request_id, MessageType::SessionInput,
+                reply.ok ? "OK\n" : session_control_error_line(reply.error));
+        }
+        else if (std::holds_alternative<SessionScrollbackReplyMsg>(msg)) {
+            const auto& reply = std::get<SessionScrollbackReplyMsg>(msg);
+            if (!reply.ok) {
+                complete_panel_session_ipc(c, reply.request_id, MessageType::SessionScrollback,
+                    session_control_error_line(reply.error));
+            } else {
+                const std::string encoded = b64enc(reply.data);
+                std::string response = "OK " + std::to_string(reply.next_offset) +
+                    " " + (encoded.empty() ? std::string("-") : encoded) +
+                    (reply.reset ? " RESET" : "") + "\n";
+                complete_panel_session_ipc(c, reply.request_id, MessageType::SessionScrollback, response);
+            }
+        }
+        else if (std::holds_alternative<SessionKillReplyMsg>(msg)) {
+            const auto& reply = std::get<SessionKillReplyMsg>(msg);
+            complete_panel_session_ipc(c, reply.request_id, MessageType::SessionKill,
+                reply.ok ? "OK\n" : session_control_error_line(reply.error));
+        }
         else if (std::holds_alternative<HelloMsg>(msg)) {
             auto& h = std::get<HelloMsg>(msg);
             if (!c.initial_hello.has_value()) {
@@ -2024,9 +2047,17 @@
             c.remote_load = info.load;
             if (!info.host_stats_json.empty()) {
                 // Object shape; sessions use array shape. Both MoA-gated.
-                if (host_stats_json_shape_ok(info.host_stats_json))
+                if (host_stats_json_shape_ok(info.host_stats_json)) {
                     c.remote_host_stats_json = std::move(info.host_stats_json);
-                else
+                    std::string remote_os;
+                    try {
+                        const auto stats = nlohmann::json::parse(c.remote_host_stats_json);
+                        remote_os = stats.value("os", "");
+                    } catch (...) {
+                        remote_os.clear();
+                    }
+                    maybe_schedule_auto_upgrade(c.peer_name, c.remote_version, remote_os);
+                } else
                     log_event("gossip_host_stats_rejected_bad_json", c.peer_name);
             }
             // v26.09.18 (item 2 mesh sync): reporter's measured RTT table.
@@ -2688,7 +2719,261 @@ public:
             close_join_window_locked("no_unclaimed_invites");
         }
     }
+    static bool session_control_live(const Session& s) {
+        return (s.state == SessionState::Running ||
+                s.state == SessionState::Detached ||
+                s.state == SessionState::Attached) && s.is_valid();
+    }
+
+    static bool session_control_peer_capable(const Conn& conn) {
+        return conn.purpose == ConnectionPurpose::Mesh &&
+               conn.sock_fd != INVALID_SOCKET &&
+               version_has_cap(conn.remote_version, kCapSessionControl) &&
+               version_has_cap(conn.remote_version, kCapFrm2);
+    }
+
+    bool session_control_peer_allowed(const Conn& conn) {
+        // Joining connections may have completed TLS without being trusted yet.
+        // Recheck trust for each operation so revocation takes effect immediately.
+        return session_control_peer_capable(conn) && conn.ssl &&
+               conn.initial_hello.has_value() && is_trusted_pubkey(conn.peer_pubkey);
+    }
+
+    uint32_t next_session_control_request_id() {
+        uint32_t id = next_session_control_request_id_++;
+        if (id == 0) id = next_session_control_request_id_++;
+        return id == 0 ? 1 : id;
+    }
+
+    // Start one bounded panel operation on an existing authenticated mesh
+    // connection. The loopback socket stays owned by the event loop until the
+    // matching reply arrives or the short deadline expires.
+    std::string queue_panel_session_message(SOCKET ipc_fd,
+                                             const std::string& machine,
+                                             uint32_t request_id,
+                                             Message msg,
+                                             bool& handed_off) {
+        handed_off = false;
+        if (!session_control_machine_valid(machine) || machine == ".")
+            return "ERROR invalid machine\n";
+        Conn* target = nullptr;
+        for (auto& c : conns_) {
+            if ((c.purpose == ConnectionPurpose::Mesh ||
+                 c.purpose == ConnectionPurpose::Unknown) &&
+                c.sock_fd != INVALID_SOCKET && peer_name_eq(c.peer_name, machine) &&
+                (!c.exec_busy || !c.exec_busy->load()) &&
+                c.pending_recv_dir.empty() && !c.file_receive.active) {
+                target = &c;
+                break;
+            }
+        }
+        if (!target) return "ERROR no conn\n";
+        if (!session_control_peer_allowed(*target))
+            return "ERROR peer does not support session control\n";
+        if (pending_session_ipc_.size() >= kMaxPendingSessionIpc)
+            return "ERROR session control busy\n";
+        pending_session_ipc_.push_back(PendingSessionIpc{
+            ipc_fd, request_id, target->peer_name, target->peer_pubkey,
+            target->connected_at, message_type(msg),
+            std::chrono::steady_clock::now() +
+                std::chrono::milliseconds(kSessionIpcTimeoutMs)});
+        if (!enqueue_frame(*target, msg, CONTROL_STREAM_ID)) {
+            pending_session_ipc_.pop_back();
+            return "ERROR session control transport\n";
+        }
+        handed_off = true;
+        return {};
+    }
+
+    std::string begin_panel_session_input(SOCKET ipc_fd,
+                                           const std::string& machine,
+                                           const std::string& session,
+                                           const std::string& data,
+                                           bool& handed_off) {
+        handed_off = false;
+        if (!session_control_machine_valid(machine))
+            return "ERROR invalid machine\n";
+        if (!session_control_name_valid(session))
+            return "ERROR invalid session\n";
+        if (data.size() > kSessionControlMaxBytes)
+            return "ERROR input exceeds 64KiB\n";
+        const uint32_t id = next_session_control_request_id();
+        if (machine == ".") {
+            auto* s = sessions_.get(session);
+            if (!s || !session_control_live(*s)) return "ERROR no live session\n";
+            if (!write_pty_input(*s, data.data(), data.size()))
+                return "ERROR input rejected\n";
+            return "OK\n";
+        }
+        SessionInputMsg req;
+        req.request_id = id; req.session_name = session; req.data = data;
+        return queue_panel_session_message(ipc_fd, machine, id, Message{std::move(req)}, handed_off);
+    }
+
+    std::string begin_panel_session_scrollback(SOCKET ipc_fd,
+                                                const std::string& machine,
+                                                const std::string& session,
+                                                uint64_t offset,
+                                                uint32_t limit,
+                                                bool& handed_off) {
+        handed_off = false;
+        if (!session_control_machine_valid(machine))
+            return "ERROR invalid machine\n";
+        if (!session_control_name_valid(session))
+            return "ERROR invalid session\n";
+        if (limit > kSessionControlMaxBytes)
+            return "ERROR output limit exceeds 64KiB\n";
+        if (machine == ".") {
+            auto* s = sessions_.get(session);
+            if (!s) return "ERROR no such session\n";
+            if (offset > s->scrollback.total_written()) return "ERROR invalid offset\n";
+            auto read = session_control_read(s->scrollback, offset, limit);
+            auto& chunk = read.data;
+            const bool reset = read.reset;
+            const uint64_t next = read.next_offset;
+            std::string encoded = b64enc(chunk);
+            return "OK " + std::to_string(next) + " " +
+                   (encoded.empty() ? std::string("-") : encoded) +
+                   (reset ? " RESET" : "") + "\n";
+        }
+        const uint32_t id = next_session_control_request_id();
+        SessionScrollbackMsg req;
+        req.request_id = id; req.session_name = session;
+        req.offset = offset; req.limit = limit;
+        return queue_panel_session_message(ipc_fd, machine, id, Message{std::move(req)}, handed_off);
+    }
+
+    std::string begin_panel_session_kill(SOCKET ipc_fd,
+                                          const std::string& machine,
+                                          const std::string& session,
+                                          bool& handed_off) {
+        handed_off = false;
+        if (!session_control_machine_valid(machine))
+            return "ERROR invalid machine\n";
+        if (!session_control_name_valid(session))
+            return "ERROR invalid session\n";
+        if (machine == ".") {
+            auto* s = sessions_.get(session);
+            if (!s || !session_control_live(*s)) return "ERROR no live session\n";
+            return sessions_.kill(session) ? "OK\n" : "ERROR no live session\n";
+        }
+        const uint32_t id = next_session_control_request_id();
+        SessionKillMsg req;
+        req.request_id = id; req.session_name = session;
+        return queue_panel_session_message(ipc_fd, machine, id, Message{std::move(req)}, handed_off);
+    }
+
+    static bool send_panel_ipc_response(SOCKET fd, const std::string& response) {
+        size_t sent = 0;
+        const auto deadline = std::chrono::steady_clock::now() +
+                              std::chrono::milliseconds(500);
+        while (sent < response.size()) {
+            if (std::chrono::steady_clock::now() >= deadline) return false;
+            const int n = send(fd, response.data() + sent,
+                               static_cast<int>(response.size() - sent), 0);
+            if (n <= 0) return false;
+            sent += static_cast<size_t>(n);
+        }
+        return true;
+    }
+
+    void complete_panel_session_ipc(Conn& conn, uint32_t request_id,
+                                    MessageType request_type,
+                                    const std::string& response) {
+        if (!session_control_peer_allowed(conn)) return;
+        for (auto it = pending_session_ipc_.begin();
+             it != pending_session_ipc_.end(); ++it) {
+            if (it->request_id != request_id || it->peer_name != conn.peer_name ||
+                it->peer_pubkey != conn.peer_pubkey ||
+                it->connected_at != conn.connected_at ||
+                it->request_type != request_type)
+                continue;
+            (void)send_panel_ipc_response(it->ipc_fd,
+                std::chrono::steady_clock::now() >= it->deadline
+                    ? "ERROR session control timeout\n" : response);
+            CLOSESOCK(it->ipc_fd);
+            pending_session_ipc_.erase(it);
+            return;
+        }
+    }
+
+    void expire_panel_session_ipc() {
+        const auto now = std::chrono::steady_clock::now();
+        for (auto it = pending_session_ipc_.begin();
+             it != pending_session_ipc_.end();) {
+            bool live_peer = false;
+            for (const auto& c : conns_) {
+                if (c.sock_fd != INVALID_SOCKET && c.peer_name == it->peer_name &&
+                    c.peer_pubkey == it->peer_pubkey &&
+                    c.connected_at == it->connected_at &&
+                    !c.close_requested) {
+                    live_peer = true;
+                    break;
+                }
+            }
+            if (!live_peer || now >= it->deadline) {
+                (void)send_panel_ipc_response(it->ipc_fd,
+                    live_peer ? "ERROR session control timeout\n"
+                              : "ERROR mesh connection lost\n");
+                CLOSESOCK(it->ipc_fd);
+                it = pending_session_ipc_.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    }
+
     void handle_inbound_session(Conn& conn, Message& msg) {
+        if (std::holds_alternative<SessionInputMsg>(msg)) {
+            const auto& req = std::get<SessionInputMsg>(msg);
+            SessionInputReplyMsg reply;
+            reply.request_id = req.request_id;
+            if (!session_control_peer_allowed(conn)) reply.error = "unsupported peer";
+            else if (!session_control_name_valid(req.session_name)) reply.error = "invalid session";
+            else if (req.data.size() > kSessionControlMaxBytes) reply.error = "input exceeds 64KiB";
+            else {
+                auto* s = sessions_.get(req.session_name);
+                if (!s || !session_control_live(*s)) reply.error = "no live session";
+                else if (!write_pty_input(*s, req.data.data(), req.data.size())) reply.error = "input rejected";
+                else reply.ok = true;
+            }
+            (void)enqueue_frame(conn, reply, CONTROL_STREAM_ID);
+            return;
+        }
+        if (std::holds_alternative<SessionScrollbackMsg>(msg)) {
+            const auto& req = std::get<SessionScrollbackMsg>(msg);
+            SessionScrollbackReplyMsg reply;
+            reply.request_id = req.request_id;
+            if (!session_control_peer_allowed(conn)) reply.error = "unsupported peer";
+            else if (!session_control_name_valid(req.session_name)) reply.error = "invalid session";
+            else if (req.limit > kSessionControlMaxBytes) reply.error = "output limit exceeds 64KiB";
+            else if (!sessions_.get(req.session_name)) reply.error = "no such session";
+            else if (req.offset > sessions_.get(req.session_name)->scrollback.total_written())
+                reply.error = "invalid offset";
+            else {
+                auto* s = sessions_.get(req.session_name);
+                auto read = session_control_read(s->scrollback, req.offset, req.limit);
+                reply.ok = true; reply.data = std::move(read.data);
+                reply.reset = read.reset; reply.next_offset = read.next_offset;
+            }
+            (void)enqueue_frame(conn, reply, CONTROL_STREAM_ID);
+            return;
+        }
+        if (std::holds_alternative<SessionKillMsg>(msg)) {
+            const auto& req = std::get<SessionKillMsg>(msg);
+            SessionKillReplyMsg reply;
+            reply.request_id = req.request_id;
+            if (!session_control_peer_allowed(conn)) reply.error = "unsupported peer";
+            else if (!session_control_name_valid(req.session_name)) reply.error = "invalid session";
+            else {
+                auto* s = sessions_.get(req.session_name);
+                if (!s || !session_control_live(*s)) reply.error = "no live session";
+                else reply.ok = sessions_.kill(req.session_name);
+            }
+            (void)enqueue_frame(conn, reply, CONTROL_STREAM_ID);
+            return;
+        }
+
         // JoinRequest — new node onboarding
         if (std::holds_alternative<JoinRequestMsg>(msg)) {
             auto& jr = std::get<JoinRequestMsg>(msg);
@@ -4130,7 +4415,11 @@ private:
         HostStats hs = collect_host_stats(home_dir_);
         ServerInfoMsg info;
         info.hostname = config_.node_name;
-        info.version = std::string(kBridgeSessionsVersion);
+        // Preserve capability tags here as well as in Hello. The Conn uses
+        // the latest authenticated version advertisement for gated control;
+        // dropping tags on periodic ServerInfo would silently disable panel
+        // session control after the first gossip tick.
+        info.version = version_string_with_local_caps();
         info.load = hs.load1 >= 0 ? hs.load1 : 0.0;
         info.sessions_summary_json = build_sessions_summary_json();
         info.host_stats_json = host_stats_to_json(hs);
