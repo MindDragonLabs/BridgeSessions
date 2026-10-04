@@ -1437,9 +1437,21 @@ constexpr int kTransferIdleTimeoutSec = 300;
 constexpr int kTransferProgressIntervalSec = 10;
 // How many times direct-TLS send/recv reconnects after a transport error.
 constexpr int kTransferReconnectMax = 12;
-// Default raw chunk size for legacy (u16-only) peers: uncompressible data must
-// still fit MAX_FRAME_PAYLOAD_U16 after framing. With +frm2, prefer large.
-constexpr size_t kTransferChunkRawSizeDefault = 64 * 1024;
+// Default raw chunk size for legacy (u16-only) peers.
+//
+// 26.10.04 fix: this was 64 * 1024, but encode() checks the LOGICAL payload
+// against MAX_FRAME_PAYLOAD_U16 (65535) BEFORE compressing, and the serialized
+// chunk message carries its own header on top of the file bytes. 64 * 1024 is
+// 65536 — one byte past the cap, and more once message overhead is counted — so
+// every `bs file send` of 64 KiB or more against a peer without +frm2 threw
+// "logical payload exceeds frame capacity". The constant is now derived from the
+// cap and checked at compile time, so it cannot drift past the frame limit
+// again. 48 KiB is the value this had before commit 244d49d raised it.
+constexpr size_t kTransferChunkMessageOverhead = 256;  // serialized chunk header
+constexpr size_t kTransferChunkRawSizeDefault =
+    (MAX_FRAME_PAYLOAD_U16 - kTransferChunkMessageOverhead) & ~static_cast<size_t>(0x3FF);
+static_assert(kTransferChunkRawSizeDefault <= MAX_FRAME_PAYLOAD_U16,
+              "legacy transfer chunk must fit a u16 frame");
 constexpr size_t kTransferChunkRawSizeLarge   = 128 * 1024; // frm2 peers
 constexpr size_t kTransferChunkRawSizeMin     = 4 * 1024;
 constexpr size_t kTransferChunkRawSizeMax     = 256 * 1024; // clamp upper

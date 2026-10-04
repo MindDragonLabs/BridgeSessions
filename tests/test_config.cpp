@@ -722,6 +722,25 @@ TEST_CASE("transfer metadata binds declared size to canonical chunk count",
     REQUIRE(transfer_chunk_size_for_peer("26.08.11-beta1+frm2") == kTransferChunkRawSizeLarge);
     REQUIRE(kTransferPipelineSize >= 16);
 
+    // 26.10.04 regression: the legacy chunk default was raised to 64 * 1024 by
+    // commit 244d49d, which is 65536 — one byte past MAX_FRAME_PAYLOAD_U16
+    // (65535), and more once the serialized chunk header is counted. encode()
+    // checks the logical payload before compressing, so every `bs file send` of
+    // 64 KiB or more threw "logical payload exceeds frame capacity" against a
+    // peer without +frm2. The existing assertions above compare the default to
+    // ITSELF and so could never catch this; assert the real invariant.
+    REQUIRE(kTransferChunkRawSizeDefault <= MAX_FRAME_PAYLOAD_U16);
+    REQUIRE(effective_transfer_chunk_size(0) <= MAX_FRAME_PAYLOAD_U16);
+    REQUIRE(transfer_chunk_size_for_peer("1.0.0") <= MAX_FRAME_PAYLOAD_U16);
+    // A full-size legacy chunk must actually encode, not merely fit the number.
+    {
+        FileChunkMsg chunk{};
+        chunk.chunk_index = 0;
+        chunk.total_chunks = 1;
+        chunk.data.assign(kTransferChunkRawSizeDefault, 0xAB);  // incompressible
+        REQUIRE_NOTHROW(encode(Message{chunk}, 1, /*allow_large=*/false));
+    }
+
     REQUIRE_FALSE(validate_transfer_metadata(1, 0, 1024).ok);
     REQUIRE_FALSE(validate_transfer_metadata(1, 2, 1024).ok);
     REQUIRE_FALSE(validate_transfer_metadata(1025, 1, 1024).ok);
@@ -1086,6 +1105,33 @@ TEST_CASE("SSH alias imports as a transient BridgeSessions peer",
     REQUIRE_FALSE(peer_identity_matches("", "untrusted-first-contact"));
 
     REQUIRE_FALSE(import_ssh_alias_peer(cfg, "missing", "user agent\n"));
+}
+
+// Regression: `ssh -G <name>` succeeds and echoes the query back for any name
+// with no matching Host block. Treating that echo as a resolved alias overwrote
+// a working seed address with "<peer>:19949", so the bare `bs <peer>` path
+// failed with "DNS resolution failed" while `bs shell <peer>` worked. See
+// import_ssh_alias_peer.
+TEST_CASE("SSH alias echo does not clobber a configured peer address",
+          "[config][ssh_alias]") {
+    MeshConfig cfg;
+    cfg.seeds.push_back({"pty-server", "127.0.0.1:53569", "trusted-fingerprint"});
+
+    // Exactly what `ssh -G pty-server` prints when no Host block matches.
+    REQUIRE(import_ssh_alias_peer(cfg, "pty-server", "hostname pty-server\nuser agent\n"));
+    REQUIRE(cfg.seeds[0].addr == "127.0.0.1:53569");
+    REQUIRE(cfg.seeds[0].pubkey_hex == "trusted-fingerprint");
+
+    // A real alias still overrides, so the refresh path is not lost.
+    REQUIRE(import_ssh_alias_peer(cfg, "pty-server", "hostname real.example\n"));
+    REQUIRE(cfg.seeds[0].addr == "real.example:19949");
+    REQUIRE(cfg.seeds[0].pubkey_hex == "trusted-fingerprint");
+
+    // An unconfigured peer with no prior entry is still not invented.
+    MeshConfig fresh;
+    REQUIRE_FALSE(import_ssh_alias_peer(fresh, "not-an-alias",
+                                       "hostname not-an-alias\nuser agent\n"));
+    REQUIRE(fresh.seeds.empty());
 }
 
 TEST_CASE("is_self_target matches node name and OS hostname", "[config][self]") {
