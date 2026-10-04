@@ -130,9 +130,9 @@ TEST_CASE("dead_seed_cooldown: success resets streak and clears cooldown",
     REQUIRE(mc.seed_dial_health_for_test(addr) == "ok");
 }
 
-// ── 5. After the window elapses, one probe is allowed through ──────────
+// ── 5. After the window elapses, the seed is re-armed from scratch ─────
 
-TEST_CASE("dead_seed_cooldown: expired cooldown allows exactly one probe",
+TEST_CASE("dead_seed_cooldown: expired cooldown re-arms the seed",
           "[dead_seed][cooldown][probe]") {
     auto cfg = cooldown_cfg("cooldown-probe");
     PeerEntry seed;
@@ -152,13 +152,26 @@ TEST_CASE("dead_seed_cooldown: expired cooldown allows exactly one probe",
 
     mc.try_connect_to_seeds_for_test();
 
-    // The one allowed probe should have started a dial (non-blocking connect
-    // to a non-local, non-refusing address stays pending).
+    // The probe starts a dial (non-blocking connect to a non-local,
+    // non-refusing address stays pending).
     REQUIRE(mc.has_pending_handshake_for_addr_for_test(seed.addr));
 
-    // The streak survives the probe (only cleared by explicit success) — a
-    // renewed handshake_deadline failure would immediately re-cooldown it.
-    REQUIRE(mc.dead_seed_failure_streak_for_test(seed.addr) == 3);
+    // 26.10.04: the streak is cleared along with the cooldown, so a single
+    // further timeout starts a FRESH streak rather than slamming the seed
+    // straight back into another 10-minute window. Previously the streak
+    // survived the probe, which is what made a rebooted host look like it
+    // "retried twice then stopped": peers are still booting, so the probe
+    // times out, and the seed was parked for another ten minutes at once.
+    REQUIRE(mc.dead_seed_failure_streak_for_test(seed.addr) == 0);
+
+    // A fresh streak still has to reach the threshold before re-cooling, so
+    // the dead-seed protection is not weakened.
+    mc.record_dead_seed_failure_for_test(seed.addr);
+    REQUIRE_FALSE(mc.dead_seed_in_cooldown_for_test(seed.addr));
+    mc.record_dead_seed_failure_for_test(seed.addr);
+    REQUIRE_FALSE(mc.dead_seed_in_cooldown_for_test(seed.addr));
+    mc.record_dead_seed_failure_for_test(seed.addr);
+    REQUIRE(mc.dead_seed_in_cooldown_for_test(seed.addr));
 }
 
 // ── 6. seed_dial_health reports "ok" with no failure history ───────────

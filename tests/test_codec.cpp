@@ -109,16 +109,53 @@ TEST_CASE("Round-trip: ImageAckMsg", "[codec][roundtrip]") {
 
 TEST_CASE("Round-trip: SessionListMsg", "[codec][roundtrip]") {
     SessionListMsg m;
-    m.sessions.push_back(SessionInfo{"sess1", "attached", 3600});
-    m.sessions.push_back(SessionInfo{"sess2", "detached", 7200});
-    m.sessions.push_back(SessionInfo{"sess3", "died", 0});
+    m.sessions.push_back(SessionInfo{"sess1", "attached", 3600, ""});
+    m.sessions.push_back(SessionInfo{"sess2", "detached", 7200, "my-chat"});
+    m.sessions.push_back(SessionInfo{"sess3", "died", 0, ""});
     auto m2 = roundtrip(m);
     REQUIRE(m2.sessions.size() == 3);
     for (size_t i = 0; i < 3; ++i) {
         REQUIRE(m2.sessions[i].name == m.sessions[i].name);
         REQUIRE(m2.sessions[i].state == m.sessions[i].state);
         REQUIRE(m2.sessions[i].uptime_seconds == m.sessions[i].uptime_seconds);
+        // 26.10.04: the harness title survives the wire.
+        REQUIRE(m2.sessions[i].title == m.sessions[i].title);
     }
+}
+
+// 26.10.04: SessionInfo gained a trailing title field. A pre-26.10.04 peer
+// encodes name/state/uptime and stops, so the decoder must tolerate a frame
+// whose last session record ends right after uptime_seconds rather than reading
+// past the buffer. Built by hand because the serializer always writes the title.
+TEST_CASE("SessionListMsg decodes a legacy frame with no title field",
+          "[codec][compat]") {
+    auto put = [](std::vector<uint8_t>& out, std::string_view s) {
+        // str_prefixed() is str_size(u8()) — a ONE-byte length prefix.
+        out.push_back(static_cast<uint8_t>(s.size()));
+        out.insert(out.end(), s.begin(), s.end());
+    };
+    std::vector<uint8_t> body;
+    put(body, "legacy-sess");
+    put(body, "attached");
+    for (int shift = 24; shift >= 0; shift -= 8)   // uptime 4242, u32be
+        body.push_back(static_cast<uint8_t>((4242u >> shift) & 0xFF));
+
+    // Frame header: stream_id, type 0x08, flags 0, then the length-prefixed body.
+    std::vector<uint8_t> frame;
+    frame.push_back(0); frame.push_back(0);        // stream_id
+    frame.push_back(0x08);                          // SessionListMsg
+    frame.push_back(0);                              // flags
+    frame.push_back(static_cast<uint8_t>(body.size() >> 8));
+    frame.push_back(static_cast<uint8_t>(body.size() & 0xFF));
+    frame.insert(frame.end(), body.begin(), body.end());
+
+    auto decoded = decode(frame);
+    const auto& list = std::get<SessionListMsg>(decoded);
+    REQUIRE(list.sessions.size() == 1);
+    REQUIRE(list.sessions[0].name == "legacy-sess");
+    REQUIRE(list.sessions[0].state == "attached");
+    REQUIRE(list.sessions[0].uptime_seconds == 4242);
+    REQUIRE(list.sessions[0].title.empty());
 }
 
 TEST_CASE("Round-trip: ServerInfoMsg", "[codec][roundtrip]") {

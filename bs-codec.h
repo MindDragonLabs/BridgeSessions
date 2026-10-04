@@ -332,6 +332,11 @@ struct SessionInfo {
     std::string name;
     std::string state;  // "attached" | "detached" | "died"
     uint64_t uptime_seconds = 0;
+    // 26.10.04: harness-supplied display title, e.g. the Hermes chat name. This
+    // is PRESENTATION ONLY and is never used as identity: `name` remains the
+    // unique tty-* key used for attach, kill and reattach. Optional trailing
+    // field, so peers older than 26.10.04 simply send nothing and decode to "".
+    std::string title;
 };
 
 struct SessionListMsg {
@@ -1051,6 +1056,11 @@ void serialize_msg(Serializer& s, const SessionListMsg& m) {
         s.str_prefixed(si.state);
         s.u32be(static_cast<uint32_t>(std::min<uint64_t>(
             si.uptime_seconds, std::numeric_limits<uint32_t>::max())));
+        // 26.10.04: trailing optional title. Written unconditionally (including
+        // as an empty string) so the field is always present on 26.10.04+ peers;
+        // a pre-26.10.04 reader stops after uptime_seconds and ignores the rest,
+        // and a 26.10.04 reader guards on d.ok(2), so both directions are safe.
+        s.str_prefixed(si.title);
     }
 }
 void serialize_msg(Serializer& s, const ServerInfoMsg&   m) {
@@ -1878,11 +1888,21 @@ Message decode(std::span<const uint8_t> raw) {
     case 0x07: return DetachMsg{};
     case 0x08: {
         SessionListMsg m;
-        while (d.ok(1)) {
+        // 26.10.04: a record is name(1+len) + state(1+len) + uptime(4), plus the
+        // optional title(1+len). The loop guard used to be d.ok(1), which is only
+        // correct while every field is fixed-width: with a variable-length title
+        // as the last field, the final byte of the title's own length-prefixed
+        // body is misread as "one more record starts here", and the next
+        // str_prefixed() then runs off the end and throws "frame truncated".
+        // Require a complete record header before starting another one.
+        constexpr size_t kSessionListRecordMinBytes = 1 + 1 + 4;
+        while (d.ok(kSessionListRecordMinBytes)) {
             SessionInfo si;
             si.name  = d.str_prefixed();
             si.state = d.str_prefixed();
             si.uptime_seconds = d.u32be();
+            /* title optional (v26.10.04+, str_prefixed). Legacy peers omit it. */
+            si.title = d.ok(2) ? d.str_prefixed() : std::string{};
             m.sessions.push_back(std::move(si));
         }
         return m;

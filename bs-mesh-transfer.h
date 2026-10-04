@@ -2995,6 +2995,12 @@ public:
                 if (!s) continue;
                 SessionInfo si;
                 si.name = s->name;
+                // 26.10.04: show the harness's own name when it exported one.
+                // Presentation only; `si.name` above is still the identity used
+                // for attach/kill/reattach. Falls back to the tty-* name when
+                // the harness set no title, so existing behaviour is unchanged.
+                si.title = s->title;
+                if (si.title.empty()) si.title = bs::mesh::harness_session_title();
                 si.state = session_state_str(s->state);
                 si.uptime_seconds = s->state == SessionState::Died
                     ? 0
@@ -4165,7 +4171,17 @@ private:
         auto it = seed_cooldowns_.find(addr);
         if (it == seed_cooldowns_.end() || !it->second.in_cooldown) return false;
         if (now < it->second.cooldown_until) return true;
-        it->second.in_cooldown = false; // cooldown expired: allow exactly one probe
+        // Cooldown expired. 26.10.04: clear the whole entry, not just the flag.
+        // The previous "allow one probe" behaviour left the failure streak intact,
+        // so a single further handshake timeout put the seed straight back into
+        // another full 10-minute cooldown. After a reboot, when every peer is
+        // still coming up and timeouts are the *expected* state, that produced
+        // the reported symptom: the daemon would recover briefly and then stop
+        // appearing to retry, for ten minutes at a time. A real success already
+        // erases the entry via record_dead_seed_success(), so erasing it here
+        // too only costs a re-warm if the probe then fails again — which is the
+        // correct behaviour, because that is a fresh streak of fresh failures.
+        seed_cooldowns_.erase(it);
         return false;
     }
 

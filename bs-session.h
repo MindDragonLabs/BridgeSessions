@@ -266,6 +266,14 @@ constexpr size_t kDefaultRingBufferSize = 1'048'576;
 
 struct Session {
     std::string name;
+    // 26.10.04: harness-supplied display title, captured once at spawn from
+    // harness_session_title() (BS_SESSION_TITLE / HERMES_SESSION_CHAT_NAME /
+    // CLAUDE_SESSION_NAME / CODEX_SESSION_TITLE / STY / TERM_PROGRAM).
+    // PRESENTATION ONLY — `name` remains the unique identity used for attach,
+    // kill and reattach, and the title is never used to look a session up.
+    // Empty when the harness exported nothing, in which case the list shows the
+    // tty-* name exactly as before.
+    std::string title;
     std::vector<std::string> peer_ids; // pubkey hex of all peers currently attached (empty if detached)
     // 2.0.8 multi-attach: per-connection attachments, keyed by server-assigned
     // attach_id. Distinct from peer_ids (pubkey set) so N connections from one

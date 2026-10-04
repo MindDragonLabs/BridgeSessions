@@ -3377,7 +3377,12 @@ public:
             return;
         }
         for (auto& si : listed->sessions)
-            std::cout << si.name << "  " << si.state << "  up "
+            // 26.10.04: show the harness title alongside the identity name when
+            // the peer reported one. The tty-* name is always shown too, because
+            // that is what attach/kill/reattach take.
+            std::cout << si.name
+                      << (si.title.empty() ? "" : "  (" + si.title + ")")
+                      << "  " << si.state << "  up "
                       << human_duration(static_cast<uint64_t>(si.uptime_seconds)) << "\n";
     }
 

@@ -725,7 +725,15 @@ inline std::vector<std::string> session_picker_rows(const bs::mesh::SessionListM
     rows.push_back("✦ New session");
     for (auto& si : list.sessions) {
         if (si.state == "died") continue;
-        rows.push_back(si.name + "  [" + si.state
+        // 26.10.04: lead with the harness title when the peer sent one, since
+        // this is the list an operator actually reads. The tty-* identity is
+        // kept after it — it is what attach/kill/reattach take, so it must stay
+        // visible. Peers older than 26.10.04 send an empty title and this
+        // renders exactly as before.
+        const std::string label = si.title.empty()
+            ? si.name
+            : si.title + "  " + si.name;
+        rows.push_back(label + "  [" + si.state
                        + " · up " + bs::mesh::human_duration(static_cast<uint64_t>(si.uptime_seconds)) + "]");
     }
     return rows;
