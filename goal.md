@@ -51,7 +51,7 @@ out of scope here, is `IDEAS.md`.
   is `AE2B61A6`; the published Windows hash is `684d4149`. Trace that mismatch
   before any roll.
 - Windows proof uses WinRM. Do not use `bs shell` as the Windows proof. The
-  Shadow PC is `SHADOW-OLNM5J3N` at `100.127.41.92`.
+  Shadow PC is `SHADOW-OLNM5J3N` at `<tailnet-ip>`.
 - Do not add a 1-second reconnect, upgrade, or ping loop. A test wait must stay
   inside the test. `bs-mesh-transfer.h` already carries a deliberate fast path
   that is justified only because this limit holds; do not weaken it.

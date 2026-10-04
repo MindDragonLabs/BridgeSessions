@@ -320,3 +320,45 @@ jobs:
           gitleaks version
       - name: Scan history
         run: gitleaks detect --no-banner --redact --verbose
+
+  # ── Publish gate ─────────────────────────────────────────────────────────
+  # The operator network blocklist is deliberately NOT in the repo — the list
+  # itself is a map of the network, so committing it would be the leak. That
+  # means this job enforces the portable tiers (PEM keys, credential tuples,
+  # every 100.64/10-127 CGNAT overlay address, ts.net hostnames) and cannot
+  # enforce the codename tier. The local pre-push hook covers the rest.
+  #
+  # The failure this closes: prepublish-scan.sh was enforced only by a local
+  # git hook, so any push that skipped the hook — or any clone of this repo —
+  # had no gate at all. Tier 1-4 leaked to origin unnoticed.
+  publish-gate:
+    name: publish-gate
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Prepublish scan (portable tiers)
+        env:
+          # No blocklist in CI: an empty path disables the codename tier rather
+          # than silently inheriting nothing. Tier 1-4 still run unconditionally.
+          BS_PUBLISH_BLOCKLIST: /nonexistent/no-blocklist-in-ci
+        run: |
+          set -uo pipefail
+          if bash scripts/prepublish-scan.sh; then
+            echo "publish-gate: clean (portable tiers)"
+            echo "note: operator codename tier is enforced locally by .git/hooks/pre-push, not here."
+          else
+            echo "::error::prepublish-scan failed — a credential, private key, or overlay address reached a tracked file."
+            exit 1
+          fi
+      - name: Guard against committing the blocklist
+        # Belt-and-braces: the private list must never enter the tree. If this
+        # ever fires, the leak gate is the smaller problem.
+        run: |
+          set -euo pipefail
+          if git ls-files | grep -qiE 'publish-(blocklist|allowlist)'; then
+            echo "::error::a private publish blocklist/allowlist file is tracked — remove it immediately."
+            exit 1
+          fi
+          echo "no private list tracked"
