@@ -155,7 +155,7 @@ committed, and recovery bundles are written and proven by an actual restore.
 
 | Lane | SHA |
 |---|---|
-| backend | `c4b3c98` + `e800604` (B3) + `d883292` (B4 diagnosis) |
+| backend | `c4b3c98` + `e800604` (B3) + `d883292` (B4 diagnosis) + `9bf66a7` (B4 fix) |
 | panel | `136d4bb` |
 | native | `98c2cba` |
 | tui | `c3330c9` |
@@ -165,18 +165,17 @@ committed, and recovery bundles are written and proven by an actual restore.
 Bundles: `/home/agent/bs-candidates/26.10.03/bundles/`, SHA-256 recorded in
 `TODO-2026-10-04.md` B1.
 
-**Phase 2: B2 DONE, B3 DONE, B4 REOPENED with a better diagnosis.**
+**Phase 2 is DONE. All three blockers closed.**
 
 - B2 `bf737ea` — installers point at `26.09.28`; all five release assets
   verified HTTP 200 against the live remote.
-- B3 `e800604` — both new tests registered; `ctest -N` lists them and
-  `./build.sh test` is 619/619.
-- B4 `d883292` — **not a fix.** The audit's "3s test vs 12s product" story was
-  wrong. The tie-break defer *extends* exponentially; the first outbound probe
-  is 756s away. 10 runs measured 7 pass / 3 fail. The harness now fails
-  honestly with an actionable message. The real fix is product-side and needs
-  a decision from the operator.
+- B3 `e800604` — both new tests registered; `ctest -N` lists them.
+- B4 `9bf66a7` — 10/10 consecutive passes. Root cause was a one-sided seed,
+  not a test budget and not a product race. Zero production code changed.
 
-**Next step: a decision on B4**, then Phase 3 (U1 TUI PTY, U2 native, U4 full
-ctest). Note U4 depends on B4: a default `ctest` is not green while the e2e
-fails honestly.
+Full default `ctest`: **619/619 plus the e2e, 100%.** Pristine v26.09.28
+baseline is 614/614, so the 619 reflects the 5 new session-control tests.
+
+**Next: Phase 3 — U1 TUI PTY against the real binary, U2 native, U4 Windows
+and macOS peers, U5 panel auth review, U6 prepublish scan.** U4 needs real
+Windows and macOS peers; a skip is not a pass.
