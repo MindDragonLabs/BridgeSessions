@@ -51,7 +51,16 @@ struct Root {
         need(result != nullptr, "mkdtemp failed");
         path = result;
     }
-    ~Root() { std::error_code ec; std::filesystem::remove_all(path, ec); }
+    // Preserves the staging tree for post-mortem when BS_KEEP_TEST_ROOT=1.
+    // Without this the root is removed on exit, so a failed run leaves nothing
+    // to inspect and the daemon event logs are gone.
+    ~Root() {
+        if (::getenv("BS_KEEP_TEST_ROOT") != nullptr) {
+            std::fprintf(stderr, "test root kept at %s\n", path.c_str());
+            return;
+        }
+        std::error_code ec; std::filesystem::remove_all(path, ec);
+    }
 };
 struct Identity {
     std::string root, pubkey;
@@ -319,9 +328,28 @@ int main(int argc, char** argv) {
         cb.authorized_keys_path = b.root + "/authorized_keys";
         need(write_private_text_file(ca.authorized_keys_path, b.pubkey + "\n" + client.pubkey + "\n" + legacy.pubkey + "\n"), "a auth keys");
         need(write_private_text_file(cb.authorized_keys_path, a.pubkey + "\n" + client.pubkey + "\n"), "b auth keys");
-        ca.seeds.push_back(PeerEntry{.name="panel-b", .addr="127.0.0.1:" + std::to_string(mesh_b), .pubkey_hex=b.pubkey});
-        Daemon db(binary, b, cb, ipc_b); db.ready();
-        Daemon da(binary, a, ca, ipc_a); da.ready();
+        // Both sides get each other as an explicit seed. The tie-break in
+        // should_accept_only_for() makes the LARGER pubkey defer and rely on the
+        // smaller-pubkey side to dial; with only ca seeded, a run where
+        // a.pubkey < b.pubkey left panel-a deferring with nobody to dial it and
+        // no route until gossip rescued it. That is the 3-in-10 flake. With both
+        // seeded, whichever side has the smaller pubkey always has a peer to
+        // dial, so the connection direction is decided by the tie-break and
+        // never by which node happened to be configured first.
+        ca.seeds.push_back(PeerEntry{.name="panel-b", .addr="127.0.0.1" + std::string(":") + std::to_string(mesh_b), .pubkey_hex=b.pubkey});
+        cb.seeds.push_back(PeerEntry{.name="panel-a", .addr="127.0.0.1" + std::string(":") + std::to_string(mesh_a), .pubkey_hex=a.pubkey});
+        // Fork both daemons BEFORE waiting on either. ready() blocks until a
+        // daemon answers DAEMON_PROBE, and a daemon that has a seed for a peer
+        // that is not listening yet burns its whole startup_network_wait budget
+        // (30s) retrying before the second daemon even exists. Forking first
+        // means both are listening within milliseconds of each other, so each
+        // seed resolves on the first attempt and the run costs seconds rather
+        // than ~36s. b must still be constructed first so its port is known when
+        // a's seed is written.
+        Daemon db(binary, b, cb, ipc_b);
+        Daemon da(binary, a, ca, ipc_a);
+        db.ready();
+        da.ready();
         // Prove local token auth; the stranger identity must fail before Attach.
         need(ipc(ipc_a, "incorrect-token", "SESSION_KILL . one") == "ERROR unauthorized\n", "IPC auth bypass");
         bool rejected = false;
@@ -354,15 +382,14 @@ int main(int argc, char** argv) {
                         "pinned mesh route never became ready within "
                         + std::to_string(harness_wait_ms())
                         + "ms; last reply: " + last
-                        + "\n  accept window is "
+                        + "\n  Both daemons are seeded for each other, so the"
+                        + " smaller-pubkey side must have dialled. If it did"
+                        + " not, the tie-break defer (accept window "
                         + std::to_string(MeshController::tie_break_accept_window_ms())
-                        + "ms, and the defer EXTENDS exponentially on expiry"
-                        + " (12s -> 24s -> 48s -> 96s -> 192s)."
-                        + "\n  The first outbound probe is not allowed until all"
-                        + " extensions are exhausted, so a larger test budget"
-                        + " cannot fix this."
-                        + "\n  This is a product-side tie-break race, not a test"
-                        + " budget problem. See TODO-2026-10-04.md B4.");
+                        + "ms, extending 12s->24s->48s->96s->192s->384s) is"
+                        + " suppressing the dial."
+                        + "\n  Read the daemon event log for peer_dial_deferred"
+                        + " to confirm which side deferred.");
                 }
                 sleep_poll();
             }
