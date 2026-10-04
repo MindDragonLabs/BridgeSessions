@@ -173,9 +173,25 @@ Bundles: `/home/agent/bs-candidates/26.10.03/bundles/`, SHA-256 recorded in
 - B4 `9bf66a7` — 10/10 consecutive passes. Root cause was a one-sided seed,
   not a test budget and not a product race. Zero production code changed.
 
-Full default `ctest`: **619/619 plus the e2e, 100%.** Pristine v26.09.28
-baseline is 614/614, so the 619 reflects the 5 new session-control tests.
+Full default `ctest`: **620 tests — 619 unit plus `panel_session_acceptance`
+(#620) at 100%.** Pristine v26.09.28 baseline is 614, so the delta is the 6
+new session-control tests.
 
-**Next: Phase 3 — U1 TUI PTY against the real binary, U2 native, U4 Windows
-and macOS peers, U5 panel auth review, U6 prepublish scan.** U4 needs real
-Windows and macOS peers; a skip is not a pass.
+**Correction to an earlier figure in this file.** I had been reporting
+"619/619 plus the e2e" as though the 619 excluded it. It does not: the Catch2
+suite reports 619 on its own line, and `ctest -N` in `build/test` shows 620
+total with the two new tests at #619 (`test_panel_session_control`) and #620
+(`panel_session_acceptance`). 620 is the number.
+
+**U4 measured:** 3 consecutive full `./build.sh test` runs, all rc=0 at 100%.
+The two new tests were then run 5 consecutive times through ctest directly:
+100% out of 2 every time.
+
+**Next: Phase 3 (Prove locally) — U1 TUI PTY against the real binary, U2 native
+core + two shells, U4 full `ctest`.** All three are local and touch disjoint
+trees, so they run in parallel.
+
+**Windows and macOS peers are U3, and U3 is Phase 5, not Phase 3.** An earlier
+Status line in this file said otherwise; the phase table above is authoritative.
+U3 needs real peers and a skip is not a pass, so it cannot be pulled forward
+into a local phase.
