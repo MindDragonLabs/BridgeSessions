@@ -187,17 +187,25 @@ class Menu:
         assert b"\x1b[?25h" in self.output, "cursor was not restored"
         # 26.10.04: termios restoration is asserted on the SLAVE fd, and macOS
         # revokes that fd the moment the child exits - tcgetattr then raises
-        # ENOTTY ("Inappropriate ioctl for device") instead of returning the
-        # attributes, so the check crashed on macOS after a PASSING restore.
-        # The comparison is only meaningful while the fd is still a tty; on a
-        # platform that has already torn it down, fall back to the observable
-        # proxy (the cursor-show sequence above) rather than failing spuriously.
+        # instead of returning the attributes, so the check failed on a restore
+        # that had actually succeeded. The comparison is only meaningful while
+        # the fd is still a tty; on a platform that has already torn it down,
+        # fall back to the observable proxy (the cursor-show sequence above).
+        #
+        # The errno must be read from .args[0], NOT from .errno: on macOS
+        # termios.error is a distinct OSError subclass that does not populate
+        # the errno attribute, so getattr(exc, "errno", None) is always None and
+        # a guard written against .errno re-raises. Both ENOTTY ("Inappropriate
+        # ioctl for device") and EBADF ("Bad file descriptor") are observed here
+        # depending on how far the teardown has got; both mean the fd is gone
+        # and there is nothing left to inspect.
+        restored = None
         try:
             restored = termios.tcgetattr(self.slave) == self.saved
         except termios.error as exc:
-            if getattr(exc, "errno", None) not in (errno.ENOTTY, errno.EBADF):
+            code = exc.args[0] if exc.args else None
+            if code not in (errno.ENOTTY, errno.EBADF):
                 raise
-            restored = None  # fd gone; cannot inspect, and nothing to assert
         if restored is not None:
             assert restored, "termios was not restored"
 
