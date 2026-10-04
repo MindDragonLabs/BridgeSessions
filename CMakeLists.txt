@@ -64,7 +64,17 @@ include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/Dependencies.cmake)
 # by the native subdirectory; this option never installs or deploys them.
 option(BS_BUILD_NATIVE "Build shared native client and supported platform shell" OFF)
 if(BS_BUILD_NATIVE)
-    add_subdirectory(native)
+    # In-tree native/ is the merged layout. This lane still keeps the client
+    # sources in the sibling checkout (candidate/26.10.03-native).
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/native/CMakeLists.txt")
+        add_subdirectory(native)
+    elseif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../native/native/CMakeLists.txt")
+        add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../native/native"
+                         "${CMAKE_CURRENT_BINARY_DIR}/native")
+    else()
+        message(FATAL_ERROR
+            "BS_BUILD_NATIVE=ON but native/CMakeLists.txt was not found")
+    endif()
 endif()
 
 # ── Core library (header-only) + binary ──────────────────────────
