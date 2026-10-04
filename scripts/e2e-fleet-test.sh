@@ -234,8 +234,15 @@ test_session_isolation() {
   esac
   if [[ -f "$WORKDIR/iso_a-$$.log" && -f "$WORKDIR/iso_b-$$.log" ]]; then
     local a_has_b b_has_a
-    a_has_b="$(grep -c "ISO_B_" "$WORKDIR/iso_a-$$.log" 2>/dev/null || echo 0)"
-    b_has_a="$(grep -c "ISO_A_" "$WORKDIR/iso_b-$$.log" 2>/dev/null || echo 0)"
+    # 26.10.04: `grep -c` prints "0" AND exits 1 when there is no match, so the
+    # old `grep -c ... || echo 0` captured the two-character-plus-newline string
+    # "0\n0". `[[ "$b_has_a" -eq 0 ]]` then died with an arithmetic syntax error
+    # and fell through to the else branch, so this gate reported cross-talk
+    # EVERY time regardless of the real session behaviour — three peers, three
+    # identical false failures. Take grep's stdout, and only fall back when it
+    # printed nothing at all.
+    a_has_b="$(grep -c "ISO_B_" "$WORKDIR/iso_a-$$.log" 2>/dev/null || true)"; a_has_b="${a_has_b:-0}"
+    b_has_a="$(grep -c "ISO_A_" "$WORKDIR/iso_b-$$.log" 2>/dev/null || true)"; b_has_a="${b_has_a:-0}"
     if [[ "$a_has_b" -eq 0 && "$b_has_a" -eq 0 ]]; then
       record PASS "$peer" session_isolation "a/b streams separate"
     else
@@ -251,23 +258,47 @@ test_session_isolation() {
 test_harness_name() {
   local peer="$1" os="$2"
   local harness="e2e-harness-$$"
+  # 26.10.04: this gate used
+  #     run-script <peer> "<inline command>" --name <name>
+  # but run-script's real signature is `run-script <peer> <FILE>` and it has
+  # no --name flag at all. The CLI rejected the arguments, so no session was
+  # ever created, and the follow-up `sessions` call then reported a misleading
+  # "Timeout" for a harness that had never existed. A gate that cannot create
+  # the thing it tests cannot fail usefully.
+  #
+  # `shell <peer> -n <name> -x <cmd> --detach` is the supported way to start a
+  # named session with a command, and it does create a listable named session.
+  # 26.10.04: the gate slept 2s before listing. Measured on a live peer, the
+  # detached session is not yet visible in `sessions` at t=1s and appears at
+  # t=3s, so the 2s wait raced the session's own startup and the gate reported
+  # a Timeout for a session that existed. The command also only lived 5s, so a
+  # slow list could easily miss it. Give the session a long-enough life and
+  # poll for the name instead of guessing a single sleep.
   case "$os" in
     windows)
-      run_to "$BS_BIN" run-script "$peer" "Write-Output HELLO_FROM_HARNESS; Start-Sleep -Seconds 5" --name "$harness" >/dev/null 2>&1 || true
+      run_to "$BS_BIN" shell "$peer" -n "$harness" \
+        -x 'Write-Output HELLO_FROM_HARNESS; Start-Sleep -Seconds 30' --detach >/dev/null 2>&1 || true
       ;;
     *)
-      run_to "$BS_BIN" run-script "$peer" "echo HELLO_FROM_HARNESS; sleep 5" --name "$harness" >/dev/null 2>&1 || true
+      run_to "$BS_BIN" shell "$peer" -n "$harness" \
+        -x 'echo HELLO_FROM_HARNESS; sleep 30' --detach >/dev/null 2>&1 || true
       ;;
   esac
-  sleep 2
-  local out
-  out="$(run_to "$BS_BIN" sessions "$peer" 2>&1 || true)"
-  if assert_contains "$out" "$harness"; then
+  local out="" waited=0 listed=0
+  # Poll up to ~12s for the name to show up rather than sleeping a fixed guess.
+  while [[ $waited -lt 12 ]]; do
+    sleep 2
+    waited=$((waited + 2))
+    out="$(run_to "$BS_BIN" sessions "$peer" 2>&1 || true)"
+    if assert_contains "$out" "$harness"; then listed=1; break; fi
+    if printf '%s' "$out" | grep -qi 'no sessions\|no active'; then break; fi
+  done
+  if [[ $listed -eq 1 ]]; then
     record PASS "$peer" harness_name "sessions list shows $harness"
   elif printf '%s' "$out" | grep -qi 'no sessions\|no active'; then
     record SKIP "$peer" harness_name "no live sessions; harness already reaped"
   else
-    record FAIL "$peer" harness_name "name $harness not in sessions list: $(echo "$out" | tr '\n' ' ' | head -c 120)"
+    record FAIL "$peer" harness_name "name $harness not in sessions list after ${waited}s: $(echo "$out" | tr '\n' ' ' | head -c 120)"
   fi
   run_to "$BS_BIN" sessions "$peer" --kill "$harness" >/dev/null 2>&1 || true
 }
@@ -280,21 +311,35 @@ test_harness_name() {
 test_session_idle_alive() {
   local peer="$1" os="$2"
   local stay="e2e-stay-$$"
+  # 26.10.04: same stale `run-script --name` signature as test_harness_name —
+  # the session was never created, so this gate could only ever SKIP. Replaced
+  # with the supported `shell -n <name> --detach`.
+  #
+  # The gate also had the arithmetic backwards: it slept 6s in the command but
+  # then waited 8s before checking, so the session was guaranteed to have
+  # exited before the check. The wait must be well BEYOND the session's own
+  # life, which is the whole point of an idle-survival test. Use 30s of life
+  # and check at 10s: comfortably past any short-timeout reaper, and not past
+  # the end of the session.
   case "$os" in
     windows)
-      run_to "$BS_BIN" run-script "$peer" "Start-Sleep -Seconds 6" --name "$stay" >/dev/null 2>&1 || true
+      run_to "$BS_BIN" shell "$peer" -n "$stay" -x 'Start-Sleep -Seconds 30' --detach >/dev/null 2>&1 || true
       ;;
     *)
-      run_to "$BS_BIN" run-script "$peer" "sleep 6" --name "$stay" >/dev/null 2>&1 || true
+      run_to "$BS_BIN" shell "$peer" -n "$stay" -x 'sleep 30' --detach >/dev/null 2>&1 || true
       ;;
   esac
-  sleep 8
-  local out
-  out="$(run_to "$BS_BIN" sessions "$peer" 2>&1 || true)"
-  if assert_contains "$out" "$stay"; then
-    record PASS "$peer" session_idle_alive "$stay still present after 8s"
+  local out="" waited=0 alive=0
+  while [[ $waited -lt 10 ]]; do
+    sleep 2
+    waited=$((waited + 2))
+    out="$(run_to "$BS_BIN" sessions "$peer" 2>&1 || true)"
+    if assert_contains "$out" "$stay"; then alive=1; break; fi
+  done
+  if [[ $alive -eq 1 ]]; then
+    record PASS "$peer" session_idle_alive "$stay still present after ${waited}s"
   elif printf '%s' "$out" | grep -qi 'no sessions'; then
-    record FAIL "$peer" session_idle_alive "$stay reaped before 8s"
+    record FAIL "$peer" session_idle_alive "$stay reaped before ${waited}s"
   else
     record SKIP "$peer" session_idle_alive "could not retrieve sessions list"
   fi
