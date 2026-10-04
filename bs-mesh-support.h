@@ -294,6 +294,80 @@ inline std::string b64dec(const std::string& s) {
     return out;
 }
 
+// Panel IPC uses an unpadded RFC 4648 token. The older b64dec helper is kept
+// permissive for legacy commands; session control must reject unknown bytes,
+// whitespace, padding, impossible lengths, and non-zero unused tail bits.
+inline bool b64_valid_strict(std::string_view s) {
+    if (s.size() % 4 == 1) return false;
+    for (size_t i = 0; i < s.size(); ++i) {
+        const unsigned char c = static_cast<unsigned char>(s[i]);
+        const bool alpha = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z');
+        const bool digit = c >= '0' && c <= '9';
+        if (!alpha && !digit && c != '+' && c != '/') return false;
+    }
+    if (s.size() % 4 == 2) {
+        const unsigned char c = static_cast<unsigned char>(s.back());
+        const int v = (c >= 'A' && c <= 'Z') ? c - 'A'
+                    : (c >= 'a' && c <= 'z') ? c - 'a' + 26
+                    : (c >= '0' && c <= '9') ? c - '0' + 52
+                    : c == '+' ? 62 : 63;
+        if ((v & 15) != 0) return false;
+    } else if (s.size() % 4 == 3) {
+        const unsigned char c = static_cast<unsigned char>(s.back());
+        const int v = (c >= 'A' && c <= 'Z') ? c - 'A'
+                    : (c >= 'a' && c <= 'z') ? c - 'a' + 26
+                    : (c >= '0' && c <= '9') ? c - '0' + 52
+                    : c == '+' ? 62 : 63;
+        if ((v & 3) != 0) return false;
+    }
+    return true;
+}
+
+inline std::optional<std::string> b64dec_strict(std::string_view s,
+                                                  size_t max_bytes) {
+    if (!b64_valid_strict(s)) return std::nullopt;
+    const size_t decoded_size = (s.size() / 4) * 3 +
+                                (s.size() % 4 == 2 ? 1 : s.size() % 4 == 3 ? 2 : 0);
+    if (decoded_size > max_bytes) return std::nullopt;
+    std::string copy(s);
+    std::string decoded = b64dec(copy);
+    if (decoded.size() > decoded_size) decoded.resize(decoded_size);
+    return decoded;
+}
+
+struct SessionControlRead {
+    std::string data;
+    uint64_t next_offset = 0;
+    bool reset = false;
+};
+
+inline std::string session_control_error_line(std::string_view error) {
+    if (error.empty() || error.size() > 256) return "ERROR remote session control failed\n";
+    for (unsigned char ch : error)
+        if (ch < 0x20 || ch == 0x7f) return "ERROR invalid remote error\n";
+    return "ERROR " + std::string(error) + "\n";
+}
+
+// Called on the session-owning event loop (the ring's only writer). The legacy
+// read_since helper fast-forwards large retained windows; panel cursors instead
+// paginate from the oldest retained byte. Snapshot allocation is bounded by the
+// existing ring capacity, and the response is always bounded by the request.
+template <typename Ring>
+inline SessionControlRead session_control_read(const Ring& ring, uint64_t offset,
+                                               uint32_t limit) {
+    if (limit > kSessionControlMaxBytes || offset > ring.total_written())
+        throw std::runtime_error("invalid session scrollback bounds");
+    if (limit == 0) return {{}, offset, false};
+    const uint64_t total = ring.total_written();
+    const auto retained = ring.snapshot();
+    const uint64_t oldest = total - retained.size();
+    const uint64_t start = std::max(offset, oldest);
+    const size_t count = static_cast<size_t>(std::min<uint64_t>(limit, total - start));
+    std::string data;
+    if (count != 0) data.assign(retained.data() + static_cast<size_t>(start - oldest), count);
+    return {std::move(data), start + count, offset < oldest};
+}
+
 inline int tls_last_syscall_errno() {
 #ifdef _WIN32
     return WSAGetLastError();

@@ -365,6 +365,8 @@ public:
     }
 
     void cli_ipc_shutdown() {
+        for (const auto& pending : pending_session_ipc_) CLOSESOCK(pending.ipc_fd);
+        pending_session_ipc_.clear();
         if (cli_listen_fd_ != INVALID_SOCKET) {
             CLOSESOCK(cli_listen_fd_);
             cli_listen_fd_ = INVALID_SOCKET;
@@ -445,9 +447,10 @@ public:
         }
         std::string response = "ERROR bad request\n";
         bool response_sent = false;
+        bool panel_handoff = false;
         if (n > 0) {
             buf[n] = '\0';
-            std::string line(buf);
+            std::string line(buf, static_cast<size_t>(n));
             while (!line.empty() && (line.back() == '\r' || line.back() == '\n'))
                 line.pop_back();
             const bool authorized = const_time_token_match(line, ipc_token_);
@@ -461,6 +464,27 @@ public:
             line.erase(0, ipc_token_.size());
             while (!line.empty() && (line.front() == ' ' || line.front() == '\t'))
                 line.erase(line.begin());
+            if (line.rfind("SESSION_", 0) == 0 &&
+                (!newline_seen || line.find_first_of("\r\n") != std::string::npos ||
+                 line.find('\0') != std::string::npos)) {
+                response = "ERROR invalid session control framing\n";
+                (void)send_panel_ipc_response(cfd, response);
+                CLOSESOCK(cfd);
+                return;
+            }
+            auto panel_parse_u64 = [](std::string_view value, uint64_t& out) {
+                if (value.empty()) return false;
+                uint64_t parsed = 0;
+                for (unsigned char ch : value) {
+                    if (ch < '0' || ch > '9') return false;
+                    const uint64_t digit = static_cast<uint64_t>(ch - '0');
+                    if (parsed > (std::numeric_limits<uint64_t>::max() - digit) / 10)
+                        return false;
+                    parsed = parsed * 10 + digit;
+                }
+                out = parsed;
+                return true;
+            };
             if (line == "DAEMON_PROBE") {
                 response = "OK bridgesessions\n";
             }
@@ -572,6 +596,80 @@ public:
                     response = "OK killed " + target + "\n";
                 } else {
                     response = "ERROR no session " + target + "\n";
+                }
+            }
+            else if (line.rfind("SESSION_INPUT ", 0) == 0) {
+                // SESSION_INPUT <machine> <session> <b64>
+                const std::string rest = line.substr(14);
+                const size_t p1 = rest.find(' ');
+                const size_t p2 = p1 == std::string::npos
+                    ? std::string::npos : rest.find(' ', p1 + 1);
+                if (p1 == std::string::npos || p2 == std::string::npos ||
+                    rest.find(' ', p2 + 1) != std::string::npos) {
+                    response = "ERROR usage: SESSION_INPUT <machine> <session> <b64>\n";
+                } else {
+                    const std::string machine = rest.substr(0, p1);
+                    const std::string session = rest.substr(p1 + 1, p2 - p1 - 1);
+                    const std::string encoded = rest.substr(p2 + 1);
+                    auto decoded = b64dec_strict(encoded, kSessionControlMaxBytes);
+                    if (!session_control_machine_valid(machine) ||
+                        !session_control_name_valid(session)) {
+                        response = "ERROR invalid name\n";
+                    } else if (!decoded) {
+                        response = "ERROR invalid base64 or oversize input\n";
+                    } else {
+                        response = begin_panel_session_input(
+                            cfd, machine, session, *decoded, panel_handoff);
+                    }
+                }
+            }
+            else if (line.rfind("SESSION_SCROLLBACK ", 0) == 0) {
+                // SESSION_SCROLLBACK <machine> <session> <offset> <limit>
+                const std::string rest = line.substr(19);
+                const size_t p1 = rest.find(' ');
+                const size_t p2 = p1 == std::string::npos
+                    ? std::string::npos : rest.find(' ', p1 + 1);
+                const size_t p3 = p2 == std::string::npos
+                    ? std::string::npos : rest.find(' ', p2 + 1);
+                if (p1 == std::string::npos || p2 == std::string::npos ||
+                    p3 == std::string::npos || rest.find(' ', p3 + 1) != std::string::npos) {
+                    response = "ERROR usage: SESSION_SCROLLBACK <machine> <session> <offset> <limit>\n";
+                } else {
+                    const std::string machine = rest.substr(0, p1);
+                    const std::string session = rest.substr(p1 + 1, p2 - p1 - 1);
+                    const std::string offset_text = rest.substr(p2 + 1, p3 - p2 - 1);
+                    const std::string limit_text = rest.substr(p3 + 1);
+                    uint64_t offset = 0, limit = 0;
+                    if (!session_control_machine_valid(machine) ||
+                        !session_control_name_valid(session)) {
+                        response = "ERROR invalid name\n";
+                    } else if (!panel_parse_u64(offset_text, offset) ||
+                               !panel_parse_u64(limit_text, limit) ||
+                               limit > kSessionControlMaxBytes) {
+                        response = "ERROR invalid offset or limit\n";
+                    } else {
+                        response = begin_panel_session_scrollback(
+                            cfd, machine, session, offset,
+                            static_cast<uint32_t>(limit), panel_handoff);
+                    }
+                }
+            }
+            else if (line.rfind("SESSION_KILL ", 0) == 0) {
+                // SESSION_KILL <machine> <session>
+                const std::string rest = line.substr(13);
+                const size_t p = rest.find(' ');
+                if (p == std::string::npos || rest.find(' ', p + 1) != std::string::npos) {
+                    response = "ERROR usage: SESSION_KILL <machine> <session>\n";
+                } else {
+                    const std::string machine = rest.substr(0, p);
+                    const std::string session = rest.substr(p + 1);
+                    if (!session_control_machine_valid(machine) ||
+                        !session_control_name_valid(session)) {
+                        response = "ERROR invalid name\n";
+                    } else {
+                        response = begin_panel_session_kill(
+                            cfd, machine, session, panel_handoff);
+                    }
                 }
             }
             // ── JSON API (26.09.09) — stable machine contract for the
@@ -1272,7 +1370,7 @@ public:
                           " bytes=" + std::to_string(line.size()));
             }
         }
-        if (!response_sent) {
+        if (!response_sent && !panel_handoff) {
             // 2.0.8 MoA fix: send() may short-write (large SCROLLBACK/MESH_TREE
             // replies). Loop until the full reply is out or the socket fails —
             // a truncated reply silently corrupts the client's incremental sync.
@@ -2020,6 +2118,11 @@ public:
             if (g_config_reload_requested.exchange(false))
                 reload_seeds_from_disk();
 #endif
+
+            // Complete or fail bounded asynchronous panel requests even when
+            // no new loopback client arrives. This also notices a dead/replaced
+            // mesh transport and never leaves an IPC fd hanging indefinitely.
+            expire_panel_session_ipc();
 
             // Service CLI IPC the moment a request arrives (event-driven).
             if (cli_listen_fd_ != INVALID_SOCKET && poll_fd_readable(ready, cli_listen_fd_)) {
