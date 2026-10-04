@@ -26,13 +26,13 @@ def test_parse_invite_output_extracts_token_and_seed_address():
     generator = load_generator()
     output = """Invite (valid 2h):  953f674ebb576634309e085bece7d482
 One-liner:
-  bridgesessions join 100.112.254.104:19949 --token-file <path> --start
+  bridgesessions join 203.0.113.10:19949 --token-file <path> --start
 """
 
     invite = generator.parse_invite_output(output)
 
     assert invite.token == "953f674ebb576634309e085bece7d482"
-    assert invite.seed_address == "100.112.254.104:19949"
+    assert invite.seed_address == "203.0.113.10:19949"
     assert invite.window_seconds == 7200
 
 
@@ -55,7 +55,7 @@ def test_render_page_is_a_three_step_join_and_rejoin_guide():
     generator = load_generator()
     invite = generator.InviteInfo(
         token="953f674ebb576634309e085bece7d482",
-        seed_address="100.112.254.104:19949",
+        seed_address="203.0.113.10:19949",
     )
 
     page = generator.render_page(
@@ -73,7 +73,7 @@ def test_render_page_is_a_three_step_join_and_rejoin_guide():
     assert "New PC" in page
     assert "Rejoin or repair" in page
     assert "dave-pc" in page
-    assert "100.112.254.104:19949" in page
+    assert "203.0.113.10:19949" in page
     assert "26.09.15-r1" in page
     assert "953f674ebb576634309e085bece7d482" in page
     assert "Jefferson &amp; Friends &lt;mesh&gt;" in page
@@ -88,7 +88,7 @@ def test_build_commands_rejects_unsafe_node_names():
     generator = load_generator()
     invite = generator.InviteInfo(
         token="953f674ebb576634309e085bece7d482",
-        seed_address="100.112.254.104:19949",
+        seed_address="203.0.113.10:19949",
     )
 
     with pytest.raises(ValueError, match="node name"):
@@ -102,7 +102,7 @@ def test_cli_generates_private_page_without_printing_token(tmp_path):
 case "$1" in
   invite)
     printf '%s\\n' 'Invite (valid 2h):  953f674ebb576634309e085bece7d482'
-    printf '%s\\n' 'One-liner:' '  bridgesessions join 100.112.254.104:19949 --token-file <path> --start'
+    printf '%s\\n' 'One-liner:' '  bridgesessions join 203.0.113.10:19949 --token-file <path> --start'
     ;;
   --version) printf '%s\\n' '26.09.15-r1' ;;
   *) exit 2 ;;

@@ -217,6 +217,6 @@ into a local phase.
 `docs/plans/26.10.04-fleet-map.md` is the live map, taken from `tailscale status`
 on 2026-10-04. It supersedes any host or IP named elsewhere. mac mini,
 `avirserver2020`, cpanel, btcr and mysqlknights are online; **no Shadow PC is
-online**, and **fecv4 is offline**. `100.115.10.27` is `shadow-m1j6pkmo`, not
+online**, and **fecv4 is offline**. `<tailnet-ip>` is `shadow-m1j6pkmo`, not
 fecv4. Devin cloud is Linux-only and unprovisioned, so the Windows leg uses
 `avirserver2020` (BS 19949 and WinRM 5985 both open, running 26.09.08).

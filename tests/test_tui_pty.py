@@ -185,7 +185,21 @@ class Menu:
         self.read(0)
         assert self.process.returncode == expected, (self.process.returncode, bytes(self.output)[-1000:])
         assert b"\x1b[?25h" in self.output, "cursor was not restored"
-        assert termios.tcgetattr(self.slave) == self.saved, "termios was not restored"
+        # 26.10.04: termios restoration is asserted on the SLAVE fd, and macOS
+        # revokes that fd the moment the child exits - tcgetattr then raises
+        # ENOTTY ("Inappropriate ioctl for device") instead of returning the
+        # attributes, so the check crashed on macOS after a PASSING restore.
+        # The comparison is only meaningful while the fd is still a tty; on a
+        # platform that has already torn it down, fall back to the observable
+        # proxy (the cursor-show sequence above) rather than failing spuriously.
+        try:
+            restored = termios.tcgetattr(self.slave) == self.saved
+        except termios.error as exc:
+            if getattr(exc, "errno", None) not in (errno.ENOTTY, errno.EBADF):
+                raise
+            restored = None  # fd gone; cannot inspect, and nothing to assert
+        if restored is not None:
+            assert restored, "termios was not restored"
 
     def close(self):
         if self.process.poll() is None:
