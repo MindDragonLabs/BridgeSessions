@@ -155,17 +155,28 @@ committed, and recovery bundles are written and proven by an actual restore.
 
 | Lane | SHA |
 |---|---|
-| backend | `c4b3c98` |
+| backend | `c4b3c98` + `e800604` (B3) + `d883292` (B4 diagnosis) |
 | panel | `136d4bb` |
 | native | `98c2cba` |
 | tui | `c3330c9` |
 | scrub | `1053f85` |
-| integration | `3b0d127` |
+| integration | `3b0d127` + `bf737ea` (B2) |
 
 Bundles: `/home/agent/bs-candidates/26.10.03/bundles/`, SHA-256 recorded in
 `TODO-2026-10-04.md` B1.
 
-**Next step: Phase 2 — B2 installers, B3 CMake registration, B4 harness.** These
-have disjoint file sets and may run in parallel lanes. Done means: the installer
-points at a live tag, `ctest -N` lists the new tests, and the harness passes
-10/10 with the product's own connect window unchanged.
+**Phase 2: B2 DONE, B3 DONE, B4 REOPENED with a better diagnosis.**
+
+- B2 `bf737ea` — installers point at `26.09.28`; all five release assets
+  verified HTTP 200 against the live remote.
+- B3 `e800604` — both new tests registered; `ctest -N` lists them and
+  `./build.sh test` is 619/619.
+- B4 `d883292` — **not a fix.** The audit's "3s test vs 12s product" story was
+  wrong. The tie-break defer *extends* exponentially; the first outbound probe
+  is 756s away. 10 runs measured 7 pass / 3 fail. The harness now fails
+  honestly with an actionable message. The real fix is product-side and needs
+  a decision from the operator.
+
+**Next step: a decision on B4**, then Phase 3 (U1 TUI PTY, U2 native, U4 full
+ctest). Note U4 depends on B4: a default `ctest` is not green while the e2e
+fails honestly.
