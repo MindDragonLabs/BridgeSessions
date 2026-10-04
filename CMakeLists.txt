@@ -327,6 +327,28 @@ if(BRIDGESESSIONS_PYTHON)
                 --timeout=60)
         set_tests_properties(panel_daemon_restart_disconnect PROPERTIES
             ENVIRONMENT "PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR};BRIDGESESSIONS_BINARY=$<TARGET_FILE:bridgesessions>")
+        # Invite page generation: the single-use invite token is transported in
+        # a 0600 file rather than a URL, and unsafe node names are rejected.
+        # This guards the token-handling path that S1 reviewed, so it has to
+        # actually run rather than sit unregistered in the tree.
+        add_test(NAME panel_generate_invite_page
+            COMMAND ${BRIDGESESSIONS_PYTHON} -m pytest
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_generate_invite_page.py" -v)
+        set_tests_properties(panel_generate_invite_page PROPERTIES
+            ENVIRONMENT "PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}")
+        # Installer transaction semantics: a failed install must not leave a
+        # half-written binary or a partially-populated install dir.
+        add_test(NAME panel_install_transaction
+            COMMAND ${BRIDGESESSIONS_PYTHON} -m pytest
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_install_transaction.py" -v)
+        set_tests_properties(panel_install_transaction PROPERTIES
+            ENVIRONMENT "PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}")
+        # Release integrity: VERSION / version.rc / changelog agreement.
+        add_test(NAME panel_release_integrity
+            COMMAND ${BRIDGESESSIONS_PYTHON} -m pytest
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_release_integrity.py" -v)
+        set_tests_properties(panel_release_integrity PROPERTIES
+            ENVIRONMENT "PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}")
     endif()
 endif()
 endif()
