@@ -59,6 +59,14 @@ endif()
 # See cmake/Dependencies.cmake for BS_DEPS_MODE / BS_OPENSSL / BS_STATIC_DEPS.
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/Dependencies.cmake)
 
+# Build the shared native client through the same pinned dependencies and
+# canonical build.sh entry point as the daemon. Platform shells are selected
+# by the native subdirectory; this option never installs or deploys them.
+option(BS_BUILD_NATIVE "Build shared native client and supported platform shell" OFF)
+if(BS_BUILD_NATIVE)
+    add_subdirectory(native)
+endif()
+
 # ── Core library (header-only) + binary ──────────────────────────
 add_executable(bridgesessions main.cpp
     bs-protocol.h
