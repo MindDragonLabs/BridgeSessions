@@ -739,6 +739,38 @@ inline std::vector<std::string> session_picker_rows(const bs::mesh::SessionListM
     return rows;
 }
 
+// 26.10.04: frame width must fit the TITLE as well as the rows. This used to
+// live as a static helper in main.cpp computing width from the rows alone, so a
+// title wider than the widest row overflowed the box and the right border came
+// out ragged. Reproduced with the harness picker: the longest row is
+// "hermes  → hermes --tui --yolo" (29 cells) but the title is
+// "remote-box — choose a harness:" (30 cells), producing a box three columns
+// too narrow for its own title. Moved here so it is covered by the geometry
+// tests rather than being untestable code in main.cpp.
+[[nodiscard]] inline size_t menu_frame_width(const std::vector<std::string>& rows,
+                                             size_t cols,
+                                             const std::string& title = {}) {
+    size_t width = tui_row_width(title);
+    for (const auto& r : rows)
+        width = std::max(width, tui_row_width(r));
+    // Measured: menu_frame draws a top border of exactly `width + 5` cells
+    // (w=10 -> 15, w=20 -> 25, w=30 -> 35), because hline emits inner+2 dashes
+    // between the corners and every side row is "│ " + inner + " │". A frame
+    // that can hold C cells of content must therefore be asked for C + 4. The
+    // old code asked for C + 2 and also ignored the title entirely, so a title
+    // wider than the widest row overflowed the box and the right border came out
+    // ragged — reported as the menu distorting after a few repaints.
+    const size_t desired = std::clamp(width + 4, size_t{24}, size_t{72});
+    // Clamp the frame to the terminal so no line wraps. The frame is `inner+4`
+    // visible cells wide (│ + space + <inner> + space + │); a wider frame wraps
+    // its rows and the cursor-up repaint in arrow_menu_select miscounts physical
+    // lines, shredding the menu (real-PTY bug on small terminals). get_winsize()
+    // falls back to {80,24} when the ioctl fails.
+    if (cols <= 4) return 0;  // compact renderer handles terminals below 5 columns
+    const size_t max_inner = cols - 4;
+    return std::min(desired, max_inner);
+}
+
 // Map a 1-based picker choice (0 = cancelled) to a session name.
 // Returns "" for "new session" (and for cancelled/out-of-range, which callers
 // treat the same way: fall through to the ephemeral-session flow).

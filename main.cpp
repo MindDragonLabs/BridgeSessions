@@ -700,20 +700,8 @@ struct MenuTermGuard {
 
 // Menu frame helpers (26.09.18): width + footer computed per draw so a
 // delete-shrunken row set repaints at the correct geometry.
-static size_t menu_frame_width(const std::vector<std::string>& rows, size_t cols) {
-    size_t width = 0;
-    for (auto& r : rows)
-        width = std::max(width, bs::tui::tui_row_width(r));
-    const size_t desired = std::clamp(width + 2, size_t{24}, size_t{72});
-    // Clamp the frame to the terminal so no line wraps. The frame is `inner+4`
-    // visible cells wide (│ + space + <inner> + space + │); a wider frame wraps
-    // its rows and the cursor-up repaint in arrow_menu_select miscounts physical
-    // lines, shredding the menu (real-PTY bug on small terminals). get_winsize()
-    // falls back to {80,24} when the ioctl fails.
-    if (cols <= 4) return 0;  // compact renderer handles terminals below 5 columns
-    const size_t max_inner = cols - 4;
-    return std::min(desired, max_inner);
-}
+// 26.10.04: menu_frame_width moved to bs::tui so it is covered by the geometry
+// tests. It now also fits the title, not just the rows.
 static std::string menu_frame_footer(bool has_delete, size_t cols) {
     const std::string hint = has_delete
         ? "  ↑/↓ or j/k move · Enter select · d delete · q quit"
@@ -786,7 +774,7 @@ size_t arrow_menu_select(const std::vector<std::string>& rows,
         std::vector<std::string> shown(rs.begin() + static_cast<std::ptrdiff_t>(first_row),
                                        rs.begin() + static_cast<std::ptrdiff_t>(last_row));
         const size_t shown_selected = s - first_row;
-        const size_t frame_width = menu_frame_width(rs, cols);
+        const size_t frame_width = bs::tui::menu_frame_width(rs, cols, title);
         const size_t frame_lines = shown.size() + 4;
         const bool full_repaint = !have_render || resized || previous_compact ||
                                   force_full_repaint || previous_lines != frame_lines;

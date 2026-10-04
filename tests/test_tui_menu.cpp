@@ -200,6 +200,63 @@ TEST_CASE("menu frame truncates an overlong title to the frame width", "[tui][me
     REQUIRE(oracle_cells(ls[1]) == border);
 }
 
+// 26.10.04 regression: the frame width was computed from the rows alone, so a
+// title wider than the widest row produced a box too narrow for its own title
+// and the right border came out ragged. Reported as "the TUI gets distorted
+// after some turns" because every repaint re-drew the bad geometry. menu_frame
+// itself already truncates a long title correctly — the defect was choosing a
+// width that could not hold it.
+TEST_CASE("menu frame width accommodates a title wider than every row",
+          "[tui][menu][wrap][regression]") {
+    const std::vector<std::string> rows = {
+        "hermes  \u2192 hermes --tui --yolo",
+        "claude-code  \u2192 claude",
+        "shell",
+    };
+    const std::string title = "remote-box \u2014 choose a harness:";
+    const size_t cols = 100;
+
+    const size_t w = bs::tui::menu_frame_width(rows, cols, title);
+    // The returned value is the INNER width; the rendered frame is inner+4.
+    // It must hold the title, not just the rows.
+    REQUIRE(oracle_cells(title) <= w);
+    for (const auto& r : rows)
+        REQUIRE(oracle_cells(r) <= w);
+
+    // End to end: every rendered border line is the same width.
+    auto ls = frame_lines(bs::tui::menu_frame({title, true}, rows, 0, w));
+    const size_t border = oracle_cells(ls.front());
+    for (const auto& line : ls) REQUIRE(oracle_cells(line) == border);
+    for (const auto& line : ls) REQUIRE(valid_utf8(line));
+
+    // The decisive check, and the one that actually fails on the old code.
+    //
+    // Measured relationship in menu_frame: a rendered top border is exactly
+    // `width + 5` cells (w=10 -> 15, w=20 -> 25, w=30 -> 35), because hline
+    // draws inner+2 dashes between the corners and every side row is
+    // "│ " + inner + " │". So a frame that can actually hold C cells of
+    // content must be asked for C + 4, not C + 2 as the old code did. Asking
+    // for three columns too few clipped the title and left the border ragged.
+    const size_t content = [&]{
+        size_t m = oracle_cells(title);
+        for (const auto& r : rows) m = std::max(m, oracle_cells(r));
+        return m;
+    }();
+    // Measured with the renderer's own counter on the RAW frame (ls[] has
+    // already been through frame_lines, which strips the SGR styling):
+    // a top border is exactly `width + 5` cells.
+    const std::string raw = bs::tui::menu_frame({title, true}, rows, 0, w);
+    REQUIRE(bs::tui::tui_visible_len(raw.substr(0, raw.find('\n'))) == w + 5);
+    // And the width we asked for must be content + 4, since the renderer adds
+    // one more column of chrome on each side plus the two corner glyphs.
+    REQUIRE(w == content + 4);
+
+    // And the title must not be truncated away: it is wider than every row, so
+    // a frame sized from the rows alone would clip it.
+    REQUIRE(frame_lines(bs::tui::menu_frame({title, true}, rows, 0, w))[1]
+                .find("choose a harness") != std::string::npos);
+}
+
 TEST_CASE("menu frame truncates overlong rows without splitting UTF-8", "[tui][menu][wrap]") {
     // The row must be cut at a character boundary — never between the lead byte
     // and its continuation bytes (which would emit a replacement glyph).
