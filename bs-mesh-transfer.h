@@ -3499,6 +3499,18 @@ public:
                 }
                 CloseClipboard();
             }
+#else
+            // 26.10.04: the #ifdef _WIN32 above meant this branch was a no-op on
+            // Linux and macOS, so a ClipboardMsg delivered to the daemon (rather
+            // than to an attached client) was silently discarded. Use the shared
+            // portable sink, which covers pbcopy / wl-copy / xclip / xsel and
+            // falls back to OSC 52 passthrough.
+            std::string method;
+            if (set_local_clipboard(cb.text, &method))
+                log_event("daemon_clipboard_set", "via=" + method);
+            else
+                log_event("daemon_clipboard_failed",
+                          "bytes=" + std::to_string(cb.text.size()));
 #endif
             return;
         }

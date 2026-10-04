@@ -169,6 +169,9 @@ inline constexpr std::string_view kBridgeSessionsVersion = BS_VERSION;
 #include "bs-codec.h"
 #include "bs-tls.h"
 #include "bs-osc52.h"
+// 26.10.04: portable local-clipboard sink for the OSC 52 relay. The interactive
+// client dropped ClipboardMsg frames, so remote copy did nothing.
+#include "bs-clipboard-local.h"
 #include "bs-jail-policy.h"
 #include "bs-pty.h"
 #include "bs-cua-driver.h"   // cua-driver-rs backend; cua_execute (dispatch) calls it

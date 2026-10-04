@@ -3269,6 +3269,18 @@ public:
                 return false;
             } else if (std::holds_alternative<PingMsg>(resp)) {
                 write_frame(ssl, PongMsg{}, CONTROL_STREAM_ID);
+            } else if (std::holds_alternative<ClipboardMsg>(resp)) {
+                // 26.10.04: interactive attach never handled ClipboardMsg, so
+                // every OSC 52 copy from the remote host was read off the wire
+                // and thrown away. This is the path an operator actually uses.
+                const auto& cb = std::get<ClipboardMsg>(resp);
+                std::string method;
+                if (set_local_clipboard(cb.text, &method)) {
+                    log_event("client_clipboard_set", "via=" + method);
+                } else {
+                    log_event("client_clipboard_failed",
+                              "bytes=" + std::to_string(cb.text.size()));
+                }
             }
         } catch (const std::exception& e) {
             std::cerr << "Shell transport failed: " << e.what() << "\n";
@@ -3328,6 +3340,20 @@ public:
                 return false;
             } else if (std::holds_alternative<PingMsg>(resp)) {
                 write_frame(ssl, PongMsg{}, CONTROL_STREAM_ID);
+            } else if (std::holds_alternative<ClipboardMsg>(resp)) {
+                // 26.10.04: the remote program asked us to copy to OUR clipboard
+                // via OSC 52. This branch did not exist, so the frame was read
+                // and discarded and remote copy/paste silently did nothing.
+                // Best-effort and never fatal — a failed clipboard write must
+                // not tear down a live session.
+                const auto& cb = std::get<ClipboardMsg>(resp);
+                std::string method;
+                if (set_local_clipboard(cb.text, &method)) {
+                    log_event("client_clipboard_set", "via=" + method);
+                } else {
+                    log_event("client_clipboard_failed",
+                              "bytes=" + std::to_string(cb.text.size()));
+                }
             }
         } catch (...) { return false; }
         return true;
