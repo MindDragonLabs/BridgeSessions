@@ -199,6 +199,22 @@ public:
                version_is_older(version, kBridgeSessionsVersion);
     }
 
+    // Read-only views of the tie-break clock. The accept window itself stays
+    // private and is not shortened. Harnesses derive their wait from these
+    // so they cannot drift behind should_defer_outbound_for().
+    [[nodiscard]] static constexpr int tie_break_accept_window_ms() noexcept {
+        return kTieBreakAcceptWindowMs;
+    }
+    // Milliseconds a larger pubkey refuses to dial: the initial accept
+    // window plus each exponential extension (window << n), n = 1..max.
+    // One probe dial is allowed only after this quiet period.
+    [[nodiscard]] static constexpr int tie_break_outbound_quiet_ms() noexcept {
+        int quiet = kTieBreakAcceptWindowMs;
+        for (int ext = 1; ext <= kTieBreakMaxExtends; ++ext)
+            quiet += kTieBreakAcceptWindowMs << ext;
+        return quiet;
+    }
+
 #ifdef BS_TESTING
     void close_conn_for_test(Conn& conn) { (void)close_conn(conn); }
 

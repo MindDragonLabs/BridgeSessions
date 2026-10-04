@@ -18,6 +18,24 @@ namespace {
 void need(bool ok, const std::string& detail) {
     if (!ok) throw std::runtime_error(detail);
 }
+// Poll step. The iteration count is harness_wait_ms(), not a private timeout.
+constexpr int kHarnessPollMs = 10;
+// The larger pubkey will not dial until tie_break_outbound_quiet_ms() elapses.
+// That accessor sums the initial window plus EVERY exponential extension
+// (kTieBreakMaxExtends = 5 today), which is 756s. The harness does not need
+// all of it: one accept window is what must elapse before the first probe
+// dial. Budget for the first window plus one more for the dial, TLS
+// handshake, and route, and leave room to report. Bounded well under the
+// 120s ctest timeout so a failure is reported rather than killed.
+[[nodiscard]] constexpr int harness_wait_ms() noexcept {
+    return 2 * MeshController::tie_break_accept_window_ms() + 6000;
+}
+[[nodiscard]] constexpr int harness_wait_polls() noexcept {
+    return (harness_wait_ms() + kHarnessPollMs - 1) / kHarnessPollMs;
+}
+void sleep_poll() {
+    std::this_thread::sleep_for(std::chrono::milliseconds(kHarnessPollMs));
+}
 struct Fd {
     int value = -1;
     explicit Fd(int fd) : value(fd) {}
@@ -119,19 +137,29 @@ struct Daemon {
         }
     }
     void ready() {
-        for (int i = 0; i < 300; ++i) {
+        const int polls = harness_wait_polls();
+        std::string last = "no probe";
+        for (int i = 0; i < polls; ++i) {
             int status;
             const pid_t exited = ::waitpid(pid, &status, WNOHANG);
             if (exited == pid) pid = -1;
             need(exited == 0, "daemon exited during startup: " + root);
             token = load_ipc_token(root);
             if (!token.empty()) {
-                try { if (ipc(port, token, "DAEMON_PROBE") == "OK bridgesessions\n") return; }
-                catch (...) {}
+                try {
+                    last = ipc(port, token, "DAEMON_PROBE");
+                    if (last == "OK bridgesessions\n") return;
+                } catch (const std::exception& ex) {
+                    last = ex.what();
+                } catch (...) {
+                    last = "probe failed";
+                }
             }
-            std::this_thread::sleep_for(10ms);
+            sleep_poll();
         }
-        throw std::runtime_error("daemon readiness timeout: " + root);
+        throw std::runtime_error(
+            "daemon readiness timeout after " + std::to_string(harness_wait_ms())
+            + "ms root=" + root + " last=" + last);
     }
     std::string call(const std::string& command) const { return ipc(port, token, command); }
     ~Daemon() {
@@ -314,9 +342,30 @@ int main(int argc, char** argv) {
         }
         marker(da, ".", "one", "READY_LOCAL");
         // Wait for the real pinned mesh route, then require actual remote bytes.
-        for (int i = 0; i < 300; ++i) {
-            if (da.call("SESSION_SCROLLBACK panel-b one 0 65536").rfind("OK ", 0) == 0) break;
-            need(i < 299, "pinned mesh route never became ready"); std::this_thread::sleep_for(10ms);
+        // Budget tracks the product tie-break quiet period, not a fixed 3s.
+        {
+            const int polls = harness_wait_polls();
+            std::string last;
+            for (int i = 0; i < polls; ++i) {
+                last = da.call("SESSION_SCROLLBACK panel-b one 0 65536");
+                if (last.rfind("OK ", 0) == 0) break;
+                if (i + 1 >= polls) {
+                    throw std::runtime_error(
+                        "pinned mesh route never became ready within "
+                        + std::to_string(harness_wait_ms())
+                        + "ms; last reply: " + last
+                        + "\n  accept window is "
+                        + std::to_string(MeshController::tie_break_accept_window_ms())
+                        + "ms, and the defer EXTENDS exponentially on expiry"
+                        + " (12s -> 24s -> 48s -> 96s -> 192s)."
+                        + "\n  The first outbound probe is not allowed until all"
+                        + " extensions are exhausted, so a larger test budget"
+                        + " cannot fix this."
+                        + "\n  This is a product-side tie-break race, not a test"
+                        + " budget problem. See TODO-2026-10-04.md B4.");
+                }
+                sleep_poll();
+            }
         }
         marker(da, "panel-b", "one", "READY_REMOTE");
         marker(da, "panel-b", "two", "READY_TWO");
@@ -397,10 +446,24 @@ int main(int argc, char** argv) {
             need(receive_pending(pending.value) == "ERROR mesh connection lost\n",
                  "replaced transport completed an old pending request");
         }
-        for (int i = 0; i < 3000; ++i) {
-            if (da.call("SESSION_SCROLLBACK panel-b two 0 64").rfind("OK ", 0) == 0) break;
-            need(i < 2999, "pinned mesh failed to recover after reconnect");
-            std::this_thread::sleep_for(10ms);
+        {
+            const int polls = harness_wait_polls();
+            std::string last;
+            for (int i = 0; i < polls; ++i) {
+                last = da.call("SESSION_SCROLLBACK panel-b two 0 64");
+                if (last.rfind("OK ", 0) == 0) break;
+                if (i + 1 >= polls) {
+                    throw std::runtime_error(
+                        "pinned mesh failed to recover after reconnect within "
+                        + std::to_string(harness_wait_ms())
+                        + "ms (tie-break quiet "
+                        + std::to_string(MeshController::tie_break_outbound_quiet_ms())
+                        + "ms + accept window "
+                        + std::to_string(MeshController::tie_break_accept_window_ms())
+                        + "ms); last reply: " + last);
+                }
+                sleep_poll();
+            }
         }
         need(da.call("SESSION_INPUT panel-b two " + b64enc("AFTER_RECONNECT\n")) == "OK\n",
              "new transport rejected session input");
