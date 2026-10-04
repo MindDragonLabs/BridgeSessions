@@ -154,6 +154,17 @@ class Menu:
             self.read()
             if predicate(bytes(self.output)): return
             if self.process.poll() is not None:
+                # 26.10.04: check the predicate ONE more time now that the child
+                # has exited. `read()` above can coalesce the child's final
+                # output and its exit into the same tick; the predicate is then
+                # evaluated before that output has been appended, and the exit
+                # check below fires on what is really a SUCCESS. On macOS the
+                # cancel cases hit this reliably - the binary draws "Cancelled."
+                # and exits 2 in the same burst, so `until(lambda _: poll() is
+                # not None)` raised "binary exited before expected output" with
+                # the correct exit code sitting right there in the payload.
+                self.read(0)
+                if predicate(bytes(self.output)): return
                 raise AssertionError(("binary exited before expected output", self.process.returncode, bytes(self.output)[-1000:]))
         raise AssertionError(("timed out waiting for menu", bytes(self.output)[-1000:]))
 
