@@ -1,5 +1,7 @@
 # Goal — BridgeSessions 26.10.04
 
+Peer names in this document use generic role labels or placeholders.
+
 ## Result
 
 Ship a quality release the project can build on for the rest of the program, and
@@ -46,10 +48,21 @@ out of scope here, is `IDEAS.md`.
 
 - Do not write to GitHub without an explicit operator go. No tag, no release, no
   upload, no PR. The current authorization excludes all of these.
-- Do not push `main`.
-- Do not roll the fleet. Publishing is not deploying. The running Windows hash
-  is `AE2B61A6`; the published Windows hash is `684d4149`. Trace that mismatch
-  before any roll.
+- Do not push `main`. The public installer's default tag must exist; a push of
+  an installer pointing at a missing tag breaks every user install.
+- **Fleet rolls are allowed, in one order only: prove locally, publish, then
+  deploy, and a deploy is not done until an in-band upgrade is proven on a real
+  peer.** Revised 2026-10-04 at operator request; the previous wording ("do not
+  roll the fleet") forbade the deploy this release is supposed to end with. The
+  constraint that survives is the ordering, not a blanket ban:
+  - `ctest` green on the integrated tree **before** anything is published.
+  - A published, checksum-verified artifact **before** any host is upgraded.
+  - A host is not "deployed" until a **running** daemon reports the new version
+    and `bs upgrade` from the prior version has been observed to work. An in-band
+    upgrade that returns "Already up to date" is not a pass — the version must
+    actually differ.
+  - The Windows hash mismatch is still traced before the Windows leg: running
+    `AE2B61A6`, published `684d4149`.
 - Windows proof uses WinRM. Do not use `bs shell` as the Windows proof. The
   Shadow PC is `SHADOW-OLNM5J3N` at `<tailnet-ip>`.
 - Do not add a 1-second reconnect, upgrade, or ping loop. A test wait must stay
@@ -142,7 +155,8 @@ right now, and every later phase depends on it existing.
 ## Not this goal
 
 - 26.10.03 is not released under its own name. It becomes 26.10.04.
-- No fleet rollout. A separate go, after publication.
+- No fleet rollout *before* publication and a green `ctest`. After that a rollout
+  is in scope, finished only when an in-band upgrade is proven on a real peer.
 - No new feature work. The nine ideas in `IDEAS.md` are out of scope. Only the
   session-control capability the 26.10.03 lanes already built is in scope.
 - No SonarCloud, no coverage percentage target. Neither is a release gate.
@@ -195,3 +209,12 @@ trees, so they run in parallel.
 Status line in this file said otherwise; the phase table above is authoritative.
 U3 needs real peers and a skip is not a pass, so it cannot be pulled forward
 into a local phase.
+
+## Fleet
+
+`docs/plans/26.10.04-fleet-map.md` is the live map, taken from `tailscale status`
+on 2026-10-04. It supersedes any host or IP named elsewhere. mac mini,
+`avirserver2020`, cpanel, btcr and mysqlknights are online; **no Shadow PC is
+online**, and **fecv4 is offline**. `100.115.10.27` is `shadow-m1j6pkmo`, not
+fecv4. Devin cloud is Linux-only and unprovisioned, so the Windows leg uses
+`avirserver2020` (BS 19949 and WinRM 5985 both open, running 26.09.08).

@@ -32,6 +32,9 @@ struct WsaInit { WsaInit() { WSADATA d; WSAStartup(MAKEWORD(2,2), &d); } ~WsaIni
 #include <thread>
 #include <atomic>
 #include <chrono>
+#include <fstream>
+#include <filesystem>
+#include <cstdlib>
 
 using namespace bs::mesh;
 
@@ -575,4 +578,78 @@ TEST_CASE("MeshConfig defaults for daemon", "[shell]") {
     // gossip_interval_secs should be settable
     c.gossip_interval_secs = 60;
     REQUIRE(c.gossip_interval_secs == 60);
+}
+
+TEST_CASE("session command runs through a login shell (user PATH honored)",
+          "[shell][login-path]") {
+#ifndef _WIN32
+    // A login shell sources $HOME/.profile, restoring the PATH the daemon's
+    // minimal systemd/launchd environment omits (~/.local/bin etc.). A harness
+    // command like `hermes --tui` therefore resolves. Prove it with a
+    // throwaway HOME whose .profile exports a sentinel and prepends a bin dir.
+    namespace fs = std::filesystem;
+    const std::string tmp = (fs::temp_directory_path() /
+        ("bs-login-profile-" + std::to_string(::getpid()))).string();
+    fs::create_directories(tmp + "/bin");
+    {
+        std::ofstream prof(tmp + "/.profile");
+        prof << "export PATH=\"" << tmp << "/bin:$PATH\"\n"
+             << "export BS_LOGIN_SENTINEL=bs-login-ok\n";
+    }
+    {
+        std::ofstream exe(tmp + "/bin/bs-login-probe");
+        exe << "#!/bin/sh\necho BS_LOGIN_PROBE_OK\n";
+    }
+    fs::permissions(tmp + "/bin/bs-login-probe",
+        fs::perms::owner_all | fs::perms::group_read | fs::perms::others_read |
+        fs::perms::owner_exec | fs::perms::group_exec | fs::perms::others_exec);
+
+    // RAII: restore HOME and remove the throwaway tree even if a REQUIRE fires.
+    const char* old_home = std::getenv("HOME");
+    const std::string old_home_s = old_home ? old_home : "";
+    struct HomeGuard {
+        std::string old;
+        std::string tmp;
+        ~HomeGuard() {
+            if (!old.empty()) setenv("HOME", old.c_str(), 1);
+            else unsetenv("HOME");
+            std::error_code ec;
+            std::filesystem::remove_all(tmp, ec);
+        }
+    } guard{old_home_s, tmp};
+
+    auto cfg = make_shell_test_config("login-path-node");
+    MeshController mc(cfg);  // identity/bootstrap uses the real HOME
+
+    setenv("HOME", tmp.c_str(), 1);
+    auto* s = mc.sessions().attach(
+        "login-path-test",
+        ResolvedSessionCommand{"bs-login-probe && echo $BS_LOGIN_SENTINEL",
+                               SessionCommandSource::ClientOverride},
+        80, 24, "xterm-256color");
+    REQUIRE(s != nullptr);
+
+    std::string out;
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (std::chrono::steady_clock::now() < deadline) {
+        char buf[4096];
+        const ssize_t n = ::read(s->master_fd, buf, sizeof(buf));
+        if (n > 0) out.append(buf, static_cast<size_t>(n));
+        else if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR))
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        else if (n < 0) break;
+        if (out.find("BS_LOGIN_PROBE_OK") != std::string::npos &&
+            out.find("bs-login-ok") != std::string::npos)
+            break;
+        if (!s->is_valid()) break;
+    }
+    mc.sessions().kill("login-path-test");
+
+    // The probe resolved via the profile's PATH and the sentinel was exported —
+    // both prove a login shell sourced $HOME/.profile.
+    REQUIRE(out.find("BS_LOGIN_PROBE_OK") != std::string::npos);
+    REQUIRE(out.find("bs-login-ok") != std::string::npos);
+#else
+    SUCCEED("login-shell path is POSIX-only");
+#endif
 }

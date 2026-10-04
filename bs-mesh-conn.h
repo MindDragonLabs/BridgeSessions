@@ -1400,7 +1400,7 @@ private:
         if (!config_.auto_upgrade) return;
         // Designated upgrader: when mesh.auto_upgrade_origin names a node, only
         // that node dispatches upgrades fleet-wide. Every other node (e.g. a
-        // user's laptop or macmini spoke) stays passive so a stale-advertising
+        // user's laptop or mac-desktop spoke) stays passive so a stale-advertising
         // peer isn't restarted from N healthy nodes at once.
         if (!config_.auto_upgrade_origin.empty() &&
             config_.auto_upgrade_origin != config_.node_name) {

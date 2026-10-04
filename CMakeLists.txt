@@ -59,6 +59,24 @@ endif()
 # See cmake/Dependencies.cmake for BS_DEPS_MODE / BS_OPENSSL / BS_STATIC_DEPS.
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/Dependencies.cmake)
 
+# Build the shared native client through the same pinned dependencies and
+# canonical build.sh entry point as the daemon. Platform shells are selected
+# by the native subdirectory; this option never installs or deploys them.
+option(BS_BUILD_NATIVE "Build shared native client and supported platform shell" OFF)
+if(BS_BUILD_NATIVE)
+    # In-tree native/ is the merged layout. This lane still keeps the client
+    # sources in the sibling checkout (candidate/26.10.03-native).
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/native/CMakeLists.txt")
+        add_subdirectory(native)
+    elseif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../native/native/CMakeLists.txt")
+        add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../native/native"
+                         "${CMAKE_CURRENT_BINARY_DIR}/native")
+    else()
+        message(FATAL_ERROR
+            "BS_BUILD_NATIVE=ON but native/CMakeLists.txt was not found")
+    endif()
+endif()
+
 # ── Core library (header-only) + binary ──────────────────────────
 add_executable(bridgesessions main.cpp
     bs-protocol.h

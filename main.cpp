@@ -704,12 +704,28 @@ static size_t menu_frame_width(const std::vector<std::string>& rows) {
     size_t width = 0;
     for (auto& r : rows)
         width = std::max(width, bs::tui::tui_row_width(r));
-    return std::clamp(width + 2, size_t{24}, size_t{72});
+    const size_t desired = std::clamp(width + 2, size_t{24}, size_t{72});
+    // Clamp the frame to the terminal so no line wraps. The frame is `inner+4`
+    // visible cells wide (│ + space + <inner> + space + │); a wider frame wraps
+    // its rows and the cursor-up repaint in arrow_menu_select miscounts physical
+    // lines, shredding the menu (real-PTY bug on small terminals). get_winsize()
+    // falls back to {80,24} when the ioctl fails.
+    auto [cols, _rows] = bs::mesh::get_winsize();
+    if (cols < 8) return desired;  // too narrow for a box at all — keep the default
+    const size_t max_inner = static_cast<size_t>(cols) - 4;
+    return std::min(desired, max_inner);
 }
 static std::string menu_frame_footer(bool has_delete) {
-    return bs::tui::menu_footer(has_delete
+    const std::string hint = has_delete
         ? "  ↑/↓ or j/k move · Enter select · d delete · q quit"
-        : "  ↑/↓ or j/k move · Enter select · q quit");
+        : "  ↑/↓ or j/k move · Enter select · q quit";
+    // Truncate to the terminal width so the footer never wraps — a wrapped
+    // footer line would add a physical line and throw off the cursor-up
+    // repaint in arrow_menu_select (same wrap bug as the frame rows).
+    auto [cols, _rows] = bs::mesh::get_winsize();
+    if (cols >= 8)
+        return bs::tui::menu_footer(bs::tui::tui_truncate(hint, static_cast<size_t>(cols)));
+    return bs::tui::menu_footer(hint);
 }
 
 // Interactive ↑/↓ + Enter selector with charm-style frame rendering.

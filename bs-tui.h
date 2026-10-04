@@ -36,6 +36,35 @@ inline size_t tui_visible_len(const std::string& s) {
     }
     return vis;
 }
+
+// Truncate s to at most max_cells visible cells, cutting at a UTF-8 character
+// boundary (never mid-glyph). ANSI escape sequences are skipped (not counted)
+// so a coloured label truncates by its rendered width, not its byte length.
+// Returns s unchanged when it already fits.
+inline std::string tui_truncate(std::string s, size_t max_cells) {
+    size_t cells = 0;
+    size_t cut = s.size();
+    for (size_t i = 0; i < s.size();) {
+        if (s[i] == '\x1b') {
+            if (s.compare(i, 2, "\x1b[") == 0) {
+                i += 2;
+                while (i < s.size() && !std::isalpha(static_cast<unsigned char>(s[i]))) ++i;
+                ++i;
+            } else {
+                i += 2;
+            }
+            continue;
+        }
+        const unsigned char c = static_cast<unsigned char>(s[i]);
+        if ((c & 0xC0) != 0x80) {  // start of a new character (not a continuation byte)
+            if (cells == max_cells) { cut = i; break; }
+            ++cells;
+        }
+        ++i;
+    }
+    if (cut < s.size()) s.resize(cut);
+    return s;
+}
 } // anonymous namespace
 
 inline std::string menu_footer(const std::string& hint) {
@@ -69,31 +98,19 @@ inline std::string menu_frame(const MenuStyle& style, const std::vector<std::str
         return r;
     };
     std::string out = hline(kTL, kTR);
-    out += "\x1b[2m" + kV + "\x1b[0m " + pad(style.title) + " \x1b[2m" + kV + "\x1b[0m\r\n";
+    out += "\x1b[2m" + kV + "\x1b[0m " + pad(tui_truncate(style.title, inner))
+           + " \x1b[2m" + kV + "\x1b[0m\r\n";
     out += "\x1b[2m" + kML;
     for (size_t i = 0; i < inner + 2; ++i) out += kH;
     out += kMR + "\x1b[0m\r\n";
     for (size_t i = 0; i < rows.size(); ++i) {
         std::string marker = (i == selected) ? "\x1b[7m❯ \x1b[0m" : "  ";
-        // Marker occupies 2 visible cells, so rows pad to inner-2 to keep
-        // every line the same rendered width as the borders. Overlong rows
-        // are truncated to inner-2 cells (byte-safe: never split a UTF-8
-        // sequence — cut at a continuation-byte boundary).
-        std::string row = rows[i];
-        size_t vis = tui_visible_len(row);
-        if (vis + 2 < inner) row.append(inner - 2 - vis, ' ');
-        if (vis > inner - 2) {
-            size_t cells = 0, cut = row.size();
-            for (size_t b = 0; b < row.size();) {
-                unsigned char c = static_cast<unsigned char>(row[b]);
-                if ((c & 0xC0) != 0x80) {
-                    if (cells == inner - 2) { cut = b; break; }
-                    ++cells;
-                }
-                ++b;
-            }
-            row.resize(cut);
-        }
+        // Marker occupies 2 visible cells, so rows fit in inner-2 cells to keep
+        // every line the same rendered width as the borders. Overlong rows are
+        // truncated to inner-2 cells at a UTF-8 character boundary.
+        std::string row = tui_truncate(rows[i], inner - 2);
+        const size_t vis = tui_visible_len(row);
+        if (vis < inner - 2) row.append(inner - 2 - vis, ' ');
         out += "\x1b[2m" + kV + "\x1b[0m " + marker + row + " \x1b[2m" + kV + "\x1b[0m\r\n";
     }
     out += "\x1b[2m" + kBL;
