@@ -297,5 +297,18 @@ if(BRIDGESESSIONS_PYTHON)
         set_tests_properties(panel_daemon_restart_disconnect PROPERTIES
             ENVIRONMENT "PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR};BRIDGESESSIONS_BINARY=$<TARGET_FILE:bridgesessions>")
     endif()
+
+    # Real-PTY TUI acceptance. test_tui_pty.py is a standalone script, not a
+    # pytest module (it takes the binary path as argv[1] or via
+    # BRIDGESESSIONS_BINARY and drives a real pty), so it is registered directly
+    # rather than through the pytest branch above. Registering it here is what
+    # makes `ctest -N` list it and a default build.sh test actually run it.
+    add_test(NAME tui_pty
+        COMMAND ${BRIDGESESSIONS_PYTHON}
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_tui_pty.py"
+            "$<TARGET_FILE:bridgesessions>")
+    set_tests_properties(tui_pty PROPERTIES
+        ENVIRONMENT "PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR};BRIDGESESSIONS_BINARY=$<TARGET_FILE:bridgesessions>"
+        TIMEOUT 300)
 endif()
 endif()
