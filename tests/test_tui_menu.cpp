@@ -11,8 +11,6 @@
 #include <catch2/catch_session.hpp>
 
 #include <cstdint>
-#include <codecvt>
-#include <locale>
 #include <string>
 #include <vector>
 
@@ -102,11 +100,51 @@ std::vector<std::string> frame_lines(const std::string& f) {
 }
 
 bool valid_utf8(const std::string& text) {
-    try {
-        std::wstring_convert<std::codecvt_utf8<char32_t>, char32_t> codec;
-        const auto decoded = codec.from_bytes(text);
-        return codec.converted() == text.size() && codec.to_bytes(decoded) == text;
-    } catch (const std::range_error&) { return false; }
+    const auto continuation = [&text](size_t pos) {
+        return pos < text.size() &&
+               (static_cast<unsigned char>(text[pos]) & 0xc0) == 0x80;
+    };
+    for (size_t i = 0; i < text.size();) {
+        const auto c = static_cast<unsigned char>(text[i]);
+        if (c <= 0x7f) {
+            ++i;
+            continue;
+        }
+
+        size_t length = 0;
+        unsigned char second_min = 0x80;
+        unsigned char second_max = 0xbf;
+        if (c >= 0xc2 && c <= 0xdf) {
+            length = 2;
+        } else if (c == 0xe0) {
+            length = 3;
+            second_min = 0xa0; // reject overlong encodings
+        } else if ((c >= 0xe1 && c <= 0xec) || (c >= 0xee && c <= 0xef)) {
+            length = 3;
+        } else if (c == 0xed) {
+            length = 3;
+            second_max = 0x9f; // reject UTF-16 surrogate code points
+        } else if (c == 0xf0) {
+            length = 4;
+            second_min = 0x90; // reject overlong encodings
+        } else if (c >= 0xf1 && c <= 0xf3) {
+            length = 4;
+        } else if (c == 0xf4) {
+            length = 4;
+            second_max = 0x8f; // Unicode ends at U+10FFFF
+        } else {
+            return false;
+        }
+
+        if (text.size() - i < length) return false;
+        const auto second = static_cast<unsigned char>(text[i + 1]);
+        if (second < second_min || second > second_max) return false;
+        for (size_t j = 2; j < length; ++j) {
+            if (!continuation(i + j)) return false;
+        }
+        i += length;
+    }
+    return true;
 }
 
 } // namespace
