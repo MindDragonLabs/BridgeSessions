@@ -294,7 +294,10 @@ endforeach()
 # ── Python release-engineering tests ─────────────────────────────────
 # Prefer an interpreter that can actually import pytest. Search PATH python3,
 # then common uv/venv interpreters before skipping pytest-based tests.
-find_program(BRIDGESESSIONS_PYTHON3 python3)
+# Re-resolve on each configure so activating/installing a test venv changes the
+# interpreter CMake uses instead of leaving a cached, incomplete system Python.
+unset(BRIDGESESSIONS_PYTHON3 CACHE)
+find_program(BRIDGESESSIONS_PYTHON3 python3 NO_CACHE)
 if(UNIX AND BRIDGESESSIONS_PYTHON3)
     # BridgePanel's stdlib unittest suites are independent of pytest. Register
     # them even when pytest is missing so auth and HTTP regressions never vanish
