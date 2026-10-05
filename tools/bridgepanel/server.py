@@ -11,7 +11,7 @@ import time
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 from .api import (build_tree, daemon_connect_session, daemon_create_session,
                   daemon_session_input, is_self_node, list_host_files,
@@ -426,6 +426,13 @@ class BridgePanelHandler(BaseHTTPRequestHandler):
             self.send_json(list_invites())
             return
 
+        if parsed.path == "/api/devices":
+            if not self.authorized_path(require_token=True) or "admin" not in self.auth_scopes:
+                self.reject(HTTPStatus.NOT_FOUND, "Not found")
+                return
+            self.send_json({"devices": panel_auth.list_devices()})
+            return
+
         if parsed.path.startswith("/api/v1/"):
             if not self.authorized_path(require_token=False):
                 self.send_json({"ok": False, "error": {"code": "unauthorized", "message": "authentication required"}}, HTTPStatus.UNAUTHORIZED)
@@ -634,6 +641,59 @@ class BridgePanelHandler(BaseHTTPRequestHandler):
             self.reject(HTTPStatus.NOT_FOUND, "Not found")
             return
         path, _ = auth
+
+        if path == "/api/devices":
+            if "admin" not in self.auth_scopes:
+                self._drain_body()
+                self.reject(HTTPStatus.FORBIDDEN, "administrator credential required")
+                return
+            if not self._cookie_csrf_allowed():
+                self.reject(HTTPStatus.FORBIDDEN, "origin is not allowed")
+                return
+            body = self._read_json_body(16 * 1024)
+            if body is None:
+                return
+            if set(body) - {"device_id", "label", "scopes", "ttl"} or not all(
+                    isinstance(body.get(key), str) for key in ("device_id", "label")):
+                self.reject(HTTPStatus.BAD_REQUEST, "device_id and label are required")
+                return
+            scopes = body.get("scopes")
+            ttl = body.get("ttl", panel_auth.API_TOKEN_TTL)
+            if not isinstance(scopes, list) or isinstance(ttl, bool) or not isinstance(ttl, int):
+                self.reject(HTTPStatus.BAD_REQUEST, "scopes and integer ttl are required")
+                return
+            try:
+                credential = panel_auth.enroll_device(
+                    body["device_id"], body["label"], scopes, ttl, is_admin=True)
+            except PermissionError:
+                self.reject(HTTPStatus.FORBIDDEN, "administrator credential required")
+                return
+            except ValueError as exc:
+                self.reject(HTTPStatus.BAD_REQUEST, str(exc))
+                return
+            except RuntimeError as exc:
+                self.reject(HTTPStatus.INTERNAL_SERVER_ERROR, str(exc))
+                return
+            self.send_json(credential, HTTPStatus.CREATED)
+            return
+
+        if path.startswith("/api/devices/") and path.endswith("/deactivate"):
+            if "admin" not in self.auth_scopes:
+                self._drain_body()
+                self.reject(HTTPStatus.FORBIDDEN, "administrator credential required")
+                return
+            if not self._cookie_csrf_allowed():
+                self.reject(HTTPStatus.FORBIDDEN, "origin is not allowed")
+                return
+            device_id = unquote(path[len("/api/devices/"):-len("/deactivate")].rstrip("/"))
+            if not device_id or "/" in device_id:
+                self.reject(HTTPStatus.BAD_REQUEST, "invalid device id")
+                return
+            if not panel_auth.deactivate_device(device_id):
+                self.reject(HTTPStatus.NOT_FOUND, "device not found or inactive")
+                return
+            self.send_json({"ok": True, "device_id": device_id, "active": False})
+            return
 
         if path == "/api/invites":
             self._drain_body()
@@ -870,6 +930,25 @@ class BridgePanelHandler(BaseHTTPRequestHandler):
 
     def do_DELETE(self) -> None:
         parsed = urlparse(self.path)
+        if parsed.path.startswith("/api/devices/"):
+            if not self.authorized_path(require_token=True):
+                self.reject(HTTPStatus.NOT_FOUND, "Not found")
+                return
+            if "admin" not in self.auth_scopes:
+                self.reject(HTTPStatus.FORBIDDEN, "administrator credential required")
+                return
+            if not self._cookie_csrf_allowed():
+                self.reject(HTTPStatus.FORBIDDEN, "origin is not allowed")
+                return
+            device_id = unquote(parsed.path[len("/api/devices/"):])
+            if not device_id or "/" in device_id:
+                self.reject(HTTPStatus.BAD_REQUEST, "invalid device id")
+                return
+            if not panel_auth.revoke_device(device_id):
+                self.reject(HTTPStatus.NOT_FOUND, "device not found or inactive")
+                return
+            self.send_json({"ok": True, "device_id": device_id, "revoked": True})
+            return
         if not parsed.path.startswith("/api/v1/"):
             self.reject(HTTPStatus.NOT_FOUND, "Not found")
             return

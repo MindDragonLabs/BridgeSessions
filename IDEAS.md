@@ -282,7 +282,7 @@ hand-edited JSON or YAML. OpenLLM hands the tool to the harness and takes it
 back when the tool is not needed. It reads session history and improves itself
 on demand. OpenLLM-only implementation is fine.
 
-**What OpenLLM gives us today (verified, v2.6.36 on fecv3):**
+**What OpenLLM gives us today (verified, v2.6.36 on <node-linux>):**
 
 | Capability | Command | Note |
 |---|---|---|
@@ -337,7 +337,7 @@ and stops AI slop from filling drives, without filling them either.
 **The gap:** everything above is blind by age, not by size or by value. A
 reaper cannot tell a 4-gigabyte build cache from a 4-gigabyte log of AI
 nonsense. It deletes both at the same age. That is why the fleet runs at 76
-percent on fecv3 today with 199 gigabytes free and no one knowing why.
+percent on <node-linux> today with 199 gigabytes free and no one knowing why.
 
 **The real design question:** what is the reclaimable set. Age is a proxy.
 A better proxy is: what did a person create, and what did an agent create. That

@@ -21,6 +21,7 @@ from http.server import ThreadingHTTPServer
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 import bridgepanel as bp  # noqa: E402
+from bridgepanel import auth as bp_auth  # noqa: E402
 
 
 class TestPureFunctions(unittest.TestCase):
@@ -343,6 +344,54 @@ class TestHttpSurface(unittest.TestCase):
             r = conn.getresponse()
             raw = r.read()
             return r.status, raw
+        finally:
+            conn.close()
+
+    def test_device_http_lifecycle_requires_admin(self):
+        payload = {"device_id": "http-phone", "label": "HTTP Phone", "scopes": ["read"], "ttl": 60}
+        status, raw = self._req("POST", "/api/devices", payload)
+        self.assertEqual(status, 201)
+        credential = json.loads(raw)
+        self.assertEqual(credential["device_id"], "http-phone")
+        self.assertEqual(credential["scopes"], ["read"])
+        self.assertEqual(bp_auth.credential_scope(credential["token"]), {"read"})
+
+        status, raw = self._req("GET", "/api/devices")
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(raw)["devices"][0]["id"], "http-phone")
+
+        status, raw = self._req("DELETE", "/api/devices/http-phone")
+        self.assertEqual(status, 200)
+        self.assertEqual(bp_auth.credential_scope(credential["token"]), set())
+
+        second = self._req("POST", "/api/devices", {
+            "device_id": "http-tablet", "label": "HTTP Tablet", "scopes": ["chat"], "ttl": 60,
+        })
+        self.assertEqual(second[0], 201)
+        second_credential = json.loads(second[1])
+        status, _ = self._req("POST", "/api/devices/http-tablet/deactivate", {})
+        self.assertEqual(status, 200)
+        self.assertEqual(bp_auth.credential_scope(second_credential["token"]), set())
+
+        write_token = bp_auth.issue_api_token("writer", ["write"])["token"]
+        conn = HTTPConnection("127.0.0.1", self.port, timeout=5)
+        try:
+            conn.request("POST", "/api/devices", body=json.dumps(payload),
+                         headers={"Authorization": f"Bearer {write_token}",
+                                  "Content-Type": "application/json"})
+            response = conn.getresponse()
+            response.read()
+            self.assertEqual(response.status, 403)
+        finally:
+            conn.close()
+
+        read_token = bp_auth.issue_api_token("read-only", ["read"])["token"]
+        conn = HTTPConnection("127.0.0.1", self.port, timeout=5)
+        try:
+            conn.request("GET", "/api/devices", headers={"Authorization": f"Bearer {read_token}"})
+            response = conn.getresponse()
+            response.read()
+            self.assertEqual(response.status, 404)
         finally:
             conn.close()
 

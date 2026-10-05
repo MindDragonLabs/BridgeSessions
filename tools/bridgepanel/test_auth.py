@@ -131,6 +131,44 @@ class TestAuthIsolated(unittest.TestCase):
         self.assertTrue(auth.revoke_api_token(row["id"]))
         self.assertEqual(auth.credential_scope(row["token"]), set())
 
+    def test_device_enrollment_binding_revocation_and_reenrollment(self):
+        first = auth.enroll_device("phone-1", "Phone", ["read"], ttl=60, is_admin=True)
+        self.assertEqual(first["device_id"], "phone-1")
+        self.assertEqual(auth.credential_scope(first["token"]), {"read"})
+        self.assertIn("phone-1", [row["id"] for row in auth.list_devices()])
+        self.assertTrue(auth.revoke_device("phone-1"))
+        self.assertEqual(auth.credential_scope(first["token"]), set())
+        second = auth.enroll_device("phone-2", "Replacement", ["chat"], ttl=60, is_admin=True)
+        self.assertEqual(auth.credential_scope(second["token"]), {"chat"})
+        self.assertNotIn("read", auth.credential_scope(second["token"]))
+        self.assertEqual(auth.credential_scope(first["token"]), set())
+
+    def test_device_enrollment_audit_and_registry_permissions(self):
+        enrolled = auth.enroll_device("tablet", "Tablet", ["read"], ttl=60, is_admin=True)
+        self.assertTrue(auth.deactivate_device("tablet"))
+        # Re-enroll a separate identifier so both lifecycle operations are observable.
+        auth.enroll_device("watch", "Watch", ["sessions"], ttl=60, is_admin=True)
+        self.assertTrue(auth.revoke_device("watch"))
+        events = auth.read_audit()
+        kinds = [event.get("event") for event in events]
+        self.assertIn("device_enrolled", kinds)
+        self.assertIn("device_deactivated", kinds)
+        self.assertIn("device_revoked", kinds)
+        self.assertNotIn(enrolled["token"], auth.audit_log_path().read_text(encoding="utf-8"))
+        self.assertEqual(auth.device_registry_path().stat().st_mode & 0o777, 0o600)
+
+    def test_non_admin_cannot_enroll_device(self):
+        with self.assertRaises(PermissionError):
+            auth.enroll_device("nope", "Nope", ["read"], is_admin=False)
+        self.assertEqual(auth.list_devices(), [])
+        for invalid_id in ("", "a/b", "a\\\\b", "white space", "x" * 129):
+            with self.subTest(device_id=invalid_id):
+                with self.assertRaises(ValueError):
+                    auth.enroll_device(invalid_id, "Nope", ["read"], is_admin=True)
+        with self.assertRaises(ValueError):
+            auth.enroll_device("nope", "Nope", ["admin"], is_admin=True)
+        self.assertEqual(auth.list_devices(), [])
+
     def test_concurrent_issue_and_revoke_preserve_every_transaction(self):
         rows = []
         rows_lock = threading.Lock()

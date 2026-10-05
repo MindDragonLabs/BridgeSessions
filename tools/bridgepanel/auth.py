@@ -21,6 +21,7 @@ import sys
 import threading
 import time
 import os
+import re
 import math
 import tempfile
 from contextlib import contextmanager
@@ -177,6 +178,30 @@ def _load_auth() -> dict | None:
         return None
 
 
+def device_registry_path() -> Path:
+    from .consts import config_home
+    return config_home() / "devices.json"
+
+
+def _load_devices() -> list[dict] | None:
+    try:
+        value = json.loads(device_registry_path().read_text(encoding="utf-8"))
+        if not isinstance(value, list):
+            return None
+        for row in value:
+            if (not isinstance(row, dict) or not isinstance(row.get("id"), str)
+                    or not isinstance(row.get("label"), str)
+                    or not isinstance(row.get("active"), bool)):
+                return None
+        return value
+    except (OSError, ValueError, TypeError):
+        return None
+
+
+def _write_devices(rows: list[dict]) -> None:
+    _atomic_json(device_registry_path(), rows)
+
+
 def _load_tokens() -> list[dict] | None:
     try:
         value = json.loads(token_store_path().read_text(encoding="utf-8"))
@@ -197,6 +222,9 @@ def _load_tokens() -> list[dict] | None:
             if isinstance(exp, bool) or not isinstance(exp, (int, float)) or not math.isfinite(exp):
                 return None
             if not isinstance(row.get("revoked", False), bool):
+                return None
+            device_id = row.get("device_id")
+            if device_id is not None and not isinstance(device_id, str):
                 return None
             result.append(row)
         return result
@@ -316,7 +344,7 @@ def _write_tokens(rows: list[dict]) -> None:
     _atomic_json(path, rows)
 
 
-def issue_api_token(label: str, scopes: list[str], ttl: int = API_TOKEN_TTL) -> dict:
+def issue_api_token(label: str, scopes: list[str], ttl: int = API_TOKEN_TTL, *, device_id: str | None = None) -> dict:
     if not isinstance(label, str) or not label or not isinstance(scopes, list) or not scopes:
         raise ValueError("label and scopes are required")
     if any(not isinstance(scope, str) or scope not in DEVICE_SCOPES for scope in scopes):
@@ -332,6 +360,8 @@ def issue_api_token(label: str, scopes: list[str], ttl: int = API_TOKEN_TTL) -> 
             rows = []
         token = secrets.token_urlsafe(32)
         row = {"id": secrets.token_hex(8), "label": label[:128], "hash": hashlib.sha256(token.encode()).hexdigest(), "scopes": sorted(set(scopes)), "expires_at": time.time() + ttl, "revoked": False}
+        if device_id is not None:
+            row["device_id"] = device_id
         rows.append(row)
         _write_tokens(rows)
     # Never log the token itself: the id, label and scopes are what an
@@ -339,6 +369,76 @@ def issue_api_token(label: str, scopes: list[str], ttl: int = API_TOKEN_TTL) -> 
     audit("token_issued", id=row["id"], label=row["label"],
           scopes=row["scopes"], expires_at=row["expires_at"])
     return {k: v for k, v in row.items() if k != "hash"} | {"token": token}
+
+
+def enroll_device(device_id: str, label: str, scopes: list[str], ttl: int = API_TOKEN_TTL, *, is_admin: bool = False) -> dict:
+    """Register a device and issue its bound bearer credential."""
+    if not is_admin:
+        raise PermissionError("administrator credential required")
+    if not isinstance(device_id, str) or not re.fullmatch(r"[A-Za-z0-9._-]{1,128}", device_id):
+        raise ValueError("device id must use 1-128 letters, digits, dots, underscores, or hyphens")
+    path = device_registry_path()
+    with _file_transaction(path):
+        devices = _load_devices()
+        if devices is None:
+            if path.exists():
+                raise RuntimeError("malformed device registry")
+            devices = []
+        if any(row["id"] == device_id for row in devices):
+            raise ValueError("device id already exists")
+        # Validate before any persistent mutation; retain the existing scope ceiling.
+        if not isinstance(label, str) or not label or len(label) > 128 or not isinstance(scopes, list) or not scopes:
+            raise ValueError("label and scopes are required")
+        if any(not isinstance(scope, str) or scope not in DEVICE_SCOPES for scope in scopes):
+            raise ValueError("invalid device scope")
+        if isinstance(ttl, bool) or not isinstance(ttl, int) or ttl <= 0 or ttl > 366 * 24 * 3600:
+            raise ValueError("invalid token lifetime")
+        devices.append({"id": device_id, "label": label, "active": True})
+        _write_devices(devices)
+    try:
+        credential = issue_api_token(label, scopes, ttl, device_id=device_id)
+    except Exception:
+        deactivate_device(device_id, audit_event=False)
+        raise
+    audit("device_enrolled", id=device_id, label=label[:128], scopes=credential["scopes"])
+    return {"device_id": device_id, **credential}
+
+
+def list_devices() -> list[dict]:
+    rows = _load_devices()
+    return [] if rows is None else [dict(row) for row in rows]
+
+
+def deactivate_device(device_id: str, *, audit_event: bool = True) -> bool:
+    path = device_registry_path()
+    with _file_transaction(path):
+        rows = _load_devices()
+        if rows is None:
+            return False
+        row = next((item for item in rows if item["id"] == device_id), None)
+        if row is None or not row["active"]:
+            return False
+        row["active"] = False
+        _write_devices(rows)
+    if audit_event:
+        audit("device_deactivated", id=device_id, label=row["label"])
+    return True
+
+
+def revoke_device(device_id: str) -> bool:
+    changed = deactivate_device(device_id, audit_event=False)
+    if not changed:
+        return False
+    with _file_transaction(token_store_path()):
+        rows = _load_tokens()
+        if rows is not None:
+            for row in rows:
+                if row.get("device_id") == device_id:
+                    row["revoked"] = True
+            _write_tokens(rows)
+    device = next((item for item in list_devices() if item["id"] == device_id), {"label": ""})
+    audit("device_revoked", id=device_id, label=device["label"])
+    return True
 
 
 def revoke_api_token(token_id: str) -> bool:
@@ -381,6 +481,12 @@ def credential_scope(bearer: str, admin_token: str = "") -> set[str]:
         if row.get("revoked") or float(row.get("expires_at", 0)) <= time.time():
             continue
         if hmac.compare_digest(digest, str(row.get("hash"))):
+            device_id = row.get("device_id")
+            if device_id is not None:
+                devices = _load_devices()
+                device = next((d for d in devices or [] if d.get("id") == device_id), None)
+                if not device or not device.get("active"):
+                    return set()
             return set(row.get("scopes", []))
     return set()
 

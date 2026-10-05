@@ -11,7 +11,12 @@ added to the cookie for HTTPS. Cookie state-changing requests require an
 allowed Origin; bearer API requests remain suitable for native/mobile clients.
 
 Device access uses separate scoped API tokens. Tokens are stored as hashes,
-carry an expiry, and can be revoked independently. The administrator cookie,
+carry an expiry, and can be revoked independently. An administrator manages
+registered devices through `GET /api/devices`, `POST /api/devices`,
+`POST /api/devices/{id}/deactivate`, and `DELETE /api/devices/{id}`. Enrollment
+returns the device-bound bearer token once; the registry is stored atomically
+with mode 0600. Deactivating or revoking a device makes its credentials unusable.
+These routes require the administrator credential. The administrator cookie,
 device token, and BridgeSessions mesh invite are different credential types;
 an invite token is never accepted as an HTTP API bearer token. Malformed
 persistent auth state fails closed. Replacing the password rotates the session

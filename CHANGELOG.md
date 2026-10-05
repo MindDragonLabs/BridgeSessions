@@ -4,10 +4,34 @@ Peer names in this document use generic role labels or placeholders.
 
 Notable user-visible changes. Git history contains implementation-level detail.
 
-## 26.10.03
+## 26.10.04
+
+Bugfix release. The 26.10.03 release was skipped; its verified work is included
+here.
+
+### Fixed
+
+- Legacy file transfers now keep each chunk within the u16 frame limit.
+- Bare peer selection preserves a configured seed address when no SSH alias exists.
+- OpenSSL no longer embeds the build host's absolute path in release binaries.
+- Panel session cookies trust forwarded HTTPS only from configured trusted proxies.
+- Device enrollment is available through admin-only HTTP routes; device-bound
+  credentials keep their scope limits and stop working after device revocation.
+- TUI menus fit narrow terminals and preserve Unicode row boundaries.
+
+### Added
+
+- Session control over the panel API, with lifecycle audit events for device
+  credentials. Audit records do not include secret token values.
+- Native client phase-0 shared core and platform shell scaffolding.
+- OSC 52 clipboard support and safer reconnect handling for detached sessions.
+- A loud CMake warning when pytest is unavailable, so omitted Python tests are
+  visible during configuration.
+
+## 26.10.03 (skipped)
 
 Local candidate for session management, native-app phase 0, and TUI hardening.
-Not published. Candidate installer defaults are local only; public main is unchanged.
+Not published. Its verified work is included in 26.10.04.
 
 ### Fixed
 

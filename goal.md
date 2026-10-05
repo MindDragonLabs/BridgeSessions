@@ -48,8 +48,9 @@ out of scope here, is `IDEAS.md`.
 
 ## Hard limits
 
-- Do not write to GitHub without an explicit operator go. No tag, no release, no
-  upload, no PR. The current authorization excludes all of these.
+- Do not write to GitHub without explicit operator authorization. The operator
+  authorized the 26.10.04 bugfix release on 2026-10-05; this does not authorize a
+  fleet rollout or a push to `main`.
 - Do not push `main`. The public installer's default tag must exist; a push of
   an installer pointing at a missing tag breaks every user install.
 - **Fleet rolls are allowed, in one order only: prove locally, publish, then
@@ -66,7 +67,7 @@ out of scope here, is `IDEAS.md`.
   - The Windows hash mismatch is still traced before the Windows leg: running
     `AE2B61A6`, published `684d4149`.
 - Windows proof uses WinRM. Do not use `bs shell` as the Windows proof. The
-  Shadow PC is `SHADOW-OLNM5J3N` at `<tailnet-ip>`.
+  Shadow PC is `SHADOW-<node-windows>` at `<tailnet-ip>`.
 - Do not add a 1-second reconnect, upgrade, or ping loop. A test wait must stay
   inside the test. `bs-mesh-transfer.h` already carries a deliberate fast path
   that is justified only because this limit holds; do not weaken it.
@@ -216,7 +217,7 @@ into a local phase.
 
 `docs/plans/26.10.04-fleet-map.md` is the live map, taken from `tailscale status`
 on 2026-10-04. It supersedes any host or IP named elsewhere. mac mini,
-`avirserver2020`, cpanel, btcr and mysqlknights are online; **no Shadow PC is
-online**, and **fecv4 is offline**. `<tailnet-ip>` is `shadow-m1j6pkmo`, not
-fecv4. Devin cloud is Linux-only and unprovisioned, so the Windows leg uses
-`avirserver2020` (BS 19949 and WinRM 5985 both open, running 26.09.08).
+`<node-windows>`, <node-linux>, <peer> and <node-linux> are online; **no Shadow PC is
+online**, and **<node-windows> is offline**. `<tailnet-ip>` is `shadow-<node-windows>`, not
+<node-windows>. Devin cloud is Linux-only and unprovisioned, so the Windows leg uses
+`<node-windows>` (BS 19949 and WinRM 5985 both open, running 26.09.08).
