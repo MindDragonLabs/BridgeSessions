@@ -7,6 +7,11 @@ VERSION="$(tr -d '\r\n' < VERSION)"
 TAG="v${VERSION}"
 ASSET_DIR="${BS_RELEASE_DIR:-dist}"
 REPO="${BS_GITHUB_REPO:-MindDragonLabs/BridgeSessions}"
+if command -v sha256sum >/dev/null 2>&1; then
+  SHA256=(sha256sum)
+else
+  SHA256=(shasum -a 256)
+fi
 [[ -z "$(git status --porcelain)" ]] || { echo 'error: dirty tree' >&2; exit 1; }
 # Dereference annotated tags (^{commit}) — ls-remote returns the tag object
 # ID for annotated tags, which is never equal to HEAD itself.
@@ -27,7 +32,7 @@ assets=(
 for asset in "${assets[@]}"; do [[ -f "$asset" ]] || { echo "error: missing $asset" >&2; exit 1; }; done
 # Refuse staging that changed after its manifest was generated, then validate
 # formats and embedded versions and regenerate the deterministic SBOM/sums.
-(cd "$ASSET_DIR" && sha256sum --check --strict SHA256SUMS >/dev/null)
+(cd "$ASSET_DIR" && "${SHA256[@]}" --check --strict SHA256SUMS >/dev/null)
 BS_RELEASE_DIR="$ASSET_DIR" bash "$ROOT/scripts/release-checksums.sh"
 gh api user --jq .login >/dev/null
 if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then echo "error: release exists" >&2; exit 1; fi

@@ -10,6 +10,11 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DIST="${BS_RELEASE_DIR:-$ROOT/dist}"
 VERSION="$(tr -d '\r\n' < "$ROOT/VERSION")"
+if command -v sha256sum >/dev/null 2>&1; then
+  SHA256=(sha256sum)
+else
+  SHA256=(shasum -a 256)
+fi
 cd "$DIST"
 shopt -s nullglob
 
@@ -107,7 +112,7 @@ PY
 done
 
 # Write checksums for all artifacts.
-sha256sum "${files[@]}" > SHA256SUMS
+"${SHA256[@]}" "${files[@]}" > SHA256SUMS
 
 # Generate a stable SBOM serial so rebuilding the same release payload is
 # byte-for-byte reproducible and can be safely compared against a published
@@ -160,9 +165,9 @@ pathlib.Path("SBOM-binaries.json").write_text(
 PY
 
 # Append the SBOM hash; neither the SBOM nor SHA256SUMS list themselves.
-sha256sum SBOM-binaries.json >> SHA256SUMS
+"${SHA256[@]}" SBOM-binaries.json >> SHA256SUMS
 
-sha256sum --check SHA256SUMS >/dev/null
+"${SHA256[@]}" --check SHA256SUMS >/dev/null
 
 python3 -m json.tool SBOM-binaries.json >/dev/null
 if command -v cyclonedx >/dev/null 2>&1; then
