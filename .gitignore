@@ -3,6 +3,7 @@
 /build/
 /build-*/
 /dist/
+# Local release manifests, source snapshots, and validation evidence.
 /release/
 build_static/
 *.o

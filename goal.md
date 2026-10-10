@@ -1,6 +1,22 @@
-# Goal — BridgeSessions 26.10.04
+# Goal — BridgeSessions 26.10.05 preparation
 
-Peer names in this document use generic role labels or placeholders.
+## Current candidate
+
+Prepare the source and locally verify the `26.10.05` candidate. The current
+review fixes panel scope enforcement, proxy HTTPS configuration, local
+publisher validation, omitted test suites, parallel TLS fixtures, and native
+Windows build/linking. `VERSION`, both installer defaults, Windows resources,
+and the changelog agree on `26.10.05`.
+
+Current commands, evidence, and remaining platform gates are recorded in
+[Release provenance](docs/RELEASE-PROVENANCE.md#261005-candidate). Publishing,
+pushing `main`, and fleet deployment follow local validation. On 2026-10-10 the
+operator authorized release publication followed by fleet deployment and live
+validation. Candidate installers must not be promoted before matching verified
+assets are published.
+
+The remaining sections preserve the prior `26.10.04` release plan and its
+constraints as historical context.
 
 Peer names in this document use generic role labels or placeholders.
 

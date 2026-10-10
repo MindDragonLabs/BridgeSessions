@@ -40,6 +40,7 @@ def test_release_staging_is_ignored():
 
 def test_release_scripts_exist_and_parse():
     scripts = [
+        "build.sh",
         "scripts/package-release.sh",
         "scripts/release-checksums.sh",
         "scripts/github-release.sh",
@@ -49,6 +50,24 @@ def test_release_scripts_exist_and_parse():
         path = ROOT / script
         assert path.is_file(), f"missing {script}"
         subprocess.run(["bash", "-n", str(path)], check=True)
+
+
+def test_windows_build_passes_extra_cmake_options(tmp_path: Path):
+    fake = tmp_path / "bin"
+    fake.mkdir()
+    compiler = fake / "x86_64-w64-mingw32-g++"
+    compiler.write_text("#!/bin/sh\necho 16.2.0\n")
+    compiler.chmod(0o755)
+    env = os.environ.copy()
+    env.update(PATH=str(fake) + os.pathsep + env["PATH"], BS_WIN_PREFIX=str(tmp_path))
+    result = subprocess.run(
+        ["bash", str(ROOT / "build.sh"), "windows", "--distro", "native",
+         "--no-tests", "--dry-run", "--extra", "-DBS_BUILD_NATIVE=ON"],
+        env=env, capture_output=True, text=True, timeout=20,
+    )
+    assert result.returncode == 0, result.stderr
+    configure = next(line for line in result.stdout.splitlines() if "cmake -S" in line)
+    assert "-DBS_BUILD_NATIVE=ON" in configure
 
 
 def test_container_build_does_not_override_custom_dist_with_repo_dist():
@@ -128,6 +147,10 @@ def test_windows_release_stages_and_publishes_verified_tray_companion():
     assert "windows installer validation" in release
     assert "tests/test_install_order.ps1" in release
     assert "guard, linux, macos, windows, windows-installer-validation" in release
+    assert "needs: [guard, windows]" in release
+    assert "name: rel-windows" in release
+    assert "& ./dist/bridgesessions-windows-x86_64.exe --version" in release
+    assert "& ./dist/bridgesessions-windows-x86_64.exe --help" in release
 
 
 def test_windows_fleet_e2e_exercises_distinct_new_terminal_sessions():

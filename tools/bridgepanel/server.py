@@ -250,8 +250,7 @@ class BridgePanelHandler(BaseHTTPRequestHandler):
             return True
         if getattr(self.server, "is_https", False):
             return True
-        proxies = {x.strip() for x in __import__("os").environ.get("BRIDGEPANEL_TRUSTED_PROXY_IPS", "").split(",") if x.strip()}
-        return host in proxies and self.headers.get("X-Forwarded-Proto", "").lower() == "https"
+        return self._forwarded_https()
 
     def _forwarded_https(self) -> bool:
         """True only when a configured trusted proxy reports an https hop.
@@ -259,9 +258,9 @@ class BridgePanelHandler(BaseHTTPRequestHandler):
         X-Forwarded-Proto is a plain request header, so any client can set it.
         It is only meaningful when the immediate peer is a proxy this
         deployment actually trusts, which is what
-        BRIDGESPANEL_TRUSTED_PROXY_IPS lists.
+        BRIDGEPANEL_TRUSTED_PROXY_IPS lists.
         """
-        proxies = {x.strip() for x in __import__("os").environ.get("BRIDGESPANEL_TRUSTED_PROXY_IPS", "").split(",") if x.strip()}
+        proxies = {x.strip() for x in __import__("os").environ.get("BRIDGEPANEL_TRUSTED_PROXY_IPS", "").split(",") if x.strip()}
         if not proxies:
             return False
         client = self.client_address[0] if getattr(self, "client_address", None) else ""
@@ -286,6 +285,20 @@ class BridgePanelHandler(BaseHTTPRequestHandler):
             required = "read"
         return required in scopes
 
+    def _legacy_scope_allowed(self, method: str, path: str) -> bool:
+        scopes = getattr(self, "auth_scopes", set())
+        if "admin" in scopes:
+            return True
+        if path.startswith(("/api/invites", "/api/devices")):
+            return False
+        if method == "GET":
+            required = "read"
+        elif path in ("/api/session/input", "/api/session/create"):
+            required = "sessions"
+        else:
+            required = "write"
+        return required in scopes
+
     def _origin_allowed(self) -> bool:
         origin = self.headers.get("Origin", "")
         if not origin:
@@ -293,10 +306,8 @@ class BridgePanelHandler(BaseHTTPRequestHandler):
         try:
             parsed = urlparse(origin)
             request = urlparse("//" + self.headers.get("Host", ""))
-            proxies = {x.strip() for x in __import__("os").environ.get("BRIDGEPANEL_TRUSTED_PROXY_IPS", "").split(",") if x.strip()}
-            client = self.client_address[0] if getattr(self, "client_address", None) else ""
             https = (getattr(self.server, "is_https", False)
-                     or client in proxies and self.headers.get("X-Forwarded-Proto", "").lower() == "https")
+                     or self._forwarded_https())
             expected_scheme = "https" if https else "http"
             port = parsed.port or (443 if parsed.scheme == "https" else 80)
             request_port = request.port or (443 if parsed.scheme == "https" else 80)
@@ -451,6 +462,9 @@ class BridgePanelHandler(BaseHTTPRequestHandler):
             return
 
         path, query = auth
+        if not self._legacy_scope_allowed("GET", path):
+            self.reject(HTTPStatus.FORBIDDEN, "credential scope does not permit this route")
+            return
         params = parse_qs(query)
 
         if self._serve_static(path):
@@ -599,7 +613,7 @@ class BridgePanelHandler(BaseHTTPRequestHandler):
             # Mark the cookie Secure whenever the session could have travelled
             # over TLS. X-Forwarded-Proto is attacker-controlled, so it only
             # counts when the request actually came from a configured trusted
-            # proxy (BRIDGESPANEL_TRUSTED_PROXY_IPS), the same rule
+            # proxy (BRIDGEPANEL_TRUSTED_PROXY_IPS), the same rule
             # _origin_allowed() already applies. Trusting the bare header would
             # let any client drop the Secure flag by omitting it.
             secure = (getattr(self.server, "is_https", False)
@@ -636,11 +650,15 @@ class BridgePanelHandler(BaseHTTPRequestHandler):
             self.send_json(payload, status)
             return
 
-        auth = self.authorized_path(require_token=True)
+        auth = self.authorized_path(require_token=False)
         if not auth:
             self.reject(HTTPStatus.NOT_FOUND, "Not found")
             return
         path, _ = auth
+        if not self._legacy_scope_allowed("POST", path):
+            self.close_connection = True
+            self.reject(HTTPStatus.FORBIDDEN, "credential scope does not permit this route")
+            return
 
         if path == "/api/devices":
             if "admin" not in self.auth_scopes:

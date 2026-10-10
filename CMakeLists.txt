@@ -302,13 +302,25 @@ if(UNIX AND BRIDGESESSIONS_PYTHON3)
     # BridgePanel's stdlib unittest suites are independent of pytest. Register
     # them even when pytest is missing so auth and HTTP regressions never vanish
     # from the default CTest run.
-    foreach(_panel_suite IN ITEMS auth v1 chat_adapters bridgepanel)
+    foreach(_panel_suite IN ITEMS auth v1 chat_adapters bridgepanel cache lang ops volumes)
         add_test(NAME panel_unittest_${_panel_suite}
             COMMAND "${BRIDGESESSIONS_PYTHON3}" -m unittest
-                "tools.bridgepanel.test_${_panel_suite}")
+                "bridgepanel.test_${_panel_suite}")
         set_tests_properties(panel_unittest_${_panel_suite} PROPERTIES
-            ENVIRONMENT "PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}")
+            ENVIRONMENT "PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}/tools")
     endforeach()
+endif()
+
+if(UNIX AND BRIDGESESSIONS_PYTHON3)
+    # PTY acceptance uses only the standard library; pytest availability must
+    # not decide whether the built CLI's terminal behavior is exercised.
+    add_test(NAME tui_pty
+        COMMAND ${BRIDGESESSIONS_PYTHON3}
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_tui_pty.py"
+            "$<TARGET_FILE:bridgesessions>")
+    set_tests_properties(tui_pty PROPERTIES
+        ENVIRONMENT "PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR};BRIDGESESSIONS_BINARY=$<TARGET_FILE:bridgesessions>"
+        TIMEOUT 300)
 endif()
 set(BRIDGESESSIONS_PYTHON_CANDIDATES "")
 if(BRIDGESESSIONS_PYTHON3)
@@ -382,22 +394,9 @@ if(BRIDGESESSIONS_PYTHON)
                 "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_release_integrity.py" -v)
     set_tests_properties(panel_release_integrity PROPERTIES
             ENVIRONMENT "PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}")
-
-    # Real-PTY TUI acceptance. test_tui_pty.py is a standalone script, not a
-    # pytest module (it takes the binary path as argv[1] or via
-    # BRIDGESESSIONS_BINARY and drives a real pty), so it is registered directly
-    # rather than through the pytest branch above. Registering it here is what
-    # makes `ctest -N` list it and a default build.sh test actually run it.
-    add_test(NAME tui_pty
-        COMMAND ${BRIDGESESSIONS_PYTHON}
-            "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_tui_pty.py"
-            "$<TARGET_FILE:bridgesessions>")
-    set_tests_properties(tui_pty PROPERTIES
-        ENVIRONMENT "PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR};BRIDGESESSIONS_BINARY=$<TARGET_FILE:bridgesessions>"
-        TIMEOUT 300)
 else()
     message(WARNING
         "Python test dependencies unavailable (pytest and pytest-timeout): interpreter candidates tried: '${BRIDGESESSIONS_PYTHON_TRIED}'. "
-        "8 Python-based tests were NOT registered (including tui_pty).")
+        "7 pytest-based tests were NOT registered.")
 endif()
 endif()

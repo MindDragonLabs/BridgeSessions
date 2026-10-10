@@ -332,9 +332,9 @@ class TestHttpSurface(unittest.TestCase):
         cls.server.server_close()
         cls.tmp.cleanup()
 
-    def _req(self, method, path, body=None, *, auth=True):
+    def _req(self, method, path, body=None, *, auth=True, token=None):
         conn = HTTPConnection("127.0.0.1", self.port, timeout=5)
-        headers = {"Authorization": f"Bearer {self.token}"} if auth else {}
+        headers = {"Authorization": f"Bearer {token or self.token}"} if auth else {}
         data = None
         if body is not None:
             data = json.dumps(body).encode()
@@ -394,6 +394,66 @@ class TestHttpSurface(unittest.TestCase):
             self.assertEqual(response.status, 404)
         finally:
             conn.close()
+
+    def test_legacy_reads_require_read_scope(self):
+        from bridgepanel import auth as bp_auth
+
+        for scope in ("chat", "sessions", "write"):
+            token = bp_auth.issue_api_token("restricted-reader", [scope])["token"]
+            for path in ("/api/files?machine=(local)",
+                         "/api/remote-file?machine=(local)&path=private.txt",
+                         "/api/content?session=audit&name=private.txt",
+                         "/api/output?session=private",
+                         "/api/stream?session=private&once=1",
+                         "/api/volumes?machine=(local)", "/api/tree"):
+                with self.subTest(scope=scope, path=path):
+                    status, _ = self._req("GET", path, token=token)
+                    self.assertEqual(status, 403)
+        token = bp_auth.issue_api_token("reader", ["read"])["token"]
+        status, _ = self._req("GET", "/api/tree", token=token)
+        self.assertEqual(status, 200)
+
+    def test_legacy_session_mutations_require_sessions_scope(self):
+        from bridgepanel import auth as bp_auth
+
+        token = bp_auth.issue_api_token("file-writer", ["write"])["token"]
+        for path in ("/api/session/input", "/api/session/create"):
+            with self.subTest(path=path):
+                status, _ = self._req("POST", path, {}, token=token)
+                self.assertEqual(status, 403)
+        token = bp_auth.issue_api_token("session-controller", ["sessions"])["token"]
+        status, _ = self._req("POST", "/api/session/input",
+                              {"session": "fixture", "data": "hello"}, token=token)
+        self.assertEqual(status, 200)
+        status, _ = self._req("POST", "/api/save", {}, token=token)
+        self.assertEqual(status, 403)
+
+    def test_legacy_invite_page_requires_admin_scope(self):
+        from bridgepanel import auth as bp_auth
+
+        token = bp_auth.issue_api_token("file-writer", ["write"])["token"]
+        status, _ = self._req("POST", "/api/invites/page", {}, token=token)
+        self.assertEqual(status, 403)
+
+    def test_login_cookie_secure_flag_uses_configured_proxy(self):
+        from bridgepanel import auth as bp_auth
+        from unittest import mock
+
+        bp_auth.set_password("proxy-admin", "proxy fixture password")
+        for proxies, secure in (("127.0.0.1", True), ("", False)):
+            with self.subTest(proxies=proxies), mock.patch.dict(
+                    os.environ, {"BRIDGEPANEL_TRUSTED_PROXY_IPS": proxies}):
+                conn = HTTPConnection("127.0.0.1", self.port, timeout=5)
+                try:
+                    conn.request("POST", "/api/login",
+                                 body=json.dumps({"user": "proxy-admin", "pass": "proxy fixture password"}),
+                                 headers={"Content-Type": "application/json", "X-Forwarded-Proto": "https"})
+                    response = conn.getresponse()
+                    response.read()
+                    self.assertEqual(response.status, 200)
+                    self.assertEqual("; Secure" in response.getheader("Set-Cookie", ""), secure)
+                finally:
+                    conn.close()
 
     def test_healthz_no_auth(self):
         status, _ = self._req("GET", "/healthz")

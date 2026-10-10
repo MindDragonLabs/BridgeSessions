@@ -4,6 +4,26 @@ Peer names in this document use generic role labels or placeholders.
 
 Notable user-visible changes. Git history contains implementation-level detail.
 
+## 26.10.05
+
+### Fixed
+
+- Legacy panel routes enforce credential scopes: file and output reads require
+  `read`, file mutations require `write`, session mutations require `sessions`,
+  and invite operations require an administrator credential.
+- Trusted proxy HTTPS detection uses the same configuration for password
+  login, origin checks, and the session cookie's `Secure` flag.
+- The local release publisher verifies staged checksums and validates artifact
+  formats and versions before upload.
+- Default CTest runs include all eight panel suites. Real-PTY acceptance runs
+  with standard-library Python even when pytest is unavailable.
+- Parallel TLS tests use unique certificate files instead of colliding on
+  deterministic temporary names.
+- Windows builds honor extra CMake options, including the native client build.
+  The native Windows client links the certificate store and Unicode entry
+  point correctly. CI builds the native clients; the release workflow runs the
+  Windows artifact's version and help commands on Windows before publication.
+
 ## 26.10.04
 
 Bugfix release. The 26.10.03 release was skipped; its verified work is included

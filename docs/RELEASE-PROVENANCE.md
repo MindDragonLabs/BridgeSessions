@@ -10,7 +10,7 @@ A release is a Git tag plus the artifacts attached to it.
 - The artifacts are the platform binaries, the checksum manifest, and the SBOM.
 - Optional source archives are produced with `git archive` from the same tag.
 
-The release script refuses a dirty tree, a tag/HEAD mismatch, an origin-tag mismatch, a missing asset, or an implicit replacement of an existing release. Every failure path is explicit so the operator can fix the cause instead of overriding the script.
+The release script refuses a dirty tree, a tag/HEAD mismatch, an origin-tag mismatch, a missing asset, changed staged checksums, invalid artifact formats or versions, or an implicit replacement of an existing release. Every failure path is explicit so the operator can fix the cause instead of overriding the script.
 
 ## Required assets
 
@@ -19,6 +19,8 @@ The release script refuses a dirty tree, a tag/HEAD mismatch, an origin-tag mism
 | `bridgesessions-linux-x86_64` | Linux x86_64 |
 | `bridgesessions-macos-arm64` | macOS arm64 |
 | `bridgesessions-windows-x86_64.exe` | Windows x86_64 |
+| `bs_tray.ps1` | verified Windows tray companion |
+| `bridgesessions-VERSION-source.tar.gz` / `.zip` | source archives from the tagged commit |
 | `SHA256SUMS` | checksum manifest (basename-keyed) |
 | `SBOM-binaries.json` | CycloneDX artifact and dependency record |
 
@@ -116,20 +118,98 @@ Record the exact compiler, OS image, and dependency versions in the GitHub Relea
 
 ## Publish
 
-1. Commit the source-only tree.
-2. Push `main` and wait for the Build/Test and Security workflows to be green.
-3. Create or move the annotated release tag only after green CI.
-4. Push the tag.
-5. Run `scripts/github-release.sh` to create the prerelease and upload verified assets.
-6. Read the release back with `gh release view` and compare every remote digest and size with the local files.
+1. Commit the reviewed source and verify its tests and privacy scan. Use a
+   candidate branch/PR for CI; keep installer defaults on `main` pointed at an
+   already published release.
+2. After operator authorization and green platform gates, create the annotated
+   release tag on that exact source commit and push the tag. The release
+   workflow builds, validates, and publishes from the verified tag commit.
+3. For the alternative local publishing lane, build/sign all platform artifacts,
+   run `scripts/package-release.sh --release` and `scripts/release-checksums.sh`,
+   then run `scripts/github-release.sh`. It verifies the existing manifest and
+   revalidates payloads before upload. Suffixed versions are prereleases;
+   plain versions become Latest.
+4. Read the release back with `gh release view` and compare every remote digest
+   and size with the local files; verify a fresh download.
+5. Promote the reviewed installer defaults only after the matching release
+   exists. A fleet rollout follows publication and needs its own live upgrade
+   and session acceptance evidence.
 
 The release script refuses to publish when any of the checks above would fail. The operator's job is to keep the source tree and the dependencies ready; the script's job is to keep the release honest.
 
 ## After publish
 
-- Move or update the tag if a release is republished. Force-updating a tag is allowed by the repository ruleset; deleting a tag is not.
+- Keep a published tag and its assets immutable. Ship corrections under a new
+  version so existing checksum manifests and installed versions remain useful.
 - Announce the release in the changelog. The CHANGELOG top section is the source of truth for user-visible changes.
 - Watch the GitHub Action that watches the tag. A failed download digest or a bad signed installer is a release bug and warrants a hotfix tag.
+
+## 26.10.05 candidate
+
+Prepared locally on 2026-10-10 from source base `d33e40b`, with the release
+changes still available as a working-tree diff. This is an unpublished
+candidate, not a deployed release. Read-only `gh release list` confirmed that
+`v26.09.28` remains Latest; the earlier `v26.10.04` tag has no published release.
+
+The review corrected legacy panel scope bypasses, inconsistent trusted-proxy
+HTTPS detection, unvalidated local uploads, omitted panel tests, TLS fixture
+file collisions, ignored Windows CMake options, and native Windows linking.
+Regression tests reproduced the scope, proxy, and parallel TLS failures before
+their fixes. CI now builds the native platform shells, and the release workflow
+executes the exact uploaded Windows binary on Windows before publication.
+
+| Local validation | Result |
+|---|---|
+| Release build, native client enabled; `ctest --test-dir build --parallel 8 --output-on-failure` | 648/648 passed, without retrying failures |
+| `python3 -m pytest tests tools/bridgepanel -q` | 248 passed, 30 subtests passed; one macOS-only `otool` check skipped on Linux |
+| Session acceptance, `ctest --test-dir build -R '^panel_session_acceptance$' --repeat until-fail:10 --output-on-failure` | 10 consecutive passes |
+| Parallel TLS regressions, `ctest --test-dir build -R 'R[12]' --parallel 8 --repeat until-fail:10 --output-on-failure` | All five cases passed ten times; two cases aborted before unique temporary filenames were introduced |
+| Native client fixture with AddressSanitizer and UndefinedBehaviorSanitizer | Passed |
+| Standard-library-only Python | All eight panel suites passed (167 tests); CMake registered these suites and real-PTY acceptance without pytest |
+| Ubuntu 22.04 container build with fetched, pinned dependencies | Built Linux daemon and native shell; staged daemon reports `26.10.05`, and version/help run in a fresh Ubuntu 22.04 container |
+| MinGW build with `--extra -DBS_BUILD_NATIVE=ON` | Daemon, native core, smoke CLI, and Win32 shell built; PE imports are OS DLLs only, with ASLR/NX flags |
+| Release scripts and workflow syntax | All 22 tracked shell scripts parse; changed release scripts pass ShellCheck; both workflow YAML files parse and have valid job dependencies |
+| Privacy gates | `bash scripts/prepublish-scan.sh` passed; the three staged candidate payloads passed the same build-path and private-blocklist checks |
+
+Linux hardening checks found PIE, RELRO with immediate binding, an NX stack,
+stack protection, and fortified libc calls. The largest required glibc symbol
+version is `GLIBC_2.34`; execution on the supported Ubuntu 22.04 floor passed.
+The staged portable binary also passed the two-daemon session acceptance
+harness and all 11 real-PTY menu/session cases.
+Ruff found no new findings in the changed Python files. Existing repository
+lint debt is retained rather than folded into this release.
+
+Local Linux and Windows artifacts, the verified tray companion, `SHA256SUMS`,
+and `SBOM-binaries.json` are staged under ignored `dist/26.10.05-candidate/`.
+The checksum validator accepted all three payloads. Source archives must be
+generated from the eventual committed/tagged source, not from this dirty tree.
+Detailed local test logs are kept outside git under
+`release/26.10.05/evidence/`. The same local release folder contains source
+patch snapshots and `cleanup-manifest.json`, which records every archived path
+and its original location.
+
+Local folder cleanup moved historical build trees, scratch/audit material, and
+older mixed-version `dist/` files into the sibling archive
+`../bridgesessions-local-archive/2026-10-10-26.10.05/`. The active root `build/`,
+portable Linux and Windows build trees, MinGW dependency prefix, and native
+sanitizer build remain in place. Git worktrees and runtime state were preserved.
+The candidate staging folder contains only the verified `26.10.05` payloads
+and their checksum/SBOM records; older binaries must not be copied into it.
+
+Publication still requires the final committed source and green platform CI,
+a fresh macOS build with Developer ID signing/notarization, and Windows runtime
+and Defender acceptance of the new PE. The previous Defender quarantine is
+historical evidence, not proof that this new binary passes. Real Windows/Mac
+session input, readback, isolation, and in-band upgrades have not been run for
+this candidate. The new Windows workflow smoke step is authored and locally
+syntax-checked; it has not run on GitHub yet.
+
+Keep candidate installer defaults off `main` until matching assets exist.
+The earlier audit's invite seed-binding limit remains documented in `README.md`
+and `AUDIT.md`; this release does not claim to close it. No tag was created,
+GitHub write performed, fleet rolled, or security setting relaxed during local
+preparation.
+
 ## Release record — v26.08.26-r1 (2026-08-26)
 
 - Tag `v26.08.26-r1` → commit `bbe7410` (annotated, pushed before CI green:

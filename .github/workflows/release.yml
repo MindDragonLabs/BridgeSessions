@@ -219,7 +219,7 @@ jobs:
       - run: bash scripts/ci-win-deps.sh "$RUNNER_TEMP/bs-win"
       - env:
           BS_WIN_PREFIX: ${{ runner.temp }}/bs-win
-        run: ./build.sh windows --out dist --no-tests
+        run: ./build.sh windows --out dist --no-tests --extra -DBS_BUILD_NATIVE=ON
       - uses: actions/upload-artifact@v4
         with:
           name: rel-windows
@@ -230,7 +230,7 @@ jobs:
 
   windows-installer-validation:
     name: windows installer validation
-    needs: guard
+    needs: [guard, windows]
     runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
@@ -239,6 +239,21 @@ jobs:
       - name: Parse installer and enforce safe upgrade ordering
         shell: pwsh
         run: ./tests/test_install_order.ps1
+      - uses: actions/download-artifact@v4
+        with:
+          name: rel-windows
+          path: dist
+      - name: Execute the release binary on Windows
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $expected = (Get-Content ./VERSION -Raw).Trim()
+          $reported = & ./dist/bridgesessions-windows-x86_64.exe --version
+          if ($LASTEXITCODE -ne 0 -or "$reported".Trim() -ne $expected) {
+            throw "Windows release version mismatch: expected $expected, got $reported"
+          }
+          & ./dist/bridgesessions-windows-x86_64.exe --help
+          if ($LASTEXITCODE -ne 0) { throw "Windows release binary --help failed" }
 
   publish:
     name: publish
@@ -274,7 +289,7 @@ jobs:
         # which truncated SHA256SUMS before reading it (self-line hashed empty)
         # and included no post-write verification. No || true — a bad artifact
         # set must fail the publish, not ship.
-        run: bash scripts/release-checksums.sh --sbom dist/SBOM-binaries.json
+        run: bash scripts/release-checksums.sh
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}

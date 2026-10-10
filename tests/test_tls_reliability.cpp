@@ -65,7 +65,14 @@ struct TmpPem {
         GetTempFileNameA(tmpDir, "bsR", 0, out);
         path = out;
 #else
-        path = std::string("/tmp/bsR_") + std::to_string(rand());
+        // Catch discovers each case as a separate process. rand() starts with
+        // the same seed in each process, so parallel cases used to overwrite
+        // or remove one another's certificates and abort inside TLS setup.
+        char out[] = "/tmp/bsR_XXXXXX";
+        int fd = mkstemp(out);
+        if (fd < 0) throw std::runtime_error("could not create TLS fixture PEM");
+        close(fd);
+        path = out;
 #endif
         std::ofstream f(path, std::ios::trunc);
         f << content;

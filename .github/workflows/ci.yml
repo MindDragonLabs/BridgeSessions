@@ -100,7 +100,7 @@ jobs:
       - name: Configure and build
         env:
           BS_BUILD_SUBDIR: linux-x86_64
-        run: ./build.sh linux --distro native --out dist --no-tests
+        run: ./build.sh linux --distro native --out dist --no-tests --extra -DBS_BUILD_NATIVE=ON
 
       - name: Seed a node identity for the mesh tests
         run: ./dist/bridgesessions-linux-x86_64 keygen
@@ -108,7 +108,7 @@ jobs:
       - name: Run the test suite
         env:
           BS_BUILD_SUBDIR: linux-x86_64
-        run: ./build.sh test
+        run: ./build.sh test --extra -DBS_BUILD_NATIVE=ON
 
       - name: Artifact must load on a clean host
         run: |
@@ -185,7 +185,7 @@ jobs:
       - name: Configure and build
         env:
           BS_BUILD_SUBDIR: macos-arm64
-        run: ./build.sh macos --out dist --no-tests
+        run: ./build.sh macos --out dist --no-tests --extra -DBS_BUILD_NATIVE=ON
 
       - name: Seed a node identity for the mesh tests
         run: ./dist/bridgesessions-macos-arm64 keygen
@@ -193,7 +193,7 @@ jobs:
       - name: Run the test suite
         env:
           BS_BUILD_SUBDIR: macos-arm64
-        run: ./build.sh test
+        run: ./build.sh test --extra -DBS_BUILD_NATIVE=ON
 
       - name: Artifact must load on a clean host
         run: |
@@ -258,7 +258,7 @@ jobs:
       - name: Configure and build
         env:
           BS_WIN_PREFIX: ${{ runner.temp }}/bs-win
-        run: ./build.sh windows --out dist --no-tests
+        run: ./build.sh windows --out dist --no-tests --extra -DBS_BUILD_NATIVE=ON
 
       - name: PE imports must be OS DLLs only
         run: |

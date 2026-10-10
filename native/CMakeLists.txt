@@ -40,7 +40,9 @@ if(BS_OPENSSL_BUILD_TARGET)
 endif()
 target_compile_features(bridge_native_core PUBLIC cxx_std_20)
 if(WIN32)
-    target_link_libraries(bridge_native_core PUBLIC ws2_32)
+    # Static OpenSSL uses the Windows certificate store, just as the daemon
+    # does; all native client executables need Crypt32 transitively.
+    target_link_libraries(bridge_native_core PUBLIC ws2_32 crypt32)
 endif()
 
 add_executable(native_phase0_smoke src/smoke.cpp)
@@ -76,4 +78,9 @@ endif()
 if(WIN32 AND BS_NATIVE_BUILD_WINDOWS)
     add_executable(bridge_native_win32 WIN32 shells/windows/main.cpp)
     target_link_libraries(bridge_native_win32 PRIVATE bridge_native_core user32)
+    if(MINGW)
+        # The shell defines wWinMain. MinGW otherwise selects the ANSI WinMain
+        # startup even though the source uses Unicode Windows APIs.
+        target_link_options(bridge_native_win32 PRIVATE -municode)
+    endif()
 endif()

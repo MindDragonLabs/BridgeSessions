@@ -8,13 +8,13 @@
 
 | | |
 |---|---|
-| Source tip / `VERSION` | **26.10.04** on `release/26.10.04` |
+| Source candidate / `VERSION` | **26.10.05**, in local release preparation. See [release evidence](docs/RELEASE-PROVENANCE.md#261005-candidate). |
 | Last published GitHub Release | **`v26.09.28`** (assets on the [releases page](https://github.com/MindDragonLabs/BridgeSessions/releases)) |
-| `v26.10.04` publish | Git tag exists; **GitHub Release assets are not published yet** (operator / Admiral-gated). Do not treat 26.10.04 as the public install default until that release appears. |
-| Public installer default | One-liner from `main` (`curl\|bash` / `irm`) still defaults to **`26.09.28`**. This tree's `scripts/install.sh` / `install.ps1` default to `26.10.04` for the candidate line. |
+| Candidate publication | **26.10.05 is unpublished.** The earlier local `v26.10.04` tag has no published assets either. GitHub Release state was checked on 2026-10-10. |
+| Installer defaults | This candidate's `scripts/install.sh` / `install.ps1` default to `26.10.05`. Publish matching verified assets before promoting these installers to `main`; use `BRIDGESESSIONS_TAG=26.09.28` for the published release meanwhile. |
 | Platforms | Linux x86_64 / arm64, macOS arm64, Windows x86_64 (MinGW) |
 | Fleet | Full fleet rollout of 26.10.04 has **not** been completed. See `TODO-2026-10-04.md`. Windows Defender quarantined the 26.10.04 PE on at least one Windows host during a deploy attempt; host+service were restored to the prior build. |
-| Deployed vs source | Some live nodes (including FECv3 / box installs) may still report **`26.09.28`** while source tip is 26.10.04. Run `bs --version`. |
+| Deployed vs source | Live nodes may report an older release than this candidate. Run `bs --version`; local preparation does not deploy the fleet. |
 | Known limits | Invite tokens are **not** bound to the intended seed pubkey (AUDIT A6 open — see [AUDIT.md](AUDIT.md)). Keep `mesh.require_seed_pins true`. Authorization remains host-level, not per-command. |
 | Security disclosure | Business Source License 1.1; see `LICENSE`. |
 
@@ -24,7 +24,7 @@
 
 > **Beta software.** An authorized peer has near-interactive host access. Use BridgeSessions only on machines and networks that you control. Read [SECURITY.md](SECURITY.md) before you join a mesh.
 
-The last **published** release with installable assets is on the [releases page](https://github.com/MindDragonLabs/BridgeSessions/releases) (currently `v26.09.28`). `VERSION` in the repo root is the version built from this source tree (`26.10.04`). A git tag without a GitHub Release does not publish binaries. Do not trust a hardcoded version string in documentation; run `bs --version`.
+The last **published** release with installable assets is on the [releases page](https://github.com/MindDragonLabs/BridgeSessions/releases) (`v26.09.28`, verified 2026-10-10). `VERSION` in the repo root stamps the local candidate (`26.10.05`). A git tag without a GitHub Release does not publish binaries. Run `bs --version` to check an installed binary.
 
 ---
 

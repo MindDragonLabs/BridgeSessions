@@ -605,6 +605,10 @@ Or install a newer mingw-w64 on this host."
         -DBS_DEPS_MODE=fetch
         -DBS_OPENSSL=system
         -DBUILD_TESTING=OFF)
+    local a
+    for a in "${EXTRA_CMAKE_ARGS[@]:-}"; do
+        [[ -n "${a}" ]] && args+=("${a}")
+    done
     log "configure windows (mingw-w64, static)"
     run cmake "${args[@]}"
     log "build windows"

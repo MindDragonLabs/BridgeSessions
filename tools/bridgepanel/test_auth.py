@@ -65,7 +65,7 @@ class TestAuthIsolated(unittest.TestCase):
     def test_forwarded_https_requires_a_trusted_proxy(self):
         # X-Forwarded-Proto is set by the client, so it must not be able to
         # mark the session cookie Secure (or not) on its own. Only a peer
-        # listed in BRIDGESPANEL_TRUSTED_PROXY_IPS may assert an https hop.
+        # listed in BRIDGEPANEL_TRUSTED_PROXY_IPS may assert an https hop.
         from bridgepanel.server import BridgePanelHandler
 
         class FakeServer:
@@ -78,7 +78,7 @@ class TestAuthIsolated(unittest.TestCase):
             h.headers = {"X-Forwarded-Proto": forwarded}
             return h
 
-        env_name = "BRIDGESPANEL_TRUSTED_PROXY_IPS"
+        env_name = "BRIDGEPANEL_TRUSTED_PROXY_IPS"
         previous = os.environ.get(env_name)
         try:
             os.environ.pop(env_name, None)
