@@ -249,6 +249,13 @@ jobs:
       - name: Execute and scan the release binary on Windows
         shell: pwsh
         run: ./tests/test_windows_release.ps1
+      - name: Validate native Windows interactive sessions
+        shell: pwsh
+        run: |
+          python tests/platform_session_acceptance.py dist/bridgesessions-windows-x86_64.exe 'cmd.exe /D /Q /K'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python tests/platform_session_acceptance.py dist/bridgesessions-windows-x86_64.exe 'powershell.exe -NoLogo -NoExit -NoProfile'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
   publish:
     name: publish
