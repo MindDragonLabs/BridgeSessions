@@ -267,7 +267,17 @@ jobs:
           path: dist
       - name: Enable Defender on the disposable hosted runner
         shell: pwsh
-        run: ./tests/prepare_windows_release_runner.ps1
+        run: |
+          # A dispatched workflow can publish an existing immutable source
+          # tag whose runner helper predates the asynchronous readiness wait.
+          # A second preparation attempt still requires all protection checks.
+          try {
+            ./tests/prepare_windows_release_runner.ps1
+          } catch {
+            Write-Host "Runner protection preparation failed; retrying after startup settles."
+            Start-Sleep -Seconds 30
+            ./tests/prepare_windows_release_runner.ps1
+          }
       - name: Execute and scan the release binary on Windows
         shell: pwsh
         run: ./tests/test_windows_release.ps1

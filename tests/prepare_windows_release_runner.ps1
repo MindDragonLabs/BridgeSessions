@@ -17,7 +17,17 @@ foreach ($kind in @("ExclusionPath", "ExclusionProcess", "ExclusionExtension")) 
     }
 }
 Update-MpSignature
-$protection = Get-MpComputerStatus
+# Preference changes are asynchronous. Fresh hosted runners can report
+# antivirus enabled before real-time protection has finished starting.
+$deadline = [DateTime]::UtcNow.AddSeconds(90)
+do {
+    $protection = Get-MpComputerStatus
+    if ($protection.AntivirusEnabled -and $protection.RealTimeProtectionEnabled) {
+        break
+    }
+    Write-Host "Waiting for hosted runner Defender real-time protection..."
+    Start-Sleep -Seconds 3
+} while ([DateTime]::UtcNow -lt $deadline)
 $protection | Select-Object AntivirusEnabled, RealTimeProtectionEnabled, BehaviorMonitorEnabled,
     AntivirusSignatureVersion, AntivirusSignatureLastUpdated | Format-List
 if (-not $protection.AntivirusEnabled -or -not $protection.RealTimeProtectionEnabled) {
