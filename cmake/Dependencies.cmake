@@ -105,7 +105,18 @@ if(BS_OPENSSL STREQUAL "fetch" AND NOT BS_DEPS_MODE STREQUAL "system")
     endif()
     # OpenSSL ships Perl Configure, not CMake. Build it out of band and expose
     # the results as ordinary imported targets so nothing downstream cares.
-    set(_ossl_prefix "${CMAKE_CURRENT_BINARY_DIR}/openssl-install")
+    #
+    # The install prefix OpenSSL records is baked into the binary as literal
+    # strings in OPENSSLDIR / ENGINESDIR / MODULESDIR. Pointing that at the
+    # build tree leaks the build host's absolute path (and the operator's home
+    # directory) into every shipped artifact, which prepublish-scan.sh flags as
+    # a personal build-path bake-in. Configure against a neutral, stable prefix
+    # and stage the install underneath it with DESTDIR, so the artifact carries
+    # a generic path while the files still land where the imported targets
+    # expect them.
+    set(_ossl_staged_prefix "${CMAKE_CURRENT_BINARY_DIR}/openssl-install")
+    set(_ossl_build_prefix  "/opt/bridgesessions/openssl")
+    set(_ossl_prefix "${_ossl_staged_prefix}${_ossl_build_prefix}")
     set(_ossl_no_asm "")
     if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64")
         set(_ossl_target "linux-aarch64")
@@ -121,11 +132,11 @@ if(BS_OPENSSL STREQUAL "fetch" AND NOT BS_DEPS_MODE STREQUAL "system")
     endif()
     add_custom_command(
         OUTPUT "${_ossl_prefix}/lib/libssl.a"
-        COMMAND ${CMAKE_COMMAND} -E remove_directory "${_ossl_prefix}"
+        COMMAND ${CMAKE_COMMAND} -E remove_directory "${_ossl_staged_prefix}"
         COMMAND ./Configure ${_ossl_target} no-shared no-tests
-                --prefix=${_ossl_prefix} --libdir=lib
+                --prefix=${_ossl_build_prefix} --libdir=lib
         COMMAND ${CMAKE_MAKE_PROGRAM} -j${BS_BUILD_JOBS}
-        COMMAND ${CMAKE_MAKE_PROGRAM} install_sw
+        COMMAND ${CMAKE_MAKE_PROGRAM} install_sw "DESTDIR=${_ossl_staged_prefix}"
         WORKING_DIRECTORY "${openssl_SOURCE_DIR}"
         COMMENT "Building pinned OpenSSL ${BS_OPENSSL_TAG} (static)"
         VERBATIM)

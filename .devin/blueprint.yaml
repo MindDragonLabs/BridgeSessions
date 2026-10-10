@@ -1,0 +1,136 @@
+# .devin/blueprint.yaml — BridgeSessions cross-platform release builds
+#
+# Purpose: build and test the macOS and Windows artifacts on Devin, so the
+# release does not depend on a single build host being awake. fecv3 already
+# cross-builds Windows with mingw, but macOS has no cross-compiler at all and
+# must be built on a Mac.
+#
+# Each YAML document is one platform and produces its own snapshot. The `---`
+# separator is required: a list at the top level is rejected by the backend.
+#
+# Two things this blueprint deliberately does NOT do:
+#   - codesign / notarize. Those need your Apple Developer identity, and the
+#     lesson recorded from 26.08.25-beta7 is that a bare Mach-O cannot be
+#     notarized (stapler Error 73, "no header pad") and that signing an app
+#     bundle then extracting the binary makes Gatekeeper SIGKILL it. Sign and
+#     notarize on a real Mac with the real identity; use Devin for the unsigned
+#     build + full test suite, which is where the time actually goes.
+#   - the CUA driver. The macOS memory notes it needs its own codesign step.
+
+# ─────────────────────────────────────────────────────────────────────────
+# macOS
+# ─────────────────────────────────────────────────────────────────────────
+runs-on: macos
+
+initialize:
+  - name: "Build tooling"
+    # brew is at /opt/homebrew on Devin macOS images and IS on the login PATH,
+    # but build.sh must not depend on that: it locates cmake itself.
+    run: |
+      set -euo pipefail
+      brew install cmake ninja openssl@3
+      echo "cmake:  $(cmake --version | head -1)"
+      echo "ninja:  $(ninja --version)"
+      echo "openssl:$(brew --prefix openssl@3)"
+
+  - name: "Apple toolchain identity"
+    run: |
+      set -euo pipefail
+      echo "arch:   $(uname -m)"
+      echo "macos:  $(sw_vers -productVersion)"
+      echo "clang:  $(clang --version | head -1)"
+      # This project is C++20 with OpenSSL; fail the build early and loudly if
+      # the image cannot actually compile it, rather than 40 minutes later.
+      echo 'int main(){return 0;}' > /tmp/probe.cpp
+      clang++ -std=c++20 /tmp/probe.cpp -o /tmp/probe && echo "c++20:  ok"
+
+maintenance:
+  # Keep the snapshot warm. DerivedData is irrelevant here, but the dependency
+  # fetch is the slow part and is safe to make incremental.
+  - name: "Prefetch dependencies"
+    run: |
+      set -euo pipefail
+      # --deps fetch builds spdlog/fmt/zstd/CLI11 from source into build/.
+      # Doing it here means the snapshot arrives with them compiled.
+      bash ./build.sh deps
+
+knowledge:
+  - name: build-macos
+    contents: |
+      bash ./build.sh macos
+
+      Must run on macOS. The artifact lands at
+      dist/bridgesessions-macos-arm64. Verify with:
+        ./dist/bridgesessions-macos-arm64 --version
+      which must print the VERSION file contents.
+
+  - name: test
+    contents: |
+      bash ./build.sh test
+
+  - name: signing-reminder
+    contents: |
+      Do NOT attempt to codesign or notarize on this VM. There is no Developer
+      ID identity here and notarizing a bare Mach-O fails (stapler Error 73).
+      Produce the unsigned binary, then hand it to a real Mac for signing.
+
+# ─────────────────────────────────────────────────────────────────────────
+# Windows
+# ─────────────────────────────────────────────────────────────────────────
+---
+runs-on: windows
+
+# Windows blocks default to Git Bash, so ordinary bash works. Set this only if
+# you need native PowerShell cmdlets; build.sh is a bash script, so keep bash.
+# shell: powershell
+
+initialize:
+  - name: "Build tooling"
+    # build.sh cross-compiles with mingw-w64 from a bash script, so Git Bash is
+    # the right shell. CMake 3.28 is installed to match the pinned container
+    # toolchain; anything older fails the cmake_minimum_required(3.25) guard
+    # on newer policies.
+    run: |
+      set -euo pipefail
+      choco install cmake --version=3.28.3 -y --no-progress
+      choco install ninja -y --no-progress
+      choco install openssl --version=3.5.7 -y --no-progress
+      cmake --version
+      ninja --version
+
+  - name: "MinGW-w64 cross toolchain"
+    run: |
+      set -euo pipefail
+      # build.sh windows drives x86_64-w64-mingw32-g++ directly.
+      choco install mingw --version=13.2.0 -y --no-progress
+      export PATH="/c/ProgramData/mingw64/mingw64/bin:$PATH"
+      which x86_64-w64-mingw32-g++
+      x86_64-w64-mingw32-g++ --version | head -1
+      # OpenSSL for the target has to be a mingw build, not the MSVC choco one.
+      # build.sh handles this with --openssl fetch; record the intent here so a
+      # future maintainer does not "fix" it to --openssl system and get a PE
+      # that links against host DLLs.
+
+maintenance:
+  - name: "Prefetch dependencies"
+    run: |
+      set -euo pipefail
+      bash ./build.sh deps
+
+knowledge:
+  - name: build-windows
+    contents: |
+      bash ./build.sh windows
+
+      Cross-compiles from this Windows host via mingw-w64, so no MSVC or
+      Windows-on-Windows toolchain is required. The artifact lands at
+      dist/bridgesessions-windows-x86_64.exe. Verify the embedded version
+      resource with:
+        strings -a dist/bridgesessions-windows-x86_64.exe | grep -oE '^26\.[0-9.]+$'
+      It must match the VERSION file. The resource comes from
+      windows/version.rc, which is GENERATED by
+      scripts/gen-windows-version-rc.sh — never hand-edit it.
+
+  - name: test
+    contents: |
+      bash ./build.sh test

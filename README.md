@@ -8,12 +8,14 @@
 
 | | |
 |---|---|
-| Working line | **26.09.25** (local-only beta on `main`, commit pending-r1) |
-| Last public release | `v26.09.24-a1` |
+| Source candidate / `VERSION` | **26.10.05**, in local release preparation. See [release evidence](docs/RELEASE-PROVENANCE.md#261005-candidate). |
+| Last published GitHub Release | **`v26.09.28`** (assets on the [releases page](https://github.com/MindDragonLabs/BridgeSessions/releases)) |
+| Candidate publication | **26.10.05 is unpublished.** The earlier local `v26.10.04` tag has no published assets either. GitHub Release state was checked on 2026-10-10. |
+| Installer defaults | This candidate's `scripts/install.sh` / `install.ps1` default to `26.10.05`. Publish matching verified assets before promoting these installers to `main`; use `BRIDGESESSIONS_TAG=26.09.28` for the published release meanwhile. |
 | Platforms | Linux x86_64 / arm64, macOS arm64, Windows x86_64 (MinGW) |
-| What is proven | Clean tree; icons shipped to macOS, Windows, Linux; Bridge Panel renders and operates in a phone browser (Chromium + WebKit); 604 / 604 ctest pass; 130 / 130 panel tests pass; e2e fleet gates include file-copy < 2 s, typing < 2 s, two-session output isolation, harness-name check, idle-survival check; auto-update backs off on failure (60 s then 5 min); Devin `swe-2` audit run; no production 1-second retry. |
-| What is still beta | This commit has not been pushed; tag `26.09.25` is not on the public release repo. Windows binary hash mismatch (running `AE2B61A6`, published `684d4149`) must be traced before any fleet roll. See `TODO-2026-09-25-audit-residuals.md` and `docs/plans/26.09.25-beta.md`. |
-| Proven on | Linux (host build + codegen verified); macOS (sign + notarize ran during the last release train); Windows via MinGW. Live fleet matrix was not re-run for this beta; tests are run against the local binary and the seeded peer list. |
+| Fleet | Full fleet rollout of 26.10.04 has **not** been completed. See `TODO-2026-10-04.md`. Windows Defender quarantined the 26.10.04 PE on at least one Windows host during a deploy attempt; host+service were restored to the prior build. |
+| Deployed vs source | Live nodes may report an older release than this candidate. Run `bs --version`; local preparation does not deploy the fleet. |
+| Known limits | Invite tokens are **not** bound to the intended seed pubkey (AUDIT A6 open — see [AUDIT.md](AUDIT.md)). Keep `mesh.require_seed_pins true`. Authorization remains host-level, not per-command. |
 | Security disclosure | Business Source License 1.1; see `LICENSE`. |
 
 **Persistent shells, verified files, and desktop automation across a trusted peer mesh.**
@@ -22,7 +24,7 @@
 
 > **Beta software.** An authorized peer has near-interactive host access. Use BridgeSessions only on machines and networks that you control. Read [SECURITY.md](SECURITY.md) before you join a mesh.
 
-The current release tag is on the [releases page](https://github.com/MindDragonLabs/BridgeSessions/releases). `VERSION` in the repo root is the version built from source. Do not trust a hardcoded version string in documentation; run `bs --version`.
+The last **published** release with installable assets is on the [releases page](https://github.com/MindDragonLabs/BridgeSessions/releases) (`v26.09.28`, verified 2026-10-10). `VERSION` in the repo root stamps the local candidate (`26.10.05`). A git tag without a GitHub Release does not publish binaries. Run `bs --version` to check an installed binary.
 
 ---
 
@@ -79,7 +81,7 @@ Release binaries and `SHA256SUMS` are GitHub Release assets. The installer fails
 curl -fsSL https://raw.githubusercontent.com/MindDragonLabs/BridgeSessions/main/scripts/install.sh | bash
 ```
 
-The script installs `bridgesessions` to `~/.local/bin` and creates a `bs` symlink. Add `~/.local/bin` to `PATH` if `bs` is not found.
+That one-liner fetches the installer from `main`, which currently defaults to the last **published** tag (`26.09.28`). Pin `BRIDGESESSIONS_TAG` if you need a different published tag. The script installs `bridgesessions` to `~/.local/bin` and creates a `bs` symlink. Add `~/.local/bin` to `PATH` if `bs` is not found.
 
 ### Windows (PowerShell)
 
@@ -326,6 +328,8 @@ Do not put private host names, VPN addresses, or keys in prompts that may be pub
 - Remote file serving is confined to `receive_dir` unless you weaken that on purpose.
 - Authorization is host-level, not per-command.
 - The current compatibility profile negotiates TLS 1.2.
+
+Known limits (not a complete security claim): invite tokens are not bound to the intended seed pubkey (AUDIT A6 — open follow-up in [AUDIT.md](AUDIT.md)); keep `mesh.require_seed_pins true`. On Windows, Defender may quarantine unsigned or newly built release PEs — treat that as an operator/deploy constraint, not a product bypass.
 
 Read [SECURITY.md](SECURITY.md) and [docs/configuration.md](docs/configuration.md).
 

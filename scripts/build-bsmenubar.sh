@@ -22,7 +22,7 @@ if [[ -z "$IDENTITY" ]]; then
   # identity from sign-local-stable.sh (same trust domain as the daemon;
   # keeps a constant DR across rebuilds so TCC prompts survive).
   # Avoid grep -q under pipefail: codesign closes early → SIGPIPE false-fail.
-  CS_META="$(codesign -dvv /Users/jefferson/Applications/BridgeSessions.app 2>&1 || true)"
+  CS_META="$(codesign -dvv "$HOME/Applications/BridgeSessions.app" 2>&1 || true)"
   if grep -q 'Authority=bridgesessions' <<<"$CS_META"; then
     IDENTITY="bridgesessions"
   fi

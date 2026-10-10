@@ -144,6 +144,15 @@ Caveat (observed 2026-09-16, Windows 11 peer, daemon 26.09.15-r1): nested
 `copy /Y`, `start`, `echo`. If a nested PowerShell one-shot stalls, drop to cmd.exe syntax
 or push a `.ps1` and use `run-script`.
 
+## Release review evidence
+
+- Track written, integrated, tested, published, and deployed separately; none proves another.
+- Review diverged branches with `git cherry -v main <branch>` and merge-base (`main...branch`) diffs. Endpoint diffs include newer main changes absent from old branches and can falsely suggest intentional deletions. Patch-equivalent commits are already integrated even with different hashes.
+- Preserve stashes until hunk-level supersession is proven and deletion is approved. Age does not prove saved work is disposable.
+- Check registered CTest names before using `ctest -R`. Pass Catch tags directly to the test executable when needed.
+- Test terminal width with independent cell measurements and a real PTY. Byte counts and code-point counts both fail for wide or combining characters; tests that mirror the renderer can conceal defects.
+- Test password-reset revocation across separate CLI and server processes. Clearing the setter's in-memory session map does not revoke cookies retained by an already-running server when the signing secret remains unchanged.
+
 ## Develop
 
 ```bash
@@ -231,7 +240,9 @@ git diff --stat v$V^{commit} origin/main      # tag vs main, authoritative
 
 ## Fleet binary roll (manual upgrade of a peer)
 
-Sequence: **resolve install path → stage + verify SHA → pre-kill watchdogs → detached swap → service-manager restart → evidence gate**. Read the install path from the host (`systemctl cat` ExecStart on Linux; launchd plist on macOS; scheduled-task `Actions.Execute` on Windows) — a stale binary often sits next to the real one, and Windows install dirs differ per host (`%USERPROFILE%\bridgesessions\` on avirserver*/nunn-shadow-1, `%LOCALAPPDATA%\bridgesessions\` on shadow-ph2lmg3f).
+Examples use generic peer roles; resolve the live peer and its install path before a roll.
+
+Sequence: **resolve install path → stage + verify SHA → pre-kill watchdogs → detached swap → service-manager restart → evidence gate**. Read the install path from the host (`systemctl cat` ExecStart on Linux; launchd plist on macOS; scheduled-task `Actions.Execute` on Windows) — a stale binary often sits next to the real one, and Windows install dirs differ per host (for example, `%USERPROFILE%\bridgesessions\` versus `%LOCALAPPDATA%\bridgesessions\`).
 
 - Stage with `bs file send <peer> /absolute/local/path --dest 15/ --wait`; read back size + SHA-256 on the peer. The swap script must abort on missing file / hash mismatch **without stopping the daemon**. Old daemons may drop `--dest` subdirs at the receive root — read the `OK` line's `dest=`.
 - **Pre-kill upgrade watchdogs** (`pkill -f watchdog` or equivalent) before stopping the daemon. A stale watchdog from a failed `auto_upgrade` outlives its daemon, probes during the swap's unbound window (old stopped, new not yet bound), and silently reverts the binary — daemon cycles start→stop seconds apart, ends on the old version. Check `journalctl -u <unit>` before blaming the new binary.
@@ -267,7 +278,7 @@ Sequence: **resolve install path → stage + verify SHA → pre-kill watchdogs �
 | every interactive session is `tty-20260918-…` and unreadable in pickers | no harness title inheritance | `29ba210`: unnamed `bs <peer>` derives `tty-<title>` from BS_SESSION_TITLE / HERMES_SESSION_CHAT_NAME / CLAUDE_SESSION_NAME / CODEX_SESSION_TITLE / STY / TERM_PROGRAM (slugified, 32-char cap); timestamp fallback stays |
 | need per-peer latency view | PING/PONG RTT was internal only | `29ba210`: `bs fleet` RTT column; `--json` adds `rtt_ms` (our view) + `latency` (peer's reported table); ServerInfoMsg.latency_json gossips every node's RTT table each cycle |
 | `auto_upgrade_complete <peer> rc=32512` repeats hourly in `bs-mesh.log` | auto-upgrade dispatch ran bare `bridgesessions` via `std::system()`; daemon env (launchd/systemd minimal PATH) lacks `~/.local/bin` → exit 127 forever | fixed in `cc1643c` (dispatch uses the daemon's own absolute exe path). Also: peers whose daemon binary was swapped without restart advertise stale `Hello.version` strings, which is what triggers dispatch |
-| multiple healthy nodes restart the same stale peer concurrently | auto-upgrade had no designated dispatcher — every node with a newer binary shoots | `mesh.auto_upgrade_origin <node>` (e.g. `fecv3`): only that node dispatches; others log `auto_upgrade_deferred_to_origin`. Hot-reloaded; empty value = legacy any-node behavior |
+| multiple healthy nodes restart the same stale peer concurrently | auto-upgrade had no designated dispatcher — every node with a newer binary shoots | `mesh.auto_upgrade_origin <node>` (e.g. `linux-build`): only that node dispatches; others log `auto_upgrade_deferred_to_origin`. Hot-reloaded; empty value = legacy any-node behavior |
 
 Two identical non-progressing failures: stop retrying and diagnose a different layer.
 

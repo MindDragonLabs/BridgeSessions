@@ -1,12 +1,89 @@
 # Changelog
 
+Peer names in this document use generic role labels or placeholders.
+
 Notable user-visible changes. Git history contains implementation-level detail.
+
+## 26.10.05
+
+### Fixed
+
+- Legacy panel routes enforce credential scopes: file and output reads require
+  `read`, file mutations require `write`, session mutations require `sessions`,
+  and invite operations require an administrator credential.
+- Trusted proxy HTTPS detection uses the same configuration for password
+  login, origin checks, and the session cookie's `Secure` flag.
+- The local release publisher verifies staged checksums and validates artifact
+  formats and versions before upload.
+- Default CTest runs include all eight panel suites. Real-PTY acceptance runs
+  with standard-library Python even when pytest is unavailable.
+- Parallel TLS tests use unique certificate files instead of colliding on
+  deterministic temporary names.
+- Windows builds honor extra CMake options, including the native client build.
+  The native Windows client links the certificate store and Unicode entry
+  point correctly. CI builds the native clients; the release workflow runs the
+  Windows artifact's version and help commands on Windows before publication.
+- The native macOS shell uses a distinct status-text method so its AppKit
+  property setter no longer conflicts during compilation.
+- Fleet acceptance requires real session input/readback and distinct executed
+  markers, rejects empty isolation captures, and waits the full idle interval.
+  Windows CI and release gates scan and execute the artifact with Defender
+  protection enabled.
+- Linux upgrades launched inside mesh sessions quote the complete detached
+  command correctly, preserve literal paths, and reject unsafe tags before
+  invoking a shell.
+- Windows session restarts retain the replacement process's job handle so
+  temporary session cleanup does not terminate the replacement shell.
+- Windows interactive shells bind their standard handles to ConPTY when the
+  daemon's streams are redirected, preventing early CMD exit and lost output.
+
+## 26.10.04
+
+Bugfix release. The 26.10.03 release was skipped; its verified work is included
+here.
+
+### Fixed
+
+- Legacy file transfers now keep each chunk within the u16 frame limit.
+- Bare peer selection preserves a configured seed address when no SSH alias exists.
+- OpenSSL no longer embeds the build host's absolute path in release binaries.
+- Panel session cookies trust forwarded HTTPS only from configured trusted proxies.
+- Device enrollment is available through admin-only HTTP routes; device-bound
+  credentials keep their scope limits and stop working after device revocation.
+- TUI menus fit narrow terminals and preserve Unicode row boundaries.
+
+### Added
+
+- Session control over the panel API, with lifecycle audit events for device
+  credentials. Audit records do not include secret token values.
+- Native client phase-0 shared core and platform shell scaffolding.
+- OSC 52 clipboard support and safer reconnect handling for detached sessions.
+- A loud CMake warning when pytest is unavailable, so omitted Python tests are
+  visible during configuration.
+
+## 26.10.03 (skipped)
+
+Local candidate for session management, native-app phase 0, and TUI hardening.
+Not published. Its verified work is included in 26.10.04.
+
+### Fixed
+
+- TUI menus no longer shred on small terminals: the frame width is clamped to
+  the terminal so rows never wrap, the title is truncated instead of
+  overflowing, and long row labels are cut at a UTF-8 boundary (not mid-glyph).
+  Arrow-key selection stays on the highlighted row at any window size.
+
+### Added
+
+- Harness sessions (`bs <peer>` → New → harness) run their command through a
+  login shell so the user's `~/.profile` PATH (`~/.local/bin`, `~/.hermes/bin`)
+  is honored — `bs linux-build` → New → hermes now launches the Hermes TUI instead of
+  `sh: hermes: command not found`.
 
 ## 26.09.28
 
-Working line for the next release. VERSION stays `26.09.25-r1` until the release
-train runs on operator go; the public installer keeps pointing at the published
-`v26.09.25-r1` assets.
+Released as `v26.09.28`. The local `26.10.03` candidate is separate from this
+published release.
 
 Landed since v26.09.25-r1 (already on main):
 
@@ -22,13 +99,13 @@ Landed since v26.09.25-r1 (already on main):
 - Auto-upgrade attempts counter now resets on a successful dispatch — the
   staged backoff (60 s → 5 min → cooldown) no longer stays raised after a
   healthy upgrade.
-- btcr systemd unit flap confirmed transient (post-upgrade churn); the unit is
+- linux-service systemd unit flap confirmed transient (post-upgrade churn); the unit is
   stable with a running Main PID. No unit change needed.
 
 ### Added
 
 - Transfer tunables from the ralph sweep (vast.ai 5090 run): chunk_default
-  64K, chunk_large 128K, zstd level 1. Loopback bench on fecv3: compressible
+  64K, chunk_large 128K, zstd level 1. Loopback bench on linux-build: compressible
   payloads 290/310 → 332/393 MiB/s (+14%/+27%); random payloads and command
   latency flat. The sweep (`scripts/ralph-sweep.py`) is a mechanical
   grid+refine search over `scripts/bench-perf.py`, which also gained a
@@ -50,7 +127,7 @@ Landed since v26.09.25-r1 (already on main):
 - `BRIDGESESSIONS_UPGRADE_BASE_URL` staging override for the upgrade path.
   Binary + SHA256SUMS downloads can be redirected to a staging server for QA;
   the SHA256 compare still gates every swap. Proven by the forced bad-hash
-  refusal canary on fecv4: tampered download refused before any swap, daemon
+  refusal canary on linux-canary: tampered download refused before any swap, daemon
   untouched, exit 1.
 - E2e fleet test hardening: the mandatory release gates (`shell_typing`,
   `file_send_fast`, `session_isolation`, `harness_name`, `session_idle_alive`)
@@ -69,7 +146,7 @@ Queued for 26.09.28 (tracked in `docs/plans/26.09.28.md`):
   native mode renders correctly under tmux/Linux; symptom is
   environment-specific, needs the operator's terminal details. Deferred.
 - E2e fleet matrix run against the final release binaries.
-- mysqlknights (SSH key), devin-mac (no SSH user/key named) — still behind.
+- linux-legacy (SSH key), mac-legacy (no SSH user/key named) — still behind.
 - Deferred Devin item: platform-blind auto-upgrade dispatch (needs
   `peer.platform` on `PeerEntry`).
 
@@ -290,12 +367,12 @@ This is the beta for the 26.09.25 line. Published as prerelease `v26.09.25-r1`
 - Fleet E2E version checks now require an exact version reported by the peer
   daemon. This avoids false passes from unrelated version strings and works
   when Windows runs the daemon as SYSTEM. Version, daemon health, and two
-  independent unnamed sessions were verified on Shadow PC, avirserver2016,
-  and avirserver2020; the exact final Windows artifact hash and preserved
-  config were verified on both Avir hosts.
-- WinRM repair updated the avirserver2016 daemon task to the verified install
+  independent unnamed sessions were verified on Shadow PC, windows-server-1,
+  and windows-server-2; the exact final Windows artifact hash and preserved
+  config were verified on both Windows server hosts.
+- WinRM repair updated the windows-server-1 daemon task to the verified install
   path while preserving its password-logon principal; its CUA helper task
-  action was corrected without changing its disabled state. Both Avir hosts
+  action was corrected without changing its disabled state. Both Windows server hosts
   retained their existing configs and run the exact release binary.
 - The Windows installer now fails clearly rather than invoking the potentially
   hanging `schtasks` fallback if an explicitly password-authenticated daemon

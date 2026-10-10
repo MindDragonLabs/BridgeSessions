@@ -42,6 +42,23 @@ inline bool bs_peer_name_shell_safe(std::string_view name) {
     return true;
 }
 
+// Names in the line-oriented panel contract are intentionally narrower than
+// ordinary AttachMsg names. This prevents spaces, control bytes, separators,
+// and field smuggling from reaching either the local parser or mesh request.
+inline bool session_control_name_valid(std::string_view name) {
+    return bs_peer_name_shell_safe(name);
+}
+
+inline bool session_control_machine_valid(std::string_view machine) {
+    return machine == "." || session_control_name_valid(machine);
+}
+
+// Host OS values are sourced from the existing ServerInfo host-stats JSON.
+// Auto-upgrade dispatch must not guess an asset for an unknown platform.
+inline bool upgrade_platform_supported(std::string_view os) {
+    return os == "windows" || os == "linux" || os == "macos";
+}
+
 inline bool const_time_token_match(std::string_view line, std::string_view token) {
     if (token.empty()) return false;
     const size_t n = token.size();
@@ -214,6 +231,12 @@ enum class MessageType : uint8_t {
     CuaVideoCapture       = 0x2A,  // client → server: {fps, duration, quality, max_width}
     CuaVideoCaptureResult = 0x2B,  // server → client: {status, file_path, duration, width, height, format}
     DirectoryEnroll       = 0x2C,  // bidirectional: signed mesh-directory entry (bootstrap: auto-trust new member)
+    SessionInput          = 0x2D,  // panel → session host: bounded raw input
+    SessionInputReply     = 0x2E,  // session host → panel
+    SessionScrollback     = 0x2F,  // panel → session host: offset read
+    SessionScrollbackReply = 0x30, // session host → panel: actual ring bytes
+    SessionKill           = 0x31,  // panel → session host
+    SessionKillReply      = 0x32,  // session host → panel
 };
 
 // ── Empty Message Structs (must be declared before variant) ──────
@@ -309,6 +332,11 @@ struct SessionInfo {
     std::string name;
     std::string state;  // "attached" | "detached" | "died"
     uint64_t uptime_seconds = 0;
+    // 26.10.04: harness-supplied display title, e.g. the Hermes chat name. This
+    // is PRESENTATION ONLY and is never used as identity: `name` remains the
+    // unique tty-* key used for attach, kill and reattach. Optional trailing
+    // field, so peers older than 26.10.04 simply send nothing and decode to "".
+    std::string title;
 };
 
 struct SessionListMsg {
@@ -326,7 +354,7 @@ struct ServerInfoMsg {
     // Keys: cpu, mem, disk (pct), load, os, arch, ncpu, mem_mb, disk_gb.
     std::string host_stats_json;
     // Optional trailing (v26.09.18+, TODO item 2 mesh sync): reporter's
-    // measured RTT table as compact JSON: {"fecv3":12,"macbook":43}. Values
+    // measured RTT table as compact JSON: {"TEST-PC1":12,"TEST-PC2":43}. Values
     // are the PING/PONG round-trip this node last measured to each peer
     // (Conn::pong_rtt_ms), so every node's gossip contributes its own vantage
     // point. Empty = no data (old peers). Consumers treat it as
@@ -527,6 +555,56 @@ struct SessionSearchMsg {
     bool operator==(const SessionSearchMsg&) const = default;
 };
 
+// BridgePanel session control is existing-session-only: these messages never
+// create or attach a session. They are capability-gated on the authenticated
+// mesh connection and bounded before entering the PTY/ring paths.
+constexpr size_t kSessionControlMaxBytes = 64u * 1024u;
+
+struct SessionInputMsg {
+    uint32_t request_id = 0;
+    std::string session_name;
+    std::string data;
+    bool operator==(const SessionInputMsg&) const = default;
+};
+
+struct SessionInputReplyMsg {
+    uint32_t request_id = 0;
+    bool ok = false;
+    std::string error;
+    bool operator==(const SessionInputReplyMsg&) const = default;
+};
+
+struct SessionScrollbackMsg {
+    uint32_t request_id = 0;
+    std::string session_name;
+    uint64_t offset = 0;
+    uint32_t limit = 0;
+    bool operator==(const SessionScrollbackMsg&) const = default;
+};
+
+struct SessionScrollbackReplyMsg {
+    uint32_t request_id = 0;
+    bool ok = false;
+    uint64_t next_offset = 0;
+    std::string data;
+    bool reset = false;
+    std::string error;
+    bool operator==(const SessionScrollbackReplyMsg&) const = default;
+};
+
+struct SessionKillMsg {
+    uint32_t request_id = 0;
+    std::string session_name;
+    bool operator==(const SessionKillMsg&) const = default;
+};
+
+struct SessionKillReplyMsg {
+    uint32_t request_id = 0;
+    bool ok = false;
+    std::string error;
+    bool operator==(const SessionKillReplyMsg&) const = default;
+};
+
 // ── File Transfer Message Structs (v1.5, P1) ────────────────────
 
 struct FileMetaMsg {
@@ -660,7 +738,13 @@ using Message = std::variant<
     JoinReplyMsg,      // 38 — 2.0.9-alpha5
     CuaVideoCaptureMsg,       // 39 — 2.0.12-alpha5
     CuaVideoCaptureResultMsg, // 40 — 2.0.12-alpha5
-    DirectoryEnrollMsg        // 41 — bootstrap: signed mesh-directory entry
+    DirectoryEnrollMsg,       // 41 — bootstrap: signed mesh-directory entry
+    SessionInputMsg,          // 42 — BridgePanel session control
+    SessionInputReplyMsg,     // 43
+    SessionScrollbackMsg,     // 44
+    SessionScrollbackReplyMsg,// 45
+    SessionKillMsg,           // 46
+    SessionKillReplyMsg       // 47
 >;
 
 // ── Frame ──────────────────────────────────────────────────────────
@@ -692,6 +776,8 @@ inline constexpr std::string_view kCapEnroll = "enroll";
 // (direct get / direct list) and FileMeta trailing src_mtime_unix/direct
 // fields (v26.09.15). Peers without +fcp only ever see legacy frames.
 inline constexpr std::string_view kCapFcp = "fcp";
+// +sessionctl: bounded, existing-session-only BridgePanel control/readback.
+inline constexpr std::string_view kCapSessionControl = "sessionctl";
 
 enum FrameFlags : uint8_t {
     FLAG_COMPRESSED      = 0x01,
@@ -719,7 +805,8 @@ enum FrameFlags : uint8_t {
 
 [[nodiscard]] inline std::string version_string_with_local_caps() {
     return std::string(kBridgeSessionsVersion) + "+" + std::string(kCapFrm2) +
-           "+" + std::string(kCapEnroll) + "+" + std::string(kCapFcp);
+           "+" + std::string(kCapEnroll) + "+" + std::string(kCapFcp) +
+           "+" + std::string(kCapSessionControl);
 }
 
 // Strip capability tags: "26.08.12-beta3+frm2" → "26.08.12-beta3"
@@ -871,7 +958,13 @@ constexpr MessageType index_to_type[] = {
     MessageType::JoinReply,          // 38 — 2.0.9-alpha5
     MessageType::CuaVideoCapture,    // 39 — 2.0.12-alpha5
     MessageType::CuaVideoCaptureResult, // 40 — 2.0.12-alpha5
-    MessageType::DirectoryEnroll      // 41 — bootstrap: signed mesh-directory entry
+    MessageType::DirectoryEnroll,      // 41 — bootstrap: signed mesh-directory entry
+    MessageType::SessionInput,         // 42 — BridgePanel session control
+    MessageType::SessionInputReply,    // 43
+    MessageType::SessionScrollback,    // 44
+    MessageType::SessionScrollbackReply,// 45
+    MessageType::SessionKill,           // 46
+    MessageType::SessionKillReply       // 47
 };
 
 static_assert(std::size(index_to_type) == std::variant_size_v<Message>,
@@ -963,6 +1056,11 @@ void serialize_msg(Serializer& s, const SessionListMsg& m) {
         s.str_prefixed(si.state);
         s.u32be(static_cast<uint32_t>(std::min<uint64_t>(
             si.uptime_seconds, std::numeric_limits<uint32_t>::max())));
+        // 26.10.04: trailing optional title. Written unconditionally (including
+        // as an empty string) so the field is always present on 26.10.04+ peers;
+        // a pre-26.10.04 reader stops after uptime_seconds and ignores the rest,
+        // and a 26.10.04 reader guards on d.ok(2), so both directions are safe.
+        s.str_prefixed(si.title);
     }
 }
 void serialize_msg(Serializer& s, const ServerInfoMsg&   m) {
@@ -1001,6 +1099,34 @@ void serialize_msg(Serializer& s, const GossipMsg&       m) {
 void serialize_msg(Serializer& s, const SessionSearchMsg& m) {
     s.str_prefixed(m.session_name); s.str_prefixed(m.routing);
     s.u16(m.cols); s.u16(m.rows); s.str_prefixed(m.term);
+}
+void serialize_msg(Serializer& s, const SessionInputMsg& m) {
+    if (m.data.size() > kSessionControlMaxBytes)
+        throw std::runtime_error("session input exceeds 64KiB");
+    s.u32be(m.request_id); s.str_prefixed(m.session_name);
+    s.u32be(static_cast<uint32_t>(m.data.size())); s.str(m.data);
+}
+void serialize_msg(Serializer& s, const SessionInputReplyMsg& m) {
+    s.u32be(m.request_id); s.u8(m.ok ? 1 : 0); s.str_prefixed_u16(m.error);
+}
+void serialize_msg(Serializer& s, const SessionScrollbackMsg& m) {
+    if (m.limit > kSessionControlMaxBytes)
+        throw std::runtime_error("session scrollback limit exceeds 64KiB");
+    s.u32be(m.request_id); s.str_prefixed(m.session_name);
+    s.u64be(m.offset); s.u32be(m.limit);
+}
+void serialize_msg(Serializer& s, const SessionScrollbackReplyMsg& m) {
+    if (m.data.size() > kSessionControlMaxBytes)
+        throw std::runtime_error("session scrollback exceeds 64KiB");
+    s.u32be(m.request_id); s.u8(m.ok ? 1 : 0); s.u64be(m.next_offset);
+    s.u8(m.reset ? 1 : 0); s.u32be(static_cast<uint32_t>(m.data.size()));
+    s.str(m.data); s.str_prefixed_u16(m.error);
+}
+void serialize_msg(Serializer& s, const SessionKillMsg& m) {
+    s.u32be(m.request_id); s.str_prefixed(m.session_name);
+}
+void serialize_msg(Serializer& s, const SessionKillReplyMsg& m) {
+    s.u32be(m.request_id); s.u8(m.ok ? 1 : 0); s.str_prefixed_u16(m.error);
 }
 void serialize_msg(Serializer& s, const SdpOfferMsg& m) {
     s.str_prefixed(m.peer_name);
@@ -1321,9 +1447,21 @@ constexpr int kTransferIdleTimeoutSec = 300;
 constexpr int kTransferProgressIntervalSec = 10;
 // How many times direct-TLS send/recv reconnects after a transport error.
 constexpr int kTransferReconnectMax = 12;
-// Default raw chunk size for legacy (u16-only) peers: uncompressible data must
-// still fit MAX_FRAME_PAYLOAD_U16 after framing. With +frm2, prefer large.
-constexpr size_t kTransferChunkRawSizeDefault = 64 * 1024;
+// Default raw chunk size for legacy (u16-only) peers.
+//
+// 26.10.04 fix: this was 64 * 1024, but encode() checks the LOGICAL payload
+// against MAX_FRAME_PAYLOAD_U16 (65535) BEFORE compressing, and the serialized
+// chunk message carries its own header on top of the file bytes. 64 * 1024 is
+// 65536 — one byte past the cap, and more once message overhead is counted — so
+// every `bs file send` of 64 KiB or more against a peer without +frm2 threw
+// "logical payload exceeds frame capacity". The constant is now derived from the
+// cap and checked at compile time, so it cannot drift past the frame limit
+// again. 48 KiB is the value this had before commit 244d49d raised it.
+constexpr size_t kTransferChunkMessageOverhead = 256;  // serialized chunk header
+constexpr size_t kTransferChunkRawSizeDefault =
+    (MAX_FRAME_PAYLOAD_U16 - kTransferChunkMessageOverhead) & ~static_cast<size_t>(0x3FF);
+static_assert(kTransferChunkRawSizeDefault <= MAX_FRAME_PAYLOAD_U16,
+              "legacy transfer chunk must fit a u16 frame");
 constexpr size_t kTransferChunkRawSizeLarge   = 128 * 1024; // frm2 peers
 constexpr size_t kTransferChunkRawSizeMin     = 4 * 1024;
 constexpr size_t kTransferChunkRawSizeMax     = 256 * 1024; // clamp upper
@@ -1750,11 +1888,21 @@ Message decode(std::span<const uint8_t> raw) {
     case 0x07: return DetachMsg{};
     case 0x08: {
         SessionListMsg m;
-        while (d.ok(1)) {
+        // 26.10.04: a record is name(1+len) + state(1+len) + uptime(4), plus the
+        // optional title(1+len). The loop guard used to be d.ok(1), which is only
+        // correct while every field is fixed-width: with a variable-length title
+        // as the last field, the final byte of the title's own length-prefixed
+        // body is misread as "one more record starts here", and the next
+        // str_prefixed() then runs off the end and throws "frame truncated".
+        // Require a complete record header before starting another one.
+        constexpr size_t kSessionListRecordMinBytes = 1 + 1 + 4;
+        while (d.ok(kSessionListRecordMinBytes)) {
             SessionInfo si;
             si.name  = d.str_prefixed();
             si.state = d.str_prefixed();
             si.uptime_seconds = d.u32be();
+            /* title optional (v26.10.04+, str_prefixed). Legacy peers omit it. */
+            si.title = d.ok(2) ? d.str_prefixed() : std::string{};
             m.sessions.push_back(std::move(si));
         }
         return m;
@@ -2052,6 +2200,50 @@ Message decode(std::span<const uint8_t> raw) {
         // Remaining bytes are the fixed 64-byte ed25519 signature.
         const size_t sig_len = static_cast<size_t>(d.end - d.p);
         m.signature = d.bytes_size(sig_len);
+        return m;
+    }
+    case 0x2D: {
+        SessionInputMsg m;
+        m.request_id = d.u32be(); m.session_name = d.str_prefixed();
+        const uint32_t size = d.u32be();
+        if (size > kSessionControlMaxBytes)
+            throw std::runtime_error("session input exceeds 64KiB");
+        m.data = d.str_size(size);
+        return m;
+    }
+    case 0x2E: {
+        SessionInputReplyMsg m;
+        m.request_id = d.u32be(); m.ok = d.u8() != 0;
+        m.error = d.str_prefixed_u16();
+        return m;
+    }
+    case 0x2F: {
+        SessionScrollbackMsg m;
+        m.request_id = d.u32be(); m.session_name = d.str_prefixed();
+        m.offset = d.u64be(); m.limit = d.u32be();
+        if (m.limit > kSessionControlMaxBytes)
+            throw std::runtime_error("session scrollback limit exceeds 64KiB");
+        return m;
+    }
+    case 0x30: {
+        SessionScrollbackReplyMsg m;
+        m.request_id = d.u32be(); m.ok = d.u8() != 0; m.next_offset = d.u64be();
+        m.reset = d.u8() != 0;
+        const uint32_t size = d.u32be();
+        if (size > kSessionControlMaxBytes)
+            throw std::runtime_error("session scrollback exceeds 64KiB");
+        m.data = d.str_size(size); m.error = d.str_prefixed_u16();
+        return m;
+    }
+    case 0x31: {
+        SessionKillMsg m;
+        m.request_id = d.u32be(); m.session_name = d.str_prefixed();
+        return m;
+    }
+    case 0x32: {
+        SessionKillReplyMsg m;
+        m.request_id = d.u32be(); m.ok = d.u8() != 0;
+        m.error = d.str_prefixed_u16();
         return m;
     }
     }

@@ -700,16 +700,15 @@ struct MenuTermGuard {
 
 // Menu frame helpers (26.09.18): width + footer computed per draw so a
 // delete-shrunken row set repaints at the correct geometry.
-static size_t menu_frame_width(const std::vector<std::string>& rows) {
-    size_t width = 0;
-    for (auto& r : rows)
-        width = std::max(width, bs::tui::tui_row_width(r));
-    return std::clamp(width + 2, size_t{24}, size_t{72});
-}
-static std::string menu_frame_footer(bool has_delete) {
-    return bs::tui::menu_footer(has_delete
+// 26.10.04: menu_frame_width moved to bs::tui so it is covered by the geometry
+// tests. It now also fits the title, not just the rows.
+static std::string menu_frame_footer(bool has_delete, size_t cols) {
+    const std::string hint = has_delete
         ? "  ↑/↓ or j/k move · Enter select · d delete · q quit"
-        : "  ↑/↓ or j/k move · Enter select · q quit");
+        : "  ↑/↓ or j/k move · Enter select · q quit";
+    // Truncate to the same width snapshot used by the frame so the footer
+    // never wraps and changes the repaint line count.
+    return bs::tui::menu_footer(bs::tui::tui_truncate(hint, cols));
 }
 
 // Interactive ↑/↓ + Enter selector with charm-style frame rendering.
@@ -726,59 +725,111 @@ size_t arrow_menu_select(const std::vector<std::string>& rows,
     size_t n = rows.size();                       // mutable: deletes shrink it
     size_t sel = 0;
     std::vector<std::string> live = rows;         // the working copy
+    std::vector<size_t> original_indices;
+    for (size_t i = 0; i < n; ++i) original_indices.push_back(i);
+    size_t previous_lines = 0;
+    size_t previous_cols = 0;
+    size_t previous_rows = 0;
+    bool previous_compact = false;
+    bool have_render = false;
+    bool force_full_repaint = false;
     // Frame geometry: box lines + one footer line. Rows are padded/truncated
     // to a fixed width by bs::tui::menu_frame so redraws never reflow.
-    auto draw = [&](bool first, const std::vector<std::string>& rs, size_t s) {
+    auto draw = [&](const std::vector<std::string>& rs, size_t s) {
+        auto [raw_cols, raw_rows] = bs::mesh::get_winsize();
+        const size_t cols = static_cast<size_t>(std::max<uint16_t>(raw_cols, 1));
+        const size_t term_rows = static_cast<size_t>(std::max<uint16_t>(raw_rows, 1));
+        const bool compact = cols < 6 || term_rows < 6;
+        const bool resized = have_render &&
+            (cols != previous_cols || term_rows != previous_rows);
+
+        if (compact) {
+            // A box plus footer cannot fit in a tiny terminal. Keep the menu
+            // to one physical line so cursor-up never clamps at the top after
+            // scrolling. The same cell-aware truncator prevents wrap.
+            std::string compact_label = std::to_string(s + 1) + "/" +
+                std::to_string(rs.size()) + " " + rs[s];
+            if (!title.empty()) compact_label += " · " + title;
+            if (on_delete) compact_label += " [d delete]";
+            compact_label = bs::tui::tui_truncate(compact_label, cols);
+            if (!have_render || resized || !previous_compact || force_full_repaint)
+                std::cout << "\x1b[2J\x1b[H";
+            else
+                std::cout << "\r\x1b[2K";
+            std::cout << "\x1b[7m" << compact_label << "\x1b[0m" << std::flush;
+            previous_lines = 1;
+            previous_cols = cols;
+            previous_rows = term_rows;
+            previous_compact = true;
+            have_render = true;
+            force_full_repaint = false;
+            return;
+        }
+
+        const size_t max_visible = std::max<size_t>(1, term_rows - 5);
+        size_t first_row = (s >= max_visible) ? s - max_visible + 1 : 0;
+        if (first_row + max_visible > rs.size())
+            first_row = rs.size() > max_visible ? rs.size() - max_visible : 0;
+        const size_t last_row = std::min(rs.size(), first_row + max_visible);
+        std::vector<std::string> shown(rs.begin() + static_cast<std::ptrdiff_t>(first_row),
+                                       rs.begin() + static_cast<std::ptrdiff_t>(last_row));
+        const size_t shown_selected = s - first_row;
+        const size_t frame_width = bs::tui::menu_frame_width(rs, cols, title);
+        const size_t frame_lines = shown.size() + 4;
+        const bool full_repaint = !have_render || resized || previous_compact ||
+                                  force_full_repaint || previous_lines != frame_lines;
         // Raw mode is on (OPOST off): every newline must be \r\n or the cursor
         // keeps the previous line's column and the frame shreds diagonally.
-        if (first)
-            std::cout << bs::tui::menu_frame({title.empty() ? " " : title, true},
-                                             rs, s, menu_frame_width(rs)) << "\r\n"
-                      << menu_frame_footer(on_delete != nullptr) << std::flush;
-        else {
-            // Rewind to the top of the frame and repaint it in place.
-            // The \r matters: the previous frame ended on the footer with no
-            // trailing newline, so the cursor sits at the footer's end column.
-            // Cursor-up alone preserves that column and frame 2 would print
-            // mid-line, wrap, and trash the whole menu (observed in a real
-            // PTY capture 2026-09-08).
-            const size_t fl = rs.size() + 4;
-            std::cout << "\x1b[" << fl << "A\r"
-                      << bs::tui::menu_frame({title.empty() ? " " : title, true},
-                                             rs, s, menu_frame_width(rs)) << "\r\n"
-                      << menu_frame_footer(on_delete != nullptr) << std::flush;
-        }
+        if (full_repaint) std::cout << "\x1b[2J\x1b[H";
+        else if (!full_repaint) std::cout << "\x1b[" << previous_lines << "A\r";
+        std::cout << bs::tui::menu_frame({title.empty() ? " " : title, true},
+                                             shown, shown_selected, frame_width) << "\r\n"
+                      << menu_frame_footer(on_delete != nullptr, cols) << std::flush;
+        previous_lines = frame_lines; // cursor is on footer, this far below top
+        previous_cols = cols;
+        previous_rows = term_rows;
+        previous_compact = false;
+        have_render = true;
+        force_full_repaint = false;
     };
-    draw(true, live, sel);
+    draw(live, sel);
     for (;;) {
-        int c = menu_read_byte();
+        int c = menu_read_byte_timeout(100);
+        if (c == -2) {
+            auto [cols, term_rows] = bs::mesh::get_winsize();
+            if (std::max<uint16_t>(cols, 1) != previous_cols ||
+                std::max<uint16_t>(term_rows, 1) != previous_rows) draw(live, sel);
+            continue;
+        }
         if (c < 0) return 0;                              // EOF
         if (c == 3 || c == 'q' || c == 'Q') return 0;     // Ctrl-C / q = cancel
-        if (c == '\r' || c == '\n') return sel + 1;       // Enter
+        if (c == '\r' || c == '\n') return original_indices[sel] + 1;
         if ((c == 'd' || c == 'D') && on_delete) {
-            if (on_delete(sel + 1)) {
+            if (on_delete(original_indices[sel] + 1)) {
                 live.erase(live.begin() + static_cast<std::ptrdiff_t>(sel));
+                original_indices.erase(original_indices.begin() + static_cast<std::ptrdiff_t>(sel));
                 if (live.empty()) return 0;
                 if (sel >= live.size()) sel = live.size() - 1;
                 n = live.size();
-                // Full repaint from a clean slate: the frame shrank by one
-                // line, so an in-place rewind would leave a stale bottom row.
-                std::cout << "\x1b[" << (n + 5) << "B\r\x1b[J"; // park below, clear
-                draw(true, live, sel);
+                // The row count and viewport may both change. A clean repaint
+                // avoids stale rows and remains correct after a resize.
+                force_full_repaint = true;
+                draw(live, sel);
             }
+            else { force_full_repaint = true; draw(live, sel); }
             continue;
         }
-        if (c == 'k' && sel > 0) { --sel; draw(false, live, sel); continue; }
-        if (c == 'j' && sel + 1 < n) { ++sel; draw(false, live, sel); continue; }
+        if (c == 'k' && sel > 0) { --sel; draw(live, sel); continue; }
+        if (c == 'j' && sel + 1 < n) { ++sel; draw(live, sel); continue; }
         if (c == 0x1b) {                                  // ESC: arrow or cancel
             int c2 = menu_read_byte_timeout(80);
             if (c2 == -2 || c2 == 0x1b) return 0;         // bare Esc = cancel
             if (c2 != '[' && c2 != 'O') continue;
             int c3 = menu_read_byte_timeout(80);
-            if (c3 == 'A' && sel > 0) { --sel; draw(false, live, sel); }
-            else if (c3 == 'B' && sel + 1 < n) { ++sel; draw(false, live, sel); }
-            else if (c3 == 'H') { sel = 0; draw(false, live, sel); }
-            else if (c3 == 'F') { sel = n - 1; draw(false, live, sel); }
+            if (c3 == 'A' && sel > 0) { --sel; draw(live, sel); }
+            else if (c3 == 'B' && sel + 1 < n) { ++sel; draw(live, sel); }
+            else if (c3 == 'H') { sel = 0; draw(live, sel); }
+            else if (c3 == 'F') { sel = n - 1; draw(live, sel); }
         }
     }
 }
@@ -788,8 +839,7 @@ size_t arrow_menu_select(const std::vector<std::string>& rows,
 int connect_menu_pick(const std::string& title,
                       const std::vector<std::string>& row_labels) {
     if (bs::mesh::stdin_is_terminal() && stdout_is_terminal()) {
-        std::cout << "\n" << title << "  (↑/↓ move, Enter select, q cancel)\n";
-        return static_cast<int>(arrow_menu_select(row_labels));
+        return static_cast<int>(arrow_menu_select(row_labels, title));
     }
     std::cout << "\n" << title << "\n";
     for (size_t i = 0; i < row_labels.size(); ++i)
@@ -3013,12 +3063,13 @@ int bridgesessions_main(int argc, char** argv) {
             // Strip the mesh-session markers in the child: re-execing would
             // re-enter upgrade_in_mesh_session() and recurse. Detached
             // upgrade must look like a standalone process.
-            std::string reexec = "env -u BS_SESSION -u BS_SESSION_ID setsid sh -c \"'"
-                + self_exe + "' upgrade";
-            if (!upgrade_tag.empty()) reexec += " --tag '" + upgrade_tag + "'";
-            if (allow_downgrade) reexec += " --allow-downgrade";
-            reexec += " >>'" + upg_log + "' 2>&1 </dev/null'\"";
-            if (std::system(reexec.c_str()) == 0) {
+            auto reexec = bs::mesh::detached_upgrade_command(
+                self_exe, upg_log, upgrade_tag, allow_downgrade);
+            if (!reexec) {
+                std::cerr << "upgrade: invalid tag — only [A-Za-z0-9._-] allowed\n";
+                return 1;
+            }
+            if (std::system(reexec->c_str()) == 0) {
                 std::cout << "→ Detaching upgrade from this session (daemon carrier).\n"
                           << "  Log: " << upg_log << "\n"
                           << "  This shell will drop when the daemon stops — the\n"

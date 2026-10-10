@@ -280,10 +280,12 @@ run_ctest() {
     # flake under ctest's parallel scheduling on loaded runners. Run the
     # latency-sensitive panel tests serially in a second ctest invocation
     # (until-pass retries already cover the rest of the suite).
+    # Bound tests without an explicit CMake TIMEOUT property; explicit longer
+    # budgets (such as the PTY suite) still take precedence over this default.
     run ctest --test-dir "${build_dir}" --output-on-failure \
-        --parallel "${jobs}" --repeat until-pass:3 -E '^panel_'
+        --parallel "${jobs}" --timeout 120 --repeat until-pass:3 -E '^panel_'
     run ctest --test-dir "${build_dir}" --output-on-failure \
-        --repeat until-pass:3 -R '^panel_'
+        --timeout 120 --repeat until-pass:3 -R '^panel_'
 }
 
 # Stage one binary into OUT_DIR with a tidy, release-ready name.
@@ -605,6 +607,10 @@ Or install a newer mingw-w64 on this host."
         -DBS_DEPS_MODE=fetch
         -DBS_OPENSSL=system
         -DBUILD_TESTING=OFF)
+    local a
+    for a in "${EXTRA_CMAKE_ARGS[@]:-}"; do
+        [[ -n "${a}" ]] && args+=("${a}")
+    done
     log "configure windows (mingw-w64, static)"
     run cmake "${args[@]}"
     log "build windows"

@@ -77,7 +77,7 @@ struct MeshConfig {
     bool auto_upgrade = true;
     // Which node owns auto-upgrade dispatch. Empty = legacy behavior (any node
     // with a newer binary upgrades stale peers). Set to a node name (e.g.
-    // "fecv3") so exactly one designated node dispatches; everyone else just
+    // "linux-build") so exactly one designated node dispatches; everyone else just
     // logs. Prevents a fleet from hammering a stale peer with concurrent
     // upgrade-restarts from every healthy node at once.
     std::string auto_upgrade_origin;
@@ -704,6 +704,16 @@ inline void shell_signal_cleanup_handler(int sig) noexcept {
     const std::string& alias,
     const std::string& expanded_ssh_config) {
     std::string hostname = parse_ssh_g_hostname(expanded_ssh_config);
+    // `ssh -G <name>` exits 0 even when <name> matches no Host block, and in
+    // that case it echoes the query back as `hostname <name>`. Treating that
+    // echo as a real alias turns every BridgeSessions peer whose name is not
+    // also an SSH alias into the bogus address "<peer>:19949", overwriting a
+    // working seed and making resolve_addr() hand a non-numeric host to
+    // getaddrinfo — "DNS resolution failed for '<peer>'" on the bare
+    // `bs <peer>` path, while `bs shell <peer>` still works because it does not
+    // go through here. A genuine alias always resolves to a DIFFERENT name, so
+    // an echo is proof the alias is not configured, not a resolved address.
+    if (!hostname.empty() && config_peer_name_eq(hostname, alias)) hostname.clear();
     std::string resolved_addr = hostname.empty() ? std::string{} : hostname + ":19949";
 
     auto refresh_existing = [&](std::vector<PeerEntry>& peers) {

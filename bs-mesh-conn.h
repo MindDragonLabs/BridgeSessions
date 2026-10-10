@@ -182,6 +182,39 @@ public:
                (output.empty() || output == "direct TLS required");
     }
 
+    static std::chrono::seconds auto_upgrade_cooldown(int attempts, int ceiling) {
+        return std::chrono::seconds(attempts >= 3 ? std::max(60, ceiling)
+                                   : attempts >= 2 ? 300 : 60);
+    }
+
+    static bool auto_upgrade_dispatch_allowed(const MeshConfig& config,
+                                              std::string_view peer,
+                                              std::string_view version,
+                                              std::string_view os) {
+        return config.auto_upgrade && upgrade_platform_supported(os) &&
+               (config.auto_upgrade_origin.empty() ||
+                config.auto_upgrade_origin == config.node_name) &&
+               !peer.empty() && peer != config.node_name &&
+               bs_peer_name_shell_safe(peer) &&
+               version_is_older(version, kBridgeSessionsVersion);
+    }
+
+    // Read-only views of the tie-break clock. The accept window itself stays
+    // private and is not shortened. Harnesses derive their wait from these
+    // so they cannot drift behind should_defer_outbound_for().
+    [[nodiscard]] static constexpr int tie_break_accept_window_ms() noexcept {
+        return kTieBreakAcceptWindowMs;
+    }
+    // Milliseconds a larger pubkey refuses to dial: the initial accept
+    // window plus each exponential extension (window << n), n = 1..max.
+    // One probe dial is allowed only after this quiet period.
+    [[nodiscard]] static constexpr int tie_break_outbound_quiet_ms() noexcept {
+        int quiet = kTieBreakAcceptWindowMs;
+        for (int ext = 1; ext <= kTieBreakMaxExtends; ++ext)
+            quiet += kTieBreakAcceptWindowMs << ext;
+        return quiet;
+    }
+
 #ifdef BS_TESTING
     void close_conn_for_test(Conn& conn) { (void)close_conn(conn); }
 
@@ -453,6 +486,25 @@ private:
     SOCKET cli_listen_fd_ = INVALID_SOCKET;
     std::string ipc_token_;
     std::string ipc_token_path_;
+
+    // A loopback panel request may need an asynchronous mesh reply. The IPC
+    // accept path hands ownership of the socket to this bounded list; the
+    // event loop later completes or times it out after the authenticated mesh
+    // response arrives. Peer key, connection timestamp, and operation kind
+    // prevent a replacement transport or wrong reply from completing a request.
+    struct PendingSessionIpc {
+        SOCKET ipc_fd = INVALID_SOCKET;
+        uint32_t request_id = 0;
+        std::string peer_name;
+        std::string peer_pubkey;
+        std::chrono::steady_clock::time_point connected_at{};
+        MessageType request_type = MessageType::SessionInput;
+        std::chrono::steady_clock::time_point deadline{};
+    };
+    std::vector<PendingSessionIpc> pending_session_ipc_;
+    uint32_t next_session_control_request_id_ = 1;
+    static constexpr size_t kMaxPendingSessionIpc = 32;
+    static constexpr int kSessionIpcTimeoutMs = 2000;
 
     // D15: WebRTC transport
 #ifndef BS_NO_WEBRTC
@@ -1387,7 +1439,10 @@ private:
             }
         }
 
-        maybe_schedule_auto_upgrade(hello.node_name, hello.version);
+        // Auto-upgrade waits for the authenticated peer's existing
+        // ServerInfo host-stats metadata. Hello intentionally remains wire
+        // compatible with older peers; an unknown OS is fail-safe (no asset
+        // is guessed or dispatched).
 
         // Handshake object will be erased; mark fd moved so ssl_close isn't called twice.
         ph.sock_fd = INVALID_SOCKET;
@@ -1396,11 +1451,19 @@ private:
 
     // If peer is behind us, fire-and-forget a remote `bridgesessions upgrade`
     // so hosts that were offline during a fleet cut catch up when they return.
-    void maybe_schedule_auto_upgrade(const std::string& peer, const std::string& remote_ver) {
+    void maybe_schedule_auto_upgrade(const std::string& peer,
+                                     const std::string& remote_ver,
+                                     const std::string& remote_os) {
         if (!config_.auto_upgrade) return;
+        if (!upgrade_platform_supported(remote_os)) {
+            log_event("auto_upgrade_rejected",
+                      peer + " unsupported or unknown platform=" +
+                      (remote_os.empty() ? std::string("unknown") : remote_os));
+            return;
+        }
         // Designated upgrader: when mesh.auto_upgrade_origin names a node, only
         // that node dispatches upgrades fleet-wide. Every other node (e.g. a
-        // user's laptop or macmini spoke) stays passive so a stale-advertising
+        // user's laptop or mac-desktop spoke) stays passive so a stale-advertising
         // peer isn't restarted from N healthy nodes at once.
         if (!config_.auto_upgrade_origin.empty() &&
             config_.auto_upgrade_origin != config_.node_name) {
@@ -1416,21 +1479,19 @@ private:
             return;
         }
         if (!version_is_older(remote_ver, kBridgeSessionsVersion)) return;
+        if (!auto_upgrade_dispatch_allowed(config_, peer, remote_ver, remote_os)) return;
         const auto now = std::chrono::steady_clock::now();
         // 60s -> 5m -> configured-cool ceiling, doubled per consecutive
         // failed dispatch. Reset on success (auto_upgrade_complete rc==0).
         const int attempts = auto_upgrade_attempts_[peer];
-        const long base_cool = std::max(60L, (long)config_.auto_upgrade_cooldown_secs);
-        long cool_secs = 60;
-        if (attempts >= 2) cool_secs = 300;
-        if (attempts >= 3) cool_secs = base_cool;
-        const auto cooldown = std::chrono::seconds(cool_secs);
+        const auto cooldown = auto_upgrade_cooldown(attempts, config_.auto_upgrade_cooldown_secs);
         auto it = auto_upgrade_last_.find(peer);
         if (it != auto_upgrade_last_.end() && now - it->second < cooldown) return;
         auto_upgrade_last_[peer] = now;
         auto_upgrade_attempts_[peer] = attempts + 1;
         log_event("auto_upgrade_dispatch",
                   peer + " remote=" + remote_ver +
+                  " platform=" + remote_os +
                   " local=" + std::string(kBridgeSessionsVersion));
         // Use the bounded, joinable long-operation pool instead of spawning an
         // unbounded detached thread for every returning peer.

@@ -262,8 +262,8 @@ TEST_CASE("Restart signal preserves replacement command and generation",
     MeshController mc(cfg);
 
 #ifdef _WIN32
-    const std::string initial = "cmd.exe";
-    const std::string replacement = "cmd.exe /Q";
+    const std::string initial = "cmd.exe /D /Q /K";
+    const std::string replacement = "cmd.exe /D /Q /K";
 #else
     const std::string initial = "sleep 30";
     const std::string replacement = "sleep 31";
@@ -289,6 +289,33 @@ TEST_CASE("Restart signal preserves replacement command and generation",
     REQUIRE(s->is_valid());
     REQUIRE(s->generation > old_generation);
     REQUIRE(s->command == expected_replacement);
+#ifdef _WIN32
+    REQUIRE(s->job_handle != nullptr);
+    REQUIRE(WaitForSingleObject(s->child_pid, 250) == WAIT_TIMEOUT);
+    const std::string input = "set BS_RESTART_SUFFIX=INPUT_READBACK\r\n"
+                              "echo RESTART_%BS_RESTART_SUFFIX%\r\n";
+    DWORD written = 0;
+    REQUIRE(WriteFile(s->write_handle, input.data(),
+                      static_cast<DWORD>(input.size()), &written, nullptr));
+    REQUIRE(written == input.size());
+    std::string output;
+    const auto deadline = std::chrono::steady_clock::now() +
+                          std::chrono::seconds(5);
+    while (std::chrono::steady_clock::now() < deadline &&
+           output.find("RESTART_INPUT_READBACK") == std::string::npos) {
+        DWORD available = 0;
+        if (PeekNamedPipe(s->master_fd, nullptr, 0, nullptr, &available,
+                          nullptr) && available > 0) {
+            std::string chunk(available, '\0');
+            DWORD count = 0;
+            REQUIRE(ReadFile(s->master_fd, chunk.data(), available, &count,
+                             nullptr));
+            output.append(chunk.data(), count);
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    REQUIRE(output.find("RESTART_INPUT_READBACK") != std::string::npos);
+#endif
 }
 
 // ── Test 6: pty_output_poller exercises the poll path ─────────────────

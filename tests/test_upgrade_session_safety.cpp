@@ -65,6 +65,57 @@ TEST_CASE("upgrade refuses to run inside a mesh session", "[audit][upgrade][p2]"
     unset_test_session_env();
 }
 
+#ifdef __linux__
+TEST_CASE("detached upgrade executes with literal paths and no mesh markers", "[upgrade][detach]") {
+    char dir[] = "/tmp/bs-upgrade-command-XXXXXX";
+    REQUIRE(::mkdtemp(dir) != nullptr);
+    const std::filesystem::path root(dir);
+    struct Cleanup {
+        std::filesystem::path root;
+        ~Cleanup() { std::error_code ec; std::filesystem::remove_all(root, ec); }
+    } cleanup{root};
+    // These characters are valid in filenames but must never be evaluated
+    // as shell syntax by either of the two shells in the detach path.
+    const auto executable = root / "updater ' $(touch INJECTED)";
+    const auto log = root / "upgrade ' $(touch INJECTED).log";
+    {
+        std::ofstream script(executable);
+        script << "#!/bin/sh\n"
+               << "test -z \"${BS_SESSION+x}\" && test -z \"${BS_SESSION_ID+x}\" || exit 31\n"
+               << "printf '%s\\n' \"$@\"\n"
+               << "read ignored && exit 32\n"
+               << "exit 0\n";
+    }
+    REQUIRE(::chmod(executable.c_str(), 0700) == 0);
+    const char* old_session = std::getenv("BS_SESSION");
+    const char* old_id = std::getenv("BS_SESSION_ID");
+    const std::optional<std::string> saved_session = old_session ? std::optional<std::string>(old_session) : std::nullopt;
+    const std::optional<std::string> saved_id = old_id ? std::optional<std::string>(old_id) : std::nullopt;
+    struct Restore {
+        std::optional<std::string> session, id;
+        ~Restore() {
+            if (session) ::setenv("BS_SESSION", session->c_str(), 1); else ::unsetenv("BS_SESSION");
+            if (id) ::setenv("BS_SESSION_ID", id->c_str(), 1); else ::unsetenv("BS_SESSION_ID");
+        }
+    } restore{saved_session, saved_id};
+    ::setenv("BS_SESSION", "1", 1);
+    ::setenv("BS_SESSION_ID", "carrier", 1);
+    auto command = bs::mesh::detached_upgrade_command(executable.string(), log.string(), "v26.10.05", true);
+    REQUIRE(command.has_value());
+    // Run in the temporary directory so any accidental substitution is visible.
+    REQUIRE(std::system(("cd " + bs::mesh::shell_arg_quote(root.string()) + " && " + *command).c_str()) == 0);
+    std::ifstream result(log);
+    const std::string output((std::istreambuf_iterator<char>(result)), {});
+    REQUIRE(output == "upgrade\n--tag\nv26.10.05\n--allow-downgrade\n");
+    REQUIRE_FALSE(std::filesystem::exists(root / "INJECTED"));
+}
+
+TEST_CASE("detached upgrade rejects tags before constructing a shell command", "[upgrade][detach]") {
+    REQUIRE_FALSE(bs::mesh::detached_upgrade_command("/bin/true", "/tmp/log", "bad'$(touch INJECTED)", false));
+    REQUIRE(bs::mesh::detached_upgrade_command("/bin/true", "/tmp/log", "", false));
+}
+#endif
+
 int main(int argc, char* argv[]) {
     return Catch::Session().run(argc, argv);
 }

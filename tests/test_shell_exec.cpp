@@ -32,6 +32,9 @@ struct WsaInit { WsaInit() { WSADATA d; WSAStartup(MAKEWORD(2,2), &d); } ~WsaIni
 #include <thread>
 #include <atomic>
 #include <chrono>
+#include <fstream>
+#include <filesystem>
+#include <cstdlib>
 
 using namespace bs::mesh;
 
@@ -575,4 +578,93 @@ TEST_CASE("MeshConfig defaults for daemon", "[shell]") {
     // gossip_interval_secs should be settable
     c.gossip_interval_secs = 60;
     REQUIRE(c.gossip_interval_secs == 60);
+}
+
+
+TEST_CASE("session command runs through a login shell (user PATH honored)",
+          "[shell][login-path]") {
+#ifndef _WIN32
+    namespace fs = std::filesystem;
+    char pattern[] = "/tmp/bs-login-profile-XXXXXX";
+    const char* made = ::mkdtemp(pattern);
+    REQUIRE(made != nullptr);
+    const std::string tmp = made;
+    const char* home = std::getenv("HOME");
+    const char* path = std::getenv("PATH");
+    struct EnvironmentGuard {
+        bool had_home, had_path;
+        std::string home, path, tmp;
+        ~EnvironmentGuard() {
+            if (had_home) setenv("HOME", home.c_str(), 1); else unsetenv("HOME");
+            if (had_path) setenv("PATH", path.c_str(), 1); else unsetenv("PATH");
+            std::error_code ec;
+            fs::remove_all(tmp, ec);
+        }
+    } guard{home != nullptr, path != nullptr, home ? home : "", path ? path : "", tmp};
+    fs::create_directory(tmp + "/bin");
+    {
+        std::ofstream profile(tmp + "/.profile");
+        profile << "export PATH='" << tmp << "/bin':/usr/bin:/bin\n"
+                << "export BS_LOGIN_SENTINEL=bs-login-ok\n"
+                << "printf 'PROFILE_STDOUT\\n'\n"
+                << "printf 'PROFILE_STDERR\\n' >&2\n";
+        REQUIRE(profile.good());
+        std::ofstream probe(tmp + "/bin/bs-login-probe");
+        probe << "#!/bin/sh\nprintf 'PROBE_STDOUT\\n'\n"
+                 "printf 'PROBE_STDERR\\n' >&2\nexit 23\n";
+        REQUIRE(probe.good());
+    }
+    fs::permissions(tmp + "/bin/bs-login-probe", fs::perms::owner_all);
+    // Set the environment before any session/identity infrastructure exists.
+    // Direct PTY creation needs neither a mesh socket nor an operator identity.
+    setenv("HOME", tmp.c_str(), 1);
+    setenv("PATH", "/usr/bin:/bin", 1);
+    std::string command;
+    int expected_status = 0;
+    std::vector<std::string> expected{"PROFILE_STDOUT", "PROFILE_STDERR"};
+    SECTION("minimal PATH discovers the profile tool and exports its environment") {
+        command = "printf 'SENTINEL=%s\\n' \"$BS_LOGIN_SENTINEL\"; "
+                  "printf 'SESSION=%s\\n' \"$BS_SESSION\"; bs-login-probe";
+        expected.insert(expected.end(), {"PROBE_STDOUT", "PROBE_STDERR", "SENTINEL=bs-login-ok", "SESSION=1"});
+        expected_status = 23;
+    }
+    SECTION("missing command preserves diagnostic and status") {
+        command = "bs-nonexistent-login-test-command";
+        expected.push_back("bs-nonexistent-login-test-command");
+        expected_status = 127;
+    }
+    SECTION("explicit operator PATH and exit status are preserved") {
+        command = "PATH=/bin; export PATH; printf 'OPERATOR_PATH=%s\\n' \"$PATH\"; exit 19";
+        expected.push_back("OPERATOR_PATH=/bin");
+        expected_status = 19;
+    }
+    auto result = create_session("login-path-test", command, 80, 24, "xterm-256color");
+    REQUIRE(result.has_value());
+    auto& session = *result;
+    std::string output;
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (std::chrono::steady_clock::now() < deadline) {
+        char bytes[4096];
+        const ssize_t count = ::read(session.master_fd, bytes, sizeof(bytes));
+        if (count > 0) output.append(bytes, static_cast<size_t>(count));
+        else if (count == 0 || (count < 0 && errno == EIO)) break;
+        else if (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR) FAIL("PTY read failed");
+        else std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    int status = 0;
+    pid_t reaped = 0;
+    while (std::chrono::steady_clock::now() < deadline) {
+        reaped = ::waitpid(session.child_pid, &status, WNOHANG);
+        if (reaped != 0) break;
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    REQUIRE(reaped == session.child_pid);
+    session.child_pid = -1; // already reaped; destructor only closes the PTY
+    REQUIRE(WIFEXITED(status));
+    REQUIRE(WEXITSTATUS(status) == expected_status);
+    for (const auto& marker : expected) REQUIRE(output.find(marker) != std::string::npos);
+#else
+    // The POSIX login path does not change the Windows command launcher.
+    REQUIRE(true);
+#endif
 }

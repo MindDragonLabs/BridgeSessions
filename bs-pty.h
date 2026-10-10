@@ -261,6 +261,12 @@ inline void assign_to_kill_job(HANDLE job, HANDLE child) {
     // Set up STARTUPINFOEX for the child process
     STARTUPINFOEXW siEx{};
     siEx.StartupInfo.cb = sizeof(siEx);
+    // Explicit null standard handles make Windows connect the child to its
+    // pseudoconsole even when the daemon's streams are redirected to NUL or
+    // log files. Otherwise non-console handles can leak past the ConPTY
+    // attribute: CMD sees EOF and PowerShell output bypasses the terminal.
+    // https://github.com/microsoft/terminal/discussions/15814
+    siEx.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
 
     // Add the ConPTY to the process attribute list.
     SIZE_T attrSize = 0;
@@ -435,7 +441,14 @@ inline void close_nonstdio_fds_before_exec() {
         }
         // Close inherited daemon FDs before exec.
         close_nonstdio_fds_before_exec();
-        execl("/bin/sh", "sh", "-c", command.c_str(), nullptr);
+        // -l (login shell): the daemon inherits a minimal PATH from
+        // systemd/launchd (/usr/local/bin:/usr/bin) that omits the user's
+        // ~/.local/bin, ~/.hermes/bin, etc. Harness commands (e.g.
+        // `hermes --tui --yolo`) therefore failed with "command not found".
+        // A login shell sources /etc/profile and ~/.profile, restoring the
+        // PATH the user actually gets in an interactive shell (same convention
+        // as tmux/screen/SSH).
+        execl("/bin/sh", "sh", "-l", "-c", command.c_str(), nullptr);
         _exit(127);
     }
     const int master_flags = fcntl(master_fd, F_GETFL, 0);

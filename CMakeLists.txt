@@ -59,6 +59,24 @@ endif()
 # See cmake/Dependencies.cmake for BS_DEPS_MODE / BS_OPENSSL / BS_STATIC_DEPS.
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/Dependencies.cmake)
 
+# Build the shared native client through the same pinned dependencies and
+# canonical build.sh entry point as the daemon. Platform shells are selected
+# by the native subdirectory; this option never installs or deploys them.
+option(BS_BUILD_NATIVE "Build shared native client and supported platform shell" OFF)
+if(BS_BUILD_NATIVE)
+    # In-tree native/ is the merged layout. This lane still keeps the client
+    # sources in the sibling checkout (candidate/26.10.03-native).
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/native/CMakeLists.txt")
+        add_subdirectory(native)
+    elseif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../native/native/CMakeLists.txt")
+        add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../native/native"
+                         "${CMAKE_CURRENT_BINARY_DIR}/native")
+    else()
+        message(FATAL_ERROR
+            "BS_BUILD_NATIVE=ON but native/CMakeLists.txt was not found")
+    endif()
+endif()
+
 # ── Core library (header-only) + binary ──────────────────────────
 add_executable(bridgesessions main.cpp
     bs-protocol.h
@@ -186,6 +204,10 @@ if(BUILD_TESTING)
 # Without CONFIGURE_DEPENDS, an existing build can expose stale *_NOT_BUILT
 # CTest entries until the developer manually re-runs CMake.
 file(GLOB TEST_SOURCES CONFIGURE_DEPENDS "tests/*.cpp")
+if(NOT WIN32)
+    list(APPEND TEST_SOURCES
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/e2e/panel_session_acceptance.cpp")
+endif()
 include(Catch)
 foreach(TEST_SRC ${TEST_SOURCES})
     get_filename_component(TEST_NAME ${TEST_SRC} NAME_WE)
@@ -246,7 +268,16 @@ foreach(TEST_SRC ${TEST_SOURCES})
     # them unless a Windows emulator is configured; defer discovery to native
     # Windows CI/runtime in that case.
     if(NOT CMAKE_CROSSCOMPILING)
-        if(TEST_NAME STREQUAL "test_mesh" OR
+        if(TEST_NAME STREQUAL "test_panel_session_control")
+            add_test(NAME test_panel_session_control COMMAND test_panel_session_control)
+        elseif(TEST_NAME STREQUAL "panel_session_acceptance")
+            add_dependencies(${TEST_NAME} bridgesessions)
+            add_test(NAME panel_session_acceptance
+                COMMAND panel_session_acceptance $<TARGET_FILE:bridgesessions>)
+            set_tests_properties(panel_session_acceptance PROPERTIES
+                RESOURCE_LOCK bridgesessions_ipc
+                TIMEOUT 120)
+        elseif(TEST_NAME STREQUAL "test_mesh" OR
            TEST_NAME STREQUAL "test_mesh_responsiveness")
             catch_discover_tests(${TEST_NAME}
                 PROPERTIES RESOURCE_LOCK bridgesessions_ipc)
@@ -261,41 +292,112 @@ foreach(TEST_SRC ${TEST_SOURCES})
 endforeach()
 
 # ── Python release-engineering tests ─────────────────────────────────
-# Use the PATH-resolved python3 so the test runs with the interpreter that
-# actually has pytest, rather than whichever version CMake found first.
-find_program(BRIDGESESSIONS_PYTHON python3)
+# Prefer an interpreter that can actually import pytest. Search PATH python3,
+# then common uv/venv interpreters before skipping pytest-based tests.
+# Re-resolve on each configure so activating/installing a test venv changes the
+# interpreter CMake uses instead of leaving a cached, incomplete system Python.
+unset(BRIDGESESSIONS_PYTHON3 CACHE)
+find_program(BRIDGESESSIONS_PYTHON3 python3 NO_CACHE)
+if(UNIX AND BRIDGESESSIONS_PYTHON3)
+    # BridgePanel's stdlib unittest suites are independent of pytest. Register
+    # them even when pytest is missing so auth and HTTP regressions never vanish
+    # from the default CTest run.
+    foreach(_panel_suite IN ITEMS auth v1 chat_adapters bridgepanel cache lang ops volumes)
+        add_test(NAME panel_unittest_${_panel_suite}
+            COMMAND "${BRIDGESESSIONS_PYTHON3}" -m unittest
+                "bridgepanel.test_${_panel_suite}")
+        set_tests_properties(panel_unittest_${_panel_suite} PROPERTIES
+            ENVIRONMENT "PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}/tools")
+    endforeach()
+endif()
+
+if(UNIX AND BRIDGESESSIONS_PYTHON3)
+    # PTY acceptance uses only the standard library; pytest availability must
+    # not decide whether the built CLI's terminal behavior is exercised.
+    add_test(NAME tui_pty
+        COMMAND ${BRIDGESESSIONS_PYTHON3}
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_tui_pty.py"
+            "$<TARGET_FILE:bridgesessions>")
+    set_tests_properties(tui_pty PROPERTIES
+        ENVIRONMENT "PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR};BRIDGESESSIONS_BINARY=$<TARGET_FILE:bridgesessions>"
+        TIMEOUT 300)
+endif()
+set(BRIDGESESSIONS_PYTHON_CANDIDATES "")
+if(BRIDGESESSIONS_PYTHON3)
+    list(APPEND BRIDGESESSIONS_PYTHON_CANDIDATES "${BRIDGESESSIONS_PYTHON3}")
+endif()
+file(GLOB BRIDGESESSIONS_VENV_PYTHONS
+    "$ENV{HOME}/.venv/bin/python"
+    "$ENV{HOME}/venv/bin/python"
+    "${CMAKE_CURRENT_SOURCE_DIR}/.venv/bin/python"
+    "${CMAKE_CURRENT_BINARY_DIR}/.venv/bin/python")
+list(APPEND BRIDGESESSIONS_PYTHON_CANDIDATES ${BRIDGESESSIONS_VENV_PYTHONS})
+set(BRIDGESESSIONS_PYTHON "")
+set(BRIDGESESSIONS_PYTHON_TRIED "")
+foreach(_python IN LISTS BRIDGESESSIONS_PYTHON_CANDIDATES)
+    if(EXISTS "${_python}")
+        list(APPEND BRIDGESESSIONS_PYTHON_TRIED "${_python}")
+        execute_process(COMMAND "${_python}" -c "import pytest; import pytest_timeout"
+            RESULT_VARIABLE _pytest_result OUTPUT_QUIET ERROR_QUIET)
+        if(_pytest_result EQUAL 0)
+            set(BRIDGESESSIONS_PYTHON "${_python}")
+            break()
+        endif()
+    endif()
+endforeach()
 if(BRIDGESESSIONS_PYTHON)
-    execute_process(
-        COMMAND ${BRIDGESESSIONS_PYTHON} -c "import pytest"
-        RESULT_VARIABLE BRIDGESESSIONS_PYTEST_AVAILABLE
-        OUTPUT_QUIET ERROR_QUIET)
-    if(BRIDGESESSIONS_PYTEST_AVAILABLE EQUAL 0)
-        add_test(NAME release_python_tests
+    add_test(NAME release_python_tests
             COMMAND ${BRIDGESESSIONS_PYTHON} -m pytest
                 "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_release.py"
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_fleet_sessions.py"
                 "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_install_script.py"
                 "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_regression_install.py" -v)
-        set_tests_properties(release_python_tests PROPERTIES
+    set_tests_properties(release_python_tests PROPERTIES
             ENVIRONMENT "PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}")
-        # Panel tests: typing latency, chained relay, daemon restart disconnect
-        add_test(NAME panel_typing_latency
+    # Panel tests: typing latency, chained relay, daemon restart disconnect
+    add_test(NAME panel_typing_latency
             COMMAND ${BRIDGESESSIONS_PYTHON} -m pytest
                 "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_typing_latency.py" -v
                 --timeout=60)
-        set_tests_properties(panel_typing_latency PROPERTIES
+    set_tests_properties(panel_typing_latency PROPERTIES
             ENVIRONMENT "PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR};BRIDGESESSIONS_BINARY=$<TARGET_FILE:bridgesessions>")
-        add_test(NAME panel_chained_relay
+    add_test(NAME panel_chained_relay
             COMMAND ${BRIDGESESSIONS_PYTHON} -m pytest
                 "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_chained_relay.py" -v
                 --timeout=120)
-        set_tests_properties(panel_chained_relay PROPERTIES
+    set_tests_properties(panel_chained_relay PROPERTIES
             ENVIRONMENT "PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR};BRIDGESESSIONS_BINARY=$<TARGET_FILE:bridgesessions>")
-        add_test(NAME panel_daemon_restart_disconnect
+    add_test(NAME panel_daemon_restart_disconnect
             COMMAND ${BRIDGESESSIONS_PYTHON} -m pytest
                 "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_daemon_restart_disconnect.py" -v
                 --timeout=60)
-        set_tests_properties(panel_daemon_restart_disconnect PROPERTIES
+    set_tests_properties(panel_daemon_restart_disconnect PROPERTIES
             ENVIRONMENT "PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR};BRIDGESESSIONS_BINARY=$<TARGET_FILE:bridgesessions>")
-    endif()
+    # Invite page generation: the single-use invite token is transported in
+        # a 0600 file rather than a URL, and unsafe node names are rejected.
+        # This guards the token-handling path that S1 reviewed, so it has to
+        # actually run rather than sit unregistered in the tree.
+    add_test(NAME panel_generate_invite_page
+            COMMAND ${BRIDGESESSIONS_PYTHON} -m pytest
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_generate_invite_page.py" -v)
+    set_tests_properties(panel_generate_invite_page PROPERTIES
+            ENVIRONMENT "PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}")
+    # Installer transaction semantics: a failed install must not leave a
+        # half-written binary or a partially-populated install dir.
+    add_test(NAME panel_install_transaction
+            COMMAND ${BRIDGESESSIONS_PYTHON} -m pytest
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_install_transaction.py" -v)
+    set_tests_properties(panel_install_transaction PROPERTIES
+            ENVIRONMENT "PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}")
+    # Release integrity: VERSION / version.rc / changelog agreement.
+    add_test(NAME panel_release_integrity
+            COMMAND ${BRIDGESESSIONS_PYTHON} -m pytest
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_release_integrity.py" -v)
+    set_tests_properties(panel_release_integrity PROPERTIES
+            ENVIRONMENT "PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}")
+else()
+    message(WARNING
+        "Python test dependencies unavailable (pytest and pytest-timeout): interpreter candidates tried: '${BRIDGESESSIONS_PYTHON_TRIED}'. "
+        "7 pytest-based tests were NOT registered.")
 endif()
 endif()
