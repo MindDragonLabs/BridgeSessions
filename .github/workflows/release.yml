@@ -96,10 +96,14 @@ jobs:
         run: ./build.sh linux --distro native --openssl fetch --out dist --no-tests --extra -DBS_BUILD_NATIVE=ON
       - name: Seed a node identity for the mesh tests
         run: ./dist/bridgesessions-linux-x86_64 keygen
+      - name: Validate native Linux interactive sessions
+        timeout-minutes: 5
+        run: python3 tests/platform_session_acceptance.py dist/bridgesessions-linux-x86_64
       - name: Run the test suite
+        timeout-minutes: 30
         env:
           BS_BUILD_SUBDIR: linux-x86_64
-        run: ./build.sh test
+        run: python3 scripts/ci-test-runner.py ./build.sh test
       - run: |
           bin=dist/bridgesessions-linux-x86_64
           file "$bin" | grep -E 'ELF 64-bit LSB.*x86-64' >/dev/null
@@ -130,7 +134,17 @@ jobs:
           python3 -m venv "$RUNNER_TEMP/venv"
           echo "$RUNNER_TEMP/venv/bin" >> "$GITHUB_PATH"
       - run: python3 -m pip install --quiet pytest pytest-timeout
-      - run: ./build.sh macos --out dist --extra -DBS_BUILD_NATIVE=ON
+      - run: ./build.sh macos --out dist --no-tests --extra -DBS_BUILD_NATIVE=ON
+      - name: Seed a node identity for the mesh tests
+        run: ./dist/bridgesessions-macos-arm64 keygen
+      - name: Validate native macOS interactive sessions
+        timeout-minutes: 5
+        run: python3 tests/platform_session_acceptance.py dist/bridgesessions-macos-arm64
+      - name: Run the test suite
+        timeout-minutes: 30
+        env:
+          BS_BUILD_SUBDIR: macos-arm64
+        run: python3 scripts/ci-test-runner.py ./build.sh test --extra -DBS_BUILD_NATIVE=ON
       - name: Import Developer ID certificate
         env:
           MACOS_SIGNING_P12_B64: ${{ secrets.MACOS_SIGNING_P12_B64 }}

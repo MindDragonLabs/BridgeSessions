@@ -146,6 +146,12 @@ The release script refuses to publish when any of the checks above would fail. T
 
 ## 26.10.05 candidate
 
+Unix CI and release jobs run native two-daemon session acceptance before the
+full suite. The suite emits periodic process diagnostics and has a 25-minute
+command deadline; CTest defaults otherwise unbounded individual tests to
+120 seconds while preserving explicit per-test budgets. This makes a stalled
+runner or test visible and prevents an indefinite release gate.
+
 Prepared locally on 2026-10-10 from source base `d33e40b`, with release
 changes committed on the `release/26.10.05` branch. This is an unpublished
 candidate, not a deployed release. Read-only `gh release list` confirmed that
