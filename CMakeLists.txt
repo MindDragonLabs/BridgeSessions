@@ -349,6 +349,7 @@ if(BRIDGESESSIONS_PYTHON)
     add_test(NAME release_python_tests
             COMMAND ${BRIDGESESSIONS_PYTHON} -m pytest
                 "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_release.py"
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_fleet_sessions.py"
                 "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_install_script.py"
                 "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_regression_install.py" -v)
     set_tests_properties(release_python_tests PROPERTIES

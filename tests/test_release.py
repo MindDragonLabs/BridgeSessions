@@ -149,8 +149,13 @@ def test_windows_release_stages_and_publishes_verified_tray_companion():
     assert "guard, linux, macos, windows, windows-installer-validation" in release
     assert "needs: [guard, windows]" in release
     assert "name: rel-windows" in release
-    assert "& ./dist/bridgesessions-windows-x86_64.exe --version" in release
-    assert "& ./dist/bridgesessions-windows-x86_64.exe --help" in release
+    assert "./tests/test_windows_release.ps1" in release
+    assert "./tests/test_windows_release.ps1" in ci
+    windows_check = read("tests/test_windows_release.ps1")
+    assert "& $path --version" in windows_check
+    assert "& $path --help" in windows_check
+    assert "Start-MpScan -ScanType CustomScan" in windows_check
+    assert "RealTimeProtectionEnabled" in windows_check
 
 
 def test_windows_fleet_e2e_exercises_distinct_new_terminal_sessions():

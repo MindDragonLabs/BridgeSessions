@@ -93,7 +93,7 @@ jobs:
       - name: Configure and build
         env:
           BS_BUILD_SUBDIR: linux-x86_64
-        run: ./build.sh linux --distro native --openssl fetch --out dist --no-tests
+        run: ./build.sh linux --distro native --openssl fetch --out dist --no-tests --extra -DBS_BUILD_NATIVE=ON
       - name: Seed a node identity for the mesh tests
         run: ./dist/bridgesessions-linux-x86_64 keygen
       - name: Run the test suite
@@ -130,7 +130,7 @@ jobs:
           python3 -m venv "$RUNNER_TEMP/venv"
           echo "$RUNNER_TEMP/venv/bin" >> "$GITHUB_PATH"
       - run: python3 -m pip install --quiet pytest pytest-timeout
-      - run: ./build.sh macos --out dist
+      - run: ./build.sh macos --out dist --extra -DBS_BUILD_NATIVE=ON
       - name: Import Developer ID certificate
         env:
           MACOS_SIGNING_P12_B64: ${{ secrets.MACOS_SIGNING_P12_B64 }}
@@ -243,17 +243,9 @@ jobs:
         with:
           name: rel-windows
           path: dist
-      - name: Execute the release binary on Windows
+      - name: Execute and scan the release binary on Windows
         shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          $expected = (Get-Content ./VERSION -Raw).Trim()
-          $reported = & ./dist/bridgesessions-windows-x86_64.exe --version
-          if ($LASTEXITCODE -ne 0 -or "$reported".Trim() -ne $expected) {
-            throw "Windows release version mismatch: expected $expected, got $reported"
-          }
-          & ./dist/bridgesessions-windows-x86_64.exe --help
-          if ($LASTEXITCODE -ne 0) { throw "Windows release binary --help failed" }
+        run: ./tests/test_windows_release.ps1
 
   publish:
     name: publish

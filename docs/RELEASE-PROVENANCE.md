@@ -158,6 +158,15 @@ Regression tests reproduced the scope, proxy, and parallel TLS failures before
 their fixes. CI now builds the native platform shells, and the release workflow
 executes the exact uploaded Windows binary on Windows before publication.
 
+The first candidate CI run exposed an AppKit property-setter collision in the
+native macOS shell. The status-text method now has a distinct selector; an
+Apple compiler syntax check on a live Mac passed. Fleet acceptance also now
+requires authenticated session input and executed markers in each session's
+own scrollback, rejects empty captures, and tests input/readback after the full
+ten-second idle interval. Six behavioral regression cases cover these checks.
+Both CI and release validation scan and execute the Windows artifact with
+Defender antivirus and real-time protection enabled.
+
 | Local validation | Result |
 |---|---|
 | Release build, native client enabled; `ctest --test-dir build --parallel 8 --output-on-failure` | 648/648 passed, without retrying failures |

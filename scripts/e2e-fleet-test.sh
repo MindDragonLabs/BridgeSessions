@@ -188,7 +188,7 @@ LOCAL_VER_OUT="$(run_to "$BS_BIN" --version 2>&1 || true)"
 if [[ -n "$EXPECTED_VERSION" ]] && assert_contains "$LOCAL_VER_OUT" "$EXPECTED_VERSION"; then
   record PASS local version "$LOCAL_VER_OUT"
 elif [[ -n "$LOCAL_VER_OUT" ]]; then
-  record PASS local version "$LOCAL_VER_OUT (no EXPECTED match required)"
+  record FAIL local version "expected $EXPECTED_VERSION, got: $LOCAL_VER_OUT"
 else
   record FAIL local version "empty output"
 fi
@@ -207,50 +207,41 @@ fi
 # session-output isolation failure.
 test_session_isolation() {
   local peer="$1" os="$2"
-  local a="e2e_iso_a_$$" b="e2e_iso_b_$$"
-  local a_dir="$WORKDIR/iso-a-$$"; b_dir="$WORKDIR/iso-b-$$"
-  mkdir -p "$a_dir" "$b_dir"
-  case "$os" in
-    windows)
-      run_to "$BS_BIN" shell "$peer" --cmd "powershell.exe -NoProfile -Command \"for (\$i=0;\$i -lt 20;\$i++) { Add-Content -Path 'C:\\Windows\\Temp\\iso_a.log' \"ISO_A_\$i\"; Start-Sleep -Milliseconds 200 }\"" --detach >/dev/null 2>&1 || true
-      run_to "$BS_BIN" shell "$peer" --cmd "powershell.exe -NoProfile -Command \"for (\$i=0;\$i -lt 20;\$i++) { Add-Content -Path 'C:\\Windows\\Temp\\iso_b.log' \"ISO_B_\$i\"; Start-Sleep -Milliseconds 200 }\"" --detach >/dev/null 2>&1 || true
-      sleep 5
-      run_to "$BS_BIN" file recv "$peer" "C:\\Windows\\Temp\\iso_a.log" --to "$WORKDIR/iso_a-$$.log" --wait >/dev/null 2>&1 || true
-      run_to "$BS_BIN" file recv "$peer" "C:\\Windows\\Temp\\iso_b.log" --to "$WORKDIR/iso_b-$$.log" --wait >/dev/null 2>&1 || true
-      ;;
-    *)
-      run_to "$BS_BIN" shell "$peer" --cmd "for i in $(seq 1 20); do echo ISO_A_$a\$i; sleep 0.25; done" --detach > "$a_dir/out.txt" 2>/dev/null || true
-      run_to "$BS_BIN" shell "$peer" --cmd "for i in $(seq 1 20); do echo ISO_B_$b\$i; sleep 0.25; done" --detach > "$b_dir/out.txt" 2>/dev/null || true
-      sleep 5
-      run_to "$BS_BIN" file recv "$peer" "${a}.log" --to "$WORKDIR/iso_a-$$.log" --wait >/dev/null 2>&1 || true
-      run_to "$BS_BIN" file recv "$peer" "${b}.log" --to "$WORKDIR/iso_b-$$.log" --wait >/dev/null 2>&1 || true
-      if [[ ! -f "$WORKDIR/iso_a-$$.log" ]]; then
-        [[ -f "$a_dir/out.txt" ]] && cp "$a_dir/out.txt" "$WORKDIR/iso_a-$$.log"
-      fi
-      if [[ ! -f "$WORKDIR/iso_b-$$.log" ]]; then
-        [[ -f "$b_dir/out.txt" ]] && cp "$b_dir/out.txt" "$WORKDIR/iso_b-$$.log"
-      fi
-      ;;
-  esac
-  if [[ -f "$WORKDIR/iso_a-$$.log" && -f "$WORKDIR/iso_b-$$.log" ]]; then
-    local a_has_b b_has_a
-    # 26.10.04: `grep -c` prints "0" AND exits 1 when there is no match, so the
-    # old `grep -c ... || echo 0` captured the two-character-plus-newline string
-    # "0\n0". `[[ "$b_has_a" -eq 0 ]]` then died with an arithmetic syntax error
-    # and fell through to the else branch, so this gate reported cross-talk
-    # EVERY time regardless of the real session behaviour — three peers, three
-    # identical false failures. Take grep's stdout, and only fall back when it
-    # printed nothing at all.
-    a_has_b="$(grep -c "ISO_B_" "$WORKDIR/iso_a-$$.log" 2>/dev/null || true)"; a_has_b="${a_has_b:-0}"
-    b_has_a="$(grep -c "ISO_A_" "$WORKDIR/iso_b-$$.log" 2>/dev/null || true)"; b_has_a="${b_has_a:-0}"
-    if [[ "$a_has_b" -eq 0 && "$b_has_a" -eq 0 ]]; then
-      record PASS "$peer" session_isolation "a/b streams separate"
+  local suffix="$$-${RANDOM}" a="e2e-iso-a-$$-${RANDOM}" b="e2e-iso-b-$$-${RANDOM}"
+  local marker_a="FLEET_ISO_A_${suffix}_DONE" marker_b="FLEET_ISO_B_${suffix}_DONE"
+  local cr=$'\n' cmd_a cmd_b
+  [[ "$os" == windows ]] && cr=$'\r\n'
+  cmd_a="printf '%s%s%s\\n' FLEET_ISO_A_ ${suffix} _DONE"
+  cmd_b="printf '%s%s%s\\n' FLEET_ISO_B_ ${suffix} _DONE"
+  if [[ "$os" == windows ]]; then
+    run_to "$BS_BIN" shell "$peer" -n "$a" -x 'cmd.exe /Q' --detach >/dev/null 2>&1 || true
+    run_to "$BS_BIN" shell "$peer" -n "$b" -x 'cmd.exe /Q' --detach >/dev/null 2>&1 || true
+    cmd_a="set p=FLEET_ISO_A_${cr}set p=%p%${suffix}_DONE${cr}echo %p%"
+    cmd_b="set p=FLEET_ISO_B_${cr}set p=%p%${suffix}_DONE${cr}echo %p%"
+  else
+    run_to "$BS_BIN" shell "$peer" -n "$a" -x '/bin/sh -i' --detach >/dev/null 2>&1 || true
+    run_to "$BS_BIN" shell "$peer" -n "$b" -x '/bin/sh -i' --detach >/dev/null 2>&1 || true
+  fi
+  local ctl="$SCRIPT_DIR/fleet-session-check.py" out_a out_b text_a text_b
+  if ! python3 "$ctl" input "$peer" "$a" "${cmd_a}${cr}" >/dev/null 2>&1 ||
+     ! python3 "$ctl" input "$peer" "$b" "${cmd_b}${cr}" >/dev/null 2>&1; then
+    record FAIL "$peer" session_isolation "named sessions or authenticated SESSION_INPUT unavailable"
+  elif python3 "$ctl" wait-marker "$peer" "$a" "$marker_a" --timeout 12 &&
+       python3 "$ctl" wait-marker "$peer" "$b" "$marker_b" --timeout 12; then
+    out_a="$(python3 "$ctl" read "$peer" "$a" 2>/dev/null || true)"
+    out_b="$(python3 "$ctl" read "$peer" "$b" 2>/dev/null || true)"
+    text_a="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["output"])' <<<"$out_a" 2>/dev/null || true)"
+    text_b="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["output"])' <<<"$out_b" 2>/dev/null || true)"
+    if python3 "$ctl" verdict "$text_a" "$text_b" "$marker_a" "$marker_b"; then
+      record PASS "$peer" session_isolation "each executed marker appeared only in its own named session"
     else
-      record FAIL "$peer" session_isolation "cross-talk: a->b=$a_has_b, b->a=$b_has_a"
+      record FAIL "$peer" session_isolation "empty, missing, or cross-session output"
     fi
   else
-    record SKIP "$peer" session_isolation "could not capture session stdio"
+    record FAIL "$peer" session_isolation "executed marker not observed through SESSION_SCROLLBACK"
   fi
+  run_to "$BS_BIN" sessions "$peer" --kill "$a" >/dev/null 2>&1 || true
+  run_to "$BS_BIN" sessions "$peer" --kill "$b" >/dev/null 2>&1 || true
 }
 
 # ── harness name verification ─────────────────────
@@ -310,38 +301,22 @@ test_harness_name() {
 # regressions, not the 48h reaper itself.
 test_session_idle_alive() {
   local peer="$1" os="$2"
-  local stay="e2e-stay-$$"
-  # 26.10.04: same stale `run-script --name` signature as test_harness_name —
-  # the session was never created, so this gate could only ever SKIP. Replaced
-  # with the supported `shell -n <name> --detach`.
-  #
-  # The gate also had the arithmetic backwards: it slept 6s in the command but
-  # then waited 8s before checking, so the session was guaranteed to have
-  # exited before the check. The wait must be well BEYOND the session's own
-  # life, which is the whole point of an idle-survival test. Use 30s of life
-  # and check at 10s: comfortably past any short-timeout reaper, and not past
-  # the end of the session.
-  case "$os" in
-    windows)
-      run_to "$BS_BIN" shell "$peer" -n "$stay" -x 'Start-Sleep -Seconds 30' --detach >/dev/null 2>&1 || true
-      ;;
-    *)
-      run_to "$BS_BIN" shell "$peer" -n "$stay" -x 'sleep 30' --detach >/dev/null 2>&1 || true
-      ;;
-  esac
-  local out="" waited=0 alive=0
-  while [[ $waited -lt 10 ]]; do
-    sleep 2
-    waited=$((waited + 2))
-    out="$(run_to "$BS_BIN" sessions "$peer" 2>&1 || true)"
-    if assert_contains "$out" "$stay"; then alive=1; break; fi
-  done
-  if [[ $alive -eq 1 ]]; then
-    record PASS "$peer" session_idle_alive "$stay still present after ${waited}s"
-  elif printf '%s' "$out" | grep -qi 'no sessions'; then
-    record FAIL "$peer" session_idle_alive "$stay reaped before ${waited}s"
+  local idle_token="$$-${RANDOM}" stay="e2e-stay-$$-${RANDOM}" marker="FLEET_IDLE_${idle_token}_DONE"
+  local cr=$'\n' command
+  [[ "$os" == windows ]] && cr=$'\r\n'
+  if [[ "$os" == windows ]]; then
+    command="set p=FLEET_IDLE_${cr}set p=%p%${idle_token}_DONE${cr}echo %p%"
+    run_to "$BS_BIN" shell "$peer" -n "$stay" -x 'cmd.exe /Q' --detach >/dev/null 2>&1 || true
   else
-    record SKIP "$peer" session_idle_alive "could not retrieve sessions list"
+    command="printf '%s%s%s\\n' FLEET_IDLE_ ${idle_token} _DONE"
+    run_to "$BS_BIN" shell "$peer" -n "$stay" -x '/bin/sh -i' --detach >/dev/null 2>&1 || true
+  fi
+  sleep 10
+  if python3 "$SCRIPT_DIR/fleet-session-check.py" input "$peer" "$stay" "${command}${cr}" >/dev/null 2>&1 &&
+     python3 "$SCRIPT_DIR/fleet-session-check.py" wait-marker "$peer" "$stay" "$marker" --timeout 12; then
+    record PASS "$peer" session_idle_alive "$stay accepted and executed input after 10s idle"
+  else
+    record FAIL "$peer" session_idle_alive "$stay was not live and readable after full 10s idle"
   fi
   run_to "$BS_BIN" sessions "$peer" --kill "$stay" >/dev/null 2>&1 || true
 }

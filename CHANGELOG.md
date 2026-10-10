@@ -23,6 +23,12 @@ Notable user-visible changes. Git history contains implementation-level detail.
   The native Windows client links the certificate store and Unicode entry
   point correctly. CI builds the native clients; the release workflow runs the
   Windows artifact's version and help commands on Windows before publication.
+- The native macOS shell uses a distinct status-text method so its AppKit
+  property setter no longer conflicts during compilation.
+- Fleet acceptance requires real session input/readback and distinct executed
+  markers, rejects empty isolation captures, and waits the full idle interval.
+  Windows CI and release gates scan and execute the artifact with Defender
+  protection enabled.
 
 ## 26.10.04
 

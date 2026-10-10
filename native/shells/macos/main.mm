@@ -26,6 +26,7 @@ std::string field_value(NSTextField* field) {
 @property(nonatomic, strong) NSTextField* session;
 @property(nonatomic, strong) NSTextField* command;
 @property(nonatomic, strong) NSTextField* input;
+- (void)showStatusText:(NSString*)text;
 @end
 
 @implementation BridgeNativeApp
@@ -38,7 +39,7 @@ std::string field_value(NSTextField* field) {
     return bridge_native::BridgePanelClient(std::move(options));
 }
 
-- (void)setStatus:(NSString*)text {
+- (void)showStatusText:(NSString*)text {
     dispatch_async(dispatch_get_main_queue(), ^{ self.status.stringValue = text; });
 }
 
@@ -51,10 +52,10 @@ std::string field_value(NSTextField* field) {
         auto sessions = client.sessions(machine);
         if (capabilities.ok() && peers.ok() && sessions.ok()) {
             bridge_native::Json result{{"capabilities", capabilities.value()}, {"peers", peers.value()}, {"sessions", sessions.value()}};
-            [self setStatus:[NSString stringWithUTF8String:result.dump(2).c_str()]];
+            [self showStatusText:[NSString stringWithUTF8String:result.dump(2).c_str()]];
         } else {
             const auto& error = !capabilities.ok() ? capabilities.error() : (!peers.ok() ? peers.error() : sessions.error());
-            [self setStatus:[NSString stringWithFormat:@"%s: %s", error.code.c_str(), error.message.c_str()]];
+            [self showStatusText:[NSString stringWithFormat:@"%s: %s", error.code.c_str(), error.message.c_str()]];
         }
     });
 }
@@ -64,7 +65,7 @@ std::string field_value(NSTextField* field) {
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
         auto client = [self client];
         auto result = client.create_session(machine, name, command, 80, 24);
-        [self setStatus:result.ok() ? [NSString stringWithUTF8String:result.value().dump().c_str()] : [NSString stringWithFormat:@"%s: %s", result.error().code.c_str(), result.error().message.c_str()]];
+        [self showStatusText:result.ok() ? [NSString stringWithUTF8String:result.value().dump().c_str()] : [NSString stringWithFormat:@"%s: %s", result.error().code.c_str(), result.error().message.c_str()]];
     });
 }
 
@@ -73,7 +74,7 @@ std::string field_value(NSTextField* field) {
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
         auto client = [self client];
         auto result = client.send_input(machine, name, input);
-        [self setStatus:result.ok() ? @"input accepted" : [NSString stringWithFormat:@"%s: %s", result.error().code.c_str(), result.error().message.c_str()]];
+        [self showStatusText:result.ok() ? @"input accepted" : [NSString stringWithFormat:@"%s: %s", result.error().code.c_str(), result.error().message.c_str()]];
     });
 }
 
@@ -82,7 +83,7 @@ std::string field_value(NSTextField* field) {
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
         auto client = [self client];
         auto result = client.kill_session(machine, name);
-        [self setStatus:result.ok() ? @"session termination accepted" : [NSString stringWithFormat:@"%s: %s", result.error().code.c_str(), result.error().message.c_str()]];
+        [self showStatusText:result.ok() ? @"session termination accepted" : [NSString stringWithFormat:@"%s: %s", result.error().code.c_str(), result.error().message.c_str()]];
     });
 }
 

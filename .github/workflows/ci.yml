@@ -219,9 +219,8 @@ jobs:
           if-no-files-found: error
 
   # ── Windows (mingw-w64 cross-compile) ─────────────────────────────────────
-  # Build only, then assert the PE imports nothing but OS DLLs. Running the
-  # binary under wine was the flakiest part of the old CI; real execution is
-  # covered on the live mesh instead.
+  # Cross-build and check DLL imports, then execute this artifact with Defender
+  # enabled in the dependent Windows validation job.
   windows:
     name: windows-mingw
     runs-on: ubuntu-22.04
@@ -291,6 +290,7 @@ jobs:
 
   windows-installer-validation:
     name: windows-installer-validation
+    needs: windows
     runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
@@ -298,6 +298,15 @@ jobs:
       - name: Parse installer and enforce safe upgrade ordering
         shell: pwsh
         run: ./tests/test_install_order.ps1
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: bridgesessions-windows-x86_64
+          path: dist
+
+      - name: Execute and scan the Windows artifact
+        shell: pwsh
+        run: ./tests/test_windows_release.ps1
 
   # ── Secret scan ───────────────────────────────────────────────────────────
   # Required by the main-trunk-protection ruleset. Scans tracked files only.
