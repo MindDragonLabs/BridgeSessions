@@ -33,3 +33,19 @@ inline bool upgrade_in_mesh_override() {
     const char* s = std::getenv("BS_UPGRADE_IN_MESH");
     return s != nullptr && std::string(s) == "1";
 }
+
+#ifdef __linux__
+// Quote the complete child command as one argument to sh -c. Quoting only
+// its individual paths inside double quotes breaks nested apostrophes and
+// allows the outer shell to expand substitutions before the child runs.
+[[nodiscard]] inline std::optional<std::string> detached_upgrade_command(
+        const std::string& executable, const std::string& log_path,
+        const std::string& tag, bool allow_downgrade) {
+    if (!tag.empty() && !bs_upgrade_tag_valid(tag)) return std::nullopt;
+    std::string child = shell_arg_quote(executable) + " upgrade";
+    if (!tag.empty()) child += " --tag " + shell_arg_quote(tag);
+    if (allow_downgrade) child += " --allow-downgrade";
+    child += " >>" + shell_arg_quote(log_path) + " 2>&1 </dev/null";
+    return "env -u BS_SESSION -u BS_SESSION_ID setsid sh -c " + shell_arg_quote(child);
+}
+#endif

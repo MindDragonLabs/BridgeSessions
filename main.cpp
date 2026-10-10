@@ -3063,12 +3063,13 @@ int bridgesessions_main(int argc, char** argv) {
             // Strip the mesh-session markers in the child: re-execing would
             // re-enter upgrade_in_mesh_session() and recurse. Detached
             // upgrade must look like a standalone process.
-            std::string reexec = "env -u BS_SESSION -u BS_SESSION_ID setsid sh -c \"'"
-                + self_exe + "' upgrade";
-            if (!upgrade_tag.empty()) reexec += " --tag '" + upgrade_tag + "'";
-            if (allow_downgrade) reexec += " --allow-downgrade";
-            reexec += " >>'" + upg_log + "' 2>&1 </dev/null'\"";
-            if (std::system(reexec.c_str()) == 0) {
+            auto reexec = bs::mesh::detached_upgrade_command(
+                self_exe, upg_log, upgrade_tag, allow_downgrade);
+            if (!reexec) {
+                std::cerr << "upgrade: invalid tag — only [A-Za-z0-9._-] allowed\n";
+                return 1;
+            }
+            if (std::system(reexec->c_str()) == 0) {
                 std::cout << "→ Detaching upgrade from this session (daemon carrier).\n"
                           << "  Log: " << upg_log << "\n"
                           << "  This shell will drop when the daemon stops — the\n"

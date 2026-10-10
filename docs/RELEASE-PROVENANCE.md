@@ -146,8 +146,8 @@ The release script refuses to publish when any of the checks above would fail. T
 
 ## 26.10.05 candidate
 
-Prepared locally on 2026-10-10 from source base `d33e40b`, with the release
-changes still available as a working-tree diff. This is an unpublished
+Prepared locally on 2026-10-10 from source base `d33e40b`, with release
+changes committed on the `release/26.10.05` branch. This is an unpublished
 candidate, not a deployed release. Read-only `gh release list` confirmed that
 `v26.09.28` remains Latest; the earlier `v26.10.04` tag has no published release.
 
@@ -166,6 +166,19 @@ own scrollback, rejects empty captures, and tests input/readback after the full
 ten-second idle interval. Six behavioral regression cases cover these checks.
 Both CI and release validation scan and execute the Windows artifact with
 Defender antivirus and real-time protection enabled.
+
+The runtime gate exposed GitHub's disabled-Defender runner defaults. A separate
+preparation step, restricted to disposable GitHub-hosted runners, enables
+protection, removes scan exclusions, and updates signatures. The validator
+still rejects disabled protection or scan exclusions; fleet security settings
+are not modified by this preparation.
+
+The rollout review also reproduced an unmatched quote in Linux's detached
+upgrade command. The complete child command is now quoted as one shell
+argument, tags are validated before command construction, and behavioral tests
+execute a harmless updater with spaces, apostrophes, and substitution syntax
+in its paths. They check literal arguments, unset mesh markers, closed stdin,
+and absence of injected commands; all 22 focused upgrade cases passed.
 
 | Local validation | Result |
 |---|---|
@@ -210,8 +223,8 @@ a fresh macOS build with Developer ID signing/notarization, and Windows runtime
 and Defender acceptance of the new PE. The previous Defender quarantine is
 historical evidence, not proof that this new binary passes. Real Windows/Mac
 session input, readback, isolation, and in-band upgrades have not been run for
-this candidate. The new Windows workflow smoke step is authored and locally
-syntax-checked; it has not run on GitHub yet.
+this candidate. The Windows runtime gate ran on GitHub and correctly rejected
+its unprotected runner; protected-runner and Devin Windows acceptance is pending.
 
 Keep candidate installer defaults off `main` until matching assets exist.
 The earlier audit's invite seed-binding limit remains documented in `README.md`

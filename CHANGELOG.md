@@ -29,6 +29,9 @@ Notable user-visible changes. Git history contains implementation-level detail.
   markers, rejects empty isolation captures, and waits the full idle interval.
   Windows CI and release gates scan and execute the artifact with Defender
   protection enabled.
+- Linux upgrades launched inside mesh sessions quote the complete detached
+  command correctly, preserve literal paths, and reject unsafe tags before
+  invoking a shell.
 
 ## 26.10.04
 
