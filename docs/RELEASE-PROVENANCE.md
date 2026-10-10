@@ -163,7 +163,8 @@ native macOS shell. The status-text method now has a distinct selector; an
 Apple compiler syntax check on a live Mac passed. Fleet acceptance also now
 requires authenticated session input and executed markers in each session's
 own scrollback, rejects empty captures, and tests input/readback after the full
-ten-second idle interval. Six behavioral regression cases cover these checks.
+ten-second idle interval. Sixteen behavioral regression cases cover these
+checks and the IPC protocol's canonical, unpadded Base64 encoding.
 Both CI and release validation scan and execute the Windows artifact with
 Defender antivirus and real-time protection enabled.
 
@@ -180,9 +181,25 @@ execute a harmless updater with spaces, apostrophes, and substitution syntax
 in its paths. They check literal arguments, unset mesh markers, closed stdin,
 and absence of injected commands; all 22 focused upgrade cases passed.
 
+Native Windows Server 2022 diagnostics reproduced redirected standard handles
+bypassing ConPTY: CMD output reached the parent stream and a daemon with closed
+input lost its interactive shell. Explicit null standard handles with
+`STARTF_USESTDHANDLES` kept CMD alive and routed executed output through ConPTY,
+matching [Microsoft's documented inheritance issue](https://github.com/microsoft/terminal/discussions/15814).
+Windows restarts also transfer the replacement's kill-on-close job handle;
+temporary session cleanup previously closed that job and killed the child.
+CI and release validation now require real CMD and PowerShell session
+input/readback, isolation, idle survival, and execution of the native restart
+regression. The restart fixture cross-compiles successfully; final Windows
+runtime checks remain a publication gate.
+
+Release checksum scripts accept native macOS `shasum -a 256` when GNU
+`sha256sum` is absent. All eight integrity cases passed on a live Mac, and all
+25 focused integrity/publisher cases passed on Linux.
+
 | Local validation | Result |
 |---|---|
-| Release build, native client enabled; `ctest --test-dir build --parallel 8 --output-on-failure` | 648/648 passed, without retrying failures |
+| Release build, native client enabled; `ctest --test-dir build --parallel 8 --output-on-failure` | 650/650 passed after the detached-upgrade regressions, without retrying failures |
 | `python3 -m pytest tests tools/bridgepanel -q` | 248 passed, 30 subtests passed; one macOS-only `otool` check skipped on Linux |
 | Session acceptance, `ctest --test-dir build -R '^panel_session_acceptance$' --repeat until-fail:10 --output-on-failure` | 10 consecutive passes |
 | Parallel TLS regressions, `ctest --test-dir build -R 'R[12]' --parallel 8 --repeat until-fail:10 --output-on-failure` | All five cases passed ten times; two cases aborted before unique temporary filenames were introduced |
@@ -204,7 +221,7 @@ lint debt is retained rather than folded into this release.
 Local Linux and Windows artifacts, the verified tray companion, `SHA256SUMS`,
 and `SBOM-binaries.json` are staged under ignored `dist/26.10.05-candidate/`.
 The checksum validator accepted all three payloads. Source archives must be
-generated from the eventual committed/tagged source, not from this dirty tree.
+generated from the eventual tagged source commit.
 Detailed local test logs are kept outside git under
 `release/26.10.05/evidence/`. The same local release folder contains source
 patch snapshots and `cleanup-manifest.json`, which records every archived path
@@ -223,8 +240,10 @@ a fresh macOS build with Developer ID signing/notarization, and Windows runtime
 and Defender acceptance of the new PE. The previous Defender quarantine is
 historical evidence, not proof that this new binary passes. Real Windows/Mac
 session input, readback, isolation, and in-band upgrades have not been run for
-this candidate. The Windows runtime gate ran on GitHub and correctly rejected
-its unprotected runner; protected-runner and Devin Windows acceptance is pending.
+this candidate. The Windows runtime gate first rejected an unprotected GitHub
+runner; the corrected disposable-runner preparation subsequently passed a real
+Defender scan and execution of that candidate. The final updated Windows PE
+must pass the protected runtime and interactive-session gates before publication.
 
 Keep candidate installer defaults off `main` until matching assets exist.
 The earlier audit's invite seed-binding limit remains documented in `README.md`
