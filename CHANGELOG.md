@@ -32,6 +32,8 @@ Notable user-visible changes. Git history contains implementation-level detail.
 - Linux upgrades launched inside mesh sessions quote the complete detached
   command correctly, preserve literal paths, and reject unsafe tags before
   invoking a shell.
+- Windows session restarts retain the replacement process's job handle so
+  temporary session cleanup does not terminate the replacement shell.
 
 ## 26.10.04
 

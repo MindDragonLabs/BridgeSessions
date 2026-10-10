@@ -3365,10 +3365,12 @@ public:
 #ifdef _WIN32
                         sess->write_handle = new_sess->write_handle;
                         sess->hpcon = new_sess->hpcon;
+                        sess->job_handle = new_sess->job_handle;
                         new_sess->master_fd = nullptr;  // prevent double-close
                         new_sess->child_pid = nullptr;
                         new_sess->write_handle = nullptr;
                         new_sess->hpcon = nullptr;
+                        new_sess->job_handle = nullptr;
 #else
                         sess->hosted = new_sess->hosted;
                         sess->worker_pid = new_sess->worker_pid;
