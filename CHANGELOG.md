@@ -34,6 +34,8 @@ Notable user-visible changes. Git history contains implementation-level detail.
   invoking a shell.
 - Windows session restarts retain the replacement process's job handle so
   temporary session cleanup does not terminate the replacement shell.
+- Windows interactive shells bind their standard handles to ConPTY when the
+  daemon's streams are redirected, preventing early CMD exit and lost output.
 
 ## 26.10.04
 

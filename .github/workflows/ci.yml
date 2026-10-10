@@ -288,6 +288,16 @@ jobs:
             dist/bs_tray.ps1
           if-no-files-found: error
 
+      - name: Build Windows session lifecycle tests
+        run: |
+          cmake -S . -B build/windows-x86_64 -DBUILD_TESTING=ON
+          cmake --build build/windows-x86_64 --target test_relay --parallel 2
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-session-lifecycle
+          path: build/windows-x86_64/test_relay.exe
+          if-no-files-found: error
+
   windows-installer-validation:
     name: windows-installer-validation
     needs: windows
@@ -317,6 +327,18 @@ jobs:
           python tests/platform_session_acceptance.py dist/bridgesessions-windows-x86_64.exe 'cmd.exe /D /Q /K'
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tests/platform_session_acceptance.py dist/bridgesessions-windows-x86_64.exe 'powershell.exe -NoLogo -NoExit -NoProfile'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-session-lifecycle
+          path: native-tests
+      - name: Validate Windows session restart lifecycle
+        shell: pwsh
+        run: |
+          ./dist/bridgesessions-windows-x86_64.exe keygen
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ./native-tests/test_relay.exe '[restart]'
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
   # ── Secret scan ───────────────────────────────────────────────────────────

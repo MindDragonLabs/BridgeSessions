@@ -261,6 +261,12 @@ inline void assign_to_kill_job(HANDLE job, HANDLE child) {
     // Set up STARTUPINFOEX for the child process
     STARTUPINFOEXW siEx{};
     siEx.StartupInfo.cb = sizeof(siEx);
+    // Explicit null standard handles make Windows connect the child to its
+    // pseudoconsole even when the daemon's streams are redirected to NUL or
+    // log files. Otherwise non-console handles can leak past the ConPTY
+    // attribute: CMD sees EOF and PowerShell output bypasses the terminal.
+    // https://github.com/microsoft/terminal/discussions/15814
+    siEx.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
 
     // Add the ConPTY to the process attribute list.
     SIZE_T attrSize = 0;
