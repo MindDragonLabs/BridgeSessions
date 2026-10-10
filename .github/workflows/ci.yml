@@ -223,7 +223,7 @@ jobs:
   # enabled in the dependent Windows validation job.
   windows:
     name: windows-mingw
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
 
@@ -289,13 +289,11 @@ jobs:
           if-no-files-found: error
 
       - name: Build Windows session lifecycle tests
-        run: |
-          cmake -S . -B build/windows-x86_64 -DBUILD_TESTING=ON
-          cmake --build build/windows-x86_64 --target test_relay --parallel 2
+        run: bash scripts/build-windows-session-tests.sh
       - uses: actions/upload-artifact@v4
         with:
           name: windows-session-lifecycle
-          path: build/windows-x86_64/test_relay.exe
+          path: build/windows-session-tests/test_relay.exe
           if-no-files-found: error
 
   windows-installer-validation:
