@@ -41,7 +41,8 @@ def ipc(verb: str, timeout: float = 3.0) -> str:
 def input_session(machine: str, session: str, data: bytes) -> str:
     if not re.fullmatch(r"(?:\.|[A-Za-z0-9][A-Za-z0-9._-]{0,63})", machine) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}", session):
         return "ERROR invalid machine or session"
-    return ipc(f"SESSION_INPUT {machine} {session} {base64.b64encode(data).decode('ascii')}")
+    encoded = base64.b64encode(data).decode("ascii").rstrip("=")
+    return ipc(f"SESSION_INPUT {machine} {session} {encoded}")
 
 
 def scrollback(machine: str, session: str, offset: int = 0, limit: int = 65536) -> tuple[int, str]:
@@ -51,7 +52,12 @@ def scrollback(machine: str, session: str, offset: int = 0, limit: int = 65536) 
         raise RuntimeError(raw or "session control IPC unavailable")
     try:
         next_offset = int(parts[1])
-        payload = "" if parts[2] == "-" else base64.b64decode(parts[2], validate=True).decode("utf-8", "replace")
+        encoded = parts[2]
+        data = b"" if encoded == "-" else base64.b64decode(
+            encoded + "=" * (-len(encoded) % 4), validate=True)
+        if encoded != "-" and base64.b64encode(data).decode("ascii").rstrip("=") != encoded:
+            raise ValueError("noncanonical unpadded base64")
+        payload = data.decode("utf-8", "replace")
     except (ValueError, base64.binascii.Error) as exc:
         raise RuntimeError("malformed session scrollback reply") from exc
     return next_offset, payload

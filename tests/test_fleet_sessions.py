@@ -11,6 +11,27 @@ _CHECK = module_from_spec(_SPEC)
 _SPEC.loader.exec_module(_CHECK)
 
 
+@pytest.mark.parametrize("data,encoded", [(b"a", "YQ"), (b"ab", "YWI"), (b"abc", "YWJj")])
+def test_input_uses_protocol_unpadded_base64(monkeypatch, data, encoded):
+    requests = []
+    monkeypatch.setattr(_CHECK, "ipc", lambda request: requests.append(request) or "OK")
+    assert _CHECK.input_session("peer", "session", data) == "OK"
+    assert requests == [f"SESSION_INPUT peer session {encoded}"]
+
+
+@pytest.mark.parametrize("data,encoded", [("a", "YQ"), ("ab", "YWI"), ("abc", "YWJj")])
+def test_scrollback_accepts_protocol_unpadded_base64(monkeypatch, data, encoded):
+    monkeypatch.setattr(_CHECK, "ipc", lambda _: f"OK {len(data)} {encoded}")
+    assert _CHECK.scrollback("peer", "session") == (len(data), data)
+
+
+@pytest.mark.parametrize("encoded", ["YQ==", "YR", "Y", "!!"])
+def test_scrollback_rejects_noncanonical_base64(monkeypatch, encoded):
+    monkeypatch.setattr(_CHECK, "ipc", lambda _: f"OK 1 {encoded}")
+    with pytest.raises(RuntimeError, match="malformed"):
+        _CHECK.scrollback("peer", "session")
+
+
 def test_isolation_rejects_blank_capture_even_when_no_foreign_marker():
     passed, reason = _CHECK.isolation_verdict("", "", "OWN_A", "OWN_B")
     assert not passed
